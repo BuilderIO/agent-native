@@ -106,7 +106,6 @@ describe("completeVideoGenerationRun", () => {
       "gen-1",
       {
         userEmail: "owner@example.test",
-        orgId: null,
       },
     );
 
@@ -143,6 +142,39 @@ describe("completeVideoGenerationRun", () => {
     expect(mocks.notifyGenerationRunFinished).toHaveBeenCalledWith(
       expect.objectContaining({ status: "failed", ownerEmail: run.ownerEmail }),
       "failed",
+    );
+  });
+
+  it("keeps a terminal run failed when a stale poll reports processing", async () => {
+    const failedRun = { ...run, status: "failed" };
+    mocks.db.select.mockImplementation(() => ({
+      from: (table: unknown) => ({
+        where: () => ({
+          limit: async () =>
+            table === schema.assetGenerationRuns ? [failedRun] : [],
+        }),
+      }),
+    }));
+    mocks.db.update.mockImplementationOnce(() => ({
+      set: (values: Record<string, unknown>) => {
+        updates.push(values);
+        return {
+          where: () => ({ returning: async () => [] }),
+        };
+      },
+    }));
+    mocks.pollBuilderVideoGeneration.mockResolvedValueOnce({
+      status: "processing",
+      operation: {},
+    });
+
+    await expect(completeVideoGenerationRun(run)).resolves.toMatchObject({
+      status: "failed",
+      run: { status: "failed" },
+      completionClaimed: false,
+    });
+    expect(updates).toContainEqual(
+      expect.objectContaining({ status: "processing", error: null }),
     );
   });
 });

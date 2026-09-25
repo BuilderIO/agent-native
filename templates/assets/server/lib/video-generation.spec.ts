@@ -22,6 +22,10 @@ import {
   startVideoGeneration,
 } from "./video-generation.js";
 
+const validMp4 = new Uint8Array([
+  0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
+]);
+
 const baseInput = {
   runId: "assets-run-123",
   libraryId: "library-1",
@@ -79,7 +83,7 @@ describe("Builder video generation", () => {
             ],
           });
         }
-        return new Response(new Uint8Array([1, 2, 3]), {
+        return new Response(validMp4, {
           headers: { "Content-Type": "video/mp4" },
         });
       },
@@ -118,7 +122,7 @@ describe("Builder video generation", () => {
     ).resolves.toMatchObject({
       status: "completed",
       video: {
-        buffer: Buffer.from([1, 2, 3]),
+        buffer: Buffer.from(validMp4),
         mimeType: "video/mp4",
         provider: "builder",
         sourceUrl: "https://api.builder.io/api/v1/file/assets/TEMP/bvid_1",
@@ -130,6 +134,71 @@ describe("Builder video generation", () => {
       "x-builder-user-id": "builder-user-123",
     });
     expect(mocks.getGeminiApiKey).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Builder output with invalid video bytes", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/poll")) {
+        return Response.json({
+          status: "completed",
+          outputs: [
+            { url: "https://cdn.builder.io/video.mp4", mimeType: "video/mp4" },
+          ],
+        });
+      }
+      return new Response(new Uint8Array([1, 2, 3]), {
+        headers: { "Content-Type": "video/mp4" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(pollBuilderVideoGeneration("vid_invalid")).rejects.toThrow(
+      "invalid video data",
+    );
+  });
+
+  it("rejects a Builder output with an unsupported media type", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        status: "completed",
+        outputs: [
+          {
+            url: "https://cdn.builder.io/video.mp4",
+            mimeType: "application/pdf",
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(pollBuilderVideoGeneration("vid_wrong_type")).rejects.toThrow(
+      "unsupported video type",
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects oversized Builder outputs before buffering them", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/poll")) {
+        return Response.json({
+          status: "completed",
+          outputs: [
+            { url: "https://cdn.builder.io/video.mp4", mimeType: "video/mp4" },
+          ],
+        });
+      }
+      return new Response(null, {
+        headers: {
+          "Content-Length": String(250 * 1024 * 1024 + 1),
+          "Content-Type": "video/mp4",
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(pollBuilderVideoGeneration("vid_large")).rejects.toThrow(
+      "exceeds 262144000 bytes",
+    );
   });
 
   it("recovers an ambiguous Builder start with the same idempotency key", async () => {

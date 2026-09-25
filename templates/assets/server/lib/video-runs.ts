@@ -12,6 +12,24 @@ import {
 
 type VideoRunDb = Pick<ReturnType<typeof getDb>, "select" | "update">;
 
+type VideoRunResult =
+  | {
+      status: "processing";
+      run: typeof schema.assetGenerationRuns.$inferSelect;
+      completionClaimed: false;
+    }
+  | {
+      status: "failed";
+      run: typeof schema.assetGenerationRuns.$inferSelect;
+      completionClaimed: false;
+    }
+  | {
+      status: "completed";
+      run: typeof schema.assetGenerationRuns.$inferSelect;
+      asset: typeof schema.assets.$inferSelect;
+      completionClaimed: boolean;
+    };
+
 async function findAssetForRun(
   db: VideoRunDb,
   runId: string,
@@ -22,6 +40,35 @@ async function findAssetForRun(
     .where(eq(schema.assets.generationRunId, runId))
     .limit(1);
   return asset;
+}
+
+async function findRunById(
+  db: VideoRunDb,
+  runId: string,
+): Promise<typeof schema.assetGenerationRuns.$inferSelect | undefined> {
+  const [run] = await db
+    .select()
+    .from(schema.assetGenerationRuns)
+    .where(eq(schema.assetGenerationRuns.id, runId))
+    .limit(1);
+  return run;
+}
+
+async function readCurrentVideoRunResult(
+  db: VideoRunDb,
+  runId: string,
+): Promise<VideoRunResult> {
+  const run = await findRunById(db, runId);
+  if (!run) throw new Error("Video generation run disappeared.");
+  if (run.status === "failed") {
+    return { status: "failed", run, completionClaimed: false };
+  }
+  if (run.status === "completed") {
+    const asset = await findAssetForRun(db, runId);
+    if (!asset) throw new Error("Completed video generation has no asset.");
+    return { status: "completed", run, asset, completionClaimed: false };
+  }
+  return { status: "processing", run, completionClaimed: false };
 }
 
 export async function failVideoGenerationRun(
@@ -93,30 +140,26 @@ async function markRunCompletedWithAsset(
     .where(
       and(
         eq(schema.assetGenerationRuns.id, run.id),
-        ne(schema.assetGenerationRuns.status, "completed"),
+        eq(schema.assetGenerationRuns.status, "processing"),
       ),
     )
     .returning();
-  if (!completedRun) return { run: nextRun, completionClaimed: false };
+  if (!completedRun) {
+    return {
+      run: (await findRunById(db, run.id)) ?? run,
+      completionClaimed: false,
+    };
+  }
   await notifyGenerationRunFinished(completedRun, "completed");
   return { run: completedRun, completionClaimed: true };
 }
 
 export async function completeVideoGenerationRun(
   run: typeof schema.assetGenerationRuns.$inferSelect,
-): Promise<
-  | {
-      status: "processing";
-      run: typeof schema.assetGenerationRuns.$inferSelect;
-      completionClaimed: false;
-    }
-  | {
-      status: "completed";
-      run: typeof schema.assetGenerationRuns.$inferSelect;
-      asset: typeof schema.assets.$inferSelect;
-      completionClaimed: boolean;
-    }
-> {
+): Promise<VideoRunResult> {
+  if (run.status === "completed" || run.status === "failed") {
+    return readCurrentVideoRunResult(getDb(), run.id);
+  }
   const metadata = parseJson<Record<string, unknown>>(run.metadata, {});
   const provider = metadata.provider === "builder" ? "builder" : "gemini";
   const existingAsset = await findAssetForRun(getDb(), run.id);
@@ -128,6 +171,9 @@ export async function completeVideoGenerationRun(
       existingAsset,
       { provider },
     );
+    if (completed.run.status !== "completed") {
+      return readCurrentVideoRunResult(getDb(), run.id);
+    }
     return {
       status: "completed",
       run: completed.run,
@@ -157,7 +203,7 @@ export async function completeVideoGenerationRun(
       provider === "builder"
         ? await pollBuilderVideoGeneration(generationId!, {
             userEmail: run.ownerEmail,
-            orgId: run.orgId,
+            ...(run.orgId ? { orgId: run.orgId } : {}),
           })
         : await pollGeminiVideoGeneration(operationName!);
   } catch (error) {
@@ -165,12 +211,15 @@ export async function completeVideoGenerationRun(
       const [retryingRun] = await getDb()
         .update(schema.assetGenerationRuns)
         .set({ status: "processing", error: error.message })
-        .where(eq(schema.assetGenerationRuns.id, run.id))
+        .where(
+          and(
+            eq(schema.assetGenerationRuns.id, run.id),
+            eq(schema.assetGenerationRuns.status, "processing"),
+          ),
+        )
         .returning();
       if (!retryingRun) {
-        throw new Error(
-          "Video generation run disappeared while recording a retryable poll error.",
-        );
+        return readCurrentVideoRunResult(getDb(), run.id);
       }
       return {
         status: "processing",
@@ -194,15 +243,23 @@ export async function completeVideoGenerationRun(
       error: null,
       metadata: stringifyJson(nextMetadata),
     };
-    await getDb()
+    const [processingRun] = await getDb()
       .update(schema.assetGenerationRuns)
       .set({
         status: "processing",
         error: null,
         metadata: nextRun.metadata,
       })
-      .where(eq(schema.assetGenerationRuns.id, run.id));
-    return { status: "processing", run: nextRun, completionClaimed: false };
+      .where(
+        and(
+          eq(schema.assetGenerationRuns.id, run.id),
+          eq(schema.assetGenerationRuns.status, "processing"),
+        ),
+      )
+      .returning();
+    return processingRun
+      ? { status: "processing", run: processingRun, completionClaimed: false }
+      : readCurrentVideoRunResult(getDb(), run.id);
   }
 
   try {
@@ -221,6 +278,9 @@ export async function completeVideoGenerationRun(
             operationName,
           },
         );
+        if (completed.run.status !== "completed") {
+          return readCurrentVideoRunResult(tx, run.id);
+        }
         return {
           status: "completed" as const,
           run: completed.run,
@@ -286,6 +346,9 @@ export async function completeVideoGenerationRun(
           operationName,
         },
       );
+      if (!completed.completionClaimed) {
+        throw new Error("Video generation run finished before completion.");
+      }
       return {
         status: "completed" as const,
         run: completed.run,
@@ -294,27 +357,8 @@ export async function completeVideoGenerationRun(
       };
     });
   } catch (err) {
-    const existing = await findAssetForRun(getDb(), run.id);
-    if (existing) {
-      const completed = await markRunCompletedWithAsset(
-        getDb(),
-        run,
-        metadata,
-        existing,
-        {
-          provider: polled.video.provider,
-          providerGenerationId: polled.video.providerGenerationId,
-          sourceUrl: polled.video.sourceUrl,
-          operationName,
-        },
-      );
-      return {
-        status: "completed",
-        run: completed.run,
-        asset: existing,
-        completionClaimed: completed.completionClaimed,
-      };
-    }
+    const current = await readCurrentVideoRunResult(getDb(), run.id);
+    if (current.status !== "processing") return current;
     throw err;
   }
 }

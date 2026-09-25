@@ -1,3 +1,4 @@
+import { readBoundedResponseBytes } from "@agent-native/core/ingestion";
 import {
   getBuilderVideoGenerationBaseUrl,
   resolveBuilderGatewayAuth,
@@ -16,6 +17,11 @@ import {
   readableProviderErrorDetail,
 } from "../../shared/provider-error.js";
 import { getGeminiApiKey } from "./generation.js";
+import {
+  hasAllowedSignature,
+  MAX_VIDEO_UPLOAD_BYTES,
+  VIDEO_MIME_TYPES,
+} from "./upload-validation.js";
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -52,9 +58,39 @@ async function pollFetch(
   }
 }
 
-async function readVideoBuffer(response: Response): Promise<Buffer> {
+async function readVideoBuffer(
+  response: Response,
+  declaredMimeType?: string,
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  const responseMimeType = normalizeVideoMimeType(
+    response.headers.get("content-type"),
+  );
+  const declared = normalizeVideoMimeType(declaredMimeType);
+  const mimeType =
+    declared && declared !== "application/octet-stream"
+      ? declared
+      : responseMimeType === "application/octet-stream"
+        ? null
+        : responseMimeType;
+  if (!mimeType || !VIDEO_MIME_TYPES.has(mimeType)) {
+    throw new Error("Video generation returned an unsupported video type.");
+  }
+  if (
+    responseMimeType &&
+    responseMimeType !== "application/octet-stream" &&
+    responseMimeType !== mimeType
+  ) {
+    throw new Error("Video generation returned a mismatched video type.");
+  }
+
   try {
-    return Buffer.from(await response.arrayBuffer());
+    const buffer = Buffer.from(
+      await readBoundedResponseBytes(response, MAX_VIDEO_UPLOAD_BYTES),
+    );
+    if (!hasAllowedSignature(mimeType, buffer)) {
+      throw new Error("Video generation returned invalid video data.");
+    }
+    return { buffer, mimeType };
   } catch (error) {
     if (isRetryableTransportError(error)) {
       throw new RetryableVideoGenerationError(error.message);
@@ -359,8 +395,10 @@ export async function pollGeminiVideoGeneration(
     return {
       status: "completed",
       video: {
-        buffer: Buffer.from(video.videoBytes, "base64"),
-        mimeType: video.mimeType || "video/mp4",
+        ...validateVideoBuffer(
+          video.mimeType || "video/mp4",
+          Buffer.from(video.videoBytes, "base64"),
+        ),
         provider: "gemini",
         sourceUrl: video.uri,
         providerGenerationId: operationName,
@@ -383,11 +421,7 @@ export async function pollGeminiVideoGeneration(
   return {
     status: "completed",
     video: {
-      buffer: await readVideoBuffer(videoResponse),
-      mimeType:
-        video.mimeType ||
-        videoResponse.headers.get("content-type") ||
-        "video/mp4",
+      ...(await readVideoBuffer(videoResponse, video.mimeType)),
       provider: "gemini",
       sourceUrl: video.uri,
       providerGenerationId: operationName,
@@ -439,6 +473,16 @@ export async function pollBuilderVideoGeneration(
     stringValue(output?.downloadUrl) ?? stringValue(output?.url);
   if (!sourceUrl)
     throw new Error("Builder video generation returned no video URL.");
+  const declaredMimeType = normalizeVideoMimeType(
+    stringValue(output?.mimeType),
+  );
+  if (
+    declaredMimeType &&
+    declaredMimeType !== "application/octet-stream" &&
+    !VIDEO_MIME_TYPES.has(declaredMimeType)
+  ) {
+    throw new Error("Video generation returned an unsupported video type.");
+  }
   const downloadUrl = new URL(sourceUrl);
   if (
     downloadUrl.protocol !== "https:" ||
@@ -463,11 +507,7 @@ export async function pollBuilderVideoGeneration(
   return {
     status: "completed",
     video: {
-      buffer: await readVideoBuffer(videoResponse),
-      mimeType:
-        stringValue(output?.mimeType) ||
-        videoResponse.headers.get("content-type") ||
-        "video/mp4",
+      ...(await readVideoBuffer(videoResponse, declaredMimeType ?? undefined)),
       provider: "builder",
       sourceUrl,
       providerGenerationId: stringValue(output?.providerGenerationId),
@@ -526,4 +566,25 @@ function readArray(value: unknown): unknown[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+function normalizeVideoMimeType(value?: string | null): string | null {
+  const mimeType = value?.split(";", 1)[0]?.trim().toLowerCase();
+  return mimeType || null;
+}
+
+function validateVideoBuffer(
+  value: string,
+  buffer: Buffer,
+): { buffer: Buffer; mimeType: string } {
+  const mimeType = normalizeVideoMimeType(value);
+  if (
+    !mimeType ||
+    !VIDEO_MIME_TYPES.has(mimeType) ||
+    buffer.byteLength > MAX_VIDEO_UPLOAD_BYTES ||
+    !hasAllowedSignature(mimeType, buffer)
+  ) {
+    throw new Error("Video generation returned invalid video data.");
+  }
+  return { buffer, mimeType };
 }

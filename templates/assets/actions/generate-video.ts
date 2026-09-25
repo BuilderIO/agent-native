@@ -317,8 +317,10 @@ export default defineAction({
       context,
     );
 
+    let responseRun: typeof schema.assetGenerationRuns.$inferSelect = run;
     if (args.waitForCompletion) {
       const completed = await completeVideoGenerationRun(run);
+      responseRun = completed.run;
       if (completed.status === "completed" && completed.completionClaimed) {
         const asset = serializeAsset(completed.asset);
         track(
@@ -347,7 +349,7 @@ export default defineAction({
     }
 
     return {
-      run: serializeGenerationRun(run),
+      run: serializeGenerationRun(responseRun),
       ...(operation.provider === "gemini"
         ? { operationName: operation.operationName }
         : {}),

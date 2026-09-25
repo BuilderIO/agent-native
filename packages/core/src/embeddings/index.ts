@@ -414,25 +414,22 @@ export async function readEmbeddingFamilyAvailability(): Promise<EmbeddingFamily
   const directFamilies = resolved.flatMap(({ credential, detail }) =>
     detail.value ? [credential.create(detail.value)] : [],
   );
-  const unavailableProviders = resolved.flatMap(({ credential, detail }) =>
-    detail.lookupFailed && !detail.value ? [credential.provider] : [],
+  const unavailableProviders: string[] = resolved.flatMap(
+    ({ credential, detail }) =>
+      detail.lookupFailed && !detail.value ? [credential.provider] : [],
   );
-  if (directFamilies.length) {
-    return { families: directFamilies, unavailableProviders };
-  }
-
+  let builderFamily: EmbeddingFamily | null = null;
   try {
     const builderAuth = await resolveBuilderGatewayAuth();
-    return {
-      families: builderAuth ? [createBuilderEmbeddingFamily(builderAuth)] : [],
-      unavailableProviders,
-    };
+    if (builderAuth) builderFamily = createBuilderEmbeddingFamily(builderAuth);
   } catch {
-    return {
-      families: [],
-      unavailableProviders: [...unavailableProviders, "builder"],
-    };
+    unavailableProviders.push("builder");
   }
+
+  return {
+    families: [...directFamilies, ...(builderFamily ? [builderFamily] : [])],
+    unavailableProviders,
+  };
 }
 
 export async function availableEmbeddingFamilies(): Promise<EmbeddingFamily[]> {

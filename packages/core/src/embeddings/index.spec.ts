@@ -115,6 +115,24 @@ describe("embedding family availability", () => {
     );
   });
 
+  it("keeps Builder families available alongside direct provider keys", async () => {
+    mocks.resolveSecretDetailed.mockImplementation(async (key: string) => ({
+      value: key === "GEMINI_API_KEY" ? "gemini-key" : null,
+      lookupFailed: false,
+    }));
+    mocks.resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-session",
+      spaceId: null,
+      userId: null,
+    });
+
+    await expect(readEmbeddingFamilyAvailability()).resolves.toMatchObject({
+      families: [{ provider: "gemini" }, { provider: "builder" }],
+      unavailableProviders: [],
+    });
+    expect(mocks.resolveBuilderGatewayAuth).toHaveBeenCalledOnce();
+  });
+
   it("batches Builder embeddings within the service input size limits", async () => {
     const family = createBuilderEmbeddingFamily({
       authorization: "Bearer builder-session",
