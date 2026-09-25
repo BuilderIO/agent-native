@@ -27,6 +27,15 @@ vi.mock("../../AgentSidebar.js", () => ({
   AgentToggleButton: () => <button type="button">agent</button>,
 }));
 
+const appState = vi.hoisted(() => ({
+  write: vi.fn(async (_key: string, value: unknown) => value),
+  remove: vi.fn(async () => undefined),
+}));
+vi.mock("../../application-state.js", () => ({
+  writeClientAppState: appState.write,
+  deleteClientAppState: appState.remove,
+}));
+
 import { useSettingsPageHeader, useSettingsShell } from "./context.js";
 import { CORE_SETTINGS_PAGES } from "./core-pages.js";
 import {
@@ -71,6 +80,8 @@ describe("SettingsShell", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    appState.write.mockClear();
+    appState.remove.mockClear();
     orgState.value = {
       data: { orgId: "org-1", role: "member" },
       isLoading: false,
@@ -220,6 +231,240 @@ describe("SettingsShell", () => {
     expect(container.querySelector('[data-testid="page"]')?.textContent).toBe(
       "page:memory",
     );
+    expect(window.location.pathname).toBe("/settings/memory");
+  });
+
+  it("rewrites a legacy link to the page's path, keeping the query and row", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/settings/connections?connected=slack",
+    );
+    await render();
+    await flush();
+    expect(`${window.location.pathname}${window.location.search}`).toBe(
+      "/settings/integrations?connected=slack",
+    );
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    window.history.replaceState(null, "", "/settings/general#ai-providers");
+    await render();
+    await flush();
+    expect(`${window.location.pathname}${window.location.hash}`).toBe(
+      "/settings/app#ai-providers",
+    );
+  });
+
+  it("opens the page an agent-panel section names, not the hash it navigated to", async () => {
+    let location = "";
+    function Probe() {
+      const current = useLocation();
+      location = `${current.pathname}${current.hash}`;
+      return <SettingsShell appName="Clips" />;
+    }
+    const router = createMemoryRouter(
+      [{ path: "/settings/*", element: <Probe /> }],
+      {
+        initialEntries: [
+          {
+            pathname: "/settings",
+            hash: "#integrations",
+            state: { agentNativeSettingsSection: "secrets" },
+          },
+        ],
+      },
+    );
+    await act(async () => {
+      root.render(<RouterProvider router={router} />);
+    });
+    await waitFor(() => location === "/settings/api-keys");
+    expect(container.querySelector('[data-testid="page"]')?.textContent).toBe(
+      "page:api-keys",
+    );
+  });
+
+  it.each([
+    ["drafting", "/settings/drafting", "page:drafting"],
+    // Mail's /team route sends ?section=team, which has no tab today.
+    ["team", "/settings/members", "page:members"],
+  ])(
+    "follows Mail's ?section=%s deep link after Mail strips the param",
+    async (section, path, page) => {
+      let location = "";
+      function MailLikeSettings() {
+        const [searchParams, setSearchParams] = useSearchParams();
+        const [active, setActive] = useState("integrations");
+        const current = useLocation();
+        location = `${current.pathname}${current.search}`;
+        React.useEffect(() => {
+          const next = searchParams.get("section");
+          if (!next) return;
+          setActive(next);
+          setSearchParams(
+            (prev) => {
+              const params = new URLSearchParams(prev);
+              params.delete("section");
+              return params;
+            },
+            { replace: true },
+          );
+        }, [searchParams, setSearchParams]);
+        return (
+          <SettingsShell
+            appName="Mail"
+            team={<p>team</p>}
+            extraTabs={[
+              {
+                id: "drafting",
+                label: "Drafting",
+                content: <p data-testid="page">page:drafting</p>,
+              },
+            ]}
+            value={active}
+            onValueChange={setActive}
+          />
+        );
+      }
+      const router = createMemoryRouter(
+        [{ path: "/settings/*", element: <MailLikeSettings /> }],
+        { initialEntries: [`/settings?section=${section}`] },
+      );
+      await act(async () => {
+        root.render(<RouterProvider router={router} />);
+      });
+      await waitFor(
+        () =>
+          location === path &&
+          container.querySelector('[data-testid="page"]')?.textContent === page,
+      );
+    },
+  );
+
+  it("records the open page for the agent and clears it on leaving", async () => {
+    window.history.replaceState(null, "", "/settings/integrations/builder");
+    await render();
+    expect(appState.write).toHaveBeenLastCalledWith(
+      "settings-view",
+      {
+        page: "integrations",
+        sub: "builder",
+        label: "Connections › Integrations",
+      },
+      expect.objectContaining({ requestSource: expect.any(String) }),
+    );
+    clickPage("model");
+    await flush();
+    expect(appState.write).toHaveBeenLastCalledWith(
+      "settings-view",
+      { page: "model", sub: null, label: "Agent › Model" },
+      expect.anything(),
+    );
+    act(() => root.unmount());
+    root = createRoot(container);
+    expect(appState.remove).toHaveBeenCalledWith(
+      "settings-view",
+      expect.objectContaining({ keepalive: true }),
+    );
+  });
+
+  describe("search", () => {
+    function searchInput() {
+      return rail().querySelector<HTMLInputElement>('input[type="search"]')!;
+    }
+    function search(query: string) {
+      const input = searchInput();
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      act(() => {
+        setValue.call(input, query);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      return [...rail().querySelectorAll('[role="option"]')].map(
+        (option) => option.textContent ?? "",
+      );
+    }
+    function press(key: string) {
+      act(() => {
+        searchInput().dispatchEvent(
+          new KeyboardEvent("keydown", { key, bubbles: true }),
+        );
+      });
+    }
+
+    it("finds rows from today's sections under their new pages", async () => {
+      await render();
+      expect(search("default model")[0]).toBe("Default modelAgent › Model");
+      expect(search("max iterations")[0]).toBe("Max iterationsAgent › Model");
+      expect(search("slack")[0]).toBe("SlackClips › Channels");
+      expect(search("voice")[0]).toBe(
+        "Voice transcriptionAccount › Preferences",
+      );
+    });
+
+    it("keeps owner and admin pages out of a member's results", async () => {
+      await render();
+      expect(search("scim")).toEqual([]);
+      expect(search("database")).toEqual([]);
+
+      act(() => root.unmount());
+      root = createRoot(container);
+      orgState.value = {
+        data: { orgId: "org-1", role: "admin" },
+        isLoading: false,
+        errorUpdatedAt: 0,
+      };
+      await render();
+      expect(search("scim")[0]).toBe("AuthenticationOrganization");
+      expect(search("database")[0]).toBe(
+        "DatabaseOrganization › Infrastructure",
+      );
+    });
+
+    it("opens the first hit on Enter and flashes its row", async () => {
+      function ModelPage() {
+        return (
+          <div id="agent-settings-section-limits" data-testid="page">
+            limits
+          </div>
+        );
+      }
+      const model = CORE_SETTINGS_PAGES.find((page) => page.id === "model")!;
+      registerSettingsPages([{ ...model, component: ModelPage }]);
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      await render();
+      search("max iterations");
+      press("Enter");
+      await waitFor(() =>
+        Boolean(
+          container
+            .querySelector("#agent-settings-section-limits")
+            ?.hasAttribute("data-settings-flash"),
+        ),
+      );
+      expect(`${window.location.pathname}${window.location.hash}`).toBe(
+        "/settings/model#limits",
+      );
+      expect(scrollIntoView).toHaveBeenCalled();
+      expect(searchInput().value).toBe("");
+    });
+
+    it("focuses on / and clears on Escape", async () => {
+      await render();
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "/", bubbles: true }),
+        );
+      });
+      expect(document.activeElement).toBe(searchInput());
+      search("usage");
+      press("Escape");
+      expect(searchInput().value).toBe("");
+      expect(rail().querySelector('[role="option"]')).toBeNull();
+    });
   });
 
   it("turns a template's own tabs into pages in the app group", async () => {

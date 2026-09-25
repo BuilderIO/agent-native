@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { SETTINGS_SECTION_ALIASES } from "../../navigation/settings-redirects.js";
 import {
   ALL_SETTINGS_SECTIONS,
   SETTINGS_SECTION_IDS,
@@ -40,19 +41,9 @@ export function normalizeSettingsSection(
   ) {
     return "secrets";
   }
-  if (normalized === "agent-engine") return "llm";
-  if (
-    normalized === "agent-model-defaults" ||
-    normalized === "app-model-defaults" ||
-    normalized === "models"
-  ) {
-    return "app-models";
-  }
-  if (normalized === "agent-limits" || normalized === "loop-settings") {
-    return "limits";
-  }
-  return SETTINGS_SECTION_IDS.has(normalized as SettingsSectionId)
-    ? (normalized as SettingsSectionId)
+  const section = SETTINGS_SECTION_ALIASES[normalized] ?? normalized;
+  return SETTINGS_SECTION_IDS.has(section as SettingsSectionId)
+    ? (section as SettingsSectionId)
     : null;
 }
 

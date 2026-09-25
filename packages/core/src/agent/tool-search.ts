@@ -255,6 +255,7 @@ const PLAN_MODE_BLOCKED_DISCOVERY_TOOLS = new Set([
   "refresh-screen",
   "set-search-params",
   "set-url-path",
+  "open-settings-page",
 ]);
 
 function getPlanAvailability(

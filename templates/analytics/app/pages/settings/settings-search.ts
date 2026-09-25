@@ -2,7 +2,10 @@ import {
   getAgentSettingsSearchTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
-import { buildSettingsRoute } from "@agent-native/core/navigation";
+import {
+  buildSettingsEntryRoute,
+  buildSettingsRoute,
+} from "@agent-native/core/navigation";
 
 interface SettingsCommandItem {
   id: string;
@@ -12,20 +15,6 @@ interface SettingsCommandItem {
 }
 
 type Translate = (key: string) => string;
-
-function buildSettingsEntryRoute(tabId: string, section?: string): string {
-  const normalizedSection = section?.replace(/^#/, "").trim();
-  if (!normalizedSection || normalizedSection === tabId) {
-    return buildSettingsRoute(tabId);
-  }
-  if (normalizedSection.startsWith("agent:")) {
-    return buildSettingsRoute(normalizedSection);
-  }
-  if (normalizedSection.startsWith(`${tabId}:`)) {
-    return buildSettingsRoute(normalizedSection);
-  }
-  return buildSettingsRoute(`${tabId}:${normalizedSection}`);
-}
 
 export function buildAnalyticsGeneralSettingsSearchEntries(
   t: Translate,

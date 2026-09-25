@@ -54,6 +54,10 @@ import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import { isObjectOnly } from "../mcp/tool-input-schema.js";
+import {
+  describeSettingsViewForAgent,
+  SETTINGS_VIEW_STATE_KEY,
+} from "../navigation/settings-redirects.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import {
   completeRun as completeProgressRun,
@@ -1292,6 +1296,7 @@ const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
   "refresh-screen",
   "set-search-params",
   "set-url-path",
+  "open-settings-page",
 ]);
 
 const SOURCE_SWEEP_AGENT_TEAM_ALLOWED_ACTIONS = [
@@ -10547,6 +10552,17 @@ export function createProductionAgentHandler(
               for (const [k, v] of Object.entries(url.searchParams)) {
                 lines.push(`  ${k}: ${v}`);
               }
+            }
+            // The Settings shell names the page it resolved, which a legacy
+            // or mounted pathname doesn't say directly.
+            if (url.pathname?.includes("/settings")) {
+              const settingsPage = describeSettingsViewForAgent(
+                await readAppStateForBrowserTab(
+                  SETTINGS_VIEW_STATE_KEY,
+                  requestBrowserTabId,
+                ),
+              );
+              if (settingsPage) lines.push(settingsPage);
             }
             return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
           }

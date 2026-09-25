@@ -1,3 +1,4 @@
+import { Input } from "@agent-native/toolkit/ui/input";
 import { Kbd } from "@agent-native/toolkit/ui/kbd";
 import {
   IconArrowLeft,
@@ -23,7 +24,16 @@ import {
 import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
 import { STANDARD_APP_ROUTES } from "../../../navigation/index.js";
+import {
+  SETTINGS_VIEW_STATE_KEY,
+  type SettingsViewState,
+} from "../../../navigation/settings-redirects.js";
 import { appMountedPath } from "../../api-path.js";
+import {
+  deleteClientAppState,
+  writeClientAppState,
+} from "../../application-state.js";
+import { getBrowserTabId } from "../../browser-tab-id.js";
 import {
   getChangelogLatestId,
   useChangelogSeen,
@@ -34,7 +44,12 @@ import { useT } from "../../i18n.js";
 import { useLabs } from "../../labs/use-lab.js";
 import { useOrg } from "../../org/hooks.js";
 import { cn } from "../../utils.js";
+import { getCoreSettingsSearchEntries } from "../agent-settings-search.js";
 import { SettingsSkeleton } from "../SettingsSkeleton.js";
+import {
+  normalizeSettingsSection,
+  settingsSectionDomId,
+} from "../useSettingsPanelController.js";
 import { resolveSettingsAppIdentity } from "./app-identity.js";
 import {
   bridgedCoreSearchEntries,
@@ -62,10 +77,11 @@ import {
 import { readSettingsReturnPath } from "./return-path.js";
 import {
   resolveSettingsRoute,
+  resolveSettingsTabValue,
+  SETTINGS_SECTION_STATE_KEY,
   settingsPageHref,
   settingsPagePath,
   type SettingsLocation,
-  type SettingsRoute,
 } from "./routing.js";
 import {
   buildSettingsSearchIndex,
@@ -170,6 +186,14 @@ function isModifiedClick(event: MouseEvent) {
   );
 }
 
+function sectionFromHistoryState(state: unknown): string | null {
+  if (!state || typeof state !== "object") return null;
+  const section = (state as Record<string, unknown>)[
+    SETTINGS_SECTION_STATE_KEY
+  ];
+  return typeof section === "string" && section ? section : null;
+}
+
 /** Reads the changelog markdown off today's `<ChangelogSettingsCard markdown>` so templates get the dot unchanged. */
 function markdownFromWhatsNew(whatsNew: ReactNode): string | undefined {
   if (!isValidElement(whatsNew)) return undefined;
@@ -192,16 +216,18 @@ function useRouterNavigator(): ShellNavigator {
     },
     [navigate],
   );
+  const section = sectionFromHistoryState(location.state);
   return useMemo(
     () => ({
       location: {
         pathname: location.pathname,
         hash: location.hash,
         search: location.search,
+        section,
       },
       go,
     }),
-    [go, location.hash, location.pathname, location.search],
+    [go, location.hash, location.pathname, location.search, section],
   );
 }
 
@@ -243,18 +269,42 @@ function WindowSettingsShell(props: SettingsShellProps) {
   return <SettingsShellContent {...props} navigator={useWindowNavigator()} />;
 }
 
-function pageForTabValue(
-  value: string,
-  pages: readonly SettingsPageDefinition[],
-): SettingsRoute {
-  // A template's controlled value is always one of its tab ids, so a tab id
-  // wins over a page id that happens to share it (Mail's inbox `automations`).
-  const byTab = pages.find((page) => page.legacyTabIds?.includes(value));
-  if (byTab) return { page: byTab.id, sub: null };
-  return resolveSettingsRoute(
-    { pathname: `${SETTINGS_ROUTE}/${value.split(":").join("/")}`, hash: "" },
-    pages,
-  );
+/**
+ * Scrolls to a page's row once its lazy chunk mounts, and flashes it for a
+ * search hit. Section anchors (`llm`, `limits`) name today's panels, whose
+ * element ids carry a prefix.
+ */
+function revealSettingsAnchor(anchor: string, flash: boolean): () => void {
+  let frame = 0;
+  let attempts = 0;
+  const find = () => {
+    const direct = document.getElementById(anchor);
+    if (direct) return direct;
+    const section = normalizeSettingsSection(anchor);
+    return section
+      ? document.getElementById(settingsSectionDomId(section))
+      : null;
+  };
+  const step = () => {
+    const element = find();
+    if (!element) {
+      attempts += 1;
+      if (attempts < 60) frame = window.requestAnimationFrame(step);
+      return;
+    }
+    element.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (!flash) return;
+    // Restart the animation when the same row is opened twice in a row.
+    element.removeAttribute("data-settings-flash");
+    void element.offsetWidth;
+    element.setAttribute("data-settings-flash", "");
+    window.setTimeout(
+      () => element.removeAttribute("data-settings-flash"),
+      1600,
+    );
+  };
+  frame = window.requestAnimationFrame(step);
+  return () => window.cancelAnimationFrame(frame);
 }
 
 /**
@@ -381,9 +431,16 @@ function SettingsShellContent({
     [bridge, context, pages],
   );
 
+  const appAreaIds = useMemo(
+    () => bridge.appAreas.map((area) => area.id),
+    [bridge.appAreas],
+  );
+  // The template's first `value` is its default, not a choice (Mail starts
+  // on "integrations"), so only a later one names a page for bare /settings.
+  const tabValue = value !== undefined && value !== initialValue ? value : null;
   const resolved = useMemo(
-    () => resolveSettingsRoute(location, pages),
-    [location, pages],
+    () => resolveSettingsRoute(location, pages, { appAreaIds, tabValue }),
+    [appAreaIds, location, pages, tabValue],
   );
   const activePage =
     visiblePages.find((page) => page.id === resolved.page) ??
@@ -453,20 +510,50 @@ function SettingsShellContent({
     [go],
   );
 
-  // A page the viewer can't see (or an unknown id) lands on Profile. Once
-  // per location: a data router commits asynchronously, and asking again
-  // before it does would cancel the redirect (and any click) in flight.
+  // A page the viewer can't see (or an unknown id) lands on Profile, and a
+  // legacy link is rewritten to its page's own path, keeping the query
+  // (`?connected=`, a template's `?section=`). Once per location: a data
+  // router commits asynchronously, and asking again before it does would
+  // cancel the redirect (and any click) in flight.
   const redirectedFromRef = useRef<string | null>(null);
-  const locationKey = `${location.pathname}${location.hash}`;
+  const locationKey = `${location.pathname}${location.search}${location.hash}${location.section ?? ""}`;
   useEffect(() => {
-    if (!resolved.page || !activePage || resolved.page === activePage.id) {
+    const visible = resolved.page === activePage?.id;
+    if (!resolved.page || !activePage || (visible && !resolved.legacy)) {
       redirectedFromRef.current = null;
       return;
     }
     if (redirectedFromRef.current === locationKey) return;
     redirectedFromRef.current = locationKey;
-    navigate(activePage.id, null, { replace: true });
-  }, [activePage, locationKey, navigate, resolved.page]);
+    if (!visible) {
+      navigate(activePage.id, null, { replace: true });
+      return;
+    }
+    const anchor = resolved.anchor ? `#${resolved.anchor}` : "";
+    go(
+      `${settingsPagePath(activePage.id, resolved.sub)}${location.search}${anchor}`,
+      true,
+    );
+  }, [
+    activePage,
+    go,
+    location.search,
+    locationKey,
+    navigate,
+    resolved.anchor,
+    resolved.legacy,
+    resolved.page,
+    resolved.sub,
+  ]);
+
+  // Links that name a row (`/settings/app#ai-providers`) scroll to it once
+  // the page has mounted. Search hits also flash it (see `SettingsNav`).
+  const anchorOnPage =
+    routePage === resolved.page && !resolved.legacy ? resolved.anchor : null;
+  useEffect(() => {
+    if (!anchorOnPage) return;
+    return revealSettingsAnchor(anchorOnPage, false);
+  }, [anchorOnPage, routePage]);
 
   // Controlled bridge: tell the template which of its tabs is showing, after
   // the new location has rendered so its own URL writes see it.
@@ -483,11 +570,14 @@ function SettingsShellContent({
     seenValueRef.current = value;
     // The template echoing the tab the shell just reported.
     if (value === reportedValueRef.current) return;
-    const target = pageForTabValue(value, visiblePages);
+    const target = resolveSettingsTabValue(value, visiblePages, appAreaIds);
     if (target.page && target.page !== routePage) {
-      navigate(target.page, target.sub, { replace: true });
+      navigate(target.page, target.sub, {
+        replace: true,
+        anchor: target.anchor ?? undefined,
+      });
     }
-  }, [navigate, routePage, value, visiblePages]);
+  }, [appAreaIds, navigate, routePage, value, visiblePages]);
 
   const latestChangelogId = getChangelogLatestId(
     whatsNewMarkdown ?? markdownFromWhatsNew(whatsNew),
@@ -522,8 +612,53 @@ function SettingsShellContent({
     [identity.icon],
   );
 
+  // The agent's view of Settings: the page and sub-page this browser tab
+  // shows, cleared when Settings unmounts.
+  const subpageLabel = routeSub
+    ? activePage?.subpages?.find((subpage) => subpage.id === routeSub)
+    : undefined;
+  const settingsViewLabel = activePage
+    ? [
+        groupLabel(activePage.group),
+        pageLabel(activePage),
+        subpageLabel?.labelKey
+          ? t(subpageLabel.labelKey)
+          : (subpageLabel?.label ?? null),
+      ]
+        .filter(Boolean)
+        .join(" › ")
+    : null;
+  useEffect(() => {
+    if (!routePage) return;
+    const view: SettingsViewState = {
+      page: routePage,
+      sub: routeSub,
+      label: settingsViewLabel,
+    };
+    writeClientAppState(SETTINGS_VIEW_STATE_KEY, view, {
+      requestSource: getBrowserTabId(),
+    }).catch((error: unknown) => {
+      console.warn("[settings] Couldn't record the open Settings page", error);
+    });
+  }, [routePage, routeSub, settingsViewLabel]);
+  useEffect(
+    () => () => {
+      deleteClientAppState(SETTINGS_VIEW_STATE_KEY, {
+        keepalive: true,
+        requestSource: getBrowserTabId(),
+      }).catch((error: unknown) => {
+        console.warn(
+          "[settings] Couldn't clear the Settings page state",
+          error,
+        );
+      });
+    },
+    [],
+  );
+
   const searchIndex = useMemo(() => {
     const bridgedEntries = bridgedCoreSearchEntries(bridge, pages);
+    const coreEntries = getCoreSettingsSearchEntries();
     return buildSettingsSearchIndex(
       visiblePages.map((page) => ({
         page: { ...page, icon: pageIcon(page) },
@@ -531,6 +666,7 @@ function SettingsShellContent({
         groupLabel: groupLabel(page.group),
         entries: [
           ...(page.searchEntries ?? []),
+          ...(coreEntries.get(page.id) ?? []),
           ...(bridgedEntries.get(page.id) ?? []),
         ],
       })),
@@ -744,21 +880,10 @@ function SettingsNav({
 
   const openResult = (result: SettingsSearchResult) => {
     setQuery("");
-    onNavigate(result.page, result.sub, { anchor: result.anchor });
-    if (!result.anchor) return;
-    const anchor = result.anchor;
-    let attempts = 0;
-    const scroll = () => {
-      const element = document.getElementById(anchor);
-      if (element) {
-        element.scrollIntoView({ block: "start", behavior: "smooth" });
-        return;
-      }
-      attempts += 1;
-      // Pages load lazily; wait a few frames for the row to mount.
-      if (attempts < 30) window.requestAnimationFrame(scroll);
-    };
-    window.requestAnimationFrame(scroll);
+    onNavigate(result.page, result.sub, {
+      anchor: result.anchor ?? undefined,
+    });
+    if (result.anchor) revealSettingsAnchor(result.anchor, true);
   };
 
   const groups = useMemo(() => {
@@ -845,7 +970,7 @@ function SettingsNav({
               aria-hidden="true"
               className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
             />
-            <input
+            <Input
               ref={inputRef}
               type="search"
               value={query}
@@ -863,7 +988,7 @@ function SettingsNav({
               placeholder={t("agentChat.settingsShell.searchPlaceholder")}
               aria-label={t("agentChat.settingsShell.searchPlaceholder")}
               autoComplete="off"
-              className="agent-native-search-input h-8 w-full rounded-md border border-border bg-background ps-8 pe-8 text-[13px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-ring/30"
+              className="agent-native-search-input h-8 py-0 ps-8 pe-8 text-[13px] focus-visible:ring-offset-0 md:text-[13px]"
             />
             {query ? (
               <button

@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 
+import type { CoreSettingsPageId } from "../../../navigation/settings-redirects.js";
 import type { OrgRole } from "../../../org/types.js";
 import type { SettingsBridge } from "./bridge.js";
 
@@ -17,42 +18,12 @@ export const SETTINGS_PAGE_GROUPS = [
 
 export type SettingsPageGroup = (typeof SETTINGS_PAGE_GROUPS)[number];
 
-/**
- * Stable page ids. They are URL segments (`/settings/:page/:sub`), search
- * targets, and the agent's name for a page, so never rename one; add a
- * redirect instead.
- */
-export const SETTINGS_PAGE_IDS = {
-  profile: "profile",
-  preferences: "preferences",
-  security: "security",
-  integrations: "integrations",
-  apiKeys: "api-keys",
-  model: "model",
-  instructions: "instructions",
-  memory: "memory",
-  skills: "skills",
-  files: "files",
-  subAgents: "sub-agents",
-  org: "org",
-  members: "members",
-  usage: "usage",
-  auth: "auth",
-  apps: "apps",
-  infra: "infra",
-  audit: "audit",
-  app: "app",
-  notifications: "notifications",
-  automations: "automations",
-  channels: "channels",
-  mcp: "mcp",
-  creativeContext: "creative-context",
-  labs: "labs",
-  whatsNew: "whats-new",
-} as const;
-
-export type CoreSettingsPageId =
-  (typeof SETTINGS_PAGE_IDS)[keyof typeof SETTINGS_PAGE_IDS];
+// Page ids live with the redirect table so server code (the agent's
+// `open-settings-page`, template `navigate` actions) can name them too.
+export {
+  SETTINGS_PAGE_IDS,
+  type CoreSettingsPageId,
+} from "../../../navigation/settings-redirects.js";
 
 /** Settings opens here unless a link names a page (spec §3.2). */
 export const DEFAULT_SETTINGS_PAGE_ID: CoreSettingsPageId = "profile";

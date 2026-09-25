@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { CHATGPT_SUBSCRIPTION_LAB } from "../../../labs/core-labs.js";
 import type { LabDefinition } from "../../../labs/registry.js";
+import { isCoreSectionSearchEntryId } from "../agent-settings-search.js";
 import type {
   SettingsSearchEntry,
   SettingsTabItem,
@@ -184,6 +185,9 @@ export function bridgedCoreSearchEntries(
       if (!tab || seenTabs.has(tab.id)) continue;
       seenTabs.add(tab.id);
       for (const entry of searchEntriesFromTab(tab)) {
+        // The shell indexes core sections itself, translated and on the page
+        // the redirect table sends them to.
+        if (isCoreSectionSearchEntryId(entry.id)) continue;
         const owner = entry.anchor && ownerByLegacyId.get(entry.anchor);
         if (owner && owner !== page.id) {
           add(owner, { ...entry, anchor: undefined });

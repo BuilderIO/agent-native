@@ -29,9 +29,10 @@ import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import type { LabDefinition } from "../../labs/registry.js";
 import {
-  buildSettingsRoute,
+  buildSettingsEntryRoute,
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
+import { legacySettingsTabIdsForPage } from "../../navigation/settings-redirects.js";
 import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useT } from "../i18n.js";
 import { LabsSettings } from "../labs/LabsSettings.js";
@@ -272,7 +273,14 @@ function resolveTabId(
     if (tabs.some((tab) => tab.id === "organization")) return "organization";
     if (tabs.some((tab) => tab.id === "team")) return "team";
   }
-  return null;
+  // A link built from a redesigned page id (`/settings/model`) opens the tab
+  // that holds that page's content today.
+  const [pageId = "", sub] = normalized.split(":");
+  return (
+    legacySettingsTabIdsForPage(pageId, sub).find((id) =>
+      tabs.some((tab) => tab.id === id),
+    ) ?? null
+  );
 }
 
 function activeTabFromLocation(
@@ -319,20 +327,6 @@ function appLocalPathname(pathname?: string): string {
     return currentPathname.slice(mountPath.length) || "/";
   }
   return currentPathname;
-}
-
-function buildSettingsEntryRoute(tabId: string, section?: string): string {
-  const normalizedSection = section?.replace(/^#/, "").trim();
-  if (!normalizedSection || normalizedSection === tabId) {
-    return buildSettingsRoute(tabId);
-  }
-  if (normalizedSection.startsWith("agent:")) {
-    return buildSettingsRoute(normalizedSection);
-  }
-  if (normalizedSection.startsWith(`${tabId}:`)) {
-    return buildSettingsRoute(normalizedSection);
-  }
-  return buildSettingsRoute(`${tabId}:${normalizedSection}`);
 }
 
 function updateRouteForTab(tabId: string, section?: string) {

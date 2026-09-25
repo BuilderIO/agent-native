@@ -93,7 +93,14 @@ describe("settings shell bridge", () => {
       extraTabs: [
         tab("agent", {
           searchEntries: [
-            { id: "section:llm", label: "Model", hash: "llm", keywords: "llm" },
+            {
+              id: "agent-tone",
+              label: "Tone",
+              hash: "tone",
+              keywords: "voice",
+            },
+            // Core's own section rows are indexed by the shell, translated.
+            { id: "section:llm", label: "LLM", hash: "llm", keywords: "llm" },
           ],
         }),
       ],
@@ -103,7 +110,7 @@ describe("settings shell bridge", () => {
     });
     const entries = bridgedCoreSearchEntries(bridge, CORE_SETTINGS_PAGES);
     expect(entries.get("model")).toEqual([
-      { id: "section:llm", label: "Model", keywords: "llm", anchor: "llm" },
+      { id: "agent-tone", label: "Tone", keywords: "voice", anchor: "tone" },
     ]);
     expect(entries.get("app")).toEqual([
       {

@@ -78,6 +78,10 @@ const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { buildSettingsRoute } from "../navigation/index.js";
+import {
+  isSettingsSectionId,
+  SETTINGS_SECTION_ALIASES,
+} from "../navigation/settings-redirects.js";
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
@@ -116,6 +120,7 @@ import { isFirstRunOnboardingEnabled } from "./onboarding/first-run-enabled.js";
 import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-startup-gate.js";
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
+import { SETTINGS_SECTION_STATE_KEY } from "./settings/shell/routing.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
@@ -129,12 +134,29 @@ const AgentTerminal = lazy(() =>
   import("./terminal/index.js").then((m) => ({ default: m.AgentTerminal })),
 );
 
+/**
+ * The section an `agent-panel:open-settings` request names. Callers that set
+ * the hash and dispatch no section (run recovery's `#agent-limits`, the
+ * composer's `#llm`) meant that hash.
+ */
+export function requestedSettingsSection(
+  section?: string | null,
+  currentHash?: string | null,
+): string {
+  const requested = section?.replace(/^#/, "").trim() ?? "";
+  if (requested) return requested;
+  const hash = currentHash?.replace(/^#/, "").trim() ?? "";
+  return isSettingsSectionId(hash) || /^secrets:./i.test(hash) ? hash : "";
+}
+
+/** Today's Settings hash for a section; the redesigned shell reads the section itself. */
 export function settingsRouteHashForSection(
   section?: string | null,
   currentHash?: string | null,
 ): string {
-  const raw = section?.replace(/^#/, "").trim() ?? "";
-  const normalized = raw.toLowerCase();
+  const raw = requestedSettingsSection(section, currentHash);
+  const lowered = raw.toLowerCase();
+  const normalized = SETTINGS_SECTION_ALIASES[lowered] ?? lowered;
   if (
     [
       "llm",
@@ -200,10 +222,18 @@ export function AgentPanelSettingsNavigation({
         onOpenSettings(section);
         return;
       }
-      const navigation = navigate({
-        pathname: appPath("/settings"),
-        hash: settingsRouteHashForSection(section, window.location.hash),
-      });
+      const requested = requestedSettingsSection(section, window.location.hash);
+      const navigation = navigate(
+        {
+          pathname: appPath("/settings"),
+          hash: settingsRouteHashForSection(section, window.location.hash),
+        },
+        // The hash can't tell API keys from Integrations; the redesigned
+        // Settings reads the section from history state instead.
+        {
+          state: requested ? { [SETTINGS_SECTION_STATE_KEY]: requested } : null,
+        },
+      );
       const notifyLocationChange = () => {
         window.dispatchEvent(new Event("popstate"));
         window.dispatchEvent(new Event("hashchange"));

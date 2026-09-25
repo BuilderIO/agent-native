@@ -1,6 +1,8 @@
 import { mcpSettingsMessagesForLocale } from "../../localization/mcp-settings-messages.js";
 import type { LocaleCode } from "../../localization/shared.js";
+import { resolveSettingsSectionRedirect } from "../../navigation/settings-redirects.js";
 import type { SettingsSearchEntry } from "./SettingsTabsPage.js";
+import type { SettingsPageSearchEntry } from "./shell/registry.js";
 
 export type SettingsSectionId =
   | "account"
@@ -165,6 +167,75 @@ const SETTINGS_SECTION_SEARCH_META: Record<
     keywords: "remote agents protocol a2a connected",
   },
 };
+
+/**
+ * True for a search entry today's core tabs build from the section catalog
+ * (`section:llm`). The Settings shell indexes those sections itself, with
+ * translated labels on the page each now lives on.
+ */
+export function isCoreSectionSearchEntryId(id: string): boolean {
+  return (
+    id.startsWith("section:") &&
+    SETTINGS_SECTION_IDS.has(id.slice("section:".length) as SettingsSectionId)
+  );
+}
+
+// Labels are the new pages' row names. Sections that are a whole page
+// (automations, secrets, integrations, usage) are found by the page itself.
+const SHELL_SECTION_SEARCH_LABELS: Partial<Record<SettingsSectionId, string>> =
+  {
+    llm: "agentChat.settingsShell.search.defaultModel",
+    "app-models": "agentChat.settingsShell.search.appDefaultModel",
+    limits: "agentChat.settingsShell.search.maxIterations",
+    voice: "agentChat.settingsShell.search.voiceTranscription",
+    "demo-mode": "agentChat.settingsShell.search.demoMode",
+    hosting: "agentChat.settingsShell.search.hosting",
+    database: "agentChat.settingsShell.search.database",
+    uploads: "agentChat.settingsShell.search.fileUploads",
+    auth: "agentChat.settingsShell.search.signInMethods",
+    email: "agentChat.settingsShell.search.email",
+    browser: "agentChat.settingsShell.search.browserAutomation",
+    background: "agentChat.settingsShell.search.backgroundAgents",
+    a2a: "agentChat.settingsShell.search.connectedAgents",
+  };
+
+/**
+ * Core's section search rows for the Settings shell, keyed by the page the
+ * redirect table sends each section to. Keywords stay English (with the old
+ * English label) so English terms still match in every locale.
+ */
+export function getCoreSettingsSearchEntries(): ReadonlyMap<
+  string,
+  readonly SettingsPageSearchEntry[]
+> {
+  const byPage = new Map<string, SettingsPageSearchEntry[]>();
+  const add = (page: string, entry: SettingsPageSearchEntry) => {
+    const entries = byPage.get(page);
+    if (entries) entries.push(entry);
+    else byPage.set(page, [entry]);
+  };
+  for (const section of ALL_SETTINGS_SECTIONS) {
+    const labelKey = SHELL_SECTION_SEARCH_LABELS[section];
+    if (!labelKey) continue;
+    const target = resolveSettingsSectionRedirect(section);
+    const meta = SETTINGS_SECTION_SEARCH_META[section];
+    add(target.page, {
+      id: `section:${section}`,
+      labelKey,
+      keywords: `${meta.label} ${meta.keywords}`,
+      sub: target.sub,
+      anchor: target.anchor,
+    });
+  }
+  // Provider names aren't translated.
+  add("channels", {
+    id: "channel:slack",
+    label: "Slack",
+    keywords: "slack agent mention bot messaging channel",
+    sub: "slack",
+  });
+  return byPage;
+}
 
 export function buildSectionSearchEntries(
   sections: readonly SettingsSectionId[],

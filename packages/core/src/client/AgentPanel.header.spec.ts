@@ -30,6 +30,7 @@ import {
   shouldShowAgentPanelSidebarChatTabs,
   shouldShowAgentPanelCliTabBar,
   shouldShowAgentPanelModeButtons,
+  requestedSettingsSection,
   settingsRouteHashForSection,
   AgentSidebar as LegacyAgentSidebar,
   AgentToggleButton as LegacyAgentToggleButton,
@@ -257,6 +258,21 @@ describe("AgentPanel header tab visibility", () => {
     }
     expect(settingsRouteHashForSection("a2a")).toBe("#agent:agents");
   });
+
+  it("reads the hash a caller set when it dispatched no section", () => {
+    // run-recovery.tsx sets #agent-limits and TiptapComposer sets #llm, then
+    // both dispatch without a section; they used to land on #agent.
+    expect(settingsRouteHashForSection(undefined, "#agent-limits")).toBe(
+      "#limits",
+    );
+    expect(settingsRouteHashForSection(undefined, "#llm")).toBe("#llm");
+    expect(settingsRouteHashForSection(undefined, "#comments")).toBe("#agent");
+    expect(settingsRouteHashForSection("loop-settings")).toBe("#limits");
+    expect(requestedSettingsSection(undefined, "#agent-limits")).toBe(
+      "agent-limits",
+    );
+    expect(requestedSettingsSection(undefined, "#comments")).toBe("");
+  });
 });
 
 describe("AgentPanel settings navigation", () => {
@@ -331,6 +347,50 @@ describe("AgentPanel settings navigation", () => {
 
       expect(pathname).toBe("/settings");
       expect(hash).toBe("#secrets:OPENAI_API_KEY");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("carries the requested section in history state for the redesigned Settings", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let hash = "";
+    let state: unknown = null;
+
+    function LocationProbe() {
+      const location = useLocation();
+      hash = location.hash;
+      state = location.state;
+      return null;
+    }
+
+    try {
+      act(() => {
+        window.history.replaceState(null, "", "/");
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "secrets" },
+          }),
+        );
+      });
+
+      // Today's Settings still gets the hash it always did.
+      expect(hash).toBe("#integrations");
+      expect(state).toEqual({ agentNativeSettingsSection: "secrets" });
     } finally {
       act(() => root.unmount());
       container.remove();

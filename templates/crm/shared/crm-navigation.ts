@@ -9,6 +9,8 @@
  * does not report back.
  */
 
+import { buildSettingsRoute } from "@agent-native/core/navigation";
+
 export const CRM_SETTINGS_SECTIONS = [
   "connection",
   "fields",
@@ -109,7 +111,7 @@ export function crmNavigationPath(target: CrmNavigationTarget): string {
     return `/records/${encodeURIComponent(target.recordId)}`;
   }
   if (target.view === "settings" && target.settingsSection) {
-    return `/settings/${target.settingsSection}`;
+    return buildSettingsRoute(target.settingsSection);
   }
   if (target.view === "board" && !target.viewId && !target.listId) {
     throw new Error(

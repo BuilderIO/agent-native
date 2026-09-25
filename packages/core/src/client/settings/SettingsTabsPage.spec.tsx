@@ -1076,6 +1076,51 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Agent overview");
   });
 
+  it.each([
+    ["/settings/model", "Agent overview"],
+    ["/settings/api-keys", "Keys content"],
+    ["/settings/instructions", "Agent files"],
+    ["/settings/app/recordings", "Recordings content"],
+  ])(
+    "opens the closest tab for a redesigned page link %s",
+    (pathname, content) => {
+      window.history.replaceState(null, "", pathname);
+
+      act(() => {
+        root.render(
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Overview",
+                content: <div>Agent overview</div>,
+              },
+              {
+                id: "agent:resources",
+                label: "Resources",
+                content: <div>Agent files</div>,
+              },
+              {
+                id: "keys",
+                label: "API keys",
+                content: <div>Keys content</div>,
+              },
+              {
+                id: "recordings",
+                label: "Recordings",
+                content: <div>Recordings content</div>,
+              },
+            ]}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain(content);
+      expect(container.textContent).not.toContain("General content");
+    },
+  );
+
   it("opens an extra workspace tab from the workspace hash", () => {
     window.history.replaceState(null, "", "/settings#workspace");
 

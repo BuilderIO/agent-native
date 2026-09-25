@@ -1,4 +1,14 @@
-export { SettingsShell, type SettingsShellProps } from "./SettingsShell.js";
+import { lazy } from "react";
+
+// Lazy so importing `@agent-native/core/client/settings` (every template's
+// settings route does) doesn't ship the shell to viewers who don't have the
+// `settings-redesign` flag. Render it inside `<Suspense>`.
+export const SettingsShell = lazy(() =>
+  import("./SettingsShell.js").then((module) => ({
+    default: module.SettingsShell,
+  })),
+);
+export type { SettingsShellProps } from "./SettingsShell.js";
 export { SettingsShellSkeleton } from "./SettingsShellSkeleton.js";
 export {
   canManageOrganizationPages,
@@ -36,8 +46,12 @@ export {
 export {
   isSettingsPathname,
   resolveSettingsRoute,
+  resolveSettingsTabValue,
+  SETTINGS_SECTION_STATE_KEY,
   settingsPageHref,
   settingsPagePath,
+  type ResolvedSettingsRoute,
+  type ResolveSettingsRouteOptions,
   type SettingsLocation,
   type SettingsRoute,
 } from "./routing.js";
