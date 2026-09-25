@@ -1,3 +1,4 @@
+import { captureError } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   createLocalOpUndoController,
@@ -9,6 +10,7 @@ import {
   callActionWithRetry,
 } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
   REALTIME_CAP_POLL_LIVE,
@@ -34,11 +36,16 @@ import {
   useSyncExternalStore,
   ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import { deckContentSignature as stableDeckContentSignature } from "../../shared/deck-content";
-import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
+import {
+  normalizeSlidePadding,
+  normalizeSlidePaddingForWrite,
+} from "../lib/normalize-slide-padding";
+import { renderArtifactGrowth } from "../lib/slide-source-map";
 
 // ---------------------------------------------------------------------------
 // Granular persistence types
@@ -303,12 +310,16 @@ interface DeckContextType {
     options?: { persistence?: "debounced" | "immediate" },
   ) => string;
   flushDeckSave: (deckId: string) => Promise<void>;
+  /**
+   * Returns the content that was stored (padding applied), or undefined when
+   * the update carried no content or was refused.
+   */
   updateSlide: (
     deckId: string,
     slideId: string,
     updates: Partial<Omit<Slide, "id">>,
     options?: UpdateSlideOptions,
-  ) => void;
+  ) => string | undefined;
   updateSlides: (
     deckId: string,
     slideUpdates: {
@@ -493,6 +504,16 @@ const pendingPersistedResultHandlers = new Map<
   PendingPersistedResultHandler[]
 >();
 const slideLocalWriteSequences = new Map<string, Map<string, number>>();
+// The last content write handed to the network, per deck and slide, with the
+// committed content it was written over. A queued draft may only be dropped
+// when nothing newer than the committed content was sent before it.
+const sentSlideContent = new Map<
+  string,
+  Map<string, { content: string; over: string }>
+>();
+// The committed content an editor draft was written over; a draft leaves
+// local state alone, so the op itself cannot tell.
+const draftCommittedContent = new WeakMap<GranularOp, string>();
 
 // Bumped on every local write enqueued for a deck. A deck read that spans a
 // local write is stale for that deck no matter what the pending state looks
@@ -855,6 +876,21 @@ function drainPendingDeckOps(
 
   const ops = pendingOpsQueue.get(deckId) ?? [];
   pendingOpsQueue.delete(deckId);
+  for (const op of ops) {
+    if (op.op !== "patch-slide" || typeof op.fields.content !== "string") {
+      continue;
+    }
+    const sent =
+      sentSlideContent.get(deckId) ??
+      new Map<string, { content: string; over: string }>();
+    const over = draftCommittedContent.get(op);
+    // A committed write is what the server holds from now on, so nothing
+    // earlier needs settling; only a draft keeps its slide's HTML here.
+    if (over === undefined) sent.delete(op.slideId);
+    else sent.set(op.slideId, { content: op.fields.content, over });
+    if (sent.size > 0) sentSlideContent.set(deckId, sent);
+    else sentSlideContent.delete(deckId);
+  }
   const persistedResultHandlers =
     pendingPersistedResultHandlers.get(deckId) ?? [];
   pendingPersistedResultHandlers.delete(deckId);
@@ -1060,6 +1096,45 @@ function enqueueDeckOp(
     pendingSaves.set(deckId, timer);
     notifySaveListeners();
   }
+}
+
+/**
+ * Settles an editor draft that is back at the committed content. Unsent
+ * drafts of the slide are dropped from the queue; when that leaves the server
+ * holding (or about to hold) the committed content, the revert is a write that
+ * changes nothing and returns true. Returns false when the revert must still
+ * be sent, to undo a draft that already left the queue.
+ */
+function settleQueuedContentDraft(
+  deckId: string,
+  slideId: string,
+  committedContent: string,
+): boolean {
+  const queue = pendingOpsQueue.get(deckId) ?? [];
+  for (;;) {
+    const index = queue.findLastIndex(
+      (op) =>
+        op.op === "full-replace" ||
+        (op.op === "patch-slide"
+          ? op.slideId === slideId && typeof op.fields.content === "string"
+          : "slideId" in op && op.slideId === slideId),
+    );
+    if (index < 0) break;
+    const op = queue[index];
+    if (op.op !== "patch-slide") return false;
+    if (op.fields.content === committedContent) return true;
+    // Anything but a content-only draft also changed other fields.
+    if (Object.keys(op.fields).length !== 1) return false;
+    queue.splice(index, 1);
+  }
+  const sent = sentSlideContent.get(deckId)?.get(slideId);
+  // Committed content that moved on since the send (a server snapshot this
+  // tab adopted, or a later local write) is what the server holds.
+  return (
+    sent === undefined ||
+    sent.content === committedContent ||
+    sent.over !== committedContent
+  );
 }
 
 /**
@@ -1825,8 +1900,33 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
   blank: `<div class="fmd-slide" style="padding: 80px 110px; position: relative; font-family: 'Poppins', sans-serif;"></div>`,
 };
 
+/**
+ * A content write that adds renderer or editor markup (scoped selectors,
+ * source stamps, editor attributes) serialized the rendered DOM instead of
+ * the stored slide. Storing it would flatten the slide, so refuse it loudly.
+ */
+function refuseRenderArtifactWrite(
+  markers: string[],
+  target: { deckId: string; slideId: string },
+  message: string,
+) {
+  const error = new Error(
+    `Refused a slide write that adds rendered markup: ${markers.join(", ")}`,
+  );
+  console.error(error, target);
+  captureError(error, {
+    tags: { area: "slides-save-boundary" },
+    extra: { ...target, markers },
+  });
+  toast.error(message);
+  if (import.meta.env.DEV) throw error;
+}
+
 export function DeckProvider({ children }: { children: ReactNode }) {
   const { data: org, isLoading: orgLoading } = useOrg();
+  const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
   const activeOrgId = org?.orgId ?? null;
   const [decks, setDecks] = useState<Deck[]>([]);
   const [deckScopeOrgId, setDeckScopeOrgId] = useState<
@@ -2819,6 +2919,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       discardPendingDeckOps(deckId);
       deckLocalWriteSeq.delete(deckId);
       slideLocalWriteSequences.delete(deckId);
+      sentSlideContent.delete(deckId);
       activeInlineEditSlides.delete(deckId);
     }
 
@@ -3655,11 +3756,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       slideId: string,
       updates: Partial<Omit<Slide, "id">>,
       options?: UpdateSlideOptions,
-    ) => {
-      const normalizedUpdates =
-        typeof updates.content === "string"
-          ? { ...updates, content: normalizeSlidePadding(updates.content) }
-          : updates;
+    ): string | undefined => {
       const label = updates.layout
         ? "Change layout"
         : updates.background
@@ -3671,6 +3768,38 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const previousSlide = before?.slides.find(
         (slide) => slide.id === slideId,
       );
+      let normalizedUpdates = updates;
+      if (typeof updates.content === "string") {
+        const content = normalizeSlidePaddingForWrite(
+          previousSlide?.content,
+          updates.content,
+        );
+        const markers = renderArtifactGrowth(
+          previousSlide?.content ?? "",
+          content,
+        );
+        if (markers.length > 0) {
+          refuseRenderArtifactWrite(
+            markers,
+            { deckId, slideId },
+            tRef.current("deckEditor.editorMarkupNotSaved"),
+          );
+          return undefined;
+        }
+        normalizedUpdates = { ...updates, content };
+      }
+      const storedContent = normalizedUpdates.content;
+      // Drafts leave local state alone, so it still holds the committed
+      // content; a draft typed back to it (type, then delete) writes nothing.
+      if (
+        options?.preserveLocalState &&
+        Object.keys(normalizedUpdates).length === 1 &&
+        storedContent !== undefined &&
+        storedContent === previousSlide?.content &&
+        settleQueuedContentDraft(deckId, slideId, storedContent)
+      ) {
+        return storedContent;
+      }
       const optimisticSlideFitChange =
         !options?.preserveLocalState &&
         !options?.recordUndoOnly &&
@@ -3687,12 +3816,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         slideId,
         fields: normalizedUpdates,
       };
+      if (options?.preserveLocalState && previousSlide) {
+        draftCommittedContent.set(op, previousSlide.content);
+      }
       if (
         before &&
         !deriveInverseOp(before, op) &&
         !options?.preserveLocalState
       ) {
-        return;
+        return storedContent;
       }
       if (options?.recordUndoOnly) {
         if (before) {
@@ -3715,7 +3847,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
               .join(",")}`,
           });
         }
-        return;
+        return storedContent;
       }
       // A preserved editor draft already has an explicit granular op queued.
       // Marking it dirty also arms the legacy full-replace fallback, which can
@@ -3753,6 +3885,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             .join(",")}`,
         });
       }
+      return storedContent;
     },
     [markDeckDirty, recordUndo, reconcilePersistedLayoutFit, setDecksLocal],
   );

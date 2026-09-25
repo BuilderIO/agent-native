@@ -171,6 +171,56 @@ beforeEach(() => {
   mockGetOrgId.mockReturnValue(null);
 });
 
+describe("create-deck — save boundary", () => {
+  it("refuses slides that carry rendered editor markup", async () => {
+    await expect(
+      action.run({
+        title: "T",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><p data-builder-id="b-1">Hi</p></div>',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(insertedRow).toBeUndefined();
+  });
+
+  it("lets a replacement keep a stored slide's markers but not add new ones", async () => {
+    const legacy =
+      '<div class="fmd-slide"><p data-builder-id="b-1">Legacy</p></div>';
+    existingDeckRow = {
+      id: "deck-existing",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [{ id: "slide-1", content: legacy }],
+      }),
+    };
+    await expect(
+      action.run({
+        title: "T",
+        deckId: "deck-existing",
+        slides: [{ id: "slide-1", content: legacy.replace("Legacy", "Kept") }],
+      }),
+    ).resolves.toBeDefined();
+    await expect(
+      action.run({
+        title: "T",
+        deckId: "deck-existing",
+        slides: [
+          {
+            id: "slide-1",
+            content: `${legacy}<p contenteditable="true">x</p>`,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+  });
+});
+
 describe("create-deck — aspectRatio", () => {
   it("defaults omitted slides to an empty deck", async () => {
     await action.run({

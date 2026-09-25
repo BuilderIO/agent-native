@@ -58,6 +58,7 @@
     "modern-screenshot": "^4.7.0",
     "nanoid": "^5.1.9",
     "p-limit": "^7.3.0",
+    "parse5": "^8.0.1",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "5.4.296",
     "postcss": "8.5.28",

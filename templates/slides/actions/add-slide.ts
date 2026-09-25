@@ -39,6 +39,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { assertNoRenderArtifactsInNewSlide } from "./_render-artifacts.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
@@ -449,6 +450,11 @@ export default defineAction({
               slideElementProvenance,
             );
 
+      assertNoRenderArtifactsInNewSlide(
+        content,
+        newSlideId,
+        slides.map((s) => String(s.content ?? "")),
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const newSlide: any = {
         id: newSlideId,

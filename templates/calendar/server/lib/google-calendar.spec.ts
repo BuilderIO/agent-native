@@ -29,10 +29,15 @@ const dbExecuteMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const runWithRequestContextMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
+const getCredentialContextMock = vi.hoisted(() =>
+  vi.fn((): { userEmail: string; orgId: string | null } | null => null),
+);
+const resolveWorkspaceConnectionForAppMock = vi.hoisted(() => vi.fn());
+const resolveOAuthAccessTokenMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
-  getCredentialContext: vi.fn(() => null),
+  getCredentialContext: getCredentialContextMock,
   getRequestOrgId: getRequestOrgIdMock,
   isOAuthConnected: vi.fn(),
   resolveGoogleProviderCredentialCandidatesWithReader: async ({
@@ -89,6 +94,16 @@ vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: dbExecuteMock }),
 }));
 
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  resolveWorkspaceConnectionForApp: resolveWorkspaceConnectionForAppMock,
+}));
+
+vi.mock("./provider-api.js", () => ({
+  getCalendarProviderApiRuntime: () => ({
+    resolveOAuthAccessToken: resolveOAuthAccessTokenMock,
+  }),
+}));
+
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: createOAuth2ClientMock,
   oauth2GetUserInfo: oauth2GetUserInfoMock,
@@ -120,9 +135,11 @@ import {
   disconnect,
   getClientForAccount,
   getDefaultAccountSelection,
+  getConnectedAccounts,
   getEvent,
   getGoogleAccountTimezone,
   invalidateAccountTimezoneCache,
+  isConnected,
   listEvents,
   listGoogleCalendars,
   listOverlayEvents,
@@ -2760,5 +2777,90 @@ describe("calendar Google OAuth exchange", () => {
     await expect(exchangeCode("oauth-code")).rejects.toThrow(
       "Google OAuth redirect URI is required.",
     );
+  });
+});
+
+describe("connection status reads a broken managed connection as disconnected", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    getOAuthAccountsMock.mockResolvedValue([]);
+    getCredentialContextMock.mockReturnValue({
+      userEmail: "user@example.com",
+      orgId: null,
+    });
+    resolveWorkspaceConnectionForAppMock.mockResolvedValue({ available: true });
+  });
+
+  // A workspace connection can be registered and marked "connected" in the
+  // catalog while the token it backs can no longer be resolved (revoked,
+  // mid-authorization, misconfigured credential). `isConnected` and
+  // `getConnectedAccounts` are read as a plain yes/no by every read and write
+  // action (list-events included), so a thrown resolution error here must not
+  // surface as a 500 - it must read the same as "not connected".
+  it("isConnected returns false instead of throwing", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(isConnected("user@example.com")).resolves.toBe(false);
+  });
+
+  it("getConnectedAccounts returns an empty list instead of throwing", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(getConnectedAccounts("user@example.com")).resolves.toEqual([]);
+  });
+
+  it("still reports connected once the managed token resolves", async () => {
+    resolveOAuthAccessTokenMock.mockResolvedValue({
+      accountId: "shared@example.com",
+      accessToken: "token",
+    });
+
+    await expect(isConnected("user@example.com")).resolves.toBe(true);
+    await expect(getConnectedAccounts("user@example.com")).resolves.toEqual([
+      "shared@example.com",
+    ]);
+  });
+
+  // getAuthStatus backs useGoogleAuthStatus(), which Calendar home, Settings,
+  // the Sidebar, and Booking Links all call unconditionally - the same shape
+  // of bug as list-events, on a different action.
+  it("getAuthStatus reports disconnected instead of throwing", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(getAuthStatus("user@example.com")).resolves.toEqual({
+      connected: false,
+      accounts: [],
+    });
+  });
+
+  // listEvents reads its clients through getClientsForAccountsWithErrors,
+  // which had the same unguarded resolveManagedCalendarClient() call as
+  // isConnected. list-events.ts only reaches this once isConnected() has
+  // already reported `true`, but the function must be safe on its own too -
+  // and, unlike the plain boolean checks, it must keep the failure visible in
+  // `errors` rather than reporting a successful empty read (list-events.ts
+  // uses this to distinguish an empty calendar from a read failure).
+  it("listEvents surfaces the failure instead of throwing or going silent", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(
+      listEvents(
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-02T00:00:00.000Z",
+        "user@example.com",
+      ),
+    ).resolves.toEqual({
+      events: [],
+      errors: [{ email: "workspace", error: "no workspace token available" }],
+    });
   });
 });

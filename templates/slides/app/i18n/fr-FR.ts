@@ -720,6 +720,8 @@ const messages = {
       "Si vous quittez ou rechargez maintenant, vous risquez de perdre les modifications qui ne sont pas encore enregistrées. Voulez-vous vraiment quitter ?",
     keepEditing: "Continuer à modifier",
     leaveWithoutSaving: "Quitter sans enregistrer",
+    editorMarkupNotSaved:
+      "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
   },
   designSystemSetup: {
     importedBrand: "Marque importée",

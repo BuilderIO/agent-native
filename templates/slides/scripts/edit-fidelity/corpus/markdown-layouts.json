@@ -1,0 +1,26 @@
+{
+  "title": "Onboarding Guide for New Engineers",
+  "notes": "Markdown content with title / content / two-column layouts, including inline HTML (rehype-raw). A single click can convert these to raw HTML and drop the layout padding.",
+  "slides": [
+    {
+      "id": "md-title",
+      "layout": "title",
+      "content": "# Welcome to the Platform Team\n\nYour first two weeks, in one place"
+    },
+    {
+      "id": "md-content",
+      "layout": "content",
+      "content": "## Week one\n\n- Set up your laptop with the **bootstrap script**\n- Pair with your onboarding buddy on a real ticket\n- Read the [architecture overview](https://example.com/architecture) before Thursday\n- Ship one small change to production by Friday\n\n*Ask in #platform-help — nobody expects you to know this yet.*"
+    },
+    {
+      "id": "md-two-column",
+      "layout": "two-column",
+      "content": "## What we own\n\n- Build and deploy pipeline\n- Service templates\n- Internal developer portal\n\n---\n\n## What we don't\n\n- Product feature work\n- Customer data pipelines\n- On-call for product services"
+    },
+    {
+      "id": "md-inline-html",
+      "layout": "content",
+      "content": "## Key numbers\n\n<span style=\"color:#2563eb;font-weight:700\">14 minutes</span> median deploy time\n\n<span style=\"color:#2563eb;font-weight:700\">99.95%</span> pipeline availability last quarter\n\n1. Keep deploys under 15 minutes\n2. Keep flaky tests under 1%"
+    }
+  ]
+}
