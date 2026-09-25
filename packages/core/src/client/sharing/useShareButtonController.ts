@@ -66,6 +66,7 @@ export interface ShareButtonControllerOptions {
   resourceId: string;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onShareSuccess?: () => void;
   shareTabs?: {
     defaultValue?: string;
     onValueChange?: (value: string) => void;
@@ -151,6 +152,10 @@ export function useShareButtonController(
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
   const [shareError, setShareError] = useState<string | null>(null);
+  const visibility =
+    visibilityOverride ?? data?.visibility ?? ("private" as const);
+  const triggerVisibility =
+    visibilityOverride ?? (data ? (data.visibility ?? "private") : null);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -209,6 +214,9 @@ export function useShareButtonController(
           } as never,
           {
             onSuccess: (result: unknown) => {
+              if (visibility === "private" && next !== "private") {
+                options.onShareSuccess?.();
+              }
               if (visibilityGuard.isLatest(requestId)) {
                 const resultVisibility =
                   typeof result === "object" &&
@@ -260,6 +268,8 @@ export function useShareButtonController(
       sharesQuery,
       canManage,
       visibilityGuard,
+      options.onShareSuccess,
+      visibility,
     ],
   );
 
@@ -267,10 +277,6 @@ export function useShareButtonController(
     allowPublic: true,
     requireOrgMemberForUserShares: false,
   };
-  const visibility =
-    visibilityOverride ?? data?.visibility ?? ("private" as const);
-  const triggerVisibility =
-    visibilityOverride ?? (data ? (data.visibility ?? "private") : null);
   // Keep draft and optimistic state in the controller so closing and reopening
   // the popover cannot drop an in-flight mutation or an unsent invite.
   const [role, setRole] = useState<ShareButtonRole>("viewer");
@@ -446,6 +452,7 @@ export function useShareButtonController(
       } as never,
       {
         onSuccess: () => {
+          options.onShareSuccess?.();
           void sharesQuery.refetch().then(() => {
             setPendingAdds((previous) =>
               previous.filter((item) => item.id !== optimistic.id),
@@ -475,6 +482,7 @@ export function useShareButtonController(
     notifyPeople,
     options.resourceId,
     options.resourceType,
+    options.onShareSuccess,
     options.shareUrl,
     role,
     selectedGroup,

@@ -23,7 +23,10 @@ import {
 import {
   useAcceptInvitation,
   useJoinByDomain,
+  useOrgMembers,
   useOrg,
+  useOrgRole,
+  useSetOrgDomain,
 } from "@agent-native/core/client/org";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import {
@@ -31,6 +34,7 @@ import {
   ErrorReportActions,
   type ErrorReportDebugItem,
 } from "@agent-native/core/client/ui";
+import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
@@ -285,6 +289,7 @@ import {
   type CommentDraft,
 } from "@/lib/plan-comment-editor-helpers";
 import { planDocumentTitle } from "@/lib/plan-document-title";
+import { hasSameDomainCoworker } from "@/lib/plan-invite-suggestion";
 import {
   fetchLocalPlanBridgeComments,
   fetchLocalPlanBridgeBundle,
@@ -2022,6 +2027,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [planShareSucceeded, setPlanShareSucceeded] = useState(false);
   const [localBridgeCommentPending, setLocalBridgeCommentPending] =
     useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
@@ -5041,6 +5047,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     localShareUrl={planShareUrl}
                     hostedPlanId={bundle.plan.hostedPlanId}
                     hostedPlanUrl={bundle.plan.hostedPlanUrl}
+                    onShareSuccess={() => setPlanShareSucceeded(true)}
                     onOpenChange={(open) => {
                       if (open) closeInlineComment();
                     }}
@@ -5546,6 +5553,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {!localPlanMode && session?.userId && (
+                  <PlanInviteSuggestion
+                    key={session.userId}
+                    userId={session.userId}
+                    firstShare={planShareSucceeded}
+                  />
+                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -6152,6 +6166,7 @@ function PlanShareControl({
   localShareUrl,
   hostedPlanId,
   hostedPlanUrl,
+  onShareSuccess,
   onOpenChange,
 }: {
   planId: string;
@@ -6160,6 +6175,7 @@ function PlanShareControl({
   localShareUrl?: string;
   hostedPlanId?: string | null;
   hostedPlanUrl?: string | null;
+  onShareSuccess?: () => void;
   onOpenChange?: (open: boolean) => void;
 }) {
   const t = useT();
@@ -6254,6 +6270,7 @@ function PlanShareControl({
             url: result.hostedPlanUrl ?? result.url,
             hostedPlanId: result.hostedPlanId,
           });
+          onShareSuccess?.();
           setAuthPrompt(null);
           // Tag the freshly-minted public link so signups from it are
           // attributed. The publisher is the owner, so `via` is their userId.
@@ -6268,7 +6285,7 @@ function PlanShareControl({
         },
       },
     );
-  }, [copyPublishedUrl, planId, publishPlan, session?.userId]);
+  }, [copyPublishedUrl, onShareSuccess, planId, publishPlan, session?.userId]);
 
   // Logged-in / local-dev: manage shares for the plan in this app instance.
   if (canManageLocalShares) {
@@ -6294,6 +6311,7 @@ function PlanShareControl({
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
         triggerClassName="pointer-events-auto h-8 px-2"
         onOpenChange={onOpenChange}
+        onShareSuccess={onShareSuccess}
       />
     );
   }
@@ -6424,6 +6442,177 @@ function PlanShareControl({
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+function PlanInviteSuggestion({
+  userId,
+  firstShare,
+}: {
+  userId: string;
+  firstShare: boolean;
+}) {
+  const { org, isOwner, isLoading } = useOrgRole();
+  const email = org?.email ?? "";
+  const emailParts = email.trim().toLowerCase().split("@");
+  const domain = emailParts[emailParts.length - 1] ?? "";
+  const canOfferDomainJoin =
+    isOwner &&
+    !org?.allowedDomain &&
+    domain.length > 0 &&
+    !isFreeEmailProvider(domain);
+
+  if (isLoading) return null;
+
+  if (canOfferDomainJoin) {
+    return (
+      <PlanDomainInviteSuggestion
+        userId={userId}
+        email={email}
+        domain={domain}
+        firstShare={firstShare}
+      />
+    );
+  }
+
+  return (
+    <PlanInviteSuggestionCard
+      userId={userId}
+      firstShare={firstShare}
+      domain={null}
+    />
+  );
+}
+
+function PlanDomainInviteSuggestion({
+  userId,
+  email,
+  domain,
+  firstShare,
+}: {
+  userId: string;
+  email: string;
+  domain: string;
+  firstShare: boolean;
+}) {
+  const membersQuery = useOrgMembers(0, domain);
+  const hasCoworker = hasSameDomainCoworker(
+    email,
+    membersQuery.data?.members.map((member) => member.email) ?? [],
+  );
+
+  return (
+    <PlanInviteSuggestionCard
+      userId={userId}
+      firstShare={firstShare && !membersQuery.isLoading}
+      domain={hasCoworker ? domain : null}
+    />
+  );
+}
+
+function PlanInviteSuggestionCard({
+  userId,
+  firstShare,
+  domain,
+}: {
+  userId: string;
+  firstShare: boolean;
+  domain: string | null;
+}) {
+  const t = useT();
+  const navigate = useNavigate();
+  const setOrgDomain = useSetOrgDomain();
+  const reason = firstShare
+    ? "first_share"
+    : domain
+      ? "same_domain_coworkers"
+      : null;
+  const storageKey = `plan.invite-suggestion.shown.v1.${userId}`;
+  const shownRef = useRef(false);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || shownRef.current) return;
+    try {
+      if (window.localStorage.getItem(storageKey)) {
+        shownRef.current = true;
+        return;
+      }
+    } catch {
+      // Keep the suggestion usable when browser storage is unavailable.
+    }
+    if (!reason) return;
+    shownRef.current = true;
+    try {
+      window.localStorage.setItem(storageKey, "1");
+    } catch {
+      // The in-memory ref still prevents repeat displays for this visit.
+    }
+    setVisible(true);
+    void trackEvent("plan_invite_suggestion_shown", { trigger: reason });
+  }, [reason, storageKey]);
+
+  if (!visible || !reason) return null;
+
+  const trackAction = (event: string, action?: string) => {
+    void trackEvent(event, {
+      trigger: reason,
+      ...(action ? { action } : {}),
+    });
+  };
+
+  const inviteTeammates = () => {
+    trackAction("plan_invite_suggestion_clicked", "invite_teammates");
+    setVisible(false);
+    navigate("/settings#team");
+  };
+
+  const enableDomainJoin = () => {
+    if (!domain || setOrgDomain.isPending) return;
+    trackAction("plan_invite_suggestion_clicked", "enable_domain_join");
+    setOrgDomain.mutate(domain, {
+      onSuccess: () => {
+        trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
+        setVisible(false);
+      },
+      onError: () =>
+        toast.error(t("plansPage.share.teammateSuggestion.enableFailed")),
+    });
+  };
+
+  return (
+    <div className="pointer-events-auto absolute right-0 top-full mt-2 flex max-w-[min(360px,calc(100vw-1.5rem))] flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2 shadow-lg">
+      <p className="px-1 text-xs text-muted-foreground">
+        {t("plansPage.share.teammateSuggestion.message")}
+      </p>
+      <Button type="button" size="sm" variant="ghost" onClick={inviteTeammates}>
+        {t("plansPage.share.teammateSuggestion.invite")}
+      </Button>
+      {domain && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={enableDomainJoin}
+          disabled={setOrgDomain.isPending}
+        >
+          {t("plansPage.share.teammateSuggestion.enableDomain", { domain })}
+        </Button>
+      )}
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="size-7"
+        aria-label={t("plansPage.share.teammateSuggestion.dismiss")}
+        onClick={() => {
+          trackAction("plan_invite_suggestion_dismissed");
+          setVisible(false);
+        }}
+      >
+        <IconX className="size-4" />
+      </Button>
+    </div>
   );
 }
 

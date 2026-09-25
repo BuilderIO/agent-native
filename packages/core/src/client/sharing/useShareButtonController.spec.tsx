@@ -159,6 +159,32 @@ describe("useShareButtonController", () => {
     expect(mocks.share.mutate.mock.calls[0]?.[0]).not.toHaveProperty("message");
   });
 
+  it("reports a successfully added share to its host", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.setInviteEmail("new-member@example.test"));
+    act(() => (controller as ShareButtonController).handleAdd());
+
+    const mutation = mocks.share.mutate.mock.calls[0]?.[1];
+    act(() => mutation?.onSuccess?.());
+
+    expect(onShareSuccess).toHaveBeenCalledOnce();
+  });
+
+  it("reports a private plan becoming shared to its host", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.handleVisibility("org"));
+
+    const mutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    await act(async () => {
+      mutation?.onSuccess?.({ visibility: "org" });
+      await Promise.resolve();
+    });
+
+    expect(onShareSuccess).toHaveBeenCalledOnce();
+  });
+
   it("restores the exact cache snapshot when visibility fails", async () => {
     const initial: ShareButtonSharesResponse = {
       ...mocks.query.data!,
