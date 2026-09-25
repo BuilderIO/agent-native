@@ -165,6 +165,29 @@ export function runStyleChange(
     );
     return;
   }
+  if (textEditingState.hasRange && textEditingState.selector === selector) {
+    if (selectedScreenId && selectedScreenStyleChange) {
+      selectedScreenStyleChange(
+        selectedScreenId,
+        target,
+        { [property]: value },
+        selectedElement ?? undefined,
+        { ...meta, phase: "preview" },
+      );
+      return;
+    }
+    if (!selectedScreenId) {
+      const sendStyleChange = (window as any).__designCanvasSendStyle;
+      if (typeof sendStyleChange === "function") {
+        sendStyleChange(selector, property, value, {
+          selectorCandidates: selectedCanvasSelectorCandidates,
+          nodeId: selectedElement?.sourceId,
+          phase: meta?.phase,
+        });
+        return;
+      }
+    }
+  }
   if (
     meta?.phase === "preview" &&
     selectedScreenId &&
@@ -178,27 +201,6 @@ export function runStyleChange(
       meta,
     );
     return;
-  }
-  if (textEditingState.hasRange && textEditingState.selector === selector) {
-    if (selectedScreenId && selectedScreenStyleChange) {
-      selectedScreenStyleChange(
-        selectedScreenId,
-        target,
-        { [property]: value },
-        selectedElement ?? undefined,
-        meta,
-      );
-      return;
-    }
-    const sendStyleChange = (window as any).__designCanvasSendStyle;
-    if (typeof sendStyleChange === "function") {
-      sendStyleChange(selector, property, value, {
-        selectorCandidates: selectedCanvasSelectorCandidates,
-        nodeId: selectedElement?.sourceId,
-        phase: meta?.phase,
-      });
-      return;
-    }
   }
   // PF12: a mid-gesture scrub/color-drag preview tick (ScrubInput's
   // `phase: "preview"`, DesignColorPicker's per-tick `onChange`) is cheap

@@ -177,6 +177,31 @@ export function runStylesChange(
   );
   if (entries.length === 0) return;
   const target = styleWriteTarget({ selector, selectedElement });
+  if (textEditingState.hasRange && textEditingState.selector === selector) {
+    if (selectedScreenId && selectedScreenStyleChange) {
+      selectedScreenStyleChange(
+        selectedScreenId,
+        target,
+        Object.fromEntries(entries),
+        selectedElement ?? undefined,
+        { ...meta, phase: "preview" },
+      );
+      return;
+    }
+    if (!selectedScreenId) {
+      const sendStyleChange = (window as any).__designCanvasSendStyle;
+      if (typeof sendStyleChange === "function") {
+        entries.forEach(([property, value]) =>
+          sendStyleChange(selector, property, value, {
+            selectorCandidates: selectedCanvasSelectorCandidates,
+            nodeId: selectedElement?.sourceId,
+            phase: meta?.phase,
+          }),
+        );
+        return;
+      }
+    }
+  }
   if (
     meta?.phase === "preview" &&
     selectedScreenId &&
@@ -220,36 +245,6 @@ export function runStylesChange(
       meta?.phase,
     );
     if (meta?.relativeExpression || applied) return;
-  }
-  // T10: mirror handleStyleChange's text-range routing here. Without
-  // this, a multi-property style commit (e.g. EditPanel's typography
-  // controls, which batch fontSize/lineHeight/etc into one call) while a
-  // text RANGE is selected mid-edit would restyle the whole element
-  // instead of just the selected range — handleStyleChange (the
-  // single-property path) already special-cases this; handleStylesChange
-  // just never got the same treatment.
-  if (textEditingState.hasRange && textEditingState.selector === selector) {
-    if (selectedScreenId && selectedScreenStyleChange) {
-      selectedScreenStyleChange(
-        selectedScreenId,
-        target,
-        Object.fromEntries(entries),
-        selectedElement ?? undefined,
-        meta,
-      );
-      return;
-    }
-    const sendStyleChange = (window as any).__designCanvasSendStyle;
-    if (typeof sendStyleChange === "function") {
-      entries.forEach(([property, value]) => {
-        sendStyleChange(selector, property, value, {
-          selectorCandidates: selectedCanvasSelectorCandidates,
-          nodeId: selectedElement?.sourceId,
-          phase: meta?.phase,
-        });
-      });
-      return;
-    }
   }
   // PF12: same preview/commit split as handleStyleChange — see its
   // comment for the full undo-safety rationale. A batched multi-property

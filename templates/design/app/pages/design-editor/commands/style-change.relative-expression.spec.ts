@@ -86,6 +86,51 @@ describe("runStyleChange mixed relative expressions", () => {
 });
 
 describe("runStyleChange screen routing", () => {
+  it("keeps a selected-screen text-range style edit on the live range path", () => {
+    const selectedScreenStyleChange = vi.fn();
+    const selectedElement: ElementInfo = {
+      tagName: "p",
+      selector: "#library-copy",
+      classes: [],
+      computedStyles: { fontWeight: "400" },
+      boundingRect: { x: 0, y: 0, width: 100, height: 20 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      sourceLayerIdentity: { screenId: "library", nodeId: "library-copy" },
+    };
+    runStyleChange(
+      {
+        commitInteractionStateStyles: () => false,
+        commitRelativeStyleDeltaToSelectedLayers: () => false,
+        commitStylesToSelectedLayers: () => false,
+        commitCapturedStyleTargets: () => {},
+        commitVisualStyles: vi.fn(),
+        handleClearBreakpointOverride: () => false,
+        previewInteractionStateStyles: () => {},
+        selectedCanvasSelectorCandidates: ["#library-copy"],
+        selectedElement,
+        selectedScreenStyleChange,
+        selectedLayerTargetsRef: { current: [] },
+        textEditingState: {
+          active: true,
+          selector: "#library-copy",
+          hasRange: true,
+        },
+      },
+      "fontWeight",
+      "700",
+      { phase: "commit" },
+    );
+
+    expect(selectedScreenStyleChange).toHaveBeenCalledWith(
+      "library",
+      "#library-copy",
+      { fontWeight: "700" },
+      selectedElement,
+      { phase: "preview" },
+    );
+  });
+
   it("routes inspector edits to the selected layer owner over stale element provenance", () => {
     const selectedScreenStyleChange = vi.fn();
     const selectedElement: ElementInfo = {
