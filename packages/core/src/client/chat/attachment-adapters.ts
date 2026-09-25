@@ -26,8 +26,9 @@ export const MAX_IMAGE_DIMENSION = 2048;
 // Vercel/Netlify cap requests at ~4.5 MB. Reserve 1 MB for history and JSON;
 // the remaining 3.5 MB covers attachments and both prompt fields.
 export const MAX_NON_ATTACHMENT_BODY_BYTES = 1 * 1024 * 1024;
+export const MAX_REQUEST_BODY_BYTES = 4.5 * 1024 * 1024;
 export const MAX_ESTIMATED_BODY_BYTES =
-  4.5 * 1024 * 1024 - MAX_NON_ATTACHMENT_BODY_BYTES;
+  MAX_REQUEST_BODY_BYTES - MAX_NON_ATTACHMENT_BODY_BYTES;
 // Text files are read into memory before they can be sent as inline content.
 // Keep one file below the aggregate budget so an oversized EML is rejected
 // before file.text() allocates the whole payload.

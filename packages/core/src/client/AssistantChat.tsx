@@ -5177,7 +5177,10 @@ const AssistantChatInner = forwardRef<
       // tool cards or a second Thinking/Stop state.
       clearReconnectReaderForTerminalError();
       setRunErrorInfo({
-        message: detail.message,
+        message:
+          detail.errorCode === "request_too_large"
+            ? t("agentChat.composer.requestTooLarge")
+            : detail.message,
         ...(detail.details ? { details: detail.details } : {}),
         ...(detail.errorCode ? { errorCode: detail.errorCode } : {}),
         ...(detail.runId ? { runId: detail.runId } : {}),
@@ -5197,6 +5200,7 @@ const AssistantChatInner = forwardRef<
     clearReconnectReaderForTerminalError,
     forceStopped,
     latestAssistantRunId,
+    t,
     tabId,
     threadId,
   ]);
