@@ -72,10 +72,12 @@ describe("DesignCanvas one-shot bridge queue", () => {
         ),
       ),
     );
+    const onRuntimeStructureInsertRejected = vi.fn();
 
     const render = async (
       insertRequest: {
         requestId: number;
+        transactionId?: string;
         screenId: string;
         html: string;
         additionalHtml?: string[];
@@ -93,6 +95,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
             bridgeUrl={bridgeUrl}
             previewToken="ready-recovery-preview-token"
             runtimeStructureInsertRequest={insertRequest}
+            onRuntimeStructureInsertRejected={onRuntimeStructureInsertRejected}
             zoom={100}
             deviceFrame="none"
             editMode
@@ -125,6 +128,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     // Queue the command while the canvas has never seen a ready handshake.
     await render({
       requestId: 1,
+      transactionId: "move-1",
       screenId: "screen-live",
       html: '<div data-agent-native-node-id="drop-1"></div>',
       additionalHtml: ['<div data-agent-native-node-id="drop-2"></div>'],
@@ -245,6 +249,12 @@ describe("DesignCanvas one-shot bridge queue", () => {
       "runtime-structure-insert",
       "style-change",
     ]);
+    expect(onRuntimeStructureInsertRejected).not.toHaveBeenCalled();
+    await act(async () => root.render(null));
+    expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(
+      "target-canvas-unmounted",
+      "move-1",
+    );
   });
 
   it("keeps a live iframe bridge ready when its source snapshot key changes", async () => {

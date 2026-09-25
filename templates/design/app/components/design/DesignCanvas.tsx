@@ -6315,6 +6315,22 @@ export function DesignCanvas({
   }, [postOneShotBridgeMessage, runtimeStructureMoveRequest]);
 
   const lastRuntimeStructureInsertRequestIdRef = useRef<number | null>(null);
+  const insertRequestAtUnmountRef = useRef(runtimeStructureInsertRequest);
+  const rejectInsertAtUnmountRef = useRef(onRuntimeStructureInsertRejected);
+  insertRequestAtUnmountRef.current = runtimeStructureInsertRequest;
+  rejectInsertAtUnmountRef.current = onRuntimeStructureInsertRejected;
+  useEffect(
+    () => () => {
+      const request = insertRequestAtUnmountRef.current;
+      if (request?.transactionId) {
+        rejectInsertAtUnmountRef.current?.(
+          "target-canvas-unmounted",
+          request.transactionId,
+        );
+      }
+    },
+    [],
+  );
   useEffect(() => {
     if (!runtimeStructureInsertRequest) return;
     if (

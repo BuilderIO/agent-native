@@ -673,6 +673,7 @@ import {
 import { runCreatePrimitive } from "./design-editor/commands/create-primitive";
 import { runCreateScreenFrame } from "./design-editor/commands/create-screen-frame";
 import { runCrossScreenElementDrop } from "./design-editor/commands/cross-screen-element-drop";
+import { scheduleCrossScreenInsertTimeout } from "./design-editor/commands/cross-screen-insert-timeout";
 import { runDeleteFiles } from "./design-editor/commands/delete-files";
 import { runDeleteSelection } from "./design-editor/commands/delete-selection";
 import { runDetachInstanceMenuAction } from "./design-editor/commands/detach-instance-menu-action";
@@ -17142,6 +17143,23 @@ function DesignEditor() {
       t,
     ],
   );
+
+  useEffect(() => {
+    if (!runtimeStructureInsertRequest?.transactionId) return;
+    return scheduleCrossScreenInsertTimeout(
+      runtimeStructureInsertRequest,
+      boardFileId ?? null,
+      (transactionId) =>
+        handleRuntimeStructureInsertRejected(
+          "cross-screen-insert-timeout",
+          transactionId,
+        ),
+    );
+  }, [
+    boardFileId,
+    handleRuntimeStructureInsertRejected,
+    runtimeStructureInsertRequest,
+  ]);
 
   const handleRuntimeStructureInsertApplied = useCallback(
     (details: {

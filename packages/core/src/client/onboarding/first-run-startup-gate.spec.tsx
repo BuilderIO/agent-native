@@ -96,12 +96,13 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBeNull();
   });
 
-  it("treats an inaccessible cookie as absent in a sandboxed embed", () => {
+  it("diagnoses an inaccessible cookie and skips the startup gate", () => {
     const cookie = vi
       .spyOn(document, "cookie", "get")
       .mockImplementation(() => {
         throw new DOMException("Sandboxed document", "SecurityError");
       });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     try {
       act(() => {
@@ -116,6 +117,10 @@ describe("FirstRunOnboardingStartupGate", () => {
     }
 
     expect(mocks.fetchStatus).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "[onboarding] first-run cookie is unreadable; skipping startup gate",
+    );
+    warn.mockRestore();
     expect(
       container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();

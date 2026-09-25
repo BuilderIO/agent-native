@@ -115,6 +115,7 @@ import { ReviewCanvasPins } from "@/components/visual-editor/ReviewCanvasPins";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
+import { CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS } from "@/pages/design-editor/commands/cross-screen-insert-timeout";
 
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { parseBreakpointWidthInput } from "./BreakpointBar";
@@ -3638,7 +3639,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         };
         boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
           expireBoardCrossScreenDrop();
-        }, HIT_TEST_COMMIT_TIMEOUT_MS + 1000);
+        }, CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
       }
       clearCrossScreenDrag({
         keepBoardMounted: targetCandidate.id === boardFileId,

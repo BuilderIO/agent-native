@@ -21,20 +21,22 @@ const FirstRunOnboarding = lazy(() =>
 );
 
 type FirstRunDecision = "pending" | "eligible" | "ineligible";
+type FirstRunCookieState = "present" | "absent" | "unreadable";
 
 const FirstRunOnboardingGateContext = createContext(false);
 
-function hasFirstRunOnboardingCookie(): boolean {
-  if (typeof document === "undefined") return true;
+function readFirstRunOnboardingCookieState(): FirstRunCookieState {
+  if (typeof document === "undefined") return "present";
   const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
   try {
-    return document.cookie.split(";").some((cookie) => {
+    const present = document.cookie.split(";").some((cookie) => {
       const entry = cookie.trim();
       return entry.startsWith(prefix) && entry.slice(prefix.length) === "1";
     });
+    return present ? "present" : "absent";
   } catch (error) {
     if (error instanceof DOMException && error.name === "SecurityError") {
-      return false;
+      return "unreadable";
     }
     throw error;
   }
@@ -50,9 +52,18 @@ export function FirstRunOnboardingStartupGate({
   children: React.ReactNode;
 }) {
   const previewMode = useOnboardingPreviewMode();
-  const [hadFirstRunCookie] = useState(hasFirstRunOnboardingCookie);
+  const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
+  useEffect(() => {
+    if (firstRunCookieState === "unreadable") {
+      console.warn(
+        "[onboarding] first-run cookie is unreadable; skipping startup gate",
+      );
+    }
+  }, [firstRunCookieState]);
   const shouldResolve =
-    isFirstRunOnboardingEnabled() && !previewMode && hadFirstRunCookie;
+    isFirstRunOnboardingEnabled() &&
+    !previewMode &&
+    firstRunCookieState === "present";
   const [decision, setDecision] = useState<FirstRunDecision>(
     shouldResolve ? "pending" : "ineligible",
   );

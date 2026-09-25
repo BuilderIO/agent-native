@@ -1319,7 +1319,32 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
         { timeout: 5_000 },
       )
       .toEqual(["dest-v1", "dest-v2", "v2", "dest-v3"]);
-    await page.waitForTimeout(3_100);
+    await expect
+      .poll(
+        async () => {
+          const sampleTimes = await Promise.all(
+            [sourceBrowserFrame!, destinationBrowserFrame!].map((targetFrame) =>
+              targetFrame.evaluate(() =>
+                Math.max(
+                  -1,
+                  ...(
+                    (
+                      window as typeof window & {
+                        __crossScreenDropTrace?: {
+                          samples: CrossScreenDropSample[];
+                        };
+                      }
+                    ).__crossScreenDropTrace?.samples ?? []
+                  ).map((sample) => sample.at),
+                ),
+              ),
+            ),
+          );
+          return sampleTimes.every((at) => at >= 3_000);
+        },
+        { timeout: 5_000 },
+      )
+      .toBe(true);
     const [sourceDropSamples, destinationDropSamples] = await Promise.all(
       [sourceBrowserFrame!, destinationBrowserFrame!].map((targetFrame) =>
         targetFrame.evaluate(
