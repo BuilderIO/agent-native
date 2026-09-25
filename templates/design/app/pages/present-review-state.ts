@@ -5,9 +5,15 @@ export interface PresentReviewState {
 
 export function resolvePresentEscapeAction(
   state: PresentReviewState,
-): "close-comments" | "defer-to-comment-mode" | "exit-presentation" {
+  reviewEmbed = false,
+):
+  | "close-comments"
+  | "defer-to-comment-mode"
+  | "stay-in-review-embed"
+  | "exit-presentation" {
   if (state.commentsOpen) return "close-comments";
   if (state.commentMode) return "defer-to-comment-mode";
+  if (reviewEmbed) return "stay-in-review-embed";
   return "exit-presentation";
 }
 

@@ -117,6 +117,23 @@ function toPriorityEmail(email: EmailMessage): AiPriorityEmail {
     isTrashed: email.isTrashed,
   };
 }
+
+function priorityEmailCacheKey(
+  email: EmailMessage,
+  ruleRevision: string,
+): string {
+  const priorityEmail = toPriorityEmail(email);
+  return JSON.stringify([
+    ruleRevision,
+    priorityEmail.id,
+    priorityEmail.date,
+    priorityEmail.from,
+    priorityEmail.to,
+    priorityEmail.subject,
+    priorityEmail.snippet,
+    priorityEmail.labelIds,
+  ]);
+}
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 
@@ -629,13 +646,28 @@ export function EmailList({
         .join("\u001f"),
     [priorityRuleRevision, priorityWindowEmails],
   );
-  const [priorityScores, setPriorityScores] = useState<Map<string, number>>(
-    () => new Map(),
-  );
+  const [priorityScores, setPriorityScores] = useState<
+    Map<string, { inputKey: string; score: number }>
+  >(() => new Map());
+  const cachedPriorityScores = useMemo(() => {
+    const cached = new Map<string, number>();
+    for (const email of priorityWindowEmails) {
+      const score = priorityScores.get(email.id);
+      if (
+        score?.inputKey === priorityEmailCacheKey(email, priorityRuleRevision)
+      ) {
+        cached.set(email.id, score.score);
+      }
+    }
+    return cached;
+  }, [priorityRuleRevision, priorityScores, priorityWindowEmails]);
   const priorityRequestKeyRef = useRef("");
   const priorityRequestGenerationRef = useRef(0);
   const previousSortModeRef = useRef(currentSortMode);
   const runPriority = useCallback(async () => {
+    const uncachedPriorityEmails = priorityWindowEmails.filter(
+      (email) => !cachedPriorityScores.has(email.id),
+    );
     if (
       areAutomationRulesFetching ||
       isPriorityPending ||
@@ -644,17 +676,33 @@ export function EmailList({
     ) {
       return;
     }
+    if (uncachedPriorityEmails.length === 0) {
+      priorityRequestKeyRef.current = priorityInputKey;
+      return;
+    }
     const requestKey = priorityInputKey;
     const requestGeneration = ++priorityRequestGenerationRef.current;
     priorityRequestKeyRef.current = requestKey;
+    const pendingInputKeys = new Map(
+      uncachedPriorityEmails.map((email) => [
+        email.id,
+        priorityEmailCacheKey(email, priorityRuleRevision),
+      ]),
+    );
     try {
       const result = await requestPriority({
-        emails: priorityWindowEmails.map(toPriorityEmail),
+        emails: uncachedPriorityEmails.map(toPriorityEmail),
       });
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
-      setPriorityScores(
-        new Map(result.scores.map((score) => [score.emailId, score.score])),
-      );
+      setPriorityScores((current) => {
+        const next = new Map(current);
+        for (const score of result.scores) {
+          const inputKey = pendingInputKeys.get(score.emailId);
+          if (inputKey)
+            next.set(score.emailId, { inputKey, score: score.score });
+        }
+        return next;
+      });
     } catch (error) {
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
       priorityRequestKeyRef.current = "";
@@ -668,6 +716,8 @@ export function EmailList({
     areAutomationRulesFetching,
     isPriorityPending,
     priorityInputKey,
+    priorityRuleRevision,
+    cachedPriorityScores,
     priorityWindowEmails,
     requestPriority,
     t,
@@ -701,8 +751,8 @@ export function EmailList({
               );
             }
             return (
-              (priorityScores.get(b.latestMessage.id) ?? 0.5) -
-                (priorityScores.get(a.latestMessage.id) ?? 0.5) ||
+              (cachedPriorityScores.get(b.latestMessage.id) ?? 0.5) -
+                (cachedPriorityScores.get(a.latestMessage.id) ?? 0.5) ||
               new Date(b.latestMessage.date).getTime() -
                 new Date(a.latestMessage.date).getTime() ||
               b.latestMessage.id.localeCompare(a.latestMessage.id)
@@ -713,7 +763,7 @@ export function EmailList({
       chronologicalIndexes,
       chronologicalThreads,
       currentSortMode,
-      priorityScores,
+      cachedPriorityScores,
       priorityWindowIds,
     ],
   );

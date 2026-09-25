@@ -3,6 +3,7 @@ import {
   availableEmbeddingFamilies,
   defaultEmbeddingFamily,
   type EmbeddingFamily,
+  readEmbeddingFamilyAvailability,
 } from "@agent-native/core/embeddings";
 import {
   deletePgVectors,
@@ -38,6 +39,25 @@ export const BRAIN_BURST_OVERLAP = 160;
 export const BRAIN_MAX_EMBEDDED_BURSTS = 12;
 
 export type BrainSearchArtifact = z.infer<typeof artifactSchema>;
+
+export type BrainEmbeddingReadinessStatus =
+  | "ready"
+  | "not-configured"
+  | "ambiguous"
+  | "unavailable";
+
+export interface BrainEmbeddingReadiness {
+  status: BrainEmbeddingReadinessStatus;
+  ready: boolean;
+  configuredProviders: string[];
+  unavailableProviders: string[];
+  configuredFamilies: number;
+  provider: string | null;
+  model: string | null;
+  embeddingSetId: string | null;
+  dimensions: number | null;
+  warning: string | null;
+}
 
 export interface SearchIndexCapture {
   id: string;
@@ -245,9 +265,223 @@ export function burstRows(
   return rows;
 }
 
+export function embeddingReadinessFromFamilies(
+  families: readonly EmbeddingFamily[],
+  unavailableProviders: readonly string[] = [],
+): BrainEmbeddingReadiness {
+  const configuredProviders = Array.from(
+    new Set(families.map((candidate) => candidate.provider)),
+  );
+  if (unavailableProviders.length) {
+    return {
+      status: "unavailable",
+      ready: false,
+      configuredProviders,
+      unavailableProviders: [...unavailableProviders],
+      configuredFamilies: families.length,
+      provider: null,
+      model: null,
+      embeddingSetId: null,
+      dimensions: null,
+      warning:
+        "Embedding credential status is temporarily unavailable. Retry before indexing.",
+    };
+  }
+  const family = defaultEmbeddingFamily(families);
+  if (family) {
+    return {
+      status: "ready",
+      ready: true,
+      configuredProviders: [family.provider],
+      unavailableProviders: [],
+      configuredFamilies: 1,
+      provider: family.provider,
+      model: family.model,
+      embeddingSetId: family.id,
+      dimensions: family.dimensions,
+      warning: null,
+    };
+  }
+  return {
+    status: families.length ? "ambiguous" : "not-configured",
+    ready: false,
+    configuredProviders,
+    unavailableProviders: [],
+    configuredFamilies: families.length,
+    provider: null,
+    model: null,
+    embeddingSetId: null,
+    dimensions: null,
+    warning: families.length
+      ? "Configure exactly one embedding provider."
+      : "Configure one embedding provider to enable semantic retrieval.",
+  };
+}
+
+export async function readEmbeddingReadiness(): Promise<BrainEmbeddingReadiness> {
+  const availability = await readEmbeddingFamilyAvailability();
+  return embeddingReadinessFromFamilies(
+    availability.families,
+    availability.unavailableProviders,
+  );
+}
+
 async function configuredEmbeddingFamily(): Promise<EmbeddingFamily | null> {
   const families = await availableEmbeddingFamilies();
   return defaultEmbeddingFamily(families);
+}
+
+export interface CaptureEmbeddingCoverage {
+  complete: boolean;
+  artifactEmbedded: boolean;
+  expectedBursts: number;
+  embeddedBursts: number;
+}
+
+export function captureAudienceIndexingFailureReason(
+  assignments: readonly unknown[],
+): "no-active-audience" | "multiple-audience-assignments" | null {
+  if (!assignments.length) return "no-active-audience";
+  return assignments.length === 1 ? null : "multiple-audience-assignments";
+}
+
+export function captureEmbeddingCoverageFromTargets(input: {
+  artifactId: string;
+  burstIds: string[];
+  embeddings: Array<{ targetType: string; targetId: string }>;
+}): CaptureEmbeddingCoverage {
+  const embeddedTargets = new Set(
+    input.embeddings.map((row) => `${row.targetType}:${row.targetId}`),
+  );
+  const artifactEmbedded = embeddedTargets.has(`artifact:${input.artifactId}`);
+  const embeddedBursts = input.burstIds.filter((id) =>
+    embeddedTargets.has(`burst:${id}`),
+  ).length;
+  return {
+    complete: artifactEmbedded && embeddedBursts === input.burstIds.length,
+    artifactEmbedded,
+    expectedBursts: input.burstIds.length,
+    embeddedBursts,
+  };
+}
+
+export async function readCaptureEmbeddingCoverage(
+  captureId: string,
+  embeddingSetId: string,
+): Promise<CaptureEmbeddingCoverage> {
+  const db = getDb();
+  const assignments = await db
+    .select({
+      audienceId: schema.brainCaptureAudiences.audienceId,
+      aclHash: schema.brainCaptureAudiences.aclHash,
+    })
+    .from(schema.brainCaptureAudiences)
+    .where(eq(schema.brainCaptureAudiences.captureId, captureId));
+  if (captureAudienceIndexingFailureReason(assignments)) {
+    return {
+      complete: false,
+      artifactEmbedded: false,
+      expectedBursts: 0,
+      embeddedBursts: 0,
+    };
+  }
+  const assignment = assignments[0]!;
+  const [artifact] = await db
+    .select({
+      id: schema.brainSearchArtifacts.id,
+      contentHash: schema.brainSearchArtifacts.contentHash,
+      sensitivityPolicyVersion:
+        schema.brainSearchArtifacts.sensitivityPolicyVersion,
+      aclHash: schema.brainSearchArtifacts.aclHash,
+      indexVersion: schema.brainSearchArtifacts.indexVersion,
+    })
+    .from(schema.brainSearchArtifacts)
+    .innerJoin(
+      schema.brainRawCaptures,
+      eq(schema.brainSearchArtifacts.captureId, schema.brainRawCaptures.id),
+    )
+    .where(
+      and(
+        eq(schema.brainRawCaptures.id, captureId),
+        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        eq(schema.brainSearchArtifacts.status, "active"),
+        eq(schema.brainSearchArtifacts.audienceId, assignment.audienceId),
+        eq(schema.brainSearchArtifacts.aclHash, assignment.aclHash),
+        eq(
+          schema.brainSearchArtifacts.contentHash,
+          schema.brainRawCaptures.contentHash,
+        ),
+        eq(
+          schema.brainSearchArtifacts.sensitivityPolicyVersion,
+          schema.brainRawCaptures.sensitivityPolicyVersion,
+        ),
+        eq(
+          schema.brainSearchArtifacts.aclHash,
+          schema.brainRawCaptures.audienceAclHash,
+        ),
+        eq(
+          schema.brainSearchArtifacts.indexVersion,
+          BRAIN_SEARCH_INDEX_VERSION,
+        ),
+      ),
+    )
+    .limit(1);
+  if (!artifact) {
+    return {
+      complete: false,
+      artifactEmbedded: false,
+      expectedBursts: 0,
+      embeddedBursts: 0,
+    };
+  }
+  const bursts = await db
+    .select({ id: schema.brainSearchBursts.id })
+    .from(schema.brainSearchBursts)
+    .where(
+      and(
+        eq(schema.brainSearchBursts.artifactId, artifact.id),
+        eq(schema.brainSearchBursts.indexed, 1),
+        eq(schema.brainSearchBursts.contentHash, artifact.contentHash),
+        eq(schema.brainSearchBursts.indexVersion, artifact.indexVersion),
+      ),
+    );
+  const targetIds = [artifact.id, ...bursts.map((burst) => burst.id)];
+  const embeddings = await db
+    .select({
+      targetType: schema.brainSearchEmbeddings.targetType,
+      targetId: schema.brainSearchEmbeddings.targetId,
+    })
+    .from(schema.brainSearchEmbeddings)
+    .where(
+      and(
+        eq(schema.brainSearchEmbeddings.status, "active"),
+        eq(schema.brainSearchEmbeddings.embeddingSetId, embeddingSetId),
+        eq(schema.brainSearchEmbeddings.contentHash, artifact.contentHash),
+        eq(
+          schema.brainSearchEmbeddings.sensitivityPolicyVersion,
+          artifact.sensitivityPolicyVersion,
+        ),
+        eq(schema.brainSearchEmbeddings.aclHash, artifact.aclHash),
+        eq(schema.brainSearchEmbeddings.indexVersion, artifact.indexVersion),
+        inArray(schema.brainSearchEmbeddings.targetId, targetIds),
+      ),
+    );
+  return captureEmbeddingCoverageFromTargets({
+    artifactId: artifact.id,
+    burstIds: bursts.map((burst) => burst.id),
+    embeddings,
+  });
+}
+
+export async function embedSearchTexts(
+  family: EmbeddingFamily | null,
+  texts: string[],
+): Promise<number[][] | null> {
+  if (!family) return null;
+  return family.embed(
+    texts.map((text) => ({ text })),
+    "document",
+  );
 }
 
 async function indexExternalSearchLanes(input: {
@@ -276,7 +510,6 @@ async function indexExternalSearchLanes(input: {
     namespace: SEARCH_NAMESPACE,
   });
   const family = await configuredEmbeddingFamily();
-  if (!family || !true) return;
   const targets = [
     {
       targetType: "artifact" as const,
@@ -291,10 +524,11 @@ async function indexExternalSearchLanes(input: {
       text: input.burstBodies[index] ?? "",
     })),
   ].filter((target) => target.text.trim());
-  const vectors = await family.embed(
-    targets.map((target) => ({ text: target.text })),
-    "document",
+  const vectors = await embedSearchTexts(
+    family,
+    targets.map((target) => target.text),
   );
+  if (!family || !vectors) return;
   await ensurePgVectorIndex(dbExec, family.dimensions, {
     namespace: SEARCH_NAMESPACE,
   });
@@ -633,20 +867,23 @@ export async function indexBrainCapture(captureId: string): Promise<{
     })
     .from(schema.brainCaptureAudiences)
     .where(eq(schema.brainCaptureAudiences.captureId, captureId));
-  let indexed = 0;
-  for (const audience of audiences) {
-    const result = await indexCaptureForSearch({
-      capture: {
-        ...capture,
-        sensitivityDisposition: capture.sensitivityDisposition,
-      },
-      audience,
-      id: nanoid(),
-      now: nowIso(),
-    });
-    if (result.indexed) indexed += 1;
+  const audienceFailure = captureAudienceIndexingFailureReason(audiences);
+  if (audienceFailure) {
+    await unindexBrainCapture(captureId);
+    return { indexed: 0, reason: audienceFailure };
   }
-  return indexed ? { indexed } : { indexed: 0, reason: "no-active-audience" };
+  const result = await indexCaptureForSearch({
+    capture: {
+      ...capture,
+      sensitivityDisposition: capture.sensitivityDisposition,
+    },
+    audience: audiences[0]!,
+    id: nanoid(),
+    now: nowIso(),
+  });
+  return result.indexed
+    ? { indexed: 1 }
+    : { indexed: 0, reason: result.reason ?? "search-index-failed" };
 }
 
 export async function unindexBrainCapture(captureId: string): Promise<void> {

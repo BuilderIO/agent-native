@@ -214,9 +214,11 @@ export interface MultiScreenCanvasProps {
   /** Lets every live frame receive native pointer interaction while the
    * overview camera and frame chrome remain available. */
   interactMode?: boolean;
-  /** One overview screen may temporarily pass pointer input through its
-   * mounted live editor without remounting or changing the global view. */
+  /** Screen whose mounted editor receives input in focused Interact view. */
   interactScreenId?: string | null;
+  /** Responsive viewport for a focused Interact screen that stays in this
+   * mounted canvas. */
+  focusedInteractViewport?: { width: number; height: number } | null;
   /** Viewer mode keeps selection/inspection available without edit chrome. */
   readOnly?: boolean;
   /** Live localhost screens whose DOM editor may receive pointer input. */

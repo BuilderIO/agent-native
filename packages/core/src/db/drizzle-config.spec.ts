@@ -19,10 +19,9 @@ describe("createDrizzleConfig", () => {
   });
 
   it("passes memory PGlite URLs through as memory data dirs", async () => {
-    vi.stubEnv("DATABASE_URL", "pglite:memory");
-
     const { createDrizzleConfig } = await import("./drizzle-config.js");
 
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
     expect(createDrizzleConfig()).toMatchObject({
       dialect: "postgresql",
       driver: "pglite",
