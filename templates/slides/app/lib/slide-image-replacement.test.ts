@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOptimisticImagePreview,
+  captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
   hasOptimisticImagePreview,
@@ -15,10 +16,13 @@ import {
   swapImageSourcesInPlace,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
+  registerSlideImageUploadProvenance,
   stripOptimisticImagePreviews,
+  takeSlideImageUploadProvenance,
   updateImageFitInSlideHtml,
   updateLiveImagesUnderEdit,
 } from "./slide-image-replacement";
+import { stampSlideSource } from "./slide-source-map";
 
 function firstImage(html: string): HTMLImageElement | null {
   return new DOMParser()
@@ -678,8 +682,8 @@ describe("updateLiveImagesUnderEdit", () => {
     preview: Parameters<typeof applyOptimisticImagePreview>[1],
   ) {
     const rendered = applyOptimisticImagePreview(committed, preview);
-    const draft = rendered.replace("Caption", "Caption ty");
-    const latest = stripOptimisticImagePreviews(draft, [preview]);
+    const capturedSnapshot = rendered.replace("Caption", "Caption ty");
+    const latest = stripOptimisticImagePreviews(capturedSnapshot, [preview]);
     const next = replaceOptimisticImagePreview(
       applyOptimisticImagePreview(
         stripOptimisticImagePreviews(latest, [preview]),
@@ -688,11 +692,23 @@ describe("updateLiveImagesUnderEdit", () => {
       preview.previewSrc,
       url,
     );
+    const stampedRendered = stampSlideSource(rendered, "slide-test").html;
+    const stampedSnapshot = stampSlideSource(
+      capturedSnapshot,
+      "slide-test",
+    ).html;
+    const stampedNext = stampSlideSource(next, "slide-test").html;
     const root = document.createElement("div");
-    root.innerHTML = rendered;
-    root.querySelector("p")!.setAttribute("contenteditable", "true");
-    root.querySelector("p")!.textContent = "Caption typed";
-    return { rendered, draft, next, root };
+    root.innerHTML = stampedRendered;
+    const edited = root.querySelector<HTMLElement>("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption ty";
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      stampedSnapshot,
+    )!;
+    edited.textContent = "Caption typed";
+    return { rendered: stampedRendered, next: stampedNext, provenance, root };
   }
 
   it.each([
@@ -715,32 +731,52 @@ describe("updateLiveImagesUnderEdit", () => {
       { previewSrc: "blob:p1", replaceSrc: "https://cdn.test/old.png" },
     ],
   ])(
-    "patches %s built on the edit's own draft",
+    "patches %s when the incoming edited node matches its upload snapshot",
     (_label, committed, preview) => {
-      const { rendered, draft, next, root } = uploadOnDraft(committed, preview);
-      expect(
-        updateLiveImagesUnderEdit(root, rendered, next, {
-          next,
-          drafts: [draft],
-        }),
-      ).toBe(true);
+      const { rendered, next, provenance, root } = uploadOnDraft(
+        committed,
+        preview,
+      );
+      expect(updateLiveImagesUnderEdit(root, rendered, next, provenance)).toBe(
+        true,
+      );
       expect(root.querySelector("img")!.getAttribute("src")).toBe(url);
       expect(root.querySelector("p")!.textContent).toBe("Caption typed");
     },
   );
 
   it("refuses an image change that also changed the edited text elsewhere", () => {
-    const { rendered, draft, next, root } = uploadOnDraft(
+    const { rendered, next, provenance, root } = uploadOnDraft(
       '<div class="fmd-slide"><p>Caption</p></div>',
       { previewSrc: "blob:p1", replaceSrc: null },
     );
     const remote = next.replace("Caption ty", "Agent caption");
-    expect(
-      updateLiveImagesUnderEdit(root, rendered, remote, {
-        next: remote,
-        drafts: [draft],
-      }),
-    ).toBe(false);
+    expect(updateLiveImagesUnderEdit(root, rendered, remote, provenance)).toBe(
+      false,
+    );
     expect(root.querySelector("img")!.getAttribute("src")).toBe("blob:p1");
+  });
+
+  it("fails closed when overlapping uploads register different snapshots for the same result", () => {
+    const { next, provenance } = uploadOnDraft(
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null },
+    );
+    const conflictingProvenance = {
+      ...provenance,
+      editedNodeMarkup: provenance.editedNodeMarkup.replace(
+        "Caption ty",
+        "Other caption",
+      ),
+    };
+
+    registerSlideImageUploadProvenance("slide-overlap", next, provenance);
+    registerSlideImageUploadProvenance(
+      "slide-overlap",
+      next,
+      conflictingProvenance,
+    );
+
+    expect(takeSlideImageUploadProvenance("slide-overlap", next)).toBeNull();
   });
 });

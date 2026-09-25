@@ -25,6 +25,7 @@ import {
 } from "@/lib/sanitize-slide-html";
 import {
   swapImageSourcesInPlace,
+  takeSlideImageUploadProvenance,
   updateLiveImagesUnderEdit,
 } from "@/lib/slide-image-replacement";
 import {
@@ -990,11 +991,13 @@ export function renderRawSlideHtml(
 function RawSlideHtmlContent({
   html,
   scopeId,
+  slideId,
   source,
   mermaidBlocks,
 }: {
   html: string;
   scopeId: string;
+  slideId: string;
   source: RenderedSlideSource | null;
   mermaidBlocks: string[];
 }) {
@@ -1008,20 +1011,19 @@ function RawSlideHtmlContent({
     if (!root) return;
     if (renderedHtmlRef.current !== html) {
       const sameSlide = getRenderedSlideSource(root)?.nonce === source?.nonce;
+      const uploadProvenance = source
+        ? takeSlideImageUploadProvenance(slideId, source.stored)
+        : null;
       if (root.querySelector(EDITING_SELECTOR)) {
-        // An upload that finishes while this slide's text is edited writes
-        // straight to the deck. Its image lands on the live images and joins
-        // the edit's changes; the edit keeps merging into the source it
-        // started from, which is still what the live stamps map to.
+        // Preserve the live draft only for this upload's exact edited-node
+        // snapshot; a newer same-slide write must commit and rebase the edit.
         if (
           sameSlide &&
           updateLiveImagesUnderEdit(
             root,
             renderedHtmlRef.current,
             html,
-            source
-              ? { next: source.stored, drafts: editDrafts.get(root) ?? [] }
-              : null,
+            uploadProvenance,
           )
         ) {
           return;
@@ -1096,9 +1098,11 @@ function RawSlideHtmlContent({
 
 function BlankSlideContent({
   content,
+  slideId,
   stampNonce,
 }: {
   content: string;
+  slideId: string;
   stampNonce?: string;
 }) {
   const scopeId = `slide-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -1133,6 +1137,7 @@ function BlankSlideContent({
     <RawSlideHtmlContent
       html={htmlWithPlaceholders}
       scopeId={scopeId}
+      slideId={slideId}
       source={source}
       mermaidBlocks={mermaidBlocks}
     />
@@ -1399,6 +1404,7 @@ export function SlideInner({
         >
           <BlankSlideContent
             content={content}
+            slideId={slide.id}
             stampNonce={stampSource ? slide.id : undefined}
           />
         </AutoFitContent>

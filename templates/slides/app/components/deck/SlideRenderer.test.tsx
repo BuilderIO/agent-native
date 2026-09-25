@@ -10,11 +10,16 @@ import {
   noteSlideEditDraft,
   prepareImportedFonts,
   resolveImportedFont,
+  renderRawSlideHtml,
   SLIDE_CONTENT_REPLACE_EVENT,
   slideDeclaresTextColor,
   SlideInner,
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
+import {
+  captureSlideImageUploadProvenance,
+  registerSlideImageUploadProvenance,
+} from "@/lib/slide-image-replacement";
 import { mergeRenderedEdits, SOURCE_STAMP_ATTR } from "@/lib/slide-source-map";
 
 vi.mock("./MermaidRenderer", () => ({
@@ -45,6 +50,15 @@ function rect(left: number, top: number, width: number, height: number) {
     bottom: top + height,
     toJSON: () => ({}),
   } as DOMRect;
+}
+
+function renderUploadSnapshot(root: HTMLElement, content: string): string {
+  const source = getRenderedSlideSource(root)!;
+  const scopeId = root.getAttribute("data-slide-content-scope")!;
+  return renderRawSlideHtml(content, {
+    scopeSelector: `[data-slide-content-scope="${scopeId}"]`,
+    stampNonce: source.nonce,
+  }).html;
 }
 
 describe("computeSlideFitTransform", () => {
@@ -265,6 +279,11 @@ describe("SlideInner source stamps", () => {
     edited.setAttribute("contenteditable", "true");
     edited.textContent = "Caption typed";
     const uploaded = content.replace("blob:preview", "https://cdn.test/a.png");
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      renderUploadSnapshot(root, content),
+    )!;
+    registerSlideImageUploadProvenance(slide.id, uploaded, provenance);
     rerender(
       <SlideInner slide={{ ...slide, content: uploaded }} stampSource />,
     );
@@ -326,16 +345,23 @@ describe("SlideInner source stamps", () => {
     expect(getRenderedSlideSource(root)?.stored).toBe(mixed);
   });
 
-  it("commits instead of patching images when the edited text changed elsewhere too", () => {
+  it("commits a mixed upload when its edited-node snapshot no longer matches", () => {
     const slide = { id: "slide-j", content, layout: "blank" } as Slide;
     const { rerender } = render(<SlideInner slide={slide} stampSource />);
     const root = document.querySelector<HTMLElement>(".slide-content")!;
     const edited = root.querySelector("p")!;
     edited.setAttribute("contenteditable", "true");
     edited.textContent = "Caption typed";
+    const draft = content.replace("Caption", "Caption ty");
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      renderUploadSnapshot(root, draft),
+    )!;
     const remote = content
       .replace("blob:preview", "https://cdn.test/a.png")
       .replace("Caption", "Agent caption");
+    noteSlideEditDraft(root, remote);
+    registerSlideImageUploadProvenance(slide.id, remote, provenance);
     const commit = vi.fn((event: Event) => {
       expect((event as CustomEvent).detail).toEqual({ content: remote });
       edited.removeAttribute("contenteditable");
@@ -348,7 +374,7 @@ describe("SlideInner source stamps", () => {
     expect(getRenderedSlideSource(root)?.stored).toBe(remote);
   });
 
-  it("keeps an edit open for an upload whose content carries that edit's own draft", async () => {
+  it("keeps an edit open when an upload carries its captured edited-node snapshot", async () => {
     const slide = { id: "slide-i", content, layout: "blank" } as Slide;
     const { rerender } = render(<SlideInner slide={slide} stampSource />);
     const root = document.querySelector<HTMLElement>(".slide-content")!;
@@ -356,15 +382,20 @@ describe("SlideInner source stamps", () => {
     const edited = root.querySelector("p")!;
     edited.setAttribute("contenteditable", "true");
     const draft = content.replace("Caption", "Caption ty");
-    noteSlideEditDraft(root, draft);
     edited.textContent = "Caption typed";
+    const uploaded = draft.replace("blob:preview", "https://cdn.test/a.png");
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      renderUploadSnapshot(root, draft),
+    )!;
     const commit = vi.fn();
     document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    registerSlideImageUploadProvenance(slide.id, uploaded, provenance);
     rerender(
       <SlideInner
         slide={{
           ...slide,
-          content: draft.replace("blob:preview", "https://cdn.test/a.png"),
+          content: uploaded,
         }}
         stampSource
       />,

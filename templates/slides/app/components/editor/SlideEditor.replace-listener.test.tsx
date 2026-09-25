@@ -4,8 +4,16 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  getRenderedSlideSource,
+  renderRawSlideHtml,
+} from "@/components/deck/SlideRenderer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
+import {
+  captureSlideImageUploadProvenance,
+  registerSlideImageUploadProvenance,
+} from "@/lib/slide-image-replacement";
 
 import SlideEditor from "./SlideEditor";
 
@@ -137,12 +145,28 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     (edited.firstChild as Text).data = "Caption typed";
     const rerender = (content: string) =>
       view.rerender(<SlideEditor slide={{ ...slide, content }} {...props} />);
-    return { draft: draft!, edited, onUpdateSlide, rerender };
+    const registerUpload = (content: string) => {
+      const root = document.querySelector<HTMLElement>(".slide-content")!;
+      const source = getRenderedSlideSource(root)!;
+      const scopeId = root.getAttribute("data-slide-content-scope")!;
+      const sourceSnapshot = renderRawSlideHtml(draft!, {
+        scopeSelector: `[data-slide-content-scope="${scopeId}"]`,
+        stampNonce: source.nonce,
+      });
+      const provenance = captureSlideImageUploadProvenance(
+        root,
+        sourceSnapshot.html,
+      )!;
+      registerSlideImageUploadProvenance(slide.id, content, provenance);
+    };
+    return { draft: draft!, edited, onUpdateSlide, registerUpload, rerender };
   }
 
   it("keeps an edit open under an upload built on its own draft", async () => {
-    const { draft, edited, rerender } = await editWithDraft();
-    rerender(draft.replace("old.png", "new.png"));
+    const { draft, edited, registerUpload, rerender } = await editWithDraft();
+    const uploaded = draft.replace("old.png", "new.png");
+    registerUpload(uploaded);
+    rerender(uploaded);
     expect(edited.getAttribute("contenteditable")).toBe("true");
     expect(edited.textContent).toBe("Caption typed");
     expect(
@@ -151,10 +175,12 @@ describe("SlideEditor with a newer version of the edited slide", () => {
   });
 
   it("ends an edit whose text another writer changed along with an image", async () => {
-    const { draft, edited, onUpdateSlide, rerender } = await editWithDraft();
+    const { draft, edited, onUpdateSlide, registerUpload, rerender } =
+      await editWithDraft();
     const remote = draft
       .replace("old.png", "new.png")
       .replace("Caption ty", "Agent caption");
+    registerUpload(remote);
     rerender(remote);
     expect(edited.hasAttribute("contenteditable")).toBe(false);
     expect(onUpdateSlide.mock.calls.at(-1)?.[0]).toEqual({ content: remote });
