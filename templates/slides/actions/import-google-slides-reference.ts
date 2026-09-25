@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -350,8 +350,12 @@ export default defineAction({
       presentationUrl ? { requireDriveExportScope: true } : undefined,
     );
     if (!connection) {
-      throw new Error(
+      fail(
         "Google Drive is not connected. Use the Connect Google button in Slides, then try again.",
+        {
+          errorCode: "google_drive_not_connected",
+          statusCode: 412,
+        },
       );
     }
 

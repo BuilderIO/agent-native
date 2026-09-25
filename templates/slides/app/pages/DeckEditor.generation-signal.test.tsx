@@ -177,7 +177,9 @@ vi.mock("@/components/editor/EditorSidebar", () => ({
 }));
 vi.mock("@/components/editor/SlideEditor", () => ({ default: () => null }));
 vi.mock("@/components/editor/GeneratingSlidePreview", () => ({
-  default: () => <div data-testid="generating-preview" />,
+  default: ({ busy = true }: { busy?: boolean }) => (
+    <div data-testid="generating-preview" data-busy={String(busy)} />
+  ),
 }));
 vi.mock("@/components/editor/ImageGenPanel", () => ({ default: () => null }));
 vi.mock("@/components/editor/AssetLibraryPanel", () => ({
@@ -494,8 +496,23 @@ describe("DeckEditor generation signal wiring", () => {
       expect(params.has("generating")).toBe(false);
       expect(params.has("generation_attempt_id")).toBe(false);
       expect(mocks.broadGenerating).toBe(true);
-      expect(screen.queryByTestId("generating-preview")).toBeNull();
+      expect(
+        screen.getByTestId("generating-preview").getAttribute("data-busy"),
+      ).toBe("false");
     });
+  });
+
+  it("shows an idle structural preview while a deck has no slides", () => {
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(
+      screen.getByTestId("generating-preview").getAttribute("data-busy"),
+    ).toBe("false");
   });
 
   it("keeps a submitted attempt open when pagehide enters the back-forward cache", () => {

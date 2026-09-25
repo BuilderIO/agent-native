@@ -7,8 +7,8 @@
  *   - ticket — a bug/issue ticket
  *   - email  — a ready-to-send email
  *
- * The agent composes the document and stores it in application_state under
- * `clips-workflow-<recordingId>` so the UI can pick it up and display it.
+ * The agent composes the document and saves it with complete-workflow so the
+ * UI can pick it up and display it.
  *
  * Usage:
  *   pnpm action generate-workflow --recordingId=<id> --kind=pr
@@ -62,7 +62,7 @@ const workflowGenerationLocks = new Set<string>();
 
 export default defineAction({
   description:
-    "Ask the agent to generate a structured workflow doc (pr/sop/ticket/email) from this recording's transcript (and the full video when Include full video is enabled). The agent writes the result to clips-workflow-<recordingId> in application_state.",
+    "Ask the agent to generate a structured workflow doc (pr/sop/ticket/email) from this recording's transcript (and the full video when Include full video is enabled). The agent saves the result with complete-workflow.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     kind: WorkflowKindSchema.describe("Workflow kind"),
@@ -136,9 +136,10 @@ export default defineAction({
         `Generate a ${args.kind.toUpperCase()} workflow document from recording ${args.recordingId} ` +
         `(title: "${rec.title}"). Read the transcript from this request's context. ` +
         `${KIND_PROMPTS[args.kind]} ` +
-        `Then write the final markdown to application_state key "${stateKey}" as ` +
-        `\`{ kind: "${args.kind}", status: "ready", content: "...", recordingId: "${args.recordingId}" }\`. ` +
-        `Finish by replying in chat with the same generated markdown so the user can read it immediately.`;
+        `Then call complete-workflow with recordingId "${args.recordingId}", ` +
+        `the exact requestedAt from this request's context, and the final markdown. ` +
+        `Do not report completion unless that action returns saved: true. ` +
+        `Finish by replying in chat with the same generated markdown.`;
 
       const request = {
         kind: "generate-workflow" as const,

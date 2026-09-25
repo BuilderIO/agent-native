@@ -1,10 +1,10 @@
 /**
- * Update organization branding — org name, brand color, brand logo URL,
+ * Update organization branding — org name, brand color, brand logo reference,
  * default visibility — by updating the framework `organizations` row for the
  * name and upserting the Clips-specific `organization_settings` sidecar row.
  *
  * Usage:
- *   pnpm action set-organization-branding --brandColor="#18181B" --brandLogoUrl=/api/media/abc.png
+ *   pnpm action set-organization-branding --brandColor=<hex-color> --brandLogoUrl=clips-org-logo:v1:<reference>
  */
 
 import { defineAction } from "@agent-native/core/action";
@@ -20,7 +20,7 @@ const VisibilityEnum = z.enum(["private", "org", "public"]);
 
 export default defineAction({
   description:
-    "Update the active organization's Clips branding — brand color (e.g. #18181B), brand logo URL, and default recording visibility. Upserts the organization_settings sidecar row.",
+    "Update the active organization's Clips branding — brand color, brand logo reference, and default recording visibility. Upserts the organization_settings sidecar row.",
   schema: z.object({
     organizationId: z
       .string()
@@ -33,15 +33,15 @@ export default defineAction({
       .max(120)
       .optional()
       .describe("Organization display name"),
-    brandColor: z
-      .string()
-      .regex(/^#[0-9a-fA-F]{3,8}$/)
-      .optional()
-      .describe("Hex color (e.g. #18181B)"),
+  brandColor: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{3,8}$/)
+    .optional()
+    .describe("Hex color"),
     brandLogoUrl: z
       .string()
       .nullish()
-      .describe("URL of the logo image — pass null to clear"),
+      .describe("Stored logo reference or legacy URL — pass null to clear"),
     defaultVisibility: VisibilityEnum.optional().describe(
       "Default visibility for new recordings",
     ),

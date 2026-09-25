@@ -33,6 +33,7 @@ const INITIAL_TOOL_NAMES = [
   "update-ai-request-status",
   "remove-filler-words",
   "export-to-brain",
+  "complete-workflow",
   "navigate",
   "refresh-list",
 ];

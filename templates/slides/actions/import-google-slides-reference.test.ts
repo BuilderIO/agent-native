@@ -1,4 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  getRequestUserEmail: vi.fn(),
+  getAvailableGoogleDocsAccessToken: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server/request-context", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/server/request-context")
+    >();
+  return {
+    ...actual,
+    getRequestUserEmail: (...args: unknown[]) =>
+      mocks.getRequestUserEmail(...args),
+  };
+});
+
+vi.mock("../server/lib/google-docs-access.js", () => ({
+  getAvailableGoogleDocsAccessToken: (...args: unknown[]) =>
+    mocks.getAvailableGoogleDocsAccessToken(...args),
+}));
 
 import { extractGoogleSlidesUrls } from "../shared/google-docs";
 import {
@@ -6,6 +28,7 @@ import {
   googleSlidesExportError,
   googleSlidesMeasurementToEmu,
 } from "./import-google-slides-reference";
+import action from "./import-google-slides-reference";
 
 describe("extractGoogleSlidesPresentationId", () => {
   it("accepts a Google Slides URL with a slide anchor", () => {
@@ -69,5 +92,27 @@ describe("extractGoogleSlidesPresentationId", () => {
     expect(error.statusCode).toBe(403);
     expect(error.message).toContain("Connect Google again");
     expect(error.message).toContain("Google Picker");
+  });
+});
+
+describe("import-google-slides-reference action", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getRequestUserEmail.mockReturnValue("user@example.com");
+    mocks.getAvailableGoogleDocsAccessToken.mockResolvedValue(null);
+  });
+
+  it("reports a missing Google connection as a safe precondition failure", async () => {
+    await expect(
+      action.run({ fileId: "presentation_123" }),
+    ).rejects.toMatchObject({
+      errorCode: "google_drive_not_connected",
+      statusCode: 412,
+      message: expect.stringContaining("Connect Google button in Slides"),
+    });
+    expect(mocks.getAvailableGoogleDocsAccessToken).toHaveBeenCalledWith(
+      "user@example.com",
+      undefined,
+    );
   });
 });

@@ -162,7 +162,7 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
     ).toHaveLength(1);
     expect(
       screen.getByLabelText("designSystemSetup.companyBrand").className,
-    ).toContain("placeholder:text-foreground/60");
+    ).toContain("placeholder:text-foreground/70");
 
     const notesRow = screen
       .getByText("designSystemSetup.additionalNotes")
@@ -178,7 +178,7 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
     ).toHaveLength(1);
     expect(
       screen.getByLabelText("designSystemSetup.additionalNotes").className,
-    ).toContain("placeholder:text-foreground/60");
+    ).toContain("placeholder:text-foreground/70");
   });
 
   it("re-enables Figma uploads when resetting a preview during indexing", async () => {
@@ -236,5 +236,33 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
       .getElementById("slides-design-system-figma-source")
       ?.querySelector("button");
     expect(uploadButton?.hasAttribute("disabled")).toBe(false);
+  });
+  it("shows Figma upload progress while the file is transferring", async () => {
+    mocks.tierLimit = {
+      status: "ok",
+      plan: "enterprise",
+      current: 0,
+      max: null,
+      atMax: false,
+      codeIndexingAllowed: true,
+    };
+    mocks.uploadFigma.mockImplementationOnce((_files, { onProgress }) => {
+      onProgress(0.5);
+      return new Promise(() => {});
+    });
+
+    render(<DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />);
+    const input = document.querySelector<HTMLInputElement>(
+      'input[type="file"][accept=".fig"]',
+    );
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, {
+      target: { files: [new File(["figma"], "brand.fig")] },
+    });
+
+    const progress = await screen.findByRole("progressbar", {
+      name: "designSystemSetup.parsingFigmaFile",
+    });
+    expect(progress.getAttribute("aria-valuenow")).toBe("50");
   });
 });

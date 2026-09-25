@@ -123,6 +123,7 @@ describe("generate-workflow action", () => {
       ([key]) => key === "clips-ai-request-rec_1",
     )?.[1];
     expect(queuedRequest.requestedAt).toBe(workflowState.requestedAt);
+    expect(queuedRequest.message).toContain("complete-workflow");
     expect(queuedRequest.openInChat).toBe(true);
   });
 
