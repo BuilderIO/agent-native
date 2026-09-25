@@ -569,14 +569,29 @@ export function hasActiveCredibleSafetyFinding(
       .split(
         /(?:[.!?]\s+|;\s*|\r?\n+|,\s*(?:but|however|while)\s+|\s+(?:but|however|while)\s+)/i,
       )
-      .some(
-        (sentence) =>
-          SAFETY_FINDING_PATTERN.test(sentence) &&
-          (!NON_FINDING_PATTERN.test(sentence) ||
+      .some((sentence) => {
+        const safetyTerms = Array.from(
+          sentence.matchAll(new RegExp(SAFETY_FINDING_PATTERN.source, "gi")),
+        );
+        if (safetyTerms.length === 0) return false;
+
+        const nonFindings = Array.from(
+          sentence.matchAll(new RegExp(NON_FINDING_PATTERN.source, "gi")),
+        );
+        return safetyTerms.some((safetyTerm) => {
+          const index = safetyTerm.index ?? 0;
+          const coveringNonFinding = nonFindings.find((match) => {
+            const start = match.index ?? 0;
+            return index >= start && index < start + match[0].length;
+          });
+          return (
+            !coveringNonFinding ||
             /\b(?:not|isn't|is not|never)\b.{0,20}\b(?:resolved|fixed|mitigated|safe|secure)\b/i.test(
-              sentence,
-            )),
-      );
+              coveringNonFinding[0],
+            )
+          );
+        });
+      });
   const latestReviewByAuthor = new Map<string, (typeof reviews)[number]>();
   reviews.forEach((review, index) => {
     const author = review.author?.trim().toLowerCase() || `review-${index}`;

@@ -275,6 +275,12 @@ describe("pull-request governance", () => {
     ).toBe(false);
     expect(
       hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body: "No issues found." }],
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      hasActiveCredibleSafetyFinding(
         [
           {
             state: "commented",
@@ -284,6 +290,23 @@ describe("pull-request governance", () => {
         [],
       ),
     ).toBe(true);
+    for (const body of [
+      "No CSP issues found, authentication bypass permits access.",
+      "No CSP issues found and authentication bypass permits access.",
+      "No CSP issues found as authentication bypass permits access.",
+      "No CSP issues found except authentication bypass permits access.",
+      "No CSP issues found although authentication bypass permits access.",
+      "No CSP issues found though authentication bypass permits access.",
+      "No CSP issues found despite authentication bypass permits access.",
+      "No issues found, authentication bypass permits access.",
+      "No issues found and authentication bypass permits access.",
+      "No issues found as authentication bypass permits access.",
+      "No issues found except authentication bypass permits access.",
+    ]) {
+      expect(
+        hasActiveCredibleSafetyFinding([{ state: "commented", body }], []),
+      ).toBe(true);
+    }
     expect(
       hasActiveCredibleSafetyFinding(
         [{ state: "approved", body: "No XSS or CSRF vulnerabilities found." }],
