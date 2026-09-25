@@ -182,6 +182,33 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
+  it("does not report a BFCache pagehide as abandonment but tracks a later exit", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    const persistedPageHide = new Event("pagehide");
+    Object.defineProperty(persistedPageHide, "persisted", { value: true });
+    act(() => window.dispatchEvent(persistedPageHide));
+
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      expect.anything(),
+    );
+
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      expect.objectContaining({ flow: "first_run", reason: "page_exit" }),
+    );
+  });
+
   it("does not report page exit while completion is in flight", async () => {
     let resolveCompletion: (() => void) | undefined;
     mocks.completeFirstRun.mockImplementation(

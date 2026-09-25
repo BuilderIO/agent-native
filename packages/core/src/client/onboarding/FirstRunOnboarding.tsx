@@ -208,7 +208,8 @@ export function FirstRunOnboarding({
   ]);
   useEffect(() => {
     if (previewMode || !firstRun || loading || !profile) return;
-    const handlePageHide = () => {
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
       if (
         onboardingTerminalRef.current ||
         abandonmentTrackedRef.current ||
