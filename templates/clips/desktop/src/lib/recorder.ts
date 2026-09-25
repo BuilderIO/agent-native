@@ -1786,7 +1786,6 @@ export async function createPrivateAgentRewindRecording(
       title: `Rewind · ${new Date(startedAt).toLocaleString()}`,
       titleSource: "context",
       sourceAppName: "Clips Rewind",
-      recordingPlatform: "desktop",
       sourceWindowTitle: null,
     },
     {
@@ -2140,7 +2139,9 @@ function uploadFailureDiagnostics(error: unknown) {
     details.failureStage === "multipart_start"
       ? { failureStage: details.failureStage }
       : {}),
-    ...(Number.isInteger(details.status) ? { httpStatus: details.status } : {}),
+    ...(typeof details.status === "number" && Number.isInteger(details.status)
+      ? { httpStatus: details.status }
+      : {}),
   };
 }
 

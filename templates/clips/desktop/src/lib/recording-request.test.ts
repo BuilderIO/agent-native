@@ -33,6 +33,7 @@ describe("buildCreateRecordingRequestBody", () => {
       hasCamera: false,
       hasAudio: true,
       spaceIds: [],
+      recordingPlatform: "desktop",
       requestStreaming: true,
       mimeType: "video/mp4",
       streamingUploadClient: "desktop-native",
@@ -50,6 +51,12 @@ describe("buildCreateRecordingRequestBody", () => {
       hasAudio: true,
       spaceIds: [],
       visibility: "private",
+    });
+  });
+
+  it("sends the client platform when recording", () => {
+    expect(buildCreateRecordingRequestBody(false, true)).toMatchObject({
+      recordingPlatform: "desktop",
     });
   });
 });
