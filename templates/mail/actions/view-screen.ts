@@ -350,8 +350,7 @@ async function fetchEmailList(
     switch (effectiveView) {
       case "inbox":
         emails = emails.filter(
-          (e: any) =>
-            !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+          (e: any) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
         );
         break;
       case "unread":
