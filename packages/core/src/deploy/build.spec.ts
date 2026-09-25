@@ -672,6 +672,19 @@ describe("resolveNitroBuildReplacements", () => {
       fs.rmSync(projectCwd, { recursive: true, force: true });
     }
   });
+
+  it("embeds the first-run onboarding mode resolved from the app config", () => {
+    expect(
+      resolveNitroBuildReplacements({}, undefined, undefined, "off")[
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"
+      ],
+    ).toBe(JSON.stringify("off"));
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"
+      ],
+    ).toBe(JSON.stringify(""));
+  });
 });
 
 describe("isCloudflareModulePreset", () => {

@@ -682,7 +682,7 @@ describe("secrets routes", () => {
     });
   });
 
-  it("reports an env-resolved value with source env and last4 from the value", async () => {
+  it("does not report deployment environment values as saved user keys", async () => {
     mockListRequiredSecrets.mockReturnValue([
       {
         key: "OPENAI_API_KEY",
@@ -702,15 +702,11 @@ describe("secrets routes", () => {
     const result = await handler(event("/", "GET"));
 
     expect(result).toEqual([
-      expect.objectContaining({
-        key: "OPENAI_API_KEY",
-        status: "set",
-        source: "env",
-        effectiveScope: "env",
-        managedHere: false,
-        last4: "1234",
-      }),
+      expect.objectContaining({ key: "OPENAI_API_KEY", status: "unset" }),
     ]);
+    expect(result[0]).not.toHaveProperty("source");
+    expect(result[0]).not.toHaveProperty("effectiveScope");
+    expect(result[0]).not.toHaveProperty("last4");
     expect(mockReadAppSecretMeta).not.toHaveBeenCalled();
   });
 

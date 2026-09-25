@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Capture every SQL string + bound args the store sends to the DB so we
-// can assert that user-scoped reads include `user_id = ?` and that the
-// owner identifier reaches the binding. We don't simulate real SQL
-// execution — the goal here is to verify that the data-isolation
-// contract is upheld at the query-construction layer.
+// Capture every SQL string + bound args. Reads default to empty results,
+// with selected rows supplied only when a mapper needs exercising.
 interface ExecCall {
   sql: string;
   args: any[];
@@ -371,6 +368,84 @@ describe("observability store: per-user isolation", () => {
       const call = lastSelect();
       expect(call.sql).toMatch(/WHERE run_id = \? AND user_id = \?/);
       expect(call.args).toEqual(["run-x", "alice"]);
+    });
+
+    it("hides legacy tool errors and sanitizes explicitly captured errors", async () => {
+      selectedRows.push(
+        {
+          id: "legacy",
+          run_id: "run-x",
+          span_type: "tool_call",
+          name: "fetch",
+          status: "error",
+          error_message:
+            "Error: client_secret=old-secret private_key=old-private-key",
+          metadata: null,
+          created_at: 1,
+        },
+        {
+          id: "captured",
+          run_id: "run-x",
+          span_type: "tool_call",
+          name: "fetch",
+          status: "error",
+          error_message:
+            "Error: client_secret=new-secret private_key=new-private-key",
+          metadata: JSON.stringify({
+            __tool_error_capture_version: 1,
+          }),
+          created_at: 2,
+        },
+        {
+          id: "captured-jsonb",
+          run_id: "run-x",
+          span_type: "tool_call",
+          name: "fetch",
+          status: "error",
+          error_message: "Error: client_secret=jsonb-secret",
+          metadata: {
+            __tool_error_capture_version: 1,
+            input: { query: "safe query" },
+          },
+          created_at: 3,
+        },
+        {
+          id: "legacy-captured-input",
+          run_id: "run-x",
+          span_type: "tool_call",
+          name: "fetch",
+          status: "success",
+          metadata: {
+            input: {
+              headers: { "Proxy-Authorization": "Basic old-proxy-secret" },
+              subscriptionKey: "old-subscription-key",
+              googleClientSecret: "old-client-secret",
+              providerToken: "old-provider-token",
+            },
+          },
+          created_at: 4,
+        },
+      );
+
+      const spans = await getTraceSpansForRun("run-x");
+
+      expect(spans[0]?.errorMessage).toBeNull();
+      expect(spans[1]?.errorMessage).toBe(
+        "Error: client_secret=[REDACTED] private_key=[REDACTED]",
+      );
+      expect(spans[1]?.metadata).not.toHaveProperty(
+        "__tool_error_capture_version",
+      );
+      expect(spans[2]?.errorMessage).toBe("Error: client_secret=[REDACTED]");
+      expect(spans[2]?.metadata).toEqual({ input: { query: "safe query" } });
+      expect(spans[3]?.metadata).toEqual({
+        input: {
+          headers: { "Proxy-Authorization": "[REDACTED]" },
+          subscriptionKey: "[REDACTED]",
+          googleClientSecret: "[REDACTED]",
+          providerToken: "[REDACTED]",
+        },
+      });
     });
 
     it("getFeedback adds user_id filter when userId is provided", async () => {

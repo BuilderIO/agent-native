@@ -26,8 +26,14 @@ import {
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
+
+const builderAddCreditsUrl = withBuilderUtmTrackingParams(
+  "https://builder.io/account/subscription?signupSource=agent-native",
+  { content: "usage_credit_balance" },
+);
 
 type UsageScope = "me" | "workspace";
 type Translation = ReturnType<typeof useT>;
@@ -79,6 +85,7 @@ interface UsageRecentMetric {
 }
 
 interface UsageMetricsData {
+  builderCreditUsageEnabled: boolean;
   billing: UsageBilling;
   app: string;
   viewScope: UsageScope;
@@ -114,6 +121,17 @@ interface UsageMetricsData {
   byModel: UsageMetricBucket[];
   daily: UsageDailyMetric[];
   recent: UsageRecentMetric[];
+}
+
+interface BuilderCreditUsageData {
+  plan: "free" | "paid";
+  balance: number;
+  quota: {
+    period: "daily" | "monthly";
+    limit: number;
+    used: number;
+    remaining: number;
+  };
 }
 
 interface UsageAlertRule {
@@ -490,6 +508,109 @@ function UsageLoadingState() {
   );
 }
 
+function BuilderCreditUsageSkeleton() {
+  return (
+    <section
+      aria-hidden="true"
+      className="rounded-lg border border-border/70 bg-card p-4"
+    >
+      <Skeleton className="h-4 w-32" />
+      <Skeleton className="mt-3 h-5 w-40" />
+      <Skeleton className="mt-5 h-3 w-full" />
+      <Skeleton className="mt-2 h-2 w-full" />
+    </section>
+  );
+}
+
+function BuilderCreditUsagePanel({ usage }: { usage: BuilderCreditUsageData }) {
+  const t = useT();
+  const quotaLabel =
+    usage.quota.period === "daily"
+      ? t("agentChat.usage.dailyFreeLimit", {
+          defaultValue: "Free daily limit",
+        })
+      : t("agentChat.usage.monthlyPlan", { defaultValue: "Monthly plan" });
+  const canAddCredits = usage.quota.remaining === 0;
+  const used = usage.quota.used.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+  const limit = usage.quota.limit.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+  const remaining = usage.quota.remaining.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+
+  return (
+    <section className="rounded-lg border border-border/70 bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">
+            {t("agentChat.usage.builderCredits", {
+              defaultValue: "Builder credits",
+            })}
+          </h2>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="text-xs text-muted-foreground">
+              {t("agentChat.usage.creditBalance", {
+                defaultValue: "Workspace balance",
+              })}
+            </span>
+            <span className="text-base font-semibold tabular-nums text-foreground">
+              {usage.balance.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </div>
+        </div>
+        {canAddCredits ? (
+          <Button asChild variant="outline" size="sm">
+            <a href={builderAddCreditsUrl} target="_blank" rel="noreferrer">
+              {t("agentChat.errorMessages.addCreditsInBuilder", {
+                defaultValue: "Add credits in Builder",
+              })}
+              <IconArrowUpRight />
+            </a>
+          </Button>
+        ) : null}
+      </div>
+      <div className="mt-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+          <span className="font-medium text-foreground">{quotaLabel}</span>
+          <span className="tabular-nums text-muted-foreground">
+            {t("agentChat.usage.creditUsedOfLimit", {
+              defaultValue: "{{used}} of {{limit}} used",
+              used,
+              limit,
+            })}
+          </span>
+        </div>
+        <div
+          role="progressbar"
+          aria-label={quotaLabel}
+          aria-valuemin={0}
+          aria-valuemax={usage.quota.limit}
+          aria-valuenow={Math.min(usage.quota.used, usage.quota.limit)}
+          className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted"
+        >
+          <div
+            className="h-full rounded-full bg-primary"
+            style={{
+              width: `${(Math.min(usage.quota.used, usage.quota.limit) / usage.quota.limit) * 100}%`,
+            }}
+          />
+        </div>
+        <div className="mt-1 text-right text-xs tabular-nums text-muted-foreground">
+          {t("agentChat.usage.creditRemaining", {
+            defaultValue: "{{amount}} remaining",
+            amount: remaining,
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function AlertEditor({
   draft,
   onChange,
@@ -843,6 +964,16 @@ export function UsageSection({
     appId: appId ?? undefined,
   });
   const data = query.data;
+  const canViewBuilderCreditUsage = Boolean(
+    !appId && data?.builderCreditUsageEnabled && data.access.canViewWorkspace,
+  );
+  const builderCreditUsageQuery = useActionQuery<BuilderCreditUsageData | null>(
+    "get-builder-credit-usage",
+    {},
+    {
+      enabled: canViewBuilderCreditUsage,
+    },
+  );
   const billing = data?.billing ?? {
     unit: "usd" as const,
     label: "Estimated spend",
@@ -958,6 +1089,40 @@ export function UsageSection({
         </div>
       ) : null}
       {!data && query.isLoading ? <UsageLoadingState /> : null}
+      {canViewBuilderCreditUsage && builderCreditUsageQuery.isLoading ? (
+        <BuilderCreditUsageSkeleton />
+      ) : null}
+      {canViewBuilderCreditUsage && builderCreditUsageQuery.isError ? (
+        <section
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card p-4"
+          role="alert"
+        >
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">
+              {t("agentChat.usage.builderCredits", {
+                defaultValue: "Builder credits",
+              })}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("agentChat.usage.creditUsageUnavailable", {
+                defaultValue: "Builder credit usage couldn’t be loaded.",
+              })}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void builderCreditUsageQuery.refetch()}
+            disabled={builderCreditUsageQuery.isFetching}
+          >
+            {t("agentChat.common.retry", { defaultValue: "Retry" })}
+          </Button>
+        </section>
+      ) : null}
+      {canViewBuilderCreditUsage && builderCreditUsageQuery.data ? (
+        <BuilderCreditUsagePanel usage={builderCreditUsageQuery.data} />
+      ) : null}
       {data ? (
         <>
           <div

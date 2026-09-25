@@ -221,6 +221,21 @@ export function BuilderConnectionMenu({
     });
   }, [flow, trackingFlow, trackingSource]);
 
+  if (flow.connecting) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 px-2 text-xs"
+        data-testid="builder-connection-cancel"
+        onClick={flow.cancel}
+      >
+        {t("common.cancel")}
+      </Button>
+    );
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>

@@ -293,7 +293,7 @@ async function defaultDistillationRunner(context: DistillationAgentContext) {
   const tools = core.actionsToEngineTools(actions);
   const userApiKey = await core.getOwnerActiveApiKey(context.source.ownerEmail);
   const engine = await core.resolveEngine({
-    apiKey: userApiKey ?? process.env.ANTHROPIC_API_KEY,
+    apiKey: userApiKey,
     appId: "brain",
   });
   const model =

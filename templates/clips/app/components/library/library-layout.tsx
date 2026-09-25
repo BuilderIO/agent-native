@@ -194,11 +194,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const t = useT();
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
   const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW.key);
-  // Bind chat to the currently-open recording (`/r/:id`). Library, spaces,
-  // meetings, dictate, and settings stay unscoped — those are list-y views
-  // where deck-style "this recording" framing doesn't apply.
+  // Bind chat to the currently-open recording (`/r/:id` or `/share/:id`).
+  // Library, spaces, meetings, dictate, and settings stay unscoped.
   const recordingScope = useMemo(() => {
-    const match = location.pathname.match(/^\/r\/([^/]+)/);
+    const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
     const recordingId = match?.[1];
     if (!recordingId) return null;
     return { type: "recording" as const, id: recordingId };
@@ -278,7 +277,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   >(() => ({
     library:
       location.pathname.startsWith("/library") ||
-      location.pathname.startsWith("/r/"),
+      location.pathname.startsWith("/r/") ||
+      location.pathname.startsWith("/share/"),
     spaces: location.pathname.startsWith("/spaces"),
   }));
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
@@ -346,7 +346,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       library:
         groups.library ||
         location.pathname.startsWith("/library") ||
-        location.pathname.startsWith("/r/"),
+        location.pathname.startsWith("/r/") ||
+        location.pathname.startsWith("/share/"),
       spaces: groups.spaces || location.pathname.startsWith("/spaces"),
     }));
   }, [location.pathname]);
@@ -423,7 +424,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       label: t("navigation.library"),
       icon: IconInbox,
       match: (p) =>
-        p === "/home" || p.startsWith("/library") || p.startsWith("/r/"),
+        p === "/home" ||
+        p.startsWith("/library") ||
+        p.startsWith("/r/") ||
+        p.startsWith("/share/"),
       count: libraryCount,
     },
     {

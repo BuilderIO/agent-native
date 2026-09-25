@@ -14,6 +14,11 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import {
+  sanitizeToolErrorMessage,
+  TOOL_ERROR_CAPTURE_METADATA_KEY,
+} from "./trace-error.js";
+import { redactSensitiveFields } from "./trace-redaction.js";
 import type {
   TraceSpan,
   TraceSummary,
@@ -29,9 +34,10 @@ import type {
 } from "./types.js";
 
 function safeJsonParse<T>(value: unknown, fallback: T): T {
-  if (!value) return fallback;
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== "string") return value as T;
   try {
-    return JSON.parse(String(value));
+    return JSON.parse(value);
   } catch {
     return fallback;
   }
@@ -1512,6 +1518,19 @@ export async function getObservabilityOverview(
 // ─── Row mappers ─────────────────────────────────────────────────────
 
 function rowToTraceSpan(row: Record<string, any>): TraceSpan {
+  const storedMetadata = safeJsonParse<Record<string, unknown> | null>(
+    row.metadata,
+    null,
+  );
+  const metadata = storedMetadata ? { ...storedMetadata } : null;
+  const hasCapturedToolError =
+    metadata?.[TOOL_ERROR_CAPTURE_METADATA_KEY] === 1;
+  if (metadata && metadata.input !== undefined) {
+    metadata.input = redactSensitiveFields(metadata.input);
+  }
+  if (metadata) delete metadata[TOOL_ERROR_CAPTURE_METADATA_KEY];
+  const errorMessage = row.error_message ? String(row.error_message) : null;
+
   return {
     id: String(row.id),
     runId: String(row.run_id),
@@ -1528,8 +1547,13 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     costCentsX100: Number(row.cost_cents_x100 ?? 0),
     durationMs: Number(row.duration_ms ?? 0),
     status: row.status as TraceSpan["status"],
-    errorMessage: row.error_message ? String(row.error_message) : null,
-    metadata: safeJsonParse(row.metadata, null),
+    errorMessage:
+      row.span_type === "tool_call" && !hasCapturedToolError
+        ? null
+        : errorMessage
+          ? sanitizeToolErrorMessage(errorMessage)
+          : null,
+    metadata,
     createdAt: Number(row.created_at),
   };
 }

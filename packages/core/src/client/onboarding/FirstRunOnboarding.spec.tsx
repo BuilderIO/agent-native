@@ -141,7 +141,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.querySelector("[data-onboarding-screen]")).toBeNull();
   });
 
-  it("lets users dismiss setup and records completion", async () => {
+  it("does not show a close button during first-run setup", async () => {
     await act(async () => {
       root.render(
         <TooltipProvider>
@@ -150,64 +150,12 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
-    const dismissButton = document.body.querySelector(
-      '[data-testid="first-run-dismiss"]',
-    );
-    expect(dismissButton).not.toBeNull();
-
-    await act(async () => {
-      (dismissButton as HTMLButtonElement).click();
-      await Promise.resolve();
-    });
-
-    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
-  });
-
-  it("surfaces a failed dismissal with a retry action", async () => {
-    mocks.completeFirstRun.mockRejectedValue(
-      new Error("first-run completion failed: 500"),
-    );
-    mocks.useOnboarding.mockReturnValue({
-      firstRun: true,
-      loading: false,
-      error: null,
-      profile: {
-        appId: "builder-app",
-        appName: "Builder App",
-        capabilities: [],
-      },
-      completeFirstRun: mocks.completeFirstRun,
-      completeFirstRunError: "first-run completion failed: 500",
-    });
-
-    await act(async () => {
-      root.render(
-        <TooltipProvider>
-          <FirstRunOnboarding />
-        </TooltipProvider>,
-      );
-    });
-
-    await act(async () => {
-      document.body
-        .querySelector('[data-testid="first-run-dismiss"]')
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-
-    expect(document.body.textContent).toContain(
-      "first-run completion failed: 500",
-    );
-    const retry = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "Try again",
-    );
-    expect(retry).not.toBeUndefined();
-
-    await act(async () => {
-      retry?.click();
-      await Promise.resolve();
-    });
-    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(
+      document.body.querySelector('[data-testid="first-run-dismiss"]'),
+    ).toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="first-run-role-skip"]'),
+    ).not.toBeNull();
   });
 
   it("renders the create-account and sign-in Builder buttons", () => {
@@ -270,6 +218,49 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("lets users cancel a direct Builder connect during first run", () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      cancel: vi.fn(),
+      retry: vi.fn(),
+    };
+    flow.start.mockImplementation(() => {
+      flow.connecting = true;
+    });
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-create-account']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const cancelButton = document.body.querySelector<HTMLButtonElement>(
+      "[data-testid='first-run-cancel-builder']",
+    );
+    expect(cancelButton?.textContent).toBe("Cancel");
+    act(() => cancelButton?.click());
+    expect(flow.cancel).toHaveBeenCalledOnce();
   });
 
   it("creates a Builder account from the primary button and shows its loading state", () => {
@@ -789,7 +780,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).toContain("Extension Skip");
     expect(
       document.body.querySelector('[data-testid="first-run-dismiss"]'),
-    ).not.toBeNull();
+    ).toBeNull();
 
     await act(async () => {
       [...document.body.querySelectorAll("button")]

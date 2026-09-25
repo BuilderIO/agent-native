@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
+import { readFirstRunOnboardingBuildMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
   _devActionBridgeOrigin,
@@ -1565,6 +1566,53 @@ describe("agent-native app config", () => {
       version: 1,
       onboarding: { firstRun: "connect-and-integrations" },
     });
+  });
+
+  it("embeds the server's first-run mode from the client's config, Vite mode and env files", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-first-run-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({ onboarding: { firstRun: "off" } }),
+    );
+    const key = "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING";
+    const configFor = async (
+      options: Parameters<typeof agentNative>[0],
+      mode: string,
+    ) => {
+      const configPlugin = flatPlugins(agentNative(options)).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      return (await configPlugin.config({}, { command: "build", mode })) as any;
+    };
+
+    try {
+      process.chdir(tmpDir);
+
+      const staged = await configFor(
+        {
+          agentNativeConfig: {
+            version: 1,
+            onboarding: { firstRun: { staging: "connect", production: "off" } },
+          },
+        },
+        "staging",
+      );
+      expect(staged.nitro.replace[key]).toBe(JSON.stringify("connect"));
+      expect(staged.define[key]).toBe(JSON.stringify("connect"));
+      // The separate deploy build process reads the same resolved value.
+      expect(readFirstRunOnboardingBuildMarker(tmpDir)).toBe("connect");
+
+      fs.writeFileSync(
+        path.join(tmpDir, ".env.production"),
+        "VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING=true\n",
+      );
+      const fromEnvFile = await configFor({}, "production");
+      expect(fromEnvFile.nitro.replace[key]).toBe(JSON.stringify("connect"));
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("loads an agent-native.config.ts from the app root", async () => {

@@ -37,6 +37,7 @@ import {
   frameworkRoutePrefix,
 } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
+import { MAX_REQUEST_BODY_BYTES } from "./chat/attachment-adapters.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   createRunStreamToken,
@@ -4242,6 +4243,46 @@ export function createAgentChatAdapter(
           try {
             runId = null;
             lastSeq = -1;
+            const requestBody = JSON.stringify({
+              message: currentMessageText,
+              displayMessage: userMessageText,
+              ...(queuedMessageId ? { queuedMessageId } : {}),
+              history: currentHistory,
+              structuredHistory: currentStructuredHistory,
+              turnId,
+              ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
+              ...(usageLabel ? { usageLabel } : {}),
+              ...(actionScope ? { actionScope } : {}),
+              ...(threadId ? { threadId } : {}),
+              ...(unstable_parentId !== undefined
+                ? { parentId: unstable_parentId }
+                : {}),
+              ...(internalContinuationRequest
+                ? { internalContinuation: true }
+                : {}),
+              ...(requestMode ? { mode: requestMode } : {}),
+              ...(model ? { model } : {}),
+              ...(engine ? { engine } : {}),
+              ...(effort ? { effort } : {}),
+              ...(harness ? { harness: { runtime: harness } } : {}),
+              ...(browserTabId ? { browserTabId } : {}),
+              ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
+              ...(includeAttachments ? { attachments } : {}),
+              ...(includeReferences && runConfig?.custom?.references
+                ? { references: runConfig.custom.references }
+                : {}),
+              ...(approvedToolCalls ? { approvedToolCalls } : {}),
+            });
+            if (
+              new TextEncoder().encode(requestBody).byteLength >
+              MAX_REQUEST_BODY_BYTES
+            ) {
+              throw new AgentChatHttpError({
+                message: "request_too_large",
+                errorCode: "request_too_large",
+                retryable: false,
+              });
+            }
             const requestTarget = await resolveChatRequestTarget(
               headers,
               abortSignal,
@@ -4254,36 +4295,7 @@ export function createAgentChatAdapter(
                 method: "POST",
                 headers: requestTarget.headers,
                 credentials: requestTarget.credentials,
-                body: JSON.stringify({
-                  message: currentMessageText,
-                  displayMessage: userMessageText,
-                  ...(queuedMessageId ? { queuedMessageId } : {}),
-                  history: currentHistory,
-                  structuredHistory: currentStructuredHistory,
-                  turnId,
-                  ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
-                  ...(usageLabel ? { usageLabel } : {}),
-                  ...(actionScope ? { actionScope } : {}),
-                  ...(threadId ? { threadId } : {}),
-                  ...(unstable_parentId !== undefined
-                    ? { parentId: unstable_parentId }
-                    : {}),
-                  ...(internalContinuationRequest
-                    ? { internalContinuation: true }
-                    : {}),
-                  ...(requestMode ? { mode: requestMode } : {}),
-                  ...(model ? { model } : {}),
-                  ...(engine ? { engine } : {}),
-                  ...(effort ? { effort } : {}),
-                  ...(harness ? { harness: { runtime: harness } } : {}),
-                  ...(browserTabId ? { browserTabId } : {}),
-                  ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
-                  ...(includeAttachments ? { attachments } : {}),
-                  ...(includeReferences && runConfig?.custom?.references
-                    ? { references: runConfig.custom.references }
-                    : {}),
-                  ...(approvedToolCalls ? { approvedToolCalls } : {}),
-                }),
+                body: requestBody,
               },
               STARTUP_RESPONSE_TIMEOUT_MS,
               abortSignal,
@@ -4905,6 +4917,7 @@ export function createAgentChatAdapter(
             }
 
             if (err instanceof AgentChatHttpError) {
+              const isRequestTooLarge = err.errorCode === "request_too_large";
               const normalized = normalizeChatError(err.message, err.errorCode);
               const details = [err.details, normalized.details]
                 .filter(Boolean)
@@ -4934,10 +4947,12 @@ export function createAgentChatAdapter(
               settleInterruptedToolCalls(content, undefined, {
                 includeActivity: true,
               });
-              content.push({
-                type: "text",
-                text: `Something went wrong: ${normalized.message}`,
-              });
+              if (!isRequestTooLarge) {
+                content.push({
+                  type: "text",
+                  text: `Something went wrong: ${normalized.message}`,
+                });
+              }
               settleTerminalChatRun();
               yield {
                 content: [...content],

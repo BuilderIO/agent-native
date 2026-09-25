@@ -20,13 +20,15 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link, useInRouterContext, useLocation } from "react-router";
 
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_OPEN,
 } from "../../shared/agent-sidebar-url.js";
+import { docsUrl } from "../../shared/docs-url.js";
+import { requestAgentChatThreadOpen } from "../agent-chat.js";
 import {
   Dialog,
   DialogContent,
@@ -409,6 +411,7 @@ function TraceDetailView({
 }) {
   const t = useT();
   const { data, isLoading } = useTraceDetail(runId);
+  const [expandedSpanId, setExpandedSpanId] = useState<string | null>(null);
 
   return (
     <div>
@@ -424,6 +427,23 @@ function TraceDetailView({
 
       {data && (
         <div className="space-y-4">
+          <div className="flex items-center justify-end">
+            {data.summary.threadId && (
+              <button
+                type="button"
+                onClick={() =>
+                  requestAgentChatThreadOpen({
+                    threadId: data.summary.threadId!,
+                  })
+                }
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <IconMessages size={14} />
+                {t("observability.openFullConversation")}
+              </button>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg border border-border p-3">
               <div className="text-[10px] text-muted-foreground mb-1">
@@ -478,35 +498,137 @@ function TraceDetailView({
                   <th className="px-3 py-2 font-medium text-muted-foreground">
                     {t("observability.status")}
                   </th>
+                  <th className="w-10" />
                 </tr>
               </thead>
               <tbody>
-                {data.spans.map((span) => (
-                  <tr
-                    key={span.id}
-                    className="border-b border-border last:border-b-0"
-                  >
-                    <td className="px-3 py-2 truncate">
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        {span.spanType.replace("_", " ")}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 font-medium text-foreground truncate">
-                      {span.name}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                      {formatDuration(span.durationMs)}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                      {span.inputTokens + span.outputTokens > 0
-                        ? `${span.inputTokens} / ${span.outputTokens}`
-                        : "-"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusBadge status={span.status} />
-                    </td>
-                  </tr>
-                ))}
+                {data.spans.map((span) => {
+                  const expanded = expandedSpanId === span.id;
+                  const metadata = span.metadata ?? {};
+                  const fields: Array<{ label: string; value: unknown }> = [];
+                  if (Object.hasOwn(metadata, "input")) {
+                    fields.push({
+                      label: t("observability.input"),
+                      value: metadata.input,
+                    });
+                  } else if (span.spanType === "tool_call") {
+                    fields.push({
+                      label: t("observability.input"),
+                      value: t("observability.notCaptured"),
+                    });
+                  }
+                  if (Object.hasOwn(metadata, "output")) {
+                    fields.push({
+                      label: t("observability.output"),
+                      value: metadata.output,
+                    });
+                  } else if (span.spanType === "tool_call") {
+                    fields.push({
+                      label: t("observability.output"),
+                      value: t("observability.notCaptured"),
+                    });
+                  }
+                  if (span.errorMessage || span.status === "error") {
+                    fields.push({
+                      label: t("observability.error"),
+                      value:
+                        span.errorMessage ?? t("observability.notCaptured"),
+                    });
+                  }
+                  const otherMetadata = Object.fromEntries(
+                    Object.entries(metadata).filter(
+                      ([key]) => key !== "input" && key !== "output",
+                    ),
+                  );
+                  if (Object.keys(otherMetadata).length > 0) {
+                    fields.push({
+                      label: t("observability.metadata"),
+                      value: otherMetadata,
+                    });
+                  }
+                  if (fields.length === 0) {
+                    fields.push({
+                      label: t("observability.metadata"),
+                      value: t("observability.notCaptured"),
+                    });
+                  }
+
+                  return (
+                    <Fragment key={span.id}>
+                      <tr className="border-b border-border last:border-b-0">
+                        <td className="px-3 py-2 truncate">
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {span.spanType.replace("_", " ")}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-medium text-foreground truncate">
+                          {span.name}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                          {formatDuration(span.durationMs)}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                          {span.inputTokens + span.outputTokens > 0
+                            ? `${span.inputTokens} / ${span.outputTokens}`
+                            : "-"}
+                        </td>
+                        <td className="px-3 py-2">
+                          <StatusBadge status={span.status} />
+                        </td>
+                        <td className="px-2 py-2 text-right">
+                          <button
+                            type="button"
+                            aria-label={t(
+                              expanded
+                                ? "observability.hideDetails"
+                                : "observability.viewDetails",
+                            )}
+                            aria-expanded={expanded}
+                            aria-controls={
+                              expanded ? `span-details-${span.id}` : undefined
+                            }
+                            onClick={() =>
+                              setExpandedSpanId(expanded ? null : span.id)
+                            }
+                            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          >
+                            <IconChevronRight
+                              size={14}
+                              className={cn(
+                                "transition-transform",
+                                expanded && "rotate-90",
+                              )}
+                            />
+                          </button>
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr id={`span-details-${span.id}`}>
+                          <td
+                            colSpan={6}
+                            className="border-b border-border p-3"
+                          >
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              {fields.map(({ label, value }) => (
+                                <div key={label} className="min-w-0">
+                                  <div className="mb-1 text-[10px] font-medium text-muted-foreground">
+                                    {label}
+                                  </div>
+                                  <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 font-mono text-xs text-foreground">
+                                    {typeof value === "string"
+                                      ? value || '""'
+                                      : (JSON.stringify(value, null, 2) ??
+                                        String(value))}
+                                  </pre>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1673,6 +1795,14 @@ function ObservabilityDashboardContent({
     ? (visibleTabs.find((tab) => tab.routeSegment === routeSegment)?.id ??
       "overview")
     : localTab;
+  const docsHash: Record<TabId, string> = {
+    overview: "dashboard",
+    conversations: "conversations",
+    evals: "evals",
+    experiments: "experiments",
+    feedback: "feedback",
+    review: "review",
+  };
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -1719,9 +1849,20 @@ function ObservabilityDashboardContent({
             );
           })}
         </nav>
-        {activeTab !== "experiments" && (
-          <RangeSelector value={days} onChange={setDays} />
-        )}
+        <div className="flex items-center gap-3">
+          <a
+            href={docsUrl("observability", { hash: docsHash[activeTab] })}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            {t("observability.learnAboutTab")}
+            <IconExternalLink size={13} />
+          </a>
+          {activeTab !== "experiments" && (
+            <RangeSelector value={days} onChange={setDays} />
+          )}
+        </div>
       </div>
 
       {activeTab === "overview" && <OverviewTab days={days} />}

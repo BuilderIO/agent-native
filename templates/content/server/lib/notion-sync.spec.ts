@@ -827,6 +827,31 @@ describe("refreshDocumentSyncStatus", () => {
     expect(testState.link?.state).toBe("linked");
   });
 
+  it("preserves a Content-only Tabler icon when pulling newer Notion content", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    const icon = JSON.stringify({
+      version: 1,
+      kind: "library",
+      library: "tabler",
+      name: "book",
+      color: "blue",
+    });
+    testState.document.icon = icon;
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Remote edit from Notion",
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+
+    await pullDocumentFromNotion("alice@example.com", "doc-1", true);
+
+    expect(testState.document.content).toBe("Remote edit from Notion");
+    expect(testState.document.icon).toBe(icon);
+  });
+
   it("reports hash-verified change flags without pushing when auto-sync is off", async () => {
     const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
 
@@ -1285,6 +1310,33 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
 
     expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalled();
     expect(status.hasConflict).toBe(false);
+  });
+
+  it("preserves a Content-only Tabler icon after pushing and reading back from Notion", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    const icon = JSON.stringify({
+      version: 1,
+      kind: "library",
+      library: "tabler",
+      name: "book",
+      color: "blue",
+    });
+    testState.document.icon = icon;
+    notionMocks.pushDocumentToNotionPage.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T10:05:00.000Z",
+      warnings: [],
+    });
+
+    const promise = pushDocumentToNotion("alice@example.com", "doc-1", false);
+    await vi.runAllTimersAsync();
+    await promise;
+
+    expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalled();
+    expect(testState.document.icon).toBe(icon);
   });
 
   it("releases the claim after a push error so a subsequent push is not permanently blocked", async () => {
