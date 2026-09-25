@@ -78,6 +78,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   clearSlideEditingActive,
   deckIdFromPathname,
@@ -709,6 +710,9 @@ export default function DeckEditor() {
     typeof generationContext?.generationAttemptId === "string"
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
+  const generationFailed =
+    slideCount === 0 &&
+    typeof generationContext?.generationFailureCode === "string";
   const generationLifecycleOwnedByEditor =
     generationContext?.generationMode !== "action";
   const [generationAttemptTabId, setGenerationAttemptTabId] = useState<
@@ -724,6 +728,7 @@ export default function DeckEditor() {
       runError: attemptRunError,
       stopReason: attemptStopReason,
       timedOut: attemptTimedOut,
+      submit: submitGenerationAttempt,
     },
     generating: newDeckGenerationSignal,
   } = useNewDeckGenerationSignal({
@@ -855,12 +860,25 @@ export default function DeckEditor() {
               ? "timeout"
               : attemptRunError
                 ? "agent_error"
-                : targetSlideCount !== null &&
-                    settledSlideCount < targetSlideCount
-                  ? "incomplete_output"
-                  : settledSlideCount === 0
-                    ? "no_output"
+                : settledSlideCount === 0
+                  ? "no_output"
+                  : targetSlideCount !== null &&
+                      settledSlideCount < targetSlideCount
+                    ? "incomplete_output"
                     : null;
+        if (failureCode && settledSlideCount === 0 && generationContext) {
+          updateDeck(id, {
+            generationContext: {
+              ...generationContext,
+              generationFailureCode: failureCode,
+            },
+          });
+          try {
+            await flushDeckSave(id);
+          } catch {
+            toast.error(t("editorSidebar.newSlideSaveFailed"));
+          }
+        }
         if (failureCode === "cancelled") {
           trackEvent("generation_cancelled", {
             ...properties,
@@ -896,14 +914,78 @@ export default function DeckEditor() {
     attemptObservedRun,
     generationAttemptId,
     generationLifecycleOwnedByEditor,
+    generationContext,
     attemptRunError,
     attemptStopReason,
     attemptTimedOut,
     id,
     newDeckGenerationSignal,
     refreshOpenDeck,
+    updateDeck,
+    flushDeckSave,
+    t,
     slideCount,
     targetSlideCount,
+  ]);
+
+  const retryEmptyGeneration = useCallback(async () => {
+    if (!id || !generationContext || !generationLifecycleOwnedByEditor) return;
+    const retryAttemptId = nanoid();
+    const submitMessageId = nanoid();
+    const retryContext = {
+      ...generationContext,
+      generationAttemptId: retryAttemptId,
+      generationFailureCode: null,
+    };
+    updateDeck(id, { generationContext: retryContext });
+    try {
+      await flushDeckSave(id);
+    } catch {
+      updateDeck(id, { generationContext });
+      toast.error(t("editorSidebar.newSlideSaveFailed"));
+      return;
+    }
+    generationRunStartedRef.current = true;
+    generationSawActiveRef.current = false;
+    generationTerminalAttemptRef.current = null;
+    generationSettlingAttemptRef.current = null;
+    generationStartedAtRef.current = null;
+    setSearchParams({
+      generating: "1",
+      generation_attempt_id: retryAttemptId,
+    });
+    const prompt =
+      typeof generationContext.originalPrompt === "string"
+        ? generationContext.originalPrompt
+        : "Continue generating this deck.";
+    trackEvent("generation_started", {
+      app_name: "slides",
+      template_name: "slides",
+      generation_attempt_id: retryAttemptId,
+      output_id: id,
+      output_type: "deck",
+      source: "empty_output_retry",
+    });
+    submitGenerationAttempt(
+      prompt,
+      `Continue the original deck generation for deck ${id}. Call get-deck first and recover the canonical generationContext, including its original brief, target slide count, and reference handles. Continue the original sequence; do not start a new topic. The browser owns this attempt; use generationAttemptId "${retryAttemptId}" for tool calls that accept it.`,
+      {
+        generationAttemptId: retryAttemptId,
+        generationOutputId: id,
+        submitMessageId,
+        reuseEmptyTab: true,
+        openSidebar: true,
+      },
+    );
+  }, [
+    generationContext,
+    generationLifecycleOwnedByEditor,
+    id,
+    setSearchParams,
+    submitGenerationAttempt,
+    updateDeck,
+    flushDeckSave,
+    t,
   ]);
 
   useEffect(() => {
@@ -3259,9 +3341,21 @@ export default function DeckEditor() {
         )}
 
         {!generatingSlideSelected &&
-          generatingSlideVisible &&
           deck.slides.length === 0 &&
-          !showQuestionFlow && (
+          !showQuestionFlow &&
+          (generationFailed ? (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+              <div
+                className="m-auto flex max-w-md flex-col items-center gap-4 text-center"
+                role="alert"
+              >
+                <p>{t("deckEditor.deckHasNoSlides")}</p>
+                <Button onClick={() => void retryEmptyGeneration()}>
+                  {t("deckEditor.tryAgain")}
+                </Button>
+              </div>
+            </div>
+          ) : generatingSlideVisible ? (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">
                 <GeneratingSlidePreview
@@ -3271,7 +3365,7 @@ export default function DeckEditor() {
                 />
               </div>
             </div>
-          )}
+          ) : null)}
 
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor

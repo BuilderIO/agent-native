@@ -69,6 +69,26 @@ describe("generation deck refresh", () => {
 });
 
 describe("generation outcome cleanup", () => {
+  it("classifies an empty result before checking the requested slide count", () => {
+    const settleStart = deckEditorSource.indexOf(
+      "const failureCode =",
+      deckEditorSource.indexOf(
+        "generationSettlingAttemptRef.current = generationAttemptId;",
+      ),
+    );
+    const settleEnd = deckEditorSource.indexOf("if (failureCode)", settleStart);
+    const failureCode = deckEditorSource.slice(settleStart, settleEnd);
+
+    const noSlidesIndex = failureCode.indexOf("settledSlideCount === 0");
+    expect(noSlidesIndex).toBeGreaterThanOrEqual(0);
+    expect(noSlidesIndex).toBeLessThan(
+      failureCode.indexOf('"incomplete_output"'),
+    );
+    expect(failureCode).toContain('"no_output"');
+    expect(deckEditorSource).toContain("generationFailureCode: failureCode");
+    expect(deckEditorSource).toContain("generationFailureCode: null");
+  });
+
   it("emits unresolved when refresh is unavailable and resets in finally", () => {
     const settleStart = deckEditorSource.indexOf(
       "generationSettlingAttemptRef.current = generationAttemptId;",
