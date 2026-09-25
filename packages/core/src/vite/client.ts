@@ -3835,14 +3835,6 @@ function createNitroDevPlugin(
       [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
         resolveRecurringJobsBuildMarker(process.env),
       ),
-      // First-run onboarding eligibility (org/context.ts) needs to know
-      // whether this app's onboarding is off WITHOUT reading agent-native.json
-      // at runtime — that file isn't shipped into the deployed function, and
-      // "absent" must not read the same as "off". Nitro is a separate server
-      // build, so it needs the resolved mode in its own replacement map too.
-      "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
-        resolveFirstRunOnboardingBuildReplacement(cwd, process.env),
-      ),
     },
     // Never auto-load test files as server handlers/plugins/middleware.
     // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
@@ -4361,6 +4353,9 @@ function createAgentNativeConfig(
           },
         }
       : appConfig;
+  const firstRunOnboardingBuildMode = JSON.stringify(
+    resolveFirstRunOnboardingBuildReplacement(resolvedAppConfig, runtimeEnv),
+  );
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   // The public framework route prefix is resolved exactly here, once. The
@@ -4466,6 +4461,18 @@ function createAgentNativeConfig(
     userConfig.optimizeDeps ?? {};
 
   return {
+    // Nitro builds the server separately with its own replacement map. Its
+    // `nitro:init` config hook reads `config.nitro` after this pre-enforced
+    // hook returns, so the server embeds the mode resolved from the same
+    // config, Vite mode and env files as the client. Do not also set this key
+    // in createNitroDevPlugin: Nitro's plugin options take precedence over
+    // `config.nitro`.
+    nitro: {
+      replace: {
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
+          firstRunOnboardingBuildMode,
+      },
+    },
     logLevel:
       options.logLevel ??
       userConfig.logLevel ??
@@ -4518,9 +4525,8 @@ function createAgentNativeConfig(
       // Same reason as the release owner above: org/context.ts's eligibility
       // marker write must not read agent-native.json at runtime (not shipped
       // into the deployed function), so embed the resolved mode here too.
-      "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
-        resolveFirstRunOnboardingBuildReplacement(cwd, process.env),
-      ),
+      "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
+        firstRunOnboardingBuildMode,
       ...(resolvedAppConfig.deployment?.environment
         ? {
             "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(

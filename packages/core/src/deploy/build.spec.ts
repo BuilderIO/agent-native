@@ -673,86 +673,17 @@ describe("resolveNitroBuildReplacements", () => {
     }
   });
 
-  // Regression coverage for the first-run onboarding eligibility marker
-  // (org/context.ts): the Nitro server bundle never sees agent-native.json at
-  // runtime, so the resolved mode must be embedded here at build time.
-  it("embeds 'off' for a project whose agent-native.json turns first-run onboarding off", () => {
-    const projectCwd = fs.mkdtempSync(
-      path.join(process.cwd(), ".tmp-first-run-onboarding-off-"),
-    );
-    try {
-      fs.writeFileSync(
-        path.join(projectCwd, "agent-native.json"),
-        JSON.stringify({ onboarding: { firstRun: "off" } }),
-      );
-
-      const replacements = resolveNitroBuildReplacements(
-        {},
-        undefined,
-        projectCwd,
-      );
-
-      expect(
-        replacements["process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"],
-      ).toBe(JSON.stringify("off"));
-    } finally {
-      fs.rmSync(projectCwd, { recursive: true, force: true });
-    }
-  });
-
-  it("embeds the active mode for a project whose agent-native.json turns first-run onboarding on", () => {
-    const projectCwd = fs.mkdtempSync(
-      path.join(process.cwd(), ".tmp-first-run-onboarding-on-"),
-    );
-    try {
-      fs.writeFileSync(
-        path.join(projectCwd, "agent-native.json"),
-        JSON.stringify({
-          onboarding: {
-            firstRun: {
-              development: "off",
-              production: "connect-and-integrations",
-            },
-          },
-        }),
-      );
-
-      const replacements = resolveNitroBuildReplacements(
-        { NODE_ENV: "production" },
-        undefined,
-        projectCwd,
-      );
-
-      expect(
-        replacements["process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"],
-      ).toBe(JSON.stringify("connect-and-integrations"));
-    } finally {
-      fs.rmSync(projectCwd, { recursive: true, force: true });
-    }
-  });
-
-  it("embeds '' (unknown) rather than guessing when the project has no readable agent-native.json", () => {
-    const projectCwd = fs.mkdtempSync(
-      path.join(process.cwd(), ".tmp-first-run-onboarding-malformed-"),
-    );
-    try {
-      fs.writeFileSync(
-        path.join(projectCwd, "agent-native.json"),
-        "{ not valid json",
-      );
-
-      const replacements = resolveNitroBuildReplacements(
-        {},
-        undefined,
-        projectCwd,
-      );
-
-      expect(
-        replacements["process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"],
-      ).toBe(JSON.stringify(""));
-    } finally {
-      fs.rmSync(projectCwd, { recursive: true, force: true });
-    }
+  it("embeds the first-run onboarding mode resolved from the app config", () => {
+    expect(
+      resolveNitroBuildReplacements({}, undefined, undefined, "off")[
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"
+      ],
+    ).toBe(JSON.stringify("off"));
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"
+      ],
+    ).toBe(JSON.stringify(""));
   });
 });
 

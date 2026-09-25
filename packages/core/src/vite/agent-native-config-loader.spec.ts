@@ -130,86 +130,37 @@ describe("agent-native config loading", () => {
 });
 
 describe("resolveFirstRunOnboardingBuildReplacement", () => {
-  it("resolves 'off' for a project whose agent-native.json turns onboarding off", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
-    temporaryRoots.push(root);
-    fs.writeFileSync(
-      path.join(root, "agent-native.json"),
-      JSON.stringify({ onboarding: { firstRun: "off" } }),
-    );
-
-    expect(resolveFirstRunOnboardingBuildReplacement(root, {})).toBe("off");
-  });
-
-  it("resolves the production mode for a per-environment setting", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
-    temporaryRoots.push(root);
-    fs.writeFileSync(
-      path.join(root, "agent-native.json"),
-      JSON.stringify({
-        onboarding: {
-          firstRun: {
-            development: "off",
-            production: "connect-and-integrations",
-          },
-        },
-      }),
-    );
-
+  it("embeds the configured mode", () => {
     expect(
-      resolveFirstRunOnboardingBuildReplacement(root, {
-        NODE_ENV: "production",
-      }),
-    ).toBe("connect-and-integrations");
-    expect(
-      resolveFirstRunOnboardingBuildReplacement(root, {
-        NODE_ENV: "development",
-      }),
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "off" } },
+        {},
+      ),
     ).toBe("off");
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "connect-and-integrations" } },
+        {},
+      ),
+    ).toBe("connect-and-integrations");
   });
 
-  it("reports unknown for a project that does not configure onboarding", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
-    temporaryRoots.push(root);
-
-    expect(resolveFirstRunOnboardingBuildReplacement(root, {})).toBe("");
-  });
-
-  it("reports unknown when a TS config could override agent-native.json", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
-    temporaryRoots.push(root);
-    fs.writeFileSync(
-      path.join(root, "agent-native.json"),
-      JSON.stringify({ onboarding: { firstRun: "off" } }),
-    );
-    fs.writeFileSync(
-      path.join(root, "agent-native.config.ts"),
-      `export default ${JSON.stringify({ onboarding: { firstRun: "connect" } })};\n`,
-    );
-
-    expect(resolveFirstRunOnboardingBuildReplacement(root, {})).toBe("");
+  it("reports unknown when neither config nor env sets onboarding", () => {
+    expect(resolveFirstRunOnboardingBuildReplacement({}, {})).toBe("");
   });
 
   it("lets the client's env override win over the configured mode", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
-    temporaryRoots.push(root);
-    fs.writeFileSync(
-      path.join(root, "agent-native.json"),
-      JSON.stringify({ onboarding: { firstRun: "connect" } }),
-    );
-
     expect(
-      resolveFirstRunOnboardingBuildReplacement(root, {
-        VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING: "false",
-      }),
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "connect" } },
+        { VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING: "false" },
+      ),
     ).toBe("off");
-  });
-
-  it("embeds '' (unknown) instead of guessing when agent-native.json is malformed", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
-    temporaryRoots.push(root);
-    fs.writeFileSync(path.join(root, "agent-native.json"), "{ not valid json");
-
-    expect(resolveFirstRunOnboardingBuildReplacement(root, {})).toBe("");
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "off" } },
+        { VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING: "true" },
+      ),
+    ).toBe("connect");
   });
 });

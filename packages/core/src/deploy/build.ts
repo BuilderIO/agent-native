@@ -37,6 +37,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
+import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -6133,6 +6134,7 @@ export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
+  firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6211,11 +6213,9 @@ export function resolveNitroBuildReplacements(
       ),
     // org/context.ts's eligibility-marker write must not read
     // agent-native.json at runtime (not shipped into the deployed function),
-    // so embed the resolved mode here — see
-    // resolveFirstRunOnboardingBuildReplacement's own comment for why an
-    // unresolvable project embeds "" (unknown) instead of guessing "off".
+    // so embed the mode resolved from the full app config. "" is unknown.
     "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
-      resolveFirstRunOnboardingBuildReplacement(projectCwd, env),
+      firstRunOnboardingMode,
     ),
   };
 }
@@ -6359,6 +6359,11 @@ export default bundle;
     replace: resolveNitroBuildReplacements(
       nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
+      cwd,
+      resolveFirstRunOnboardingBuildReplacement(
+        nitroAgentConfig,
+        nitroEnvironment,
+      ),
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
