@@ -44,6 +44,8 @@ describe("redactSensitiveFields", () => {
       apiKey: "sk-123",
       api_key: "sk-456",
       "api-key": "sk-789",
+      jwt: "eyJ.fake.jwt",
+      providerJwt: "provider.jwt.value",
       client_secret: "client-secret-value",
       clientSecret: "client-secret-camel",
       googleClientSecret: "provider-client-secret",
@@ -81,6 +83,8 @@ describe("redactSensitiveFields", () => {
       apiKey: "[REDACTED]",
       api_key: "[REDACTED]",
       "api-key": "[REDACTED]",
+      jwt: "[REDACTED]",
+      providerJwt: "[REDACTED]",
       client_secret: "[REDACTED]",
       clientSecret: "[REDACTED]",
       googleClientSecret: "[REDACTED]",
@@ -934,7 +938,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
     // A tool result echoing an upstream response with credentials in it.
     const leakyResult =
-      'Error: upstream rejected: key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key googleClientSecret="provider-camel-secret" providerClientSecret="first-line-secret\nsecond-line-secret" providerSecret="provider-secret-leak" databasePassword="database-password-leak" aws_secret_access_key=aws-access-key-leak oauthToken=camel-oauth-token providerToken=provider-token privateKey="-----BEGIN PRIVATE KEY-----\nnot-a-real-private-key\n-----END PRIVATE KEY-----"\nAuthorization: Bearer abcdef123456, key=sk-not-a-real-key-000000000\nCookie: preference=x; session=compound-cookie-secret\nAuthorization: AWS4-HMAC-SHA256 Credential=fake-id/20260924/us-east-1/s3/aws4_request, SignedHeaders=host; Signature=compound-auth-signature\nAuthorization: ["AWS4-HMAC-SHA256 Credential=fake-id; Signature=bracketed-auth-signature"]\nCookie: ["preference=x; session=bracketed-cookie-secret"]';
+      'Error: upstream rejected: key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key googleClientSecret="provider-camel-secret" providerClientSecret="first-line-secret\nsecond-line-secret" providerSecret="provider-secret-leak" databasePassword="database-password-leak" aws_secret_access_key=aws-access-key-leak oauthToken=camel-oauth-token providerToken=provider-token JWT=jwt-error-secret providerJwt=provider-jwt-error-secret privateKey="-----BEGIN PRIVATE KEY-----\nnot-a-real-private-key\n-----END PRIVATE KEY-----"\nAuthorization: Bearer abcdef123456, key=sk-not-a-real-key-000000000\nCookie: preference=x; session=compound-cookie-secret\nAuthorization: AWS4-HMAC-SHA256 Credential=fake-id/20260924/us-east-1/s3/aws4_request, SignedHeaders=host; Signature=compound-auth-signature\nAuthorization: ["AWS4-HMAC-SHA256 Credential=fake-id; Signature=bracketed-auth-signature"]\nCookie: ["preference=x; session=bracketed-cookie-secret"]';
 
     const run = (captureToolResults: boolean) =>
       instrumentAgentLoop({
@@ -1007,6 +1011,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events).toHaveLength(1);
     const serialized = JSON.stringify(events[0]);
     expect(serialized).toContain("REDACTED");
+    expect(serialized).not.toContain("jwt-error-secret");
+    expect(serialized).not.toContain("provider-jwt-error-secret");
     expect(serialized).not.toContain("abcdef123456");
     expect(serialized).not.toContain("sk-not-a-real-key-000000000");
     expect(serialized).not.toContain("provider-secret-leak");
@@ -1032,8 +1038,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(persistedError).not.toContain("aws-access-key-leak");
     expect(persistedError).not.toContain("camel-oauth-token");
     expect(persistedError).not.toContain("provider-token");
+    expect(persistedError).not.toContain("jwt-error-secret");
+    expect(persistedError).not.toContain("provider-jwt-error-secret");
     expect(persistedError).toContain("oauthToken=[REDACTED]");
     expect(persistedError).toContain("providerToken=[REDACTED]");
+    expect(persistedError).toContain("JWT=[REDACTED]");
+    expect(persistedError).toContain("providerJwt=[REDACTED]");
     expect(persistedError).toContain('client_secret="[REDACTED]"');
     expect(persistedError).toContain("private_key=[REDACTED]");
   });
@@ -1120,7 +1130,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
           type: "tool_start",
           id: "a",
           tool: "search",
-          input: { query: "pricing", apiKey: "sk-should-not-appear" },
+          input: {
+            query: "pricing",
+            apiKey: "sk-should-not-appear",
+            jwt: "jwt-should-not-appear",
+            providerJwt: "provider-jwt-should-not-appear",
+          },
         });
         send({ type: "tool_done", id: "a", tool: "search", result: "ok" });
         return {
@@ -1158,6 +1173,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(call?.function.arguments).toEqual({
       query: "pricing",
       apiKey: "[REDACTED]",
+      jwt: "[REDACTED]",
+      providerJwt: "[REDACTED]",
     });
   });
 
@@ -1997,7 +2014,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
   it("gates and sanitizes tool error text in exported span statuses", async () => {
     const leakyResult =
-      'Error: client_secret=compound-secret private_key=compound-private-key providerSecret="provider-secret-leak" databasePassword="database-password-leak" aws_secret_access_key=aws-access-key-leak oauthToken=camel-oauth-token providerToken=provider-token\nCookie: preference=x; session=compound-cookie-secret\nAuthorization: AWS4-HMAC-SHA256 Credential=fake-id/20260924/us-east-1/s3/aws4_request, SignedHeaders=host; Signature=compound-auth-signature\nAuthorization: ["AWS4-HMAC-SHA256 Credential=fake-id; Signature=bracketed-auth-signature"]\nCookie: ["preference=x; session=bracketed-cookie-secret"]';
+      'Error: client_secret=compound-secret private_key=compound-private-key providerSecret="provider-secret-leak" databasePassword="database-password-leak" aws_secret_access_key=aws-access-key-leak oauthToken=camel-oauth-token providerToken=provider-token JWT=jwt-error-secret providerJwt=provider-jwt-error-secret\nCookie: preference=x; session=compound-cookie-secret\nAuthorization: AWS4-HMAC-SHA256 Credential=fake-id/20260924/us-east-1/s3/aws4_request, SignedHeaders=host; Signature=compound-auth-signature\nAuthorization: ["AWS4-HMAC-SHA256 Credential=fake-id; Signature=bracketed-auth-signature"]\nCookie: ["preference=x; session=bracketed-cookie-secret"]';
 
     for (const captureToolResults of [false, true]) {
       const { spans, runtime } = createRecordingTracer();
@@ -2044,7 +2061,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
       if (captureToolResults) {
         expect(toolSpan?.status?.message).toBe(
-          'Error: client_secret=[REDACTED] private_key=[REDACTED] providerSecret="[REDACTED]" databasePassword="[REDACTED]" aws_secret_access_key=[REDACTED] oauthToken=[REDACTED] providerToken=[REDACTED]\nCookie: [REDACTED]\nAuthorization: [REDACTED]\nAuthorization: ["[REDACTED]"]\nCookie: ["[REDACTED]"]',
+          'Error: client_secret=[REDACTED] private_key=[REDACTED] providerSecret="[REDACTED]" databasePassword="[REDACTED]" aws_secret_access_key=[REDACTED] oauthToken=[REDACTED] providerToken=[REDACTED] JWT=[REDACTED] providerJwt=[REDACTED]\nCookie: [REDACTED]\nAuthorization: [REDACTED]\nAuthorization: ["[REDACTED]"]\nCookie: ["[REDACTED]"]',
         );
       } else {
         expect(toolSpan?.status?.message).toBeUndefined();

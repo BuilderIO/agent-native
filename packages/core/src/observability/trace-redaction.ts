@@ -2,13 +2,14 @@
  *  case-insensitively across namespace, snake/kebab, camelCase, and
  *  credential suffixes. */
 const SENSITIVE_FIELD_PATTERN =
-  /^(authorization|cookie|password|secret|token|bearer)$/i;
+  /^(authorization|cookie|jwt|password|secret|token|bearer)$/i;
 const SENSITIVE_FIELD_SUFFIXES = [
   "apikey",
   "accesstoken",
   "refreshtoken",
   "clientsecret",
   "privatekey",
+  "jwt",
   "token",
   "secret",
   "password",
