@@ -731,11 +731,42 @@ const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (
   FROM funnel_events e
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
-const ONBOARDING_EVENTS_CTE = `WITH scoped_onboarding_events AS (
+const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
+  SELECT linked_email, MIN(auth_user_id) AS auth_user_id
+  FROM (
+    SELECT lower(COALESCE(
+      CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
+      CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
+    )) AS linked_email,
+    NULLIF(e.properties::jsonb ->> 'auth_user_id', '') AS auth_user_id
+    FROM analytics_events e
+    WHERE ${DASHBOARD_TIME_RANGE_FILTER}
+      AND ${DASHBOARD_APP_FILTER}
+      AND ${FIRST_PARTY_TEMPLATE_FILTER}
+  ) AS identities
+  WHERE linked_email IS NOT NULL
+    AND auth_user_id IS NOT NULL
+  GROUP BY linked_email
+  HAVING COUNT(DISTINCT auth_user_id) = 1
+), scoped_onboarding_events AS (
   SELECT e.*,
-    COALESCE(NULLIF(e.user_key, ''), NULLIF(e.properties::jsonb ->> 'auth_user_id', ''), NULLIF(e.user_id, ''), NULLIF(e.anonymous_id, '')) AS funnel_user_key,
-    NULLIF(e.user_id, '') AS funnel_user_email
+    COALESCE(
+      NULLIF(e.properties::jsonb ->> 'auth_user_id', ''),
+      auth_identity_bridge.auth_user_id,
+      NULLIF(e.user_key, ''),
+      NULLIF(e.user_id, ''),
+      NULLIF(e.anonymous_id, '')
+    ) AS funnel_user_key,
+    COALESCE(
+      CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END,
+      CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
+      CASE WHEN NULLIF(e.properties::jsonb ->> 'auth_user_id', '') LIKE '%@%.%' THEN e.properties::jsonb ->> 'auth_user_id' END
+    ) AS funnel_user_email
   FROM analytics_events e
+  LEFT JOIN auth_identity_bridge ON auth_identity_bridge.linked_email = lower(COALESCE(
+    CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
+    CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
+  ))
   WHERE ${DASHBOARD_TIME_RANGE_FILTER}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}

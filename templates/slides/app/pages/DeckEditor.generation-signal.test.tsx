@@ -192,6 +192,18 @@ import { SLIDES_GENERATION_STARTED_EVENT } from "@/hooks/use-agent-generating";
 
 import DeckEditor from "./DeckEditor";
 
+const localStorageState = new Map<string, string>();
+const localStorageStub: Storage = {
+  get length() {
+    return localStorageState.size;
+  },
+  clear: () => localStorageState.clear(),
+  getItem: (key) => localStorageState.get(key) ?? null,
+  key: (index) => [...localStorageState.keys()][index] ?? null,
+  removeItem: (key) => localStorageState.delete(key),
+  setItem: (key, value) => localStorageState.set(key, String(value)),
+};
+
 function publishAgentGeneratingChange() {
   mocks.revision += 1;
   for (const listener of mocks.listeners) listener();
@@ -202,6 +214,11 @@ describe("DeckEditor generation signal wiring", () => {
 
   beforeEach(() => {
     window.sessionStorage.clear();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: localStorageStub,
+    });
+    window.localStorage.clear();
     mocks.deck.slides = [];
     Object.assign(mocks, {
       broadGenerating: true,
@@ -324,6 +341,26 @@ describe("DeckEditor generation signal wiring", () => {
     await act(async () => router?.navigate("/deck/deck-1"));
 
     await waitFor(() => expect(outputViews()).toHaveLength(2));
+  });
+
+  it("deduplicates deck views across tabs in the same analytics session", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    window.localStorage.setItem(
+      'slides:output-viewed:["session-1","deck-1"]',
+      "1",
+    );
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed"),
+    ).toHaveLength(0);
   });
 
   it("clears generation state when the target tab finishes while another chat stays busy", async () => {

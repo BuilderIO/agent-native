@@ -717,17 +717,18 @@ export default function DeckEditor() {
     if (!id || !deck || slideCount === 0) {
       return;
     }
-    const viewKey = JSON.stringify([
-      getAnalyticsSessionId() ?? "no-session",
-      id,
-    ]);
+    const analyticsSessionId = getAnalyticsSessionId();
+    const viewKey = JSON.stringify([analyticsSessionId ?? "no-session", id]);
     if (viewedDeckIdsRef.current.has(viewKey)) return;
     viewedDeckIdsRef.current.add(viewKey);
     const viewedKey = "slides:output-viewed:" + viewKey;
     try {
-      if (window.sessionStorage.getItem(viewedKey) === "1") return;
-      window.sessionStorage.setItem(viewedKey, "1");
-      // coercion-ok: sessionStorage may be disabled; in-memory dedupe is fallback.
+      const storage = analyticsSessionId
+        ? window.localStorage
+        : window.sessionStorage;
+      if (storage.getItem(viewedKey) === "1") return;
+      storage.setItem(viewedKey, "1");
+      // coercion-ok: storage may be disabled; in-memory dedupe is fallback.
     } catch {}
     trackEvent("output_viewed", {
       app_name: "slides",

@@ -78,7 +78,9 @@ describe("onboarding funnel metrics", () => {
       [
         `event-${nextRowId++}`,
         eventName,
-        options.email ?? `${authUserId}@example.com`,
+        Object.hasOwn(options, "email")
+          ? options.email
+          : `${authUserId}@example.com`,
         options.anonymousId ?? `anon-${authUserId}`,
         options.userKey ?? null,
         `${eventDay}T12:00:00.000Z`,
@@ -272,6 +274,102 @@ describe("onboarding funnel metrics", () => {
       choice_screen_viewers: 1,
       first_choice_users: 1,
       first_choice_rate: 1,
+    });
+  }, 20_000);
+
+  it("uses the canonical auth ID when a user's email changes", async () => {
+    await createEventsTable();
+    const step = { flow: "first_run", step_id: "choice", step_index: 1 };
+    await insertEvent("onboarding_step_viewed", "alice", step, {
+      email: "alice-old@example.com",
+      userKey: "alice-old@example.com",
+      authUserId: "better-auth-alice",
+    });
+    await insertEvent(
+      "onboarding_method_clicked",
+      "alice",
+      {
+        ...step,
+        method_id: "builder_create_account",
+        method_kind: "builder",
+        onboarding_attempt_id: "attempt-1",
+      },
+      {
+        email: "alice-new@example.com",
+        userKey: "alice-new@example.com",
+        authUserId: "better-auth-alice",
+      },
+    );
+
+    const panel = buildPanel("onboarding-setup-choice")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(
+      result.rows.find((row) => row.method_id === "builder_create_account"),
+    ).toMatchObject({
+      choice_screen_viewers: 1,
+      first_choice_users: 1,
+      first_choice_rate: 1,
+    });
+  }, 20_000);
+
+  it("filters email-valued user keys but not opaque identity keys", async () => {
+    await createEventsTable();
+    const step = { flow: "first_run", step_id: "choice", step_index: 1 };
+    for (const user of [
+      {
+        key: "employee@builder.io",
+        authId: "employee-auth-id",
+        method: "builder_create_account",
+      },
+      {
+        key: "seed+autoz@example.com",
+        authId: "seed-auth-id",
+        method: "builder_create_account",
+      },
+      {
+        key: "opaque-user-key-123",
+        authId: "opaque-auth-id",
+        method: "builder_sign_in",
+      },
+    ]) {
+      const options = {
+        email: null,
+        userKey: user.key,
+        authUserId: user.authId,
+      };
+      await insertEvent("onboarding_step_viewed", user.authId, step, options);
+      await insertEvent(
+        "onboarding_method_clicked",
+        user.authId,
+        {
+          ...step,
+          method_id: user.method,
+          method_kind: "builder",
+          onboarding_attempt_id: `${user.authId}-attempt`,
+        },
+        options,
+      );
+    }
+
+    const panel = buildPanel("onboarding-setup-choice")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(
+      result.rows.find((row) => row.method_id === "builder_sign_in"),
+    ).toMatchObject({
+      method_id: "builder_sign_in",
+      choice_screen_viewers: 1,
+      first_choice_users: 1,
+      first_choice_rate: 1,
+    });
+    expect(
+      result.rows.find((row) => row.method_id === "builder_create_account"),
+    ).toMatchObject({
+      selected_users: 0,
+      first_choice_users: 0,
     });
   }, 20_000);
 });
