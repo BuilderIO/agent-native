@@ -502,10 +502,16 @@ const pendingPersistedResultHandlers = new Map<
   PendingPersistedResultHandler[]
 >();
 const slideLocalWriteSequences = new Map<string, Map<string, number>>();
-// The content of the last content write handed to the network, per deck and
-// slide. A queued draft may only be dropped when nothing newer than the
-// committed content was sent before it.
-const sentSlideContent = new Map<string, Map<string, string>>();
+// The last content write handed to the network, per deck and slide, with the
+// committed content it was written over. A queued draft may only be dropped
+// when nothing newer than the committed content was sent before it.
+const sentSlideContent = new Map<
+  string,
+  Map<string, { content: string; over: string }>
+>();
+// The committed content an editor draft was written over; a draft leaves
+// local state alone, so the op itself cannot tell.
+const draftCommittedContent = new WeakMap<GranularOp, string>();
 
 // Bumped on every local write enqueued for a deck. A deck read that spans a
 // local write is stale for that deck no matter what the pending state looks
@@ -872,8 +878,13 @@ function drainPendingDeckOps(
     if (op.op !== "patch-slide" || typeof op.fields.content !== "string") {
       continue;
     }
-    const sent = sentSlideContent.get(deckId) ?? new Map<string, string>();
-    sent.set(op.slideId, op.fields.content);
+    const sent =
+      sentSlideContent.get(deckId) ??
+      new Map<string, { content: string; over: string }>();
+    sent.set(op.slideId, {
+      content: op.fields.content,
+      over: draftCommittedContent.get(op) ?? op.fields.content,
+    });
     sentSlideContent.set(deckId, sent);
   }
   const persistedResultHandlers =
@@ -1113,7 +1124,13 @@ function settleQueuedContentDraft(
     queue.splice(index, 1);
   }
   const sent = sentSlideContent.get(deckId)?.get(slideId);
-  return sent === undefined || sent === committedContent;
+  // Committed content that moved on since the send (a server snapshot this
+  // tab adopted, or a later local write) is what the server holds.
+  return (
+    sent === undefined ||
+    sent.content === committedContent ||
+    sent.over !== committedContent
+  );
 }
 
 /**
@@ -3794,6 +3811,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         slideId,
         fields: normalizedUpdates,
       };
+      if (options?.preserveLocalState && previousSlide) {
+        draftCommittedContent.set(op, previousSlide.content);
+      }
       if (
         before &&
         !deriveInverseOp(before, op) &&

@@ -196,10 +196,17 @@ describe("SlideEditor render-phase safety", () => {
     const enterEnd = source.indexOf("// Exit edit mode", enterStart);
     const enterBody = source.slice(enterStart, enterEnd);
 
-    // The baseline is the stored string, not a capture of the editor's
-    // normalized markup, so an untouched edit merges back to it exactly.
+    // The baseline is what the canvas saves before typing, read before the
+    // editor normalizes anything, so an untouched edit merges back to it
+    // exactly and a just-placed box is part of it.
     expect(enterBody).not.toContain("captureInlineEditDraft(");
-    expect(enterBody).toContain("content: renderedSource.stored");
+    const baselineAt = enterBody.indexOf(
+      "const entryContent = readCurrentSlideContentHtml();",
+    );
+    expect(baselineAt).toBeGreaterThan(-1);
+    expect(enterBody.indexOf("session.root.render(")).toBeGreaterThan(
+      baselineAt,
+    );
     expect(source).toContain(
       "session.baselineHtml === null || html === session.baselineHtml",
     );

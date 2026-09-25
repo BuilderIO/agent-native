@@ -761,6 +761,56 @@ describe("DeckContext deck creation persistence", () => {
       expect(patchContents(fetchMock)).toEqual([undefined]);
     });
 
+    it("writes nothing for a typed-back draft over content adopted from the server", async () => {
+      const { fetchMock, result, setAccessibleDeck } =
+        await openStyledDeck("adopted-deck");
+      const committed = styled.replace("Before", "Committed");
+      act(() => {
+        result.current.updateSlide(
+          "adopted-deck",
+          "slide-1",
+          { content: committed },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave("adopted-deck");
+      });
+      // Another writer changes the slide and this tab adopts it.
+      const remote = styled.replace("Before", "Remote");
+      setAccessibleDeck({
+        id: "adopted-deck",
+        title: "Styled deck",
+        createdAt: "2026-09-24T00:00:00.000Z",
+        updatedAt: "2026-09-24T00:00:01.000Z",
+        slides: [
+          { id: "slide-1", content: remote, notes: "", layout: "blank" },
+        ],
+      });
+      await act(async () => {
+        await result.current.reloadDecks();
+      });
+      expect(result.current.getDeck("adopted-deck")?.slides[0].content).toBe(
+        remote,
+      );
+      act(() => {
+        for (const content of [remote.replace("Remote", "Remotex"), remote]) {
+          result.current.updateSlide(
+            "adopted-deck",
+            "slide-1",
+            { content },
+            {
+              preserveLocalState: true,
+            },
+          );
+        }
+      });
+      await act(async () => {
+        await result.current.flushDeckSave("adopted-deck");
+      });
+      expect(patchContents(fetchMock)).toEqual([committed]);
+    });
+
     it("pads the slide root only when the write changed it", async () => {
       const { fetchMock, result } = await openStyledDeck("padding-deck");
       const edited = styled.replace("Before", "After");

@@ -3154,12 +3154,16 @@ export default function SlideEditor({
       setSelectedElementMeasurement(null);
       editingElRef.current = el;
       setEditingEl(el);
-      // The no-change baseline is what is stored: a save that merges no edit
-      // returns exactly this string.
+      // The no-change baseline is what the canvas saves before any typing:
+      // the stored string itself for a stored element (a merge with no edit
+      // returns it exactly), or the content with a just-placed text box, which
+      // a Markdown canvas or an abandoned empty box must not write.
       inlineEditDraftRef.current = null;
-      inlineEditInitialContentRef.current = renderedSource
-        ? { slideId: slide.id, content: renderedSource.stored }
-        : null;
+      const entryContent = readCurrentSlideContentHtml();
+      inlineEditInitialContentRef.current =
+        entryContent === null
+          ? null
+          : { slideId: slide.id, content: entryContent };
       // Mark the slide active immediately so SSE/poll refreshes do not replace
       // the live DOM under an active contentEditable edit, even before the
       // user types and triggers an onUpdateSlide flush.
@@ -3203,6 +3207,7 @@ export default function SlideEditor({
       getSlideContent,
       handleRichTextEditorReady,
       onInlineEditStart,
+      readCurrentSlideContentHtml,
       scheduleInlineEditDraftCapture,
       selectElementForStyling,
       slide.id,
