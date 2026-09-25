@@ -475,6 +475,36 @@ describe("Content suggested edits Blocks transaction", () => {
     expect(document?.content).toBe("Before");
   });
 
+  it("rechecks the eligible field after taking the acceptance membership locks", async () => {
+    const { documentId, ordinaryPropertyIds } = await seedSystemDatabasePage(1);
+    await expect(
+      getDbExec().transaction!(async (tx) => {
+        const execute = tx.execute.bind(tx);
+        const wrapped = {
+          ...tx,
+          execute: async (query: Parameters<DbExec["execute"]>[0]) => {
+            if (
+              typeof query !== "string" &&
+              query.sql === "SELECT id FROM documents WHERE id = ? FOR UPDATE"
+            ) {
+              await execute({
+                sql: "UPDATE content_databases SET primary_blocks_property_id = NULL WHERE primary_blocks_property_id = ?",
+                args: [ordinaryPropertyIds[0]],
+              });
+            }
+            return execute(query);
+          },
+        } as DbExec;
+        return accept(documentId, wrapped);
+      }),
+    ).rejects.toThrow(/no primary Blocks field/);
+    const [document] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("Before");
+  });
+
   it("rechecks the bound comment thread inside suggestion creation", async () => {
     const { documentId } = await seedSystemDatabasePage();
     const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>

@@ -24,7 +24,6 @@ export async function accessibleDocumentIds(
   const queryAccessible = async (
     remaining: string[],
     contexts: Array<{ userEmail?: string; orgId?: string }>,
-    spaceId?: string,
   ) => {
     if (!remaining.length || !contexts.length) return;
     const rows = await db
@@ -34,7 +33,6 @@ export async function accessibleDocumentIds(
         and(
           inArray(schema.documents.id, remaining),
           isNull(schema.documents.trashedAt),
-          spaceId ? eq(schema.documents.spaceId, spaceId) : undefined,
           or(
             ...contexts.map((context) =>
               accessFilter(
@@ -86,30 +84,54 @@ export async function accessibleDocumentIds(
         .filter((id): id is string => Boolean(id)),
     ),
   ];
-  for (const spaceId of spaceIds) {
-    let spaceAccess;
-    try {
-      spaceAccess = await resolveContentSpaceAccess(spaceId, "viewer", { db });
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        (error.message.includes("not found") ||
-          error.message.includes("Not authorized"))
-      ) {
-        continue;
+  const spaces = await Promise.all(
+    spaceIds.map(async (spaceId) => {
+      try {
+        return {
+          id: spaceId,
+          access: await resolveContentSpaceAccess(spaceId, "viewer", { db }),
+        };
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          (error.message.includes("not found") ||
+            error.message.includes("Not authorized"))
+        ) {
+          return null;
+        }
+        throw error;
       }
-      throw error;
-    }
-    await queryAccessible(
-      remaining(),
-      [
-        {
-          userEmail: spaceAccess.authority.userEmail,
-          orgId: spaceAccess.authority.orgId ?? undefined,
-        },
-      ],
-      spaceId,
-    );
+    }),
+  );
+  const grantedSpaces = spaces.filter((space) => space !== null);
+  if (grantedSpaces.length) {
+    const rows = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          inArray(schema.documents.id, remaining()),
+          isNull(schema.documents.trashedAt),
+          or(
+            ...grantedSpaces.map(({ id, access }) =>
+              and(
+                eq(schema.documents.spaceId, id),
+                accessFilter(
+                  schema.documents,
+                  schema.documentShares,
+                  {
+                    userEmail: access.authority.userEmail,
+                    orgId: access.authority.orgId ?? undefined,
+                  },
+                  "viewer",
+                  { includePublic: true },
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    for (const row of rows) accessible.add(row.id);
   }
   return accessible;
 }

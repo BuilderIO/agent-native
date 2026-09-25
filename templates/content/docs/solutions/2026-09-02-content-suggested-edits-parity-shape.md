@@ -1440,5 +1440,7 @@ space, while excluding an unrelated user. Acceptance locks the Page before
 capturing the memberships whose primary fields it reconciles, while proposal
 and acceptance both exclude soft-deleted collection containers. A targeted
 database regression covers deleted containers and another covers non-active
-organization access. The affected Content database suites and document
-discovery suite pass locally (88 tests), along with Content typechecking.
+organization access. A final acceptance regression removes the eligible field
+between authorization and the membership lock; the transaction rejects it and
+keeps the canonical body unchanged. The affected Content database suites and
+document discovery suite pass locally (89 tests), along with Content typechecking.

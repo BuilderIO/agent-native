@@ -437,6 +437,15 @@ async function assertSuggestionBodyTarget(
       },
     );
   }
+  return memberships
+    .filter(
+      (membership) =>
+        membership.primary_id &&
+        ((membership.system_role === null &&
+          accessibleIds.has(String(membership.database_document_id))) ||
+          (membership.system_role === "files" && !ordinaryMemberships.length)),
+    )
+    .map((membership) => String(membership.primary_id));
 }
 
 function replacePreparedCollabContent(
@@ -661,6 +670,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         "Pages containing inline databases cannot accept suggestions yet",
       );
     }
+    const eligiblePrimaryIds = await assertSuggestionBodyTarget(
+      tx,
+      context.resourceId,
+    );
     const identityTx = drizzleTransactionForExec(tx);
     // Lock the parent row before reading memberships so a concurrent child insert cannot escape reconciliation.
     await tx.execute({
@@ -671,7 +684,26 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       identityTx,
       context.resourceId,
     );
-    await assertSuggestionBodyTarget(tx, context.resourceId);
+    const currentTargets = await tx.execute({
+      sql: `SELECT p.id FROM content_database_items i
+            INNER JOIN content_databases d ON d.id = i.database_id AND d.deleted_at IS NULL
+            INNER JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+            WHERE i.document_id = ? AND p.id IN (${eligiblePrimaryIds.map(() => "?").join(",")})`,
+      args: [context.resourceId, ...eligiblePrimaryIds],
+    });
+    if (
+      !currentTargets.rows.some((row) =>
+        primaryBlocksFields.some((field) => field.propertyId === row.id),
+      )
+    ) {
+      fail(
+        "This database item has no primary Blocks field for body suggestions.",
+        {
+          statusCode: 409,
+          errorCode: "suggestion_body_unavailable",
+        },
+      );
+    }
     replacePreparedCollabContent(coordination.ydoc, nextDocument);
     const now = new Date().toISOString();
     const nextBodyRevision = currentDocument.bodyRevision + 1;
