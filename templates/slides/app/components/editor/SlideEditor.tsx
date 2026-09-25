@@ -246,6 +246,7 @@ import {
   findGrabbedSlideShape,
   findSlideShapeOwner,
   findSmartBlock,
+  holdsPaintedTextBox,
   getSlideCanvasTraversalElements as getSlideCanvasTraversalRoots,
   isInlineTextElement,
   isRichTextBlock,
@@ -2779,7 +2780,12 @@ export default function SlideEditor({
       const list = isBulletRow(block)
         ? findEnclosingList(block, slideContent)
         : null;
-      const el = list && isRichTextBlock(list) ? list : block;
+      const el =
+        list &&
+        isRichTextBlock(list) &&
+        !holdsPaintedTextBox(list, slideContent)
+          ? list
+          : block;
       const activeSession = textSessionRef.current;
       if (activeSession?.text.element === el) return;
       if (activeSession) exitInlineEdit();

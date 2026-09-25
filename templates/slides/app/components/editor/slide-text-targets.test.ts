@@ -239,6 +239,50 @@ describe("slide text targets", () => {
     expect(findSmartBlock(metric, root)).toBe(metric);
   });
 
+  it("never makes a grid of class-styled cards one edit root", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <style>
+        .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+        .card { background: #131316; border: 1px solid #26262b; padding: 16px; }
+      </style>
+      <div class="fmd-slide">
+        <div class="cards">
+          <div class="card"><div class="label">ARR</div><div class="value">$412,800</div></div>
+          <div class="card"><div class="label">Renewal</div><div class="value">12/15/26</div></div>
+          <div class="card"><div class="label">Segment</div><div class="value">Strategic</div></div>
+        </div>
+      </div>
+    `;
+    document.body.append(root);
+    const cards = root.querySelector<HTMLElement>(".cards")!;
+    const [first] = Array.from(root.querySelectorAll<HTMLElement>(".card"));
+    const value = first.querySelector<HTMLElement>(".value")!;
+
+    expect(findSmartBlock(value, root)).toBe(value);
+    // A press in the gap between the cards, or on a card's padding.
+    expect(findSmartBlock(cards, root)).toBeNull();
+    const block = findSmartBlock(first, root);
+    expect(block === null || first.contains(block)).toBe(true);
+    root.remove();
+  });
+
+  it("still edits a single painted panel of paragraphs as one", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <style>.panel { background: #131316; border-radius: 8px; }</style>
+      <div class="fmd-slide">
+        <div class="panel"><p id="one">First paragraph</p><p>Second paragraph</p></div>
+      </div>
+    `;
+    document.body.append(root);
+    const panel = root.querySelector<HTMLElement>(".panel")!;
+    const paragraph = root.querySelector<HTMLElement>("#one")!;
+    expect(findSmartBlock(panel, root)).toBe(panel);
+    expect(findSmartBlock(paragraph, root)).toBe(paragraph);
+    root.remove();
+  });
+
   it("does not treat the autofit renderer shell as editable text", () => {
     const root = document.createElement("div");
     root.innerHTML = `

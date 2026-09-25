@@ -355,17 +355,19 @@ export function resolveRichTextEditingBlock(element: HTMLElement): HTMLElement {
 function findSlideRichTextOwner(
   target: HTMLElement,
   root: HTMLElement,
+  boundary: HTMLElement | null,
 ): HTMLElement | null {
   if (target.closest(".fmd-text-box[data-slide-object-id]")) return null;
-  let owner: HTMLElement | null = null;
+  const owners: HTMLElement[] = [];
   let element: HTMLElement | null = target;
   while (element && element !== root && root.contains(element)) {
     if (isSlideCanvasShell(element)) break;
     if (RICH_TEXT_TABLE_TAGS.has(element.tagName)) break;
-    if (ownsRichTextEditingLayer(element)) owner = element;
+    if (ownsRichTextEditingLayer(element)) owners.unshift(element);
+    if (element === boundary) break;
     element = element.parentElement;
   }
-  return owner;
+  return owners.find((owner) => !holdsPaintedTextBox(owner, root)) ?? null;
 }
 
 function isTransparentPaint(color: string): boolean {
@@ -399,6 +401,51 @@ function paintsOwnBox(element: HTMLElement): boolean {
 /** A painted box this large is the slide's backdrop, not an object on it. */
 const SLIDE_BACKDROP_AREA_RATIO = 0.9;
 
+function isPaintedObject(element: HTMLElement, root: HTMLElement): boolean {
+  if (isInlineTextElement(element) || !paintsOwnBox(element)) return false;
+  const rootRect = root.getBoundingClientRect();
+  const rootArea = rootRect.width * rootRect.height;
+  const rect = element.getBoundingClientRect();
+  return (
+    rootArea <= 0 ||
+    rect.width * rect.height < rootArea * SLIDE_BACKDROP_AREA_RATIO
+  );
+}
+
+/** The nearest box at or above `target` that the slide paints, such as a card. */
+function paintedBoxAround(
+  target: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
+  for (
+    let element: HTMLElement | null = target;
+    element && element !== root && root.contains(element);
+    element = element.parentElement
+  ) {
+    if (isSlideCanvasShell(element)) return null;
+    if (isPaintedObject(element, root)) return element;
+  }
+  return null;
+}
+
+/**
+ * Whether `element` holds a painted box with text, such as a card in a grid:
+ * one edit there would let Enter and Backspace move text between boxes the
+ * slide draws apart. List items are their list's own rows, and a box with no
+ * text (a marker, a divider) holds nothing to move.
+ */
+export function holdsPaintedTextBox(
+  element: HTMLElement,
+  root: HTMLElement,
+): boolean {
+  return Array.from(element.querySelectorAll<HTMLElement>("*")).some(
+    (box) =>
+      box.tagName !== "LI" &&
+      Boolean(box.textContent?.trim()) &&
+      isPaintedObject(box, root),
+  );
+}
+
 /**
  * Google Slides drags a shape from anywhere, its text included, while a bare
  * text box keeps its interior for the caret. Generated HTML has no shape type,
@@ -410,8 +457,6 @@ export function findSlideShapeOwner(
   target: HTMLElement | null,
   root: HTMLElement,
 ): HTMLElement | null {
-  const rootRect = root.getBoundingClientRect();
-  const rootArea = rootRect.width * rootRect.height;
   let element = target;
   while (element && element !== root && root.contains(element)) {
     if (
@@ -425,13 +470,7 @@ export function findSlideShapeOwner(
     ) {
       return null;
     }
-    if (!isInlineTextElement(element) && paintsOwnBox(element)) {
-      const rect = element.getBoundingClientRect();
-      const isBackdrop =
-        rootArea > 0 &&
-        rect.width * rect.height >= rootArea * SLIDE_BACKDROP_AREA_RATIO;
-      if (!isBackdrop) return element;
-    }
+    if (isPaintedObject(element, root)) return element;
     element = element.parentElement;
   }
   return null;
@@ -449,15 +488,23 @@ export function findGrabbedSlideShape(
     : null;
 }
 
-/** Resolve a click inside inline markup to the containing editable text block. */
+/**
+ * Resolve a click inside inline markup to the containing editable text block.
+ * The block never spans more than one painted box: it may be the card the
+ * click is in, or text inside it, never the grid around the cards.
+ */
 export function findSmartBlock(
   target: HTMLElement,
   root: HTMLElement,
   options?: { includeTextBoxes?: boolean },
 ): HTMLElement | null {
   const includeTextBoxes = options?.includeTextBoxes ?? true;
-  const richTextOwner = findSlideRichTextOwner(target, root);
+  const boundary = paintedBoxAround(target, root);
+  const richTextOwner = findSlideRichTextOwner(target, root, boundary);
   if (richTextOwner) return richTextOwner;
+  const fits = (block: HTMLElement) =>
+    (!boundary || boundary.contains(block)) &&
+    !holdsPaintedTextBox(block, root);
   let element: HTMLElement | null = target;
   while (element && root.contains(element)) {
     if (
@@ -469,13 +516,15 @@ export function findSmartBlock(
     if (isTextLeaf(element)) {
       const list = findEnclosingList(element, root);
       const block = resolveRichTextEditingBlock(list ?? element);
-      return canEnterRichTextEdit(block) ? block : element;
+      return canEnterRichTextEdit(block) && fits(block) ? block : element;
     }
-    if (isSmartGroup(element) && canEnterRichTextEdit(element)) return element;
-    if (isRichTextBlock(element)) {
+    if (isSmartGroup(element) && canEnterRichTextEdit(element)) {
+      if (fits(element)) return element;
+    } else if (isRichTextBlock(element)) {
       const block = resolveRichTextEditingBlock(element);
-      return canEnterRichTextEdit(block) ? block : null;
+      return canEnterRichTextEdit(block) && fits(block) ? block : null;
     }
+    if (element === boundary) return null;
     element = element.parentElement;
   }
   return null;
