@@ -212,6 +212,9 @@ describe("AiFilterSection prompt blur saves", () => {
     mocks.deleteRule.mockImplementation(async (id: string) => {
       if (id === "important-rule-duplicate-2") throw new Error("delete failed");
     });
+    mocks.updateRule
+      .mockImplementationOnce(async () => undefined)
+      .mockRejectedValueOnce(new Error("restore failed"));
     render(<AiFilterSection />);
 
     const prompt = screen.getByRole("textbox", {
