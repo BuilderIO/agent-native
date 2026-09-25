@@ -115,7 +115,7 @@ export function resolveCatchAllTarget(
 export async function resolveServerCatchAllTarget(
   appId: string,
 ): Promise<string | null> {
-  if (!import.meta.env.SSR) return null;
+  if (typeof window !== "undefined") return null;
   const { getBuiltinAgents, loadWorkspaceAppsManifest, normalizeAgentId } =
     await import("@agent-native/core/server/agent-discovery");
   // Dispatch receives legacy route segments before discovery normalizes the
