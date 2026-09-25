@@ -26,8 +26,11 @@ Detailed event, availability, booking, storage, and UI rules live in
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use actions for events, availability, booking links, settings, navigation,
   Google Calendar connection, and sharing. Do not bypass app access checks.
-- The `get-settings` and `update-settings` actions expose the General week-start
-  setting as `weekStart`: `sunday` or `monday`.
+- `get-settings`/`update-settings` hold `timezone` (Calendar's own, not the
+  account timezone), `weekStart` (`sunday` or
+  `monday`), `defaultEventDuration`, and the fallback booking page copy. The
+  redesigned Settings shows them on page `app`, with tabs `calendars` (Google
+  Calendar, Zoom) and `booking`.
 - Use `connect-google-calendar` when the user asks to connect or reconnect
   Google Calendar. Return its link to the user; do not `fetch`
   `/_agent-native/google/auth-url` from the agent backend because that route

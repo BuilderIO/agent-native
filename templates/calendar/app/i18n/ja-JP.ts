@@ -251,6 +251,38 @@ export default {
     weekStartSunday: "日曜日 - 土曜日",
     weekStartMonday: "月曜日 - 日曜日",
   },
+  calendarSettings: {
+    calendarsTab: "カレンダー",
+    bookingTab: "予約",
+    eventsGroup: "予定",
+    appearanceGroup: "外観",
+    colorTheme: "カラーテーマ",
+    timezone: "カレンダーのタイムゾーン",
+    timezoneDescription: "予定の表示と新しい予定の作成に使用します。",
+    defaultDuration: "予定のデフォルトの長さ",
+    defaultDurationDescription:
+      "分単位です。予約リンクごとに設定することもできます。",
+    durationInvalid: "5〜480 分の長さを入力してください。",
+    zoom: "Zoom",
+    connectedAs: "{{accounts}} として接続済み",
+    setUp: "設定",
+    disconnectGoogleTitle: "Google カレンダーの接続を解除しますか？",
+    disconnectGoogleDescription:
+      "Google アカウントの予定が Calendar に表示されなくなり、同期も停止します。",
+    disconnectZoomTitle: "Zoom の接続を解除しますか？",
+    disconnectZoomDescription:
+      "再接続するまで、新しい予定や予約に Zoom ミーティングのリンクを追加できません。",
+    manage: "管理",
+    edit: "編集",
+    cancel: "キャンセル",
+    save: "保存",
+    fallbackBookingPage: "代替の予約ページ",
+    fallbackBookingPageDescription:
+      "予約リンクに独自のタイトルや説明がない場合に使用します。",
+    fallbackTitle: "タイトル",
+    fallbackDescription: "説明",
+    bookingLinksDescription: "予約リンクを作成し、公開 URL をコピーします。",
+  },
   eventDialog: {
     eventUpdated: "イベントを更新しました",
     updateFailed: "イベントを更新できませんでした",

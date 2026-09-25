@@ -1,7 +1,10 @@
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
+import {
+  buildSettingsRoute,
+  openCommandMenu,
+} from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebar,
@@ -618,7 +621,7 @@ function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
           <Tooltip>
             <TooltipTrigger asChild>
               <Link
-                to="/settings"
+                to={buildSettingsRoute("app", "calendars")}
                 onClick={onClose}
                 className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
               >

@@ -2,6 +2,7 @@ import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import type {
   CalendarEvent,
   CalendarEventDraft,
@@ -2202,7 +2203,7 @@ export default function CalendarView() {
                       <DropdownMenuSeparator />
                       <DropdownMenuItem asChild>
                         <Link
-                          to="/settings"
+                          to={buildSettingsRoute("app")}
                           className="flex w-full items-center"
                         >
                           {t("calendarView.generalSettings")}
@@ -2570,7 +2571,7 @@ function AccountAvatars() {
     <Tooltip>
       <TooltipTrigger asChild>
         <Link
-          to="/settings"
+          to={buildSettingsRoute("app", "calendars")}
           className="flex items-center hover:opacity-90 ml-1"
           aria-label={t("calendarView.manageAccounts")}
         >

@@ -2,10 +2,12 @@ import {
   AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useAppearanceSync } from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 import { IconMenu } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -245,6 +247,13 @@ export function AppLayout({ children }: AppLayoutProps) {
     location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/");
   const isCalendarPage = location.pathname === "/";
+  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  // The redesigned Settings shell brings its own navigation, header, and
+  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
+  // so the app chrome stays out then too instead of appearing and vanishing.
+  const settingsOwnsChrome =
+    isSettingsPage &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
@@ -428,27 +437,29 @@ export function AppLayout({ children }: AppLayoutProps) {
             className="agent-layout-shell flex h-screen overflow-hidden bg-background"
             data-agent-native-shell-variant="custom"
           >
-            <Sidebar
-              open={sidebarOpen}
-              onClose={() => setSidebarOpen(false)}
-              collapsed={
-                !isMobile &&
-                (perAppChatOpen
-                  ? !sidebarExpandedWhileChatOpen
-                  : sidebarCollapsed)
-              }
-              onCollapsedChange={
-                isMobile
-                  ? undefined
-                  : (nextCollapsed) => {
-                      if (perAppChatOpen) {
-                        setSidebarExpandedWhileChatOpen(!nextCollapsed);
-                        return;
+            {settingsOwnsChrome ? null : (
+              <Sidebar
+                open={sidebarOpen}
+                onClose={() => setSidebarOpen(false)}
+                collapsed={
+                  !isMobile &&
+                  (perAppChatOpen
+                    ? !sidebarExpandedWhileChatOpen
+                    : sidebarCollapsed)
+                }
+                onCollapsedChange={
+                  isMobile
+                    ? undefined
+                    : (nextCollapsed) => {
+                        if (perAppChatOpen) {
+                          setSidebarExpandedWhileChatOpen(!nextCollapsed);
+                          return;
+                        }
+                        setSidebarCollapsed(nextCollapsed);
                       }
-                      setSidebarCollapsed(nextCollapsed);
-                    }
-              }
-            />
+                }
+              />
+            )}
             <AgentSidebar
               position="right"
               defaultOpen={false}
@@ -461,7 +472,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               ]}
             >
               <div className="flex flex-1 flex-col overflow-hidden">
-                {!pageOwnsToolbar(location.pathname) && (
+                {!pageOwnsToolbar(location.pathname) && !settingsOwnsChrome && (
                   <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
                     <div className="flex min-w-0 flex-1 items-center gap-2">
                       <Button
