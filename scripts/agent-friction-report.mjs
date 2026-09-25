@@ -76,8 +76,16 @@ const SHIPPING_CHURN_RE =
 
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
-    String.raw`.*(?:\bleases?\b(?![^.!?\n]{0,80}\b(?:isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|doesn['’]?t|don['’]?t|didn['’]?t|hasn['’]?t|haven['’]?t|shouldn['’]?t|wouldn['’]?t|couldn['’]?t|not|never)\s+(?:really\s+|actually\s+)?(?:block\w*|prevent\w*|stop\w*)\b[^.!?\n]{0,40}\b(?:work\w*|task)\b(?![^.!?\n]{0,40}\bbut\s+it\s+did\b))[^.!?\n]{0,160}\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*|prevent\w*|(?:didn['’]?t|did not)\s+continu\w+\s+work\w*)\b|(?<!not\s)(?<!never\s)(?<!n['’]t\s)\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*|prevent\w*|ignore|bypass)\b[^.!?\n]{0,160}\bleases?\b)`,
-  ].join(""),
+    String.raw`\bleases?\b[^.!?\n]{0,120}\b(?:stopped|blocked)\b[^.!?\n]{0,40}\b(?:work\w*|task|session|thread|agent)\b`,
+    String.raw`\bleases?\b[^.!?\n]{0,120}\b(?:work|task|session|thread|agent)\s+stopped\b`,
+    String.raw`\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,40}\b(?:stopped working|was blocked|got blocked)\b[^.!?\n]{0,100}\bleases?\b`,
+    String.raw`\bleases?\b[^.!?\n]{0,120}\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,40}\b(?:didn['’]?t|did not|couldn['’]?t|could not|was unable to)\s+continu\w*`,
+    String.raw`\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,80}\b(?:didn['’]?t|did not|couldn['’]?t|could not|was unable to)\s+continu\w*[^.!?\n]{0,100}\bleases?\b`,
+    String.raw`\bleases?\b[^.!?\n]{0,100}\bprevented\b[^.!?\n]{0,40}\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,40}\bfrom\s+(?:continuing|working)\b`,
+    String.raw`\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,80}\bprevented\b[^.!?\n]{0,40}\bfrom\s+(?:continuing|working)\b[^.!?\n]{0,100}\bleases?\b`,
+    String.raw`\b(?:told|asked|reminded)\b[^.!?\n]{0,80}\b(?:threads?|sessions?|agents?)\b[^.!?\n]{0,80}\b(?:finish(?:ing)?\s+shipping|ignore|bypass)\b[^.!?\n]{0,60}\bleases?\b`,
+    String.raw`\bleases?\b[^.!?\n]{0,80}\b(?:shouldn['’]?t|should not|wouldn['’]?t|would not|couldn['’]?t|could not)\s+block\w*\b[^.!?\n]{0,40}\b(?:work|task)\b[^.!?\n]{0,40}\bbut\s+it\s+did\b`,
+  ].join("|"),
   "i",
 );
 
@@ -624,6 +632,12 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [false, "The agent did not stop working; the lease was irrelevant."],
   [true, "The agent stopped working after the lease expired."],
   [true, "The lease failure prevented the task from continuing."],
+  [false, "No work was stopped by the lease."],
+  [false, "Don't ignore the lease; continue working."],
+  [false, "The lease prevents duplicate watchers so work can continue."],
+  [false, "Work was not blocked by the lease."],
+  [true, "Work could not continue after the lease expired."],
+  [true, "The lease failure meant the task could not continue."],
 ];
 
 const STALE_PR_WATCHER_REGEX_CASES = [
