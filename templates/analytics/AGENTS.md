@@ -1,8 +1,7 @@
 # Analytics — Agent Guide
 
-Analytics is an agent-native BI workspace for sources, queries, dashboards,
-charts, and warehouse integrations; dashboards are canonical and legacy
-analyses remain readable.
+Analytics owns sources, queries, charts, and dashboards. Dashboards are
+canonical; legacy analyses remain readable.
 
 ## Skills
 
@@ -26,23 +25,21 @@ Read the relevant skill before deeper work:
 
 ## How To Answer A Data Question
 
-1. **Search existing work first.** For a metric question, call
-   `search-analytics-query-catalog`; for dashboard replication or adaptation,
-   call `search-dashboard-references` first. Inspect each returned reference
-   with `get-sql-dashboard` or `get-explorer-dashboard` by its `kind`; a match
-   is context, not authoritative source data. Then adapt the closest saved SQL
-   to the requested filters/window, run it once, and stop. Prefer a current
-   `certified` dashboard result; a dashboard starred by you is a weaker
-   relevance signal. Certification becomes stale after a dashboard edit.
-2. **One bounded call.** List/filter/count/cohort questions are one SQL statement
-   or one server-side `run-code` script; never page or fan out per item.
-3. **Escalate on a miss.** If the catalog has no usable result, make one discovery
-   pass (`list-data-dictionary`, `search-bigquery-schema`, `data-source-status`),
-   then query; don't cross-check or add unasked breakdowns.
+1. **Search existing work first.** Use `search-analytics-query-catalog` for
+   metrics and `search-dashboard-references` for dashboard adaptation. Read a
+   match with `get-sql-dashboard` or `get-explorer-dashboard` by `kind`; it is
+   context, not source data. Adapt its SQL to the requested window and filters,
+   run once, and stop. Prefer current `certified` results over starred ones;
+   edits stale certification.
+2. **One bounded call.** List/filter/count/cohort questions take one SQL query
+   or server-side `run-code` script, never per-item fan-out.
+3. **Escalate on a miss.** Make one discovery pass with `list-data-dictionary`,
+   `search-bigquery-schema`, or `data-source-status`, then query. Skip unasked
+   breakdowns.
 4. **Answer in chat.** Return a short table, chart, or export, not just a path;
    for >50 rows, state the total and top rows.
-6. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
-   cannot answer; don't chunk queryable questions. See `adhoc-analysis`.
+6. **Chunk only reading.** For 30+ qualitative items a query cannot answer,
+   group 5-10. See `adhoc-analysis`.
 
 State confidence, never a dead end: cite the dashboard or query used (note
 certified ones); label figures "Unverified" when no live query ran.
@@ -50,13 +47,9 @@ certified ones); label figures "Unverified" when no live query ran.
 ## Core Rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- A sibling app sends natural-language or shaped input over A2A, never SQL; this
-  app owns schema, source selection, and tools. Prefer natural-language
-  delegation; shaped reads are stable contracts.
-- Analytics owns first-party product usage, app/template events, agent-native
-  signups, conversions, and other curated product metrics. Answer sibling-app
-  delegations with the built-in source and query catalog; sibling agents should
-  send a natural-language question, never SQL.
+- Sibling apps delegate product usage, app events, signups, conversions, and
+  other metrics over A2A in natural language, never SQL. Analytics owns schema,
+  source selection, and tools; shaped reads are stable contracts.
 - Delegation: choose defaults; label partial.
 - Never invent data or source semantics; include source, window, filters, sample
   size, join method, and caveats.
@@ -93,7 +86,7 @@ certified ones); label figures "Unverified" when no live query ran.
 | `search-dashboard-references` | Find dashboards to replicate. |
 | `get-sql-dashboard` | Read the dashboard and exact panel SQL. |
 | `certify-dashboard` | Admin-only approval of its current version. |
-| `list-session-recordings` | Find scoped session replays by date, app, duration, errors, network errors, rage clicks, visitor type, or email domain. Set `paginated: true` for sorted pages, total count, and app counts; otherwise the action returns the legacy summary array. |
+| `list-session-recordings` | Filter scoped replays by date, app, duration, error signals, visitor type, or email domain. `paginated: true` returns sorted pages, total, and app counts; the default returns the legacy array. |
 | DB | `list-db-admin-connections`, `list-connected-database-tables`, `db-admin-federated-read`: registry, schema, bounded joins. |
 
 ## Application State
