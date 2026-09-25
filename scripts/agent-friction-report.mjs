@@ -74,6 +74,19 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const WORKTREE_BRANCH_PERMISSION_RE =
+  /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:are\s+)?needed\b[^.!?\n]{0,100}\bworktrees?\b/i;
+const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
+  [true, "Stop asking for permissions to create branches in worktrees."],
+  [
+    true,
+    "We should only ask permission for branch changes when not in a worktree.",
+  ],
+  [true, "No permissions are needed when in task-owned worktrees."],
+  [false, "Ask before changing branches in the shared checkout."],
+  [false, "The worktree has a branch checked out."],
+];
+
 const STALE_PR_WATCHER_RE = new RegExp(
   [
     String.raw`\b(?:stop|remove|delete|pause|cancel|disable|turn off)\b[^.!?\n]{0,100}\b(?:ship[- ]watchdog|PR|pull request)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat)\b`,
@@ -913,12 +926,18 @@ if (process.argv.includes("--self-test")) {
       ([expected, message]) => PR_REVIEW_HANDOFF_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...WORKTREE_BRANCH_PERMISSION_REGEX_CASES.filter(
+      ([expected, message]) =>
+        WORKTREE_BRANCH_PERMISSION_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -955,6 +974,16 @@ const PATTERNS = [
     label: "Unrequested branch creation / movement",
     fixedBy: ".agents/skills/new-branch (activation guard, 2026-07-28)",
     re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
+  },
+  {
+    // Added 2026-09-25 because `branch-moves` measures unwanted branch moves,
+    // while asking permission to create a safe branch inside a task-owned
+    // worktree is a separate, repeated error.
+    key: "worktree-branch-permission",
+    label: "Had to correct permission asks for task-owned worktree branches",
+    fixedBy:
+      ".agents/skills/new-branch + ship + concurrent-agents (worktree ownership, 2026-09-25)",
+    re: WORKTREE_BRANCH_PERMISSION_RE,
   },
   {
     // Added 2026-09-11 after a user correction made clear the feedback scope

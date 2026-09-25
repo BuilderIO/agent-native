@@ -521,7 +521,6 @@ export function AgentSidebar({
         onAgentChange?.(agent);
       }
     : onAgentChange;
-  const effectivePosition = hostedHarnessUi ? "left" : position;
   const effectiveDefaultOpen = hostedHarnessUi || defaultOpen;
   const effectiveShowTabBar = hostedHarnessUi || showTabBar;
   const effectiveAnimateDesktop = hostedHarnessUi ? false : animateDesktop;
@@ -1127,7 +1126,7 @@ export function AgentSidebar({
   const handleResizeStart = useCallback(() => setIsResizing(true), []);
   const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
-  const isLeft = effectivePosition === "left";
+  const isLeft = position === "left";
   const wideDrawerEnabled = isWideDrawer && !isMobile;
   const mobileAnimationEnabled = !presentationMode && isMobile && animateMobile;
   const desktopAnimationEnabled =
@@ -1252,7 +1251,7 @@ export function AgentSidebar({
     <>
       {showResizeHandle && !isLeft && (
         <ResizeHandle
-          position={effectivePosition}
+          position={position}
           onDrag={handleDrag}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
@@ -1273,7 +1272,7 @@ export function AgentSidebar({
                 : undefined
         }
         data-agent-sidebar-layout={panelLayout}
-        data-agent-sidebar-position={effectivePosition}
+        data-agent-sidebar-position={position}
         data-agent-native-hosted-harness-ui={
           hostedHarnessUi ? "desktop" : undefined
         }
@@ -1357,7 +1356,7 @@ export function AgentSidebar({
       </div>
       {showResizeHandle && isLeft && (
         <ResizeHandle
-          position={effectivePosition}
+          position={position}
           onDrag={handleDrag}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
@@ -1385,7 +1384,7 @@ export function AgentSidebar({
       )}
       <div
         className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
-        data-agent-sidebar-position={effectivePosition}
+        data-agent-sidebar-position={position}
         data-agent-native-hosted-harness-ui={
           hostedHarnessUi ? "desktop" : undefined
         }

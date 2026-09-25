@@ -9,6 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./AgentSidebarPanel.js", () => ({
   AgentSidebarPanel: () => <div data-agent-sidebar-panel-loaded="true" />,
 }));
+const hostedHarnessMock = vi.hoisted(() => ({
+  configured: false,
+  enabled: false,
+}));
 vi.mock("./agent-chat.js", () => ({}));
 vi.mock("./mcp-app-host.js", () => ({}));
 vi.mock("./agent-sidebar-url-sync.js", () => ({
@@ -28,7 +32,7 @@ vi.mock("./app-chat-sidebar.js", () => ({
   usePerAppChatState: () => ({ hosted: false, open: false }),
 }));
 vi.mock("./app-config.js", () => ({
-  injectedAgentNativeConfig: () => ({ harness: undefined }),
+  injectedAgentNativeConfig: () => ({ harness: hostedHarnessMock.configured }),
 }));
 vi.mock("./builder-frame.js", () => ({
   shouldParentFrameOwnAgentPanel: () => false,
@@ -55,7 +59,11 @@ vi.mock("./onboarding/use-preview-mode.js", () => ({
   useOnboardingPreviewMode: () => false,
 }));
 vi.mock("./use-action.js", () => ({
-  useActionQuery: () => ({ data: undefined }),
+  useActionQuery: () => ({
+    data: hostedHarnessMock.enabled
+      ? { enabled: true, runtimes: ["codex"] }
+      : undefined,
+  }),
 }));
 vi.mock("./use-db-sync.js", () => ({
   useScreenRefreshKey: () => 0,
@@ -91,6 +99,8 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  hostedHarnessMock.configured = false;
+  hostedHarnessMock.enabled = false;
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     clear: () => values.clear(),
@@ -130,6 +140,23 @@ describe("AgentSidebar lazy panel boundary", () => {
     expect(
       container?.querySelector("[data-agent-sidebar-panel-loaded='true']"),
     ).toBeTruthy();
+  });
+
+  it("keeps hosted-harness chat on the configured right side", () => {
+    hostedHarnessMock.configured = true;
+    hostedHarnessMock.enabled = true;
+    renderSidebar(false);
+
+    expect(
+      container
+        ?.querySelector(".agent-sidebar-shell")
+        ?.getAttribute("data-agent-sidebar-position"),
+    ).toBe("right");
+    expect(
+      container
+        ?.querySelector(".agent-sidebar-panel")
+        ?.getAttribute("data-agent-sidebar-position"),
+    ).toBe("right");
   });
 
   it("opens from the global shortcut while the panel body is still loading", async () => {
