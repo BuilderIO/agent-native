@@ -11,13 +11,22 @@ import type { EmailMessage, Label, SavedMailFilter } from "./types";
  * still goes through the live Gmail list path.
  */
 
-/** Built-in tab ids. Every other id is a pinned label id or a saved filter id. */
+/** Built-in ids are reserved; remaining ids are pinned labels or saved filters. */
 export const IMPORTANT_TAB_ID = "important";
 export const OTHER_TAB_ID = "other";
+/** The unfiltered inbox tab; distinct from a Gmail label or saved-filter id. */
+export const ALL_TAB_ID = "__inbox_all__";
+export const ALL_TAB_PARAM = ALL_TAB_ID;
 /** The whole inbox, no split (used when `combineInbox` is on). */
 export const ALL_INBOX_TAB_ID = "inbox";
 
-export type InboxTabKind = "important" | "other" | "inbox" | "label" | "filter";
+export type InboxTabKind =
+  | "all"
+  | "important"
+  | "other"
+  | "inbox"
+  | "label"
+  | "filter";
 
 export type InboxTab = {
   id: string;
@@ -85,18 +94,19 @@ export type InboxThreadItem = EmailMessage & {
 
 /**
  * Tab configuration as stored in `mail-settings`. Pinned labels become
- * `label:` tabs, saved filters become query tabs; Important and Other are the
- * two remainder tabs. A thread shows in every label/filter tab whose query it
- * matches (Superhuman semantics — users exclude overlaps with `-from:` etc.),
- * and in Important or Other only when it matches no label/filter tab.
+ * `label:` tabs and saved filters become query tabs; Important and Other are
+ * the remainder tabs. All is inclusive, so each inbox thread appears there
+ * while keeping its existing label/filter/Important/Other membership.
  */
 export type InboxTabConfig = {
   pinnedLabels: string[];
   savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
   combineInbox: boolean;
+  showAllTab?: boolean;
 };
 
 export function inboxTabHref(tabId: string): string {
-  return `/inbox?tab=${encodeURIComponent(tabId)}`;
+  const param = tabId === ALL_TAB_ID ? ALL_TAB_PARAM : tabId;
+  return `/inbox?tab=${encodeURIComponent(param)}`;
 }

@@ -225,15 +225,6 @@ export function FirstRunOnboarding({
   });
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
-  const dismissOnboarding = useCallback(() => {
-    if (!previewMode) {
-      trackOnboardingEvent("onboarding_dismissed", {
-        ...firstRunStepProperties(screen, extensions, extensionIndex),
-        reason: "user_action",
-      });
-    }
-    void finishOnboarding(null);
-  }, [extensionIndex, extensions, finishOnboarding, previewMode, screen]);
   const retryOnboardingCompletion = useCallback(() => {
     const attempt = completionAttemptRef.current;
     void finishOnboarding(
@@ -253,7 +244,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="choice"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4 text-center">
@@ -373,7 +363,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="extension"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <Extension
@@ -396,7 +385,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="choice"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-9">
@@ -583,7 +571,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="role"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <div
@@ -699,7 +686,6 @@ export function FirstRunOnboarding({
     <OnboardingShell
       profile={profile}
       screen="connecting"
-      onDismiss={dismissOnboarding}
       {...completionErrorProps}
     >
       <div
@@ -753,6 +739,16 @@ export function FirstRunOnboarding({
                 <Skeleton className="h-7 w-full" />
               </div>
             </div>
+            {connectFlow.connecting && (
+              <button
+                type="button"
+                data-testid="first-run-cancel-builder"
+                className={cn(secondaryButtonClass, "mt-4")}
+                onClick={connectFlow.cancel}
+              >
+                {t("common.cancel")}
+              </button>
+            )}
             {connectFlow.error && (
               <div className="mt-4 flex flex-col items-center gap-2">
                 <p className="text-xs text-destructive">{connectFlow.error}</p>
@@ -776,7 +772,6 @@ function OnboardingShell({
   profile,
   screen,
   footer,
-  onDismiss,
   completionError,
   onRetry,
   children,
@@ -784,12 +779,10 @@ function OnboardingShell({
   profile: OnboardingAppProfile | null;
   screen: FirstRunScreen;
   footer?: React.ReactNode;
-  onDismiss?: () => void;
   completionError?: string | null;
   onRetry?: () => void;
   children: React.ReactNode;
 }) {
-  const t = useT();
   return (
     <div
       className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background text-foreground"
@@ -798,17 +791,6 @@ function OnboardingShell({
       aria-modal="true"
       aria-label={`${profile?.appName ?? "Your app"} setup`}
     >
-      {onDismiss ? (
-        <button
-          type="button"
-          data-testid="first-run-dismiss"
-          aria-label={t("agentChat.common.dismiss")}
-          onClick={onDismiss}
-          className="absolute end-4 top-4 z-10 flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconX size={17} />
-        </button>
-      ) : null}
       <div
         className="h-0.5 shrink-0 bg-muted"
         data-testid="onboarding-progress"

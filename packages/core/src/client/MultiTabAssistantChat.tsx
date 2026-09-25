@@ -1948,6 +1948,7 @@ export function MultiTabAssistantChat({
         engine,
         effort,
         newTab,
+        targetTabId,
         reuseEmptyTab,
         background,
         submit,
@@ -2037,7 +2038,18 @@ export function MultiTabAssistantChat({
         }
       };
 
-      if (newTab) {
+      if (targetTabId) {
+        if (!openTabIds.includes(targetTabId)) {
+          mountedTabsRef.current.add(targetTabId);
+          setOpenTabIds((prev) =>
+            prev.includes(targetTabId) ? prev : [...prev, targetTabId],
+          );
+        }
+        if (!chatRefs.current.has(targetTabId)) {
+          switchThread(targetTabId);
+        }
+        sendToTab(targetTabId);
+      } else if (newTab) {
         const previousTabId = activeThreadIdRef.current;
         const previousChat = previousTabId
           ? chatRefs.current.get(previousTabId)
@@ -2112,6 +2124,7 @@ export function MultiTabAssistantChat({
     clearContextInTab,
     createThread,
     isNewThread,
+    openTabIds,
     postMessageSubmissionsDisabled,
     props.execMode,
     removeContextInTab,

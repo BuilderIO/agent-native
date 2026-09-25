@@ -205,7 +205,7 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain("editingSafetyEnabled: !interactModeRef.current");
   });
 
-  it("reports live router paths while Interact omits editor chrome", () => {
+  it("reports live router paths for every URL-backed frame", () => {
     const canvas = readFileSync(
       "app/components/design/DesignCanvas.tsx",
       "utf8",
@@ -217,9 +217,7 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain(
       'if (e.data.type === "agent-native:live-route-path") {',
     );
-    expect(canvas).toContain(
-      '(includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +',
-    );
+    expect(canvas).toContain("LIVE_ROUTE_BRIDGE_SCRIPT +");
   });
 
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
@@ -347,17 +345,23 @@ describe("responsive Interact wiring", () => {
   });
 
   it("keeps a focused localhost screen on its live route when returning to Edit", () => {
+    const focusedCanvasStart = source.lastIndexOf("<DesignCanvas");
     const focusedCanvas = source.slice(
-      source.lastIndexOf("<DesignCanvas"),
-      source.indexOf(
-        "onRoutePathChange={handleLiveRoutePathChange}",
-        source.lastIndexOf("<DesignCanvas"),
-      ) + 100,
+      focusedCanvasStart,
+      source.indexOf("publicVisualEdit={", focusedCanvasStart),
     );
-    expect(focusedCanvas).toContain('activeCanvasSourceType === "localhost"');
-    expect(focusedCanvas).toContain("previewUrlAtLiveRoute(");
-    expect(focusedCanvas).toContain("liveRoutePathsByScreenIdRef.current[");
-    expect(focusedCanvas).toContain("activeFile.id");
+    const liveRouteOverride = source.slice(
+      source.indexOf("previewUrlOverride={", focusedCanvasStart),
+      source.indexOf("bridgeUrl={activeScreenBridgeUrl}", focusedCanvasStart),
+    );
+    expect(liveRouteOverride).toContain(
+      'activeCanvasSourceType === "localhost"',
+    );
+    expect(liveRouteOverride).toContain("previewUrlAtLiveRoute(");
+    expect(liveRouteOverride).toContain("liveRoutePathsByScreenIdRef.current[");
+    expect(liveRouteOverride).toContain("activeFile.id");
+    expect(focusedCanvas).toContain("onRoutePathChange={");
+    expect(focusedCanvas).toContain("handleLiveRoutePathChange");
   });
 
   it("uses the selected screen size and the real canvas bounds", () => {

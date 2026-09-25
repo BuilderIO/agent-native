@@ -9,7 +9,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { sendToAgentChat } from "./agent-chat.js";
 import {
@@ -509,6 +509,7 @@ export interface GuidedQuestionFlowProps {
   description?: string;
   skipLabel?: string;
   submitLabel?: string;
+  isSubmitting?: boolean;
   className?: string;
 }
 
@@ -520,6 +521,7 @@ export function GuidedQuestionFlow({
   description = "Use Other for custom details, or let the agent decide.",
   skipLabel = "Skip",
   submitLabel = "Continue",
+  isSubmitting = false,
   className,
 }: GuidedQuestionFlowProps) {
   const [answers, setAnswers] = useState<GuidedQuestionAnswers>(() =>
@@ -601,6 +603,7 @@ export function GuidedQuestionFlow({
             <button
               type="button"
               onClick={onSkip}
+              disabled={isSubmitting}
               className="cursor-pointer rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
             >
               {skipLabel}
@@ -608,7 +611,7 @@ export function GuidedQuestionFlow({
             <button
               type="button"
               onClick={() => submitAnswers()}
-              disabled={!allRequiredAnswered}
+              disabled={!allRequiredAnswered || isSubmitting}
               className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {submitLabel}
@@ -1072,9 +1075,12 @@ export interface UseGuidedQuestionFlowOptions {
     formattedAnswers: string;
     message: string;
     context: string;
-  }) => void;
+  }) => void | Promise<{ delivered: boolean }>;
   /** Host delivery boundary for the optional skip action. */
-  onSkipMessage?: (input: { message: string; context: string }) => void;
+  onSkipMessage?: (input: {
+    message: string;
+    context: string;
+  }) => void | Promise<{ delivered: boolean }>;
 }
 
 /**
@@ -1140,7 +1146,7 @@ export function useGuidedQuestionFlow({
           return refetchInterval;
         };
 
-  const { data } = useQuery({
+  const { data, refetch } = useQuery({
     queryKey: resolvedQueryKey,
     enabled,
     queryFn: async () => {
@@ -1195,6 +1201,8 @@ export function useGuidedQuestionFlow({
   // render here.
   const visiblePayload =
     payload && payloadBelongsToThread(payload, threadId) ? payload : null;
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionInFlightRef = useRef(false);
 
   const clear = useCallback(() => {
     setPayload(null);
@@ -1206,8 +1214,34 @@ export function useGuidedQuestionFlow({
     if (scopedKey !== stateKey) void del(stateKey);
   }, [queryClient, resolvedQueryKey, scopedKey, stateKey]);
 
+  const sendAndClearOnDelivery = useCallback(
+    (send: () => void | Promise<{ delivered: boolean }>) => {
+      if (submissionInFlightRef.current) return;
+      const result = send();
+      if (!result) {
+        clear();
+        return;
+      }
+      submissionInFlightRef.current = true;
+      setIsSubmitting(true);
+      void result
+        .then(({ delivered }) => {
+          if (delivered) clear();
+        })
+        .catch((error) => {
+          console.error("Guided question submission failed", error);
+        })
+        .finally(() => {
+          submissionInFlightRef.current = false;
+          setIsSubmitting(false);
+        });
+    },
+    [clear],
+  );
+
   const handleSubmit = useCallback(
     (answers: GuidedQuestionAnswers) => {
+      if (submissionInFlightRef.current) return;
       // Client-initiated question (askUserQuestion): resolve the caller's
       // promise with the answer instead of forwarding it to the agent chat.
       const resolveId = visiblePayload?.clientResolveId;
@@ -1233,25 +1267,35 @@ export function useGuidedQuestionFlow({
         .filter(Boolean)
         .join("\n\n");
       if (onSubmitMessage) {
-        onSubmitMessage({
-          answers,
-          formattedAnswers,
-          message: resolvedSubmitMessage,
-          context,
-        });
+        sendAndClearOnDelivery(() =>
+          onSubmitMessage({
+            answers,
+            formattedAnswers,
+            message: resolvedSubmitMessage,
+            context,
+          }),
+        );
       } else {
         sendToAgentChat({
           message: resolvedSubmitMessage,
           context,
           submit: true,
         });
+        clear();
       }
-      clear();
     },
-    [buildSubmitContext, clear, onSubmitMessage, visiblePayload, submitMessage],
+    [
+      buildSubmitContext,
+      clear,
+      onSubmitMessage,
+      sendAndClearOnDelivery,
+      visiblePayload,
+      submitMessage,
+    ],
   );
 
   const handleSkip = useCallback(() => {
+    if (submissionInFlightRef.current) return;
     const resolveId = visiblePayload?.clientResolveId;
     if (resolveId) {
       resolveClientQuestion(resolveId, null);
@@ -1265,12 +1309,42 @@ export function useGuidedQuestionFlow({
       .filter(Boolean)
       .join("\n\n");
     if (onSkipMessage) {
-      onSkipMessage({ message, context });
+      sendAndClearOnDelivery(() => onSkipMessage({ message, context }));
     } else {
       sendToAgentChat({ message, context, submit: true });
+      clear();
     }
-    clear();
-  }, [buildSkipContext, clear, onSkipMessage, visiblePayload, skipMessage]);
+  }, [
+    buildSkipContext,
+    clear,
+    onSkipMessage,
+    sendAndClearOnDelivery,
+    visiblePayload,
+    skipMessage,
+  ]);
+
+  // A caller that is about to treat "no question right now" as final (e.g.
+  // dropping state that lets it route a later answer) can race the app-state
+  // read this hook otherwise waits on passively: the agent can write the
+  // question after the caller's own trigger (a chat run stopping) but before
+  // this hook's next reactive read picks it up. Force one fresh read instead
+  // of trusting whatever `questions` already holds.
+  const refetchPendingQuestion = useCallback(async () => {
+    const result = await refetch();
+    if (result.status === "error") {
+      // A failed forced check is not the same thing as "no question" — report
+      // still-waiting so the caller keeps the state it was about to drop
+      // instead of discarding it on unrelated network trouble.
+      return true;
+    }
+    const latest = result.data ?? null;
+    return Boolean(
+      latest &&
+      payloadBelongsToThread(latest, threadId) &&
+      Array.isArray(latest.questions) &&
+      latest.questions.length > 0,
+    );
+  }, [refetch, threadId]);
 
   return {
     payload: visiblePayload,
@@ -1279,8 +1353,10 @@ export function useGuidedQuestionFlow({
     description: visiblePayload?.description,
     skipLabel: visiblePayload?.skipLabel,
     submitLabel: visiblePayload?.submitLabel,
+    isSubmitting,
     clear,
     handleSubmit,
     handleSkip,
+    refetchPendingQuestion,
   };
 }

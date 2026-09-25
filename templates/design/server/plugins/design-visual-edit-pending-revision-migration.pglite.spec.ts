@@ -26,11 +26,12 @@ beforeAll(async () => {
   );
   await exec.execute(`CREATE TABLE design_visual_edit_pending (
       design_id TEXT PRIMARY KEY,
-      revision INTEGER NOT NULL DEFAULT 0
+      revision INTEGER NOT NULL DEFAULT 0,
+      client_revision INTEGER NOT NULL DEFAULT 0
     )`);
   await exec.execute(
-    `INSERT INTO design_visual_edit_pending (design_id, revision)
-      VALUES ('design_v31_existing', 2147483000)`,
+    `INSERT INTO design_visual_edit_pending (design_id, revision, client_revision)
+      VALUES ('design_v31_existing', 2147483000, 2147483000)`,
   );
 
   const migrate = runMigrations(
@@ -52,7 +53,7 @@ describe("visual-edit pending revision forward migration", () => {
     const { rows: migrations } = await getDbExec().execute({
       sql: "SELECT MAX(version) AS version FROM visual_edit_revision_migrations",
     });
-    expect(migrations[0]?.version).toBe(32);
+    expect(migrations[0]?.version).toBe(36);
 
     const { rows: columns } = await getDbExec().execute({
       sql: `SELECT column_name, data_type
@@ -63,7 +64,7 @@ describe("visual-edit pending revision forward migration", () => {
       Object.fromEntries(
         columns.map(({ column_name, data_type }) => [column_name, data_type]),
       ),
-    ).toMatchObject({ revision: "bigint" });
+    ).toMatchObject({ revision: "bigint", client_revision: "bigint" });
 
     const { rows } = await getDbExec().execute({
       sql: `SELECT revision
@@ -78,14 +79,18 @@ describe("visual-edit pending revision forward migration", () => {
     // same column through the widened schema.
     await getDbExec().execute({
       sql: `UPDATE design_visual_edit_pending
-            SET revision = 1750000000000
+            SET revision = 1750000000000,
+                client_revision = 1750000000001
             WHERE design_id = 'design_v31_existing'`,
     });
     const { rows: oldWorkerWrite } = await getDbExec().execute({
-      sql: `SELECT revision
+      sql: `SELECT revision, client_revision
             FROM design_visual_edit_pending
             WHERE design_id = 'design_v31_existing'`,
     });
-    expect(oldWorkerWrite[0]?.revision).toBe(1750000000000);
+    expect(oldWorkerWrite[0]).toMatchObject({
+      revision: 1750000000000,
+      client_revision: 1750000000001,
+    });
   });
 });

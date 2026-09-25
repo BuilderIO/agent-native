@@ -73,13 +73,24 @@ describe("visual-edit pending revision migration", () => {
       { caller: "frontend", requestHeaders: new Headers() },
     );
 
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT data_type
+    const { rows: columns } = await getDbExec().execute({
+      sql: `SELECT column_name, data_type
             FROM information_schema.columns
             WHERE table_name = 'design_visual_edit_pending'
-              AND column_name = 'revision'`,
+              AND column_name IN ('revision', 'client_revision')`,
     });
-    expect(rows[0]?.data_type).toBe("bigint");
+    expect(
+      Object.fromEntries(
+        columns.map(({ column_name, data_type }) => [column_name, data_type]),
+      ),
+    ).toMatchObject({ revision: "bigint", client_revision: "bigint" });
+
+    const { rows: stored } = await getDbExec().execute({
+      sql: `SELECT revision, client_revision
+            FROM design_visual_edit_pending
+            WHERE design_id = 'design_revision_overflow'`,
+    });
+    expect(stored[0]).toMatchObject({ revision: 1, client_revision: revision });
 
     await expect(
       getPendingAction.run({ designId: "design_revision_overflow" }),
@@ -88,7 +99,7 @@ describe("visual-edit pending revision migration", () => {
       pendingEditCount: 1,
       status: "ready",
       prompt,
-      revision,
+      revision: 1,
     });
   });
 

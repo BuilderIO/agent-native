@@ -294,15 +294,20 @@ export function mergePendingLiveNonStyleEdits(
       continue;
     }
     const previous = merged[index] as PendingLiveTextEdit;
+    const relativeOperations = {
+      ...previous.relativeOperations,
+      ...edit.relativeOperations,
+    };
     merged[index] = {
       ...previous,
       ...edit,
-      relativeOperations: {
-        ...previous.relativeOperations,
-        ...edit.relativeOperations,
-      },
+      ...(Object.keys(relativeOperations).length > 0
+        ? { relativeOperations }
+        : {}),
       originalValue: previous.originalValue,
-      originalHtml: previous.originalHtml,
+      ...(previous.originalHtml !== undefined
+        ? { originalHtml: previous.originalHtml }
+        : {}),
     };
   }
   return merged;

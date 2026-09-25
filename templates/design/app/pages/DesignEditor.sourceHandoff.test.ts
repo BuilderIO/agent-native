@@ -123,7 +123,7 @@ describe("DesignEditor pending source handoff", () => {
       ),
     );
     expect(handoffQuery).toContain(
-      "canEditDesign && pendingVisualEditCount > 0",
+      "enabled: canEditDesign && Boolean(id) && !shellMode",
     );
 
     expect(source).toContain("shouldPublishVisualEditPending({");

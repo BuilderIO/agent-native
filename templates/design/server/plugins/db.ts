@@ -446,11 +446,50 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
   },
   {
     version: 32,
-    name: "design-visual-edit-pending-bigint-revision",
-    // guard:allow-unscoped — widen the revision in place so old and new workers keep sharing one high-water mark.
-    sql: `-- guard:allow-destructive-ddl — losslessly widen the shipped int4 revision column so millisecond revisions fit and workers share one high-water mark.
+    name: "design-visual-edit-fallback-snapshots",
+    sql: `CREATE TABLE IF NOT EXISTS design_visual_edit_snapshots (
+    design_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    html TEXT NOT NULL,
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    visibility TEXT NOT NULL DEFAULT 'private',
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    PRIMARY KEY (design_id, file_id),
+    FOREIGN KEY (design_id) REFERENCES designs(id) ON DELETE CASCADE,
+    FOREIGN KEY (file_id) REFERENCES design_files(id) ON DELETE CASCADE
+  )`,
+  },
+  {
+    version: 33,
+    name: "design-visual-edit-publisher-ordering",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS publisher_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS client_revision INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    version: 34,
+    name: "design-visual-edit-snapshot-blob-ordering",
+    sql: `ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS blob_handle TEXT;
+ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS capture_revision BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS published_revision BIGINT NOT NULL DEFAULT 0`,
+  },
+  {
+    version: 35,
+    name: "design-visual-edit-snapshot-blob-cleanup",
+    sql: `CREATE TABLE IF NOT EXISTS design_visual_edit_snapshot_blob_cleanup (
+    blob_handle TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+  },
+  {
+    version: 36,
+    name: "design-visual-edit-pending-bigint-revisions",
+    // guard:allow-unscoped — widen both publisher high-water marks in place so old and new workers keep sharing them.
+    sql: `-- guard:allow-destructive-ddl — losslessly widen the shipped int4 revisions so millisecond client revisions fit and workers share one high-water mark.
 ALTER TABLE design_visual_edit_pending
-ALTER COLUMN revision TYPE BIGINT USING revision::BIGINT`,
+ALTER COLUMN revision TYPE BIGINT USING revision::BIGINT;
+ALTER TABLE design_visual_edit_pending
+ALTER COLUMN client_revision TYPE BIGINT USING client_revision::BIGINT`,
   },
 ];
 

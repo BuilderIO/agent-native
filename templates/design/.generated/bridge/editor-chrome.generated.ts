@@ -1917,7 +1917,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var runtimeLayerSnapshotTimer = null;
     var runtimeLayerSnapshotMaxTimer = null;
+    var runtimeLayerSnapshotReservationRequestId = 0;
+    var runtimeLayerSnapshotReservationInFlight = false;
+    var runtimeLayerSnapshotReservationDirty = false;
     var lastRuntimeLayerSnapshotHtml = "";
+    var lastRuntimeLayerSnapshotReservationToken = "";
     var runtimeDocumentId = "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
     function runtimeLayerHash(value) {
       var hash = 2166136261;
@@ -2184,7 +2188,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot() {
+    function postRuntimeLayerSnapshot(reservationToken) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2204,12 +2208,40 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         return;
       }
-      if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+      var snapshotReservationToken = reservationToken || "";
+      if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+        return;
+      }
       lastRuntimeLayerSnapshotHtml = snapshot.html;
+      lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+      if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot",
           payload: snapshot
+        },
+        "*"
+      );
+    }
+    function requestRuntimeLayerSnapshot() {
+      if (runtimeLayerSnapshotTimer !== null) {
+        window.clearTimeout(runtimeLayerSnapshotTimer);
+        runtimeLayerSnapshotTimer = null;
+      }
+      if (runtimeLayerSnapshotMaxTimer !== null) {
+        window.clearTimeout(runtimeLayerSnapshotMaxTimer);
+        runtimeLayerSnapshotMaxTimer = null;
+      }
+      if (runtimeLayerSnapshotReservationInFlight) {
+        runtimeLayerSnapshotReservationDirty = true;
+        return;
+      }
+      runtimeLayerSnapshotReservationInFlight = true;
+      runtimeLayerSnapshotReservationRequestId += 1;
+      window.parent.postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot-reservation-request",
+          requestId: runtimeLayerSnapshotReservationRequestId
         },
         "*"
       );
@@ -2219,12 +2251,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
       runtimeLayerSnapshotTimer = window.setTimeout(
-        postRuntimeLayerSnapshot,
+        requestRuntimeLayerSnapshot,
         300
       );
       if (runtimeLayerSnapshotMaxTimer === null) {
         runtimeLayerSnapshotMaxTimer = window.setTimeout(
-          postRuntimeLayerSnapshot,
+          requestRuntimeLayerSnapshot,
           1500
         );
       }
@@ -18657,7 +18689,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           setSelectionOverlayResizeChromeVisible(false);
         }
         syncShieldPointerEvents();
-        setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+        setSelectionOverlayResizeChromeVisible(
+          !readOnly && !interactionMode && !activeTextEditEl
+        );
         if (interactionMode) hideSelectionOverlay();
         else if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
@@ -19658,7 +19692,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "request-runtime-layer-snapshot") {
-        postRuntimeLayerSnapshot();
+        requestRuntimeLayerSnapshot();
+        return;
+      }
+      if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
+        if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+        runtimeLayerSnapshotReservationInFlight = false;
+        if (runtimeLayerSnapshotReservationDirty) {
+          runtimeLayerSnapshotReservationDirty = false;
+          requestRuntimeLayerSnapshot();
+          return;
+        }
+        postRuntimeLayerSnapshot(
+          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0
+        );
         return;
       }
       if (e.data.type === "runtime-layer-rename") {
@@ -19950,17 +19997,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!next || typeof next !== "object") return;
         var nextReadOnly = typeof next.readOnly === "boolean" ? next.readOnly : readOnly;
         var nextTextEditingEnabledFlag = typeof next.textEditingEnabled === "boolean" ? next.textEditingEnabled : textEditingEnabledFlag;
-        var wasTextEditingEnabled = textEditingEnabled;
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
           if (readOnly) {
-            if (activeTextEditEl) activeTextEditEl.blur();
             clearPendingShieldDrag();
             cancelActiveBridgeDrag();
           }
         }
         textEditingEnabledFlag = nextTextEditingEnabledFlag;
         textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
+        if (activeTextEditEl && (readOnly || !textEditingEnabled)) {
+          activeTextEditEl.blur();
+        }
         if (interactionMode) {
           setSelectionOverlayResizeChromeVisible(false);
           hideSelectionOverlay();
@@ -19968,13 +20016,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           marqueeSelectionOverlay.style.display = "none";
           syncShieldPointerEvents();
         } else {
-          setSelectionOverlayResizeChromeVisible(!readOnly);
+          setSelectionOverlayResizeChromeVisible(!readOnly && !activeTextEditEl);
           syncShieldPointerEvents();
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
-        }
-        if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
-          activeTextEditEl.blur();
         }
         if (typeof next.screenId === "string") {
           designCanvasScreenId = next.screenId;

@@ -4,13 +4,13 @@ import {
   mailLabelsInclude,
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
+import { ALL_TAB_PARAM } from "@shared/inbox-threads";
 import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
 import type { EmailMessage, SavedMailFilter } from "@shared/types";
 
 /**
- * Single source of truth for partitioning the loaded inbox into the top-bar
- * tabs (Important / pinned triage labels / "Other").
+ * Shared helpers for inbox tab destinations and client-side partitioning.
  *
  * The badge counts (AppLayout) and the rendered list (InboxPage) BOTH go
  * through these helpers so a tab's number can never disagree with the emails
@@ -41,7 +41,7 @@ export function inboxThreadKey(
   return `${email.accountEmail?.trim().toLowerCase() ?? ""}:${email.threadId || email.id}`;
 }
 
-/** Use the default Important tab only before the user has saved pin choices. */
+/** Use Important as the pinned-tab fallback before the user saves pin choices. */
 export function resolvePinnedLabels(
   userPinnedLabels: readonly string[] | undefined,
   isGoogleConnected: boolean,
@@ -63,18 +63,18 @@ export function labelTabHref(labelId: string): string {
 }
 
 /**
- * Resolves the default destination href when opening the mail app. Selects
- * the first top label by default (e.g. Important), or the first user label /
- * saved filter, falling back to /inbox when combined inbox is enabled or all
- * triage tabs are unpinned.
+ * Resolves the default destination when opening the mail app. All is the
+ * default unless hidden or the user has enabled Combined Inbox.
  */
 export function resolveDefaultMailHref(opts: {
   combineInbox?: boolean;
+  showAllTab?: boolean;
   pinnedLabels?: readonly string[];
   isGoogleConnected?: boolean;
   savedFilters?: readonly Pick<SavedMailFilter, "id">[];
 }): string {
   if (opts.combineInbox) return "/inbox";
+  if (opts.showAllTab !== false) return `/inbox?tab=${ALL_TAB_PARAM}`;
   const resolved = resolvePinnedLabels(
     opts.pinnedLabels,
     opts.isGoogleConnected ?? true,

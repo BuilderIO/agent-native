@@ -1645,7 +1645,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var runtimeLayerSnapshotTimer: number | null = null;
   var runtimeLayerSnapshotMaxTimer: number | null = null;
+  var runtimeLayerSnapshotReservationRequestId = 0;
+  var runtimeLayerSnapshotReservationInFlight = false;
+  var runtimeLayerSnapshotReservationDirty = false;
   var lastRuntimeLayerSnapshotHtml = "";
+  var lastRuntimeLayerSnapshotReservationToken = "";
   var runtimeDocumentId =
     "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 
@@ -1993,7 +1997,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  function postRuntimeLayerSnapshot(): void {
+  function postRuntimeLayerSnapshot(reservationToken?: string): void {
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
     }
@@ -2013,12 +2017,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       return;
     }
-    if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+    var snapshotReservationToken = reservationToken || "";
+    if (
+      snapshot.html === lastRuntimeLayerSnapshotHtml &&
+      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken
+    ) {
+      return;
+    }
     lastRuntimeLayerSnapshotHtml = snapshot.html;
+    lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+    if (reservationToken) snapshot.reservationToken = reservationToken;
     (window.parent as Window).postMessage(
       {
         type: "agent-native:runtime-layer-snapshot",
         payload: snapshot,
+      },
+      "*",
+    );
+  }
+
+  function requestRuntimeLayerSnapshot(): void {
+    if (runtimeLayerSnapshotTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotTimer);
+      runtimeLayerSnapshotTimer = null;
+    }
+    if (runtimeLayerSnapshotMaxTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotMaxTimer);
+      runtimeLayerSnapshotMaxTimer = null;
+    }
+    if (runtimeLayerSnapshotReservationInFlight) {
+      runtimeLayerSnapshotReservationDirty = true;
+      return;
+    }
+    runtimeLayerSnapshotReservationInFlight = true;
+    runtimeLayerSnapshotReservationRequestId += 1;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:runtime-layer-snapshot-reservation-request",
+        requestId: runtimeLayerSnapshotReservationRequestId,
       },
       "*",
     );
@@ -2034,12 +2070,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       window.clearTimeout(runtimeLayerSnapshotTimer);
     }
     runtimeLayerSnapshotTimer = window.setTimeout(
-      postRuntimeLayerSnapshot,
+      requestRuntimeLayerSnapshot,
       300,
     );
     if (runtimeLayerSnapshotMaxTimer === null) {
       runtimeLayerSnapshotMaxTimer = window.setTimeout(
-        postRuntimeLayerSnapshot,
+        requestRuntimeLayerSnapshot,
         1500,
       );
     }
@@ -26363,7 +26399,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Preserve the more specific Interact ownership when read-only state is
       // replayed after a mode change on a retained iframe.
       syncShieldPointerEvents();
-      setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !interactionMode && !activeTextEditEl,
+      );
       if (interactionMode) hideSelectionOverlay();
       else if (selectedEl?.isConnected)
         positionOverlay(selectionOverlay, selectedEl);
@@ -27787,7 +27825,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "request-runtime-layer-snapshot") {
-      postRuntimeLayerSnapshot();
+      requestRuntimeLayerSnapshot();
+      return;
+    }
+    if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
+      if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+      runtimeLayerSnapshotReservationInFlight = false;
+      if (runtimeLayerSnapshotReservationDirty) {
+        runtimeLayerSnapshotReservationDirty = false;
+        requestRuntimeLayerSnapshot();
+        return;
+      }
+      postRuntimeLayerSnapshot(
+        typeof e.data.reservationToken === "string"
+          ? e.data.reservationToken
+          : undefined,
+      );
       return;
     }
     if (e.data.type === "runtime-layer-rename") {
@@ -28222,11 +28275,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof next.textEditingEnabled === "boolean"
           ? next.textEditingEnabled
           : textEditingEnabledFlag;
-      var wasTextEditingEnabled = textEditingEnabled;
       if (readOnly !== nextReadOnly) {
         readOnly = nextReadOnly;
         if (readOnly) {
-          if (activeTextEditEl) activeTextEditEl.blur();
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
         }
@@ -28234,6 +28285,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
       textEditingEnabled =
         !readOnly && !interactionMode && textEditingEnabledFlag;
+      if (activeTextEditEl && (readOnly || !textEditingEnabled)) {
+        activeTextEditEl.blur();
+      }
       if (interactionMode) {
         setSelectionOverlayResizeChromeVisible(false);
         hideSelectionOverlay();
@@ -28241,13 +28295,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         marqueeSelectionOverlay.style.display = "none";
         syncShieldPointerEvents();
       } else {
-        setSelectionOverlayResizeChromeVisible(!readOnly);
+        setSelectionOverlayResizeChromeVisible(!readOnly && !activeTextEditEl);
         syncShieldPointerEvents();
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
-      }
-      if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
-        activeTextEditEl.blur();
       }
       if (typeof next.screenId === "string") {
         designCanvasScreenId = next.screenId;
