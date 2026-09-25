@@ -304,7 +304,10 @@ export function parsePastedSvg(source: string): PastedSvg | null {
     : sourceSvg.outerHTML;
   const document = new DOMParser().parseFromString(svgSource, "image/svg+xml");
   const svg = document.documentElement;
-  if (svg.localName !== "svg" || document.querySelector("parsererror"))
+  if (
+    svg.localName.toLowerCase() !== "svg" ||
+    document.querySelector("parsererror")
+  )
     return null;
   const nodeCount = { value: 0 };
   if (!sanitizeElement(svg, nodeCount) || nodeCount.value > MAX_NODES)

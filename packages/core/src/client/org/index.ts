@@ -6,6 +6,7 @@ export {
   useOrgInvitations,
   useCreateOrg,
   useUpdateOrg,
+  useSetOrgVisualIdentity,
   useInviteMember,
   useBulkInviteMembers,
   useChangeMemberRole,

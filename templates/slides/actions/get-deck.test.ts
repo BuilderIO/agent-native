@@ -372,6 +372,60 @@ describe("get-deck", () => {
     expect(result.slides[0].contentHash).toMatch(/^[0-9a-f]+$/);
   });
 
+  it("returns multiple full slides and hashes in requested order", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Quarterly Review",
+      slides: [
+        { id: "slide-a", content: "<h1>Opening</h1>", notes: "Start" },
+        { id: "slide-b", content: "<p>Metrics</p>", notes: "Explain" },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1", slideIds: ["slide-b", "slide-a"] },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.selectedSlideIds).toEqual(["slide-b", "slide-a"]);
+    expect(result.slides).toHaveLength(2);
+    expect(result.slides.map((slide: { id: string }) => slide.id)).toEqual([
+      "slide-b",
+      "slide-a",
+    ]);
+    expect(result.slides[0]).toMatchObject({
+      slideNumber: 2,
+      zeroBasedIndex: 1,
+      content: "<p>Metrics</p>",
+      notes: "Explain",
+    });
+    expect(result.slides[0].contentHash).toMatch(/^[0-9a-f]+$/);
+  });
+
+  it("rejects invalid multi-slide read selectors", () => {
+    expect(
+      action.schema.safeParse({
+        id: "deck-1",
+        slideId: "slide-a",
+        slideIds: ["slide-a"],
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        id: "deck-1",
+        slideIds: ["slide-a", "slide-a"],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("returns 404 instead of omitting a missing selected slide", async () => {
+    await expect(
+      action.run(
+        { id: "deck-1", slideIds: ["missing-slide"] },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
   it("can return readable HTML while hashing the persisted source", async () => {
     mockResolveAccess.mockResolvedValue({
       resource: {

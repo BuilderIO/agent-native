@@ -19,6 +19,7 @@ import type { ContentHistoryChange } from "@/pages/design-editor/history";
 import type {
   PendingLiveNonStyleUndoEntry,
   PendingLiveStructureUndoEntry,
+  PendingRelativeStyleOperation,
   PendingVisualStyleEdit,
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
@@ -110,6 +111,7 @@ export function runRecordPendingVisualStyleEdit(
     pendingUndoGestureId?: string;
     preserveSelection?: boolean;
     routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ) {
   if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
@@ -211,6 +213,9 @@ export function runRecordPendingVisualStyleEdit(
     tagName: elementInfo?.tagName ?? null,
     classes: elementInfo?.classes ?? [],
     styles: stylePatch,
+    ...(metadata?.relativeOperations
+      ? { relativeOperations: metadata.relativeOperations }
+      : {}),
     originalStyles,
     ...(metadata?.routePath ? { routePath: metadata.routePath } : {}),
     ...(metadata?.interactionState

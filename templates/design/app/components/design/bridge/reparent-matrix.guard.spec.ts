@@ -1261,6 +1261,94 @@ describe("Chromium reparent matrix", () => {
   );
 
   it(
+    "rolls back an unacknowledged cross-screen insert by transaction identity after reminting a colliding node id",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+        <div id="host"><div data-agent-native-node-id="shared-id">Existing</div></div>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 46,
+              transactionId: "move-timeout-1",
+              remintCollidingNodeIds: true,
+              html: '<div data-agent-native-node-id="shared-id">Moved</div>',
+              anchorSelector: "#host",
+              anchorSourceId: "",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+      await page.waitForFunction(() =>
+        Array.from(document.querySelectorAll("#host > div")).some(
+          (element) => element.textContent === "Moved",
+        ),
+      );
+      const ids = await page.locator("#host > div").evaluateAll((elements) =>
+        elements.map((element) => ({
+          text: element.textContent,
+          nodeId: element.getAttribute("data-agent-native-node-id"),
+        })),
+      );
+      expect(ids.find((element) => element.text === "Existing")?.nodeId).toBe(
+        "shared-id",
+      );
+      expect(ids.find((element) => element.text === "Moved")?.nodeId).not.toBe(
+        "shared-id",
+      );
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-rollback-insert",
+              requestId: "move-timeout-1:rollback",
+              transactionId: "move-timeout-1",
+              selector: "",
+            },
+          }),
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          Array.from(document.querySelectorAll("#host > div")).some(
+            (element) => element.textContent === "Existing",
+          ) &&
+          !Array.from(document.querySelectorAll("#host > div")).some(
+            (element) => element.textContent === "Moved",
+          ),
+      );
+      const results = await page.evaluate(() =>
+        (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!.filter(
+          (message) => message.type === "runtime-structure-rollback-result",
+        ),
+      );
+      expect(results).toContainEqual(
+        expect.objectContaining({
+          requestId: "move-timeout-1:rollback",
+          transactionId: "move-timeout-1",
+          applied: true,
+        }),
+      );
+      await page.close();
+    },
+  );
+
+  it(
     "inserts a deselected live copy inside its stable source-group anchor",
     { timeout: 30_000 },
     async () => {

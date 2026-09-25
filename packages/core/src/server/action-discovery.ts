@@ -807,6 +807,10 @@ export async function mergeCoreSharingActions(
     ],
     ["get-usage-run", () => import("../usage/actions/get-usage-run.js")],
     [
+      "get-builder-credit-usage",
+      () => import("../usage/actions/get-builder-credit-usage.js"),
+    ],
+    [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
     ],

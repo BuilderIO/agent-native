@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { aiPriorityEmailKey } from "../shared/ai-priority.js";
+
 const mocks = vi.hoisted(() => ({
   getJevContextCredentials: vi.fn(),
   getRequestUserEmail: vi.fn(),
@@ -73,7 +75,9 @@ describe("get-ai-priority action", () => {
     });
     mocks.isJevEnabled.mockResolvedValue(true);
     mocks.previewAutomationPriority.mockResolvedValue({
-      scores: new Map([["email-1", { score: 0.9 }]]),
+      scores: new Map([
+        [aiPriorityEmailKey(undefined, "email-1"), { score: 0.9 }],
+      ]),
       model: { engine: "typesafe", model: "typesafe/jev-latest" },
     });
 
@@ -100,6 +104,75 @@ describe("get-ai-priority action", () => {
       expect.any(String),
       { apiKey: undefined, personalApiKey: undefined, builderAuth },
       expect.any(AbortSignal),
+    );
+  });
+
+  it("scores matching message IDs independently across accounts", async () => {
+    const model = { engine: "typesafe", model: "typesafe/jev-latest" };
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: { authorization: "Bearer builder-test-token" },
+    });
+    mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.previewAutomationPriority.mockImplementation(
+      async (emails: Array<{ id: string; accountEmail?: string }>) => ({
+        scores: new Map(
+          emails.map((email) => [
+            aiPriorityEmailKey(email.accountEmail, email.id),
+            {
+              score: email.accountEmail === "first@example.test" ? 0.2 : 0.9,
+            },
+          ]),
+        ),
+        model,
+      }),
+    );
+
+    const result = await action.run({
+      emails: ["first", "second"].map((account) => ({
+        id: "shared-message-id",
+        threadId: `thread-${account}`,
+        accountEmail: `${account}@example.test`,
+        from: "sender@example.test",
+        to: "owner@example.test",
+        subject: "Synthetic test message",
+        snippet: "No real email data.",
+        labelIds: ["INBOX"],
+        date: "2026-09-22T00:00:00.000Z",
+        isArchived: false,
+        isTrashed: false,
+      })),
+    });
+
+    expect(result.scores).toEqual([
+      {
+        emailId: "shared-message-id",
+        accountEmail: "first@example.test",
+        score: 0.2,
+      },
+      {
+        emailId: "shared-message-id",
+        accountEmail: "second@example.test",
+        score: 0.9,
+      },
+    ]);
+    expect(mocks.saveAiPriorityCache).toHaveBeenCalledWith(
+      "owner@example.com",
+      expect.objectContaining({
+        entries: expect.arrayContaining([
+          expect.objectContaining({
+            emailId: "shared-message-id",
+            accountEmail: "first@example.test",
+            score: 0.2,
+          }),
+          expect.objectContaining({
+            emailId: "shared-message-id",
+            accountEmail: "second@example.test",
+            score: 0.9,
+          }),
+        ]),
+      }),
     );
   });
 });

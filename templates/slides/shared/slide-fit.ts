@@ -1,3 +1,5 @@
+import { fingerprintMedia } from "@agent-native/core/ingestion";
+
 export interface SlideFitMeasurement {
   contentHash: string;
   /** Changes on every persisted content write, including A -> B -> A. */
@@ -19,12 +21,7 @@ export interface DeckFitState {
 
 /** Stable, compact identity for checking whether a measurement matches HTML. */
 export function hashSlideContent(content: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < content.length; index += 1) {
-    hash ^= content.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
+  return fingerprintMedia(new TextEncoder().encode(content)).sha256;
 }
 
 /** Unique identity for a persisted content write. */

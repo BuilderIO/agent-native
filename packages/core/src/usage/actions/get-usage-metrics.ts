@@ -22,7 +22,7 @@ export default defineAction({
       BUILDER_CREDIT_USAGE_REPORTING_FLAG,
       { userEmail: ctx.userEmail, orgId: ctx.orgId },
     );
-    return listAppUsageMetrics(
+    const metrics = await listAppUsageMetrics(
       { sinceDays, scope, userEmail, builderCreditsEnabled },
       {
         ownerEmail: ctx.userEmail,
@@ -30,5 +30,6 @@ export default defineAction({
         app: resolveUsageAppKey(appId),
       },
     );
+    return { ...metrics, builderCreditUsageEnabled: builderCreditsEnabled };
   },
 });

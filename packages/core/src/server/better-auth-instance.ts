@@ -46,6 +46,7 @@ import {
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec } from "../db/client.js";
 import {
+  assertHostedRuntimeDatabase,
   getRuntimeDatabaseUrl,
   getPgliteClient,
   isPgliteUrl,
@@ -400,7 +401,11 @@ export async function trackSignupEvent({
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
-    { userId: email, ...(anonymousId ? { anonymousId } : {}) },
+    {
+      userId: email,
+      authUserId,
+      ...(anonymousId ? { anonymousId } : {}),
+    },
   );
   await flushSignupTracking();
 }
@@ -2775,6 +2780,13 @@ async function createBetterAuthInstance(
 export async function buildDatabaseConfig(): Promise<
   BetterAuthOptions["database"]
 > {
+  // getDbExec() (client.ts's initClient) and createGetDb()'s Drizzle opener
+  // both refuse a hosted invocation with no database URL before resolving
+  // it. This adapter resolves the same runtime URL but used to skip the
+  // refusal entirely, so signup/login reaching this opener first silently
+  // opened the ephemeral per-instance PGlite file instead of failing loudly.
+  assertHostedRuntimeDatabase();
+
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
   const { buildResilientNeonPool, buildResilientPostgresJsClient, isNeonUrl } =
     await import("../db/create-get-db.js");

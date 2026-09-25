@@ -1,7 +1,10 @@
 import { readBoundedResponseBytes } from "../ingestion/index.js";
 import {
+  getBuilderEmbeddingsBaseUrl,
   prefetchSecrets,
+  resolveBuilderGatewayAuth,
   resolveSecretDetailed,
+  type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
 
 export type EmbeddingInputPurpose = "query" | "document";
@@ -27,6 +30,13 @@ export interface EmbeddingFamily {
 }
 
 const DEFAULT_DIMENSIONS = 1024;
+const BUILDER_EMBEDDING_MODEL = "builder-multimodal-embedding";
+const BUILDER_EMBEDDING_BATCH_LIMIT = 32;
+const BUILDER_EMBEDDING_INPUT_TEXT_LIMIT = 32_000;
+const BUILDER_EMBEDDING_INPUT_IMAGE_LIMIT = 6;
+const BUILDER_EMBEDDING_IMAGE_BASE64_LIMIT = 14_000_000;
+const BUILDER_EMBEDDING_REQUEST_TEXT_LIMIT = 256_000;
+const BUILDER_EMBEDDING_REQUEST_BASE64_LIMIT = 24_000_000;
 function dataUrl(image: EmbeddingImageInput) {
   return `data:${image.mimeType};base64,${image.base64}`;
 }
@@ -36,6 +46,65 @@ function normalizedInput(input: MultimodalEmbeddingInput) {
   if (!text && !images.length)
     throw new Error("Embedding input needs text, an image, or both.");
   return { text, images };
+}
+function builderEmbeddingBatches(inputs: readonly MultimodalEmbeddingInput[]) {
+  const batches: ReturnType<typeof normalizedInput>[][] = [];
+  let batch: ReturnType<typeof normalizedInput>[] = [];
+  let batchTextLength = 0;
+  let batchImageBase64Length = 0;
+
+  for (const raw of inputs) {
+    const input = normalizedInput(raw);
+    const textLength = input.text?.length ?? 0;
+    const imageBase64Length = input.images.reduce(
+      (total, image) => total + image.base64.length,
+      0,
+    );
+
+    if (textLength > BUILDER_EMBEDDING_INPUT_TEXT_LIMIT) {
+      throw new Error(
+        "Builder embedding text input exceeds 32,000 characters.",
+      );
+    }
+    if (input.images.length > BUILDER_EMBEDDING_INPUT_IMAGE_LIMIT) {
+      throw new Error("Builder embedding input exceeds 6 images.");
+    }
+    if (
+      input.images.some(
+        ({ base64 }) =>
+          !base64.length ||
+          base64.length > BUILDER_EMBEDDING_IMAGE_BASE64_LIMIT,
+      )
+    ) {
+      throw new Error(
+        "Builder embedding image data must be 1 to 14,000,000 characters.",
+      );
+    }
+    if (imageBase64Length > BUILDER_EMBEDDING_REQUEST_BASE64_LIMIT) {
+      throw new Error(
+        "Builder embedding input exceeds the request size limit.",
+      );
+    }
+
+    if (
+      batch.length === BUILDER_EMBEDDING_BATCH_LIMIT ||
+      batchTextLength + textLength > BUILDER_EMBEDDING_REQUEST_TEXT_LIMIT ||
+      batchImageBase64Length + imageBase64Length >
+        BUILDER_EMBEDDING_REQUEST_BASE64_LIMIT
+    ) {
+      batches.push(batch);
+      batch = [];
+      batchTextLength = 0;
+      batchImageBase64Length = 0;
+    }
+
+    batch.push(input);
+    batchTextLength += textLength;
+    batchImageBase64Length += imageBase64Length;
+  }
+
+  if (batch.length) batches.push(batch);
+  return batches;
 }
 async function postJson(
   url: string,
@@ -217,6 +286,89 @@ export function createVoyageEmbeddingFamily(apiKey: string): EmbeddingFamily {
     },
   };
 }
+
+function builderEmbeddingVectors(
+  value: unknown,
+  expectedCount: number,
+): number[][] {
+  if (!Array.isArray(value) || value.length !== expectedCount) {
+    throw new Error("Embedding response was malformed.");
+  }
+  const vectors: (number[] | undefined)[] = new Array(expectedCount);
+  for (const entry of value) {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      !Number.isInteger((entry as { index?: unknown }).index)
+    ) {
+      throw new Error("Embedding response was malformed.");
+    }
+    const { index, embedding } = entry as {
+      index: number;
+      embedding?: unknown;
+    };
+    if (index < 0 || index >= expectedCount || vectors[index]) {
+      throw new Error("Embedding response was malformed.");
+    }
+    const vector = numberVectors([embedding])[0];
+    if (vector.length !== DEFAULT_DIMENSIONS) {
+      throw new Error("Embedding response contained an invalid vector.");
+    }
+    vectors[index] = vector;
+  }
+  if (vectors.some((vector) => !vector)) {
+    throw new Error("Embedding response was malformed.");
+  }
+  return vectors as number[][];
+}
+
+export function createBuilderEmbeddingFamily(
+  auth: BuilderGatewayAuth,
+): EmbeddingFamily {
+  return {
+    id: `builder:${BUILDER_EMBEDDING_MODEL}:${DEFAULT_DIMENSIONS}`,
+    provider: "builder",
+    model: BUILDER_EMBEDDING_MODEL,
+    version: "3.5",
+    dimensions: DEFAULT_DIMENSIONS,
+    supportedImageMimeTypes: [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif",
+    ],
+    async embed(inputs, purpose) {
+      const vectors: number[][] = [];
+      const baseUrl = getBuilderEmbeddingsBaseUrl().replace(/\/$/, "");
+      for (const batch of builderEmbeddingBatches(inputs)) {
+        const result = await postJson(
+          `${baseUrl}/embeddings`,
+          {
+            Authorization: auth.authorization,
+            ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+            ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
+          },
+          {
+            model: BUILDER_EMBEDDING_MODEL,
+            inputType: purpose,
+            inputs: batch.map((input) => {
+              return {
+                ...(input.text ? { text: input.text } : {}),
+                images: input.images.map(({ mimeType, base64 }) => ({
+                  mimeType,
+                  data: base64,
+                })),
+              };
+            }),
+          },
+          `builder/${BUILDER_EMBEDDING_MODEL}`,
+        );
+        vectors.push(...builderEmbeddingVectors(result.data, batch.length));
+      }
+      return vectors;
+    },
+  };
+}
 const EMBEDDING_CREDENTIALS = [
   {
     provider: "gemini",
@@ -259,13 +411,24 @@ export async function readEmbeddingFamilyAvailability(): Promise<EmbeddingFamily
       }
     }),
   );
-  return {
-    families: resolved.flatMap(({ credential, detail }) =>
-      detail.value ? [credential.create(detail.value)] : [],
-    ),
-    unavailableProviders: resolved.flatMap(({ credential, detail }) =>
+  const directFamilies = resolved.flatMap(({ credential, detail }) =>
+    detail.value ? [credential.create(detail.value)] : [],
+  );
+  const unavailableProviders: string[] = resolved.flatMap(
+    ({ credential, detail }) =>
       detail.lookupFailed && !detail.value ? [credential.provider] : [],
-    ),
+  );
+  let builderFamily: EmbeddingFamily | null = null;
+  try {
+    const builderAuth = await resolveBuilderGatewayAuth();
+    if (builderAuth) builderFamily = createBuilderEmbeddingFamily(builderAuth);
+  } catch {
+    unavailableProviders.push("builder");
+  }
+
+  return {
+    families: [...directFamilies, ...(builderFamily ? [builderFamily] : [])],
+    unavailableProviders,
   };
 }
 

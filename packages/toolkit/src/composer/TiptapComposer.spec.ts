@@ -124,26 +124,25 @@ describe("createTiptapComposerExtensions", () => {
     );
   });
 
-  it("uses concise OpenAI variant names in the trigger and picker", () => {
+  it("uses model tiers in the composer preview", () => {
     expect(compactComposerModelName("gpt-5.6-sol")).toBe("Sol");
     expect(compactComposerModelName("gpt-5-6-terra")).toBe("Terra");
     expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe("Luna");
-    expect(compactComposerModelName("gpt-6-sol")).toBe("GPT-6 Sol");
-    expect(compactComposerModelName("openai/gpt-6-luna")).toBe("GPT-6 Luna");
+    expect(compactComposerModelName("gpt-6-sol")).toBe("Sol");
+    expect(compactComposerModelName("openai/gpt-6-luna")).toBe("Luna");
     expect(compactComposerModelName("openai/gpt-6-astra")).toBe("Astra");
     expect(compactComposerModelName("openai/gpt-6-astra-pro")).toBe(
       "Astra Pro",
     );
-    expect(compactComposerModelName("google/gemini-3.8-flash")).toBe(
-      "Gemini 3.8 Flash",
+    expect(compactComposerModelName("google/gemini-3.8-flash")).toBe("Flash");
+    expect(compactComposerModelName("qwen/qwen3.8-max-0902")).toBe("Max");
+    expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet");
+    expect(compactComposerModelName("anthropic/claude-opus-5.5")).toBe("Opus");
+    expect(compactComposerModelName("gemini-3-5-flash-lite")).toBe(
+      "Flash-Lite",
     );
-    expect(compactComposerModelName("qwen/qwen3.8-max-0902")).toBe(
-      "Qwen 3.8 Max",
-    );
-    expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet 5");
-    expect(compactComposerModelName("anthropic/claude-opus-5.5")).toBe(
-      "Opus 5.5",
-    );
+    expect(compactComposerModelName("grok-code-fast")).toBe("Code Fast");
+    expect(compactComposerModelName("deepseek-v3-1")).toBe("DeepSeek");
     expect(compactComposerModelName("codex-cli")).toBe("Codex");
     expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
     expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
@@ -944,6 +943,19 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("formats fractional document attachment limits", () => {
+    const file = new File([new Uint8Array(2.6 * 1024 * 1024)], "large.pdf", {
+      type: "application/pdf",
+    });
+
+    expect(
+      getOversizedDocumentAttachmentError(
+        [{ type: "document", name: file.name, contentType: file.type, file }],
+        { maxBytes: 2.5 * 1024 * 1024 },
+      ),
+    ).toContain("PDFs are capped at 2.5 MB");
+  });
+
   it("allows hosts to use a larger multipart document cap", () => {
     const file = new File(
       [new Uint8Array(4 * 1024 * 1024 + 1)],
@@ -1227,7 +1239,7 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
   });
 
-  it("shows a connection label for a selected model whose provider is unconfigured", () => {
+  it("shows short selected names and full versioned model names", () => {
     function Harness({ configured }: { configured: boolean }) {
       const runtime = useLocalRuntime(emptyChatModelAdapter);
       return React.createElement(
@@ -1280,6 +1292,15 @@ describe("createTiptapComposerExtensions", () => {
       container.querySelector('[data-agent-composer-slot="model-button"]')
         ?.textContent,
     ).toContain("Luna");
+    expect(
+      container.querySelector('[data-agent-composer-slot="model-button"]')
+        ?.textContent,
+    ).not.toContain("GPT-5.6 Luna");
+    expect(
+      container
+        .querySelector('[data-agent-composer-slot="model-button"]')
+        ?.getAttribute("aria-label"),
+    ).toContain("GPT-5.6 Luna");
 
     act(() =>
       container
@@ -1291,8 +1312,127 @@ describe("createTiptapComposerExtensions", () => {
     const picker = document.querySelector(
       '[data-agent-native-composer-popover="true"]',
     );
-    expect(picker?.textContent).toContain("Luna");
-    expect(picker?.textContent).not.toContain("GPT-5.6 Luna");
+    expect(picker?.textContent).toContain("GPT-5.6 Luna");
+  });
+
+  it("shows current Builder model versions in the picker", () => {
+    const models = [
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "claude-opus-5-5",
+      "gemini-3-8-flash",
+    ];
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "builder",
+                label: "Builder.io Gateway",
+                models,
+                configured: true,
+              },
+            ],
+            selectedModel: "gpt-6-luna",
+            selectedEngine: "builder",
+            onModelChange: vi.fn(),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+
+    const modelButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    );
+    expect(modelButton?.textContent).toContain("Luna");
+    expect(modelButton?.textContent).not.toContain("GPT-6 Luna");
+    expect(modelButton?.getAttribute("aria-label")).toContain("GPT-6 Luna");
+
+    act(() => modelButton?.click());
+    const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
+      (tab) => tab.textContent?.includes("Model"),
+    );
+    act(() => (modelTab as HTMLElement | undefined)?.click());
+    const picker = document.querySelector(
+      '[role="tabpanel"][aria-label="model"]',
+    );
+    expect(picker?.textContent).toContain("GPT-6 Sol");
+    expect(picker?.textContent).toContain("GPT-6 Luna");
+    expect(picker?.textContent).toContain("Claude Opus 5.5");
+    expect(picker?.textContent).toContain("Gemini 3.8 Flash");
+  });
+
+  it("chooses the newest tier version regardless of catalog order", () => {
+    const models = [
+      "openai/gpt-5.6-sol",
+      "openai/gpt-6-sol",
+      "anthropic/claude-opus-4.8",
+      "anthropic/claude-opus-5.5",
+      "google/gemini-2.5-flash",
+      "google/gemini-3.8-flash",
+    ];
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "ai-sdk:openrouter",
+                label: "OpenRouter",
+                models,
+                configured: true,
+              },
+            ],
+            selectedModel: "google/gemini-3.8-flash",
+            selectedEngine: "ai-sdk:openrouter",
+            onModelChange: vi.fn(),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    const modelButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    );
+    expect(modelButton?.textContent).toContain("Flash");
+    expect(modelButton?.textContent).not.toContain("Gemini 3.8 Flash");
+
+    act(() => modelButton?.click());
+    const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
+      (tab) => tab.textContent?.includes("Model"),
+    );
+    act(() => (modelTab as HTMLElement | undefined)?.click());
+    const picker = document.querySelector(
+      '[role="tabpanel"][aria-label="model"]',
+    );
+    expect(picker?.textContent).toContain("GPT-6 Sol");
+    expect(picker?.textContent).toContain("Claude Opus 5.5");
+    expect(picker?.textContent).toContain("Gemini 3.8 Flash");
+    expect(picker?.textContent).not.toContain("GPT-5.6 Sol");
+    expect(picker?.textContent).not.toContain("Claude Opus 4.8");
+    expect(picker?.textContent).not.toContain("Gemini 2.5 Flash");
   });
 
   it("resets a hidden model when switching to Claude Code", async () => {
