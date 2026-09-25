@@ -38,6 +38,7 @@ const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 // a serverless cold start just resets it, which is fine since the feed is
 // re-fetched on the next call.
 const ICAL_CACHE_TTL_MS = 5 * 60_000;
+const ICAL_CACHE_MAX_ENTRIES = 200;
 const icalCache = new Map<
   string,
   { events: CalendarEvent[]; fetchedAt: number }
@@ -48,11 +49,20 @@ async function fetchICalEventsCached(
   from: string,
   to: string,
 ): Promise<CalendarEvent[]> {
-  const cacheKey = `${cal.url}|${from}|${to}`;
+  const cacheKey = JSON.stringify([
+    cal.id,
+    cal.name,
+    cal.url,
+    cal.color,
+    from,
+    to,
+  ]);
+  const now = Date.now();
   const cached = icalCache.get(cacheKey);
-  if (cached && Date.now() - cached.fetchedAt < ICAL_CACHE_TTL_MS) {
+  if (cached && now - cached.fetchedAt < ICAL_CACHE_TTL_MS) {
     return cached.events;
   }
+  if (cached) icalCache.delete(cacheKey);
   const events = await fetchICalEvents(
     cal.id,
     cal.name,
@@ -62,7 +72,17 @@ async function fetchICalEventsCached(
     to,
     { throwOnError: true },
   );
-  icalCache.set(cacheKey, { events, fetchedAt: Date.now() });
+  const fetchedAt = Date.now();
+  for (const [key, entry] of icalCache) {
+    if (fetchedAt - entry.fetchedAt >= ICAL_CACHE_TTL_MS) {
+      icalCache.delete(key);
+    }
+  }
+  if (icalCache.size >= ICAL_CACHE_MAX_ENTRIES) {
+    const oldestKey = icalCache.keys().next().value;
+    if (oldestKey !== undefined) icalCache.delete(oldestKey);
+  }
+  icalCache.set(cacheKey, { events, fetchedAt });
   return events;
 }
 

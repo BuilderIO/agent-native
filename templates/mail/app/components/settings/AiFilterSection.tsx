@@ -39,6 +39,12 @@ import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 type RuleMode = "tag" | "important" | "archive" | "spam";
 type PromptMode = Exclude<RuleMode, "tag">;
 
+function makeAggregateError(errors: unknown[], message: string) {
+  const error = new Error(message);
+  error.name = "AggregateError";
+  return Object.assign(error, { errors });
+}
+
 const PROMPT_MODES: PromptMode[] = ["important", "archive", "spam"];
 
 const labelForRule = (rule: AutomationRule) => {
@@ -285,7 +291,7 @@ export function AiFilterSection() {
         }
       }
       if (errors.length) {
-        throw new AggregateError(
+        throw makeAggregateError(
           errors,
           errors[0] instanceof Error
             ? errors[0].message
@@ -305,7 +311,7 @@ export function AiFilterSection() {
           try {
             await restoreRules(removed);
           } catch (restoreError) {
-            throw new AggregateError(
+            throw makeAggregateError(
               [error, restoreError],
               error instanceof Error
                 ? error.message
@@ -355,7 +361,7 @@ export function AiFilterSection() {
             rollbackErrors.push(rollbackError);
           }
           if (rollbackErrors.length) {
-            throw new AggregateError(
+            throw makeAggregateError(
               [error, ...rollbackErrors],
               error instanceof Error
                 ? error.message

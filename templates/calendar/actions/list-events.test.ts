@@ -656,6 +656,53 @@ describe("list-events inventory contract", () => {
     expect(result.items[0]).not.toHaveProperty("description");
   });
 
+  it("scopes cached ICS events by feed and bounds process memory", async () => {
+    let currentFeeds = [
+      {
+        id: "feed-a",
+        name: "Feed A",
+        url: "https://calendar.example.test/shared.ics",
+        color: "blue",
+      },
+    ];
+    getUserSettingMock.mockImplementation(async (_email: string, key: string) =>
+      key === "external-calendars" ? currentFeeds : null,
+    );
+    fetchICalEventsMock.mockResolvedValue([]);
+    const args = {
+      from: "2026-06-17",
+      to: "2026-06-18",
+      sources: ["ics"],
+    };
+    const readFeeds = () =>
+      (listEventsAction as any).run(args, { caller: "mcp" });
+
+    await readFeeds();
+    currentFeeds = [
+      {
+        id: "feed-b",
+        name: "Feed B",
+        url: "https://calendar.example.test/shared.ics",
+        color: "red",
+      },
+    ];
+    await readFeeds();
+    expect(fetchICalEventsMock).toHaveBeenCalledTimes(2);
+
+    const feeds = Array.from({ length: 201 }, (_, index) => ({
+      id: `bounded-feed-${index}`,
+      name: `Feed ${index}`,
+      url: `https://calendar.example.test/${index}.ics`,
+      color: "blue",
+    }));
+    currentFeeds = feeds;
+    await (listEventsAction as any).run(args, { caller: "mcp" });
+    currentFeeds = [feeds[0]!];
+    await (listEventsAction as any).run(args, { caller: "mcp" });
+
+    expect(fetchICalEventsMock).toHaveBeenCalledTimes(204);
+  });
+
   it("reports requested overlays when Google is disconnected", async () => {
     isConnectedMock.mockResolvedValue(false);
     getOwnedAccountEmailsMock.mockResolvedValue([]);

@@ -1,6 +1,5 @@
 import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import {
-  hasRecurringSweepHandler,
   getJevContextCredentials,
   isJevEnabled,
   registerRecurringSweepHandler,
