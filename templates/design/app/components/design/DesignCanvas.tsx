@@ -7503,7 +7503,9 @@ export function DesignCanvas({
                 }
               </Button>
             </div>
-          ) : waitingForLiveEditBridge || sameOriginBridgePending ? (
+          ) : waitingForLiveEditBridge ||
+            sameOriginBridgePending ||
+            liveEditDocumentPending ? (
             <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
               {
                 "Preparing live editor..." /* i18n-ignore transient localhost live-edit bridge loading state */
