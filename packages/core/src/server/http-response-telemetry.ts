@@ -18,6 +18,10 @@ import {
 import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
+  flushObservability,
+  recordHttpServerRequest,
+} from "../observability/metrics.js";
+import {
   createTrackingEventScope,
   flushTrackingEvents,
   type TrackingEventScope,
@@ -476,6 +480,13 @@ async function emitTelemetry(
     }
   }
   await flushTrackingEvents(state.trackingScope);
+  recordHttpServerRequest({
+    method: getMethod(event),
+    statusCode,
+    durationMs: Date.now() - state.startedAt,
+    route: state.routeTemplate,
+  });
+  await flushObservability();
 }
 
 function requestTelemetryState(

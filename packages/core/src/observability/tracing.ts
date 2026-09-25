@@ -11,14 +11,21 @@
  *   - `@opentelemetry/api` is an OPTIONAL dependency. If it isn't installed the
  *     helpers degrade to silent no-ops — nothing here ever throws into the agent
  *     loop.
- *   - The API package ships a default NO-OP tracer. Until a host registers a
- *     real `TracerProvider` (via `@opentelemetry/sdk-node` or similar, which
- *     core deliberately does NOT depend on), `tracer.startSpan(...)` returns a
- *     no-op span and the cost is a couple of property reads. We never register a
+ *   - A tracer provider passed to `registerObservabilityProvider()` wins over
+ *     the global `@opentelemetry/api` one. The API package ships a default
+ *     NO-OP tracer. Until a host registers a real `TracerProvider` (via
+ *     `@agent-native/otel`, `@opentelemetry/sdk-node`, or similar, which core
+ *     deliberately does NOT depend on), `tracer.startSpan(...)` returns a no-op
+ *     span and the cost is a couple of property reads. We never build a
  *     provider ourselves — instrumentation is opt-in by the embedding app.
  *   - Heavy SDK packages (`@opentelemetry/sdk-*`, exporters) are NOT added to
  *     core. The host owns the provider/exporter wiring; core only emits spans.
  */
+
+import {
+  getRegisteredObservabilityProvider,
+  type ObservabilityTracerProvider,
+} from "./otel-provider.js";
 
 const TRACER_NAME = "@agent-native/core/agent-loop";
 
@@ -67,6 +74,8 @@ interface AgentTraceRuntime {
  * "no runtime available" (api package missing or load failed).
  */
 let cachedRuntime: AgentTraceRuntime | null | undefined;
+/** The registered tracer provider `cachedRuntime` was resolved against. */
+let cachedTracerProvider: ObservabilityTracerProvider | undefined;
 
 /**
  * Resolve the OpenTelemetry tracer if `@opentelemetry/api` is installed.
@@ -74,11 +83,17 @@ let cachedRuntime: AgentTraceRuntime | null | undefined;
  * branch to a no-op cheaply on every subsequent call.
  */
 async function resolveRuntime(): Promise<AgentTraceRuntime | null> {
-  if (cachedRuntime !== undefined) return cachedRuntime;
+  const tracerProvider = getRegisteredObservabilityProvider()?.tracerProvider;
+  if (cachedRuntime !== undefined && cachedTracerProvider === tracerProvider) {
+    return cachedRuntime;
+  }
+  cachedTracerProvider = tracerProvider;
   try {
     // Optional dependency — guarded import. Absent ⇒ no-op everywhere.
     const otel: any = await import("@opentelemetry/api");
-    const tracer = otel?.trace?.getTracer?.(TRACER_NAME);
+    const tracer = tracerProvider
+      ? tracerProvider.getTracer(TRACER_NAME)
+      : otel?.trace?.getTracer?.(TRACER_NAME);
     cachedRuntime = tracer
       ? {
           tracer: tracer as AgentTracer,

@@ -805,6 +805,13 @@ export {
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "../shared/agent-readable-resource.js";
 
+export {
+  registerObservabilityProvider,
+  type ObservabilityMeterProvider,
+  type ObservabilityProvider,
+  type ObservabilityTracerProvider,
+} from "../observability/otel-provider.js";
+
 // SSR handler is NOT re-exported here — it uses a virtual module
 // (virtual:react-router/server-build) that only exists at Vite dev/build time.
 // Including it in this barrel would break the esbuild CF Pages bundler.
