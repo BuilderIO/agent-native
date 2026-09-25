@@ -3,9 +3,11 @@ import type { AgentChatTranslation } from "../core-messages.js";
 const messages: AgentChatTranslation = {
   "activity.reasoning": "तर्क",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
-  "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
+  "approval.alwaysAllowHint":
+    "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
   "approval.alwaysAllowAction": "इस कार्रवाई को हमेशा अनुमति दें",
-  "approval.alwaysAllowActionHint": "स्वीकृत करें और इस कार्रवाई को हमेशा अनुमति दें",
+  "approval.alwaysAllowActionHint":
+    "स्वीकृत करें और इस कार्रवाई को हमेशा अनुमति दें",
   "approval.approve": "स्वीकृत करें",
   "approval.approved": "स्वीकृत। {{tool}} को फिर से चलाया जा रहा है...",
   "approval.denied": "अस्वीकृत। {{tool}} नहीं चला।",
@@ -21,7 +23,8 @@ const messages: AgentChatTranslation = {
   "auth.refreshDescription":
     "आप लॉग इन हैं, लेकिन इस चैट कनेक्शन को दोबारा कनेक्ट करना होगा।",
   "auth.refreshTitle": "चैट सत्र को रीफ़्रेश करना होगा",
-  "auth.requiredDescription": "एजेंट का उपयोग करने के लिए आपको लॉग इन करना होगा।",
+  "auth.requiredDescription":
+    "एजेंट का उपयोग करने के लिए आपको लॉग इन करना होगा।",
   "auth.requiredTitle": "प्रमाणीकरण आवश्यक है",
   "commands.act": "कार्य मोड पर वापस जाएँ",
   "commands.available": "उपलब्ध कमांड",
@@ -36,7 +39,8 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "अपनी भूमिका चुनें",
   "onboarding.customizeRole": "आइए इसे आपके लिए अनुकूलित करें।",
   "onboarding.roleQuestion": "आपकी भूमिका का सबसे अच्छा वर्णन क्या है?",
-  "onboarding.roleHelperText": "इससे हमें आपके अनुभव को निजीकृत करने में मदद मिलती है",
+  "onboarding.roleHelperText":
+    "इससे हमें आपके अनुभव को निजीकृत करने में मदद मिलती है",
   "onboarding.roleProduct": "प्रोडक्ट मैनेजर",
   "onboarding.roleDesign": "डिज़ाइनर",
   "onboarding.roleDeveloper": "डेवलपर",
@@ -52,11 +56,13 @@ const messages: AgentChatTranslation = {
   "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
   "onboarding.builderActivateDescription":
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
-  "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
+  "onboarding.builderActiveCredits":
+    "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderCredits": "Builder.io के मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderActivateTitle": "मुफ़्त क्रेडिट सक्रिय करें",
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
-  "onboarding.builderAccountExistsDescription": "इसे कनेक्ट करने के लिए लॉग इन करें।",
+  "onboarding.builderAccountExistsDescription":
+    "इसे कनेक्ट करने के लिए लॉग इन करें।",
   "onboarding.builderActivationDescription":
     "हम एक क्लिक में आपके लिए Builder.io खाता अपने-आप बनाएँगे।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
@@ -65,8 +71,10 @@ const messages: AgentChatTranslation = {
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
-  "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
-  "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट कनेक्ट किए जा रहे हैं",
+  "onboarding.builderActivating":
+    "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
+  "onboarding.builderConnecting":
+    "Builder.io के मुफ़्त क्रेडिट कनेक्ट किए जा रहे हैं",
   "onboarding.builderProvisioningDescription":
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
@@ -174,7 +182,8 @@ const messages: AgentChatTranslation = {
   "agents.apiBaseUrl": "API बेस URL (वैकल्पिक)",
   "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
   "agents.managedAgentIncomplete": "Anthropic Managed Agents फ़ील्ड पूरे करें।",
-  "agents.managedAgentCheck": "चैट से डेलीगेट करने पर कनेक्शन की जाँच की जाती है।",
+  "agents.managedAgentCheck":
+    "चैट से डेलीगेट करने पर कनेक्शन की जाँच की जाती है।",
   "agents.managedAgentSaved":
     "Anthropic Managed Agent सहेजा गया। चैट से इसे डेलीगेट करें।",
   "agents.cardUrl": "एजेंट कार्ड URL",
@@ -195,7 +204,8 @@ const messages: AgentChatTranslation = {
   "agents.statusAuthRejected": "प्रमाणीकरण अस्वीकार",
   "agents.statusNoJsonRpc": "कोई JSON-RPC नहीं",
   "agents.directoryTab": "एजेंट डायरेक्टरी",
-  "agents.directoryPageHint": "एजेंट बैकएंड खोजें और उसे अपने वर्कस्पेस से कनेक्ट करें।",
+  "agents.directoryPageHint":
+    "एजेंट बैकएंड खोजें और उसे अपने वर्कस्पेस से कनेक्ट करें।",
   "agents.directorySearch": "प्रदाता खोजें",
   "agents.directoryProviders": "प्रदाता",
   "agents.directoryManual": "URL से जोड़ें",
@@ -204,7 +214,8 @@ const messages: AgentChatTranslation = {
   "agents.directoryFoundry": "Microsoft Foundry",
   "agents.directoryFoundryHint": "A2A के ज़रिए Foundry एजेंट कनेक्ट करें।",
   "agents.directoryGemini": "Gemini Enterprise",
-  "agents.directoryGeminiHint": "A2A के ज़रिए Gemini Enterprise एजेंट कनेक्ट करें।",
+  "agents.directoryGeminiHint":
+    "A2A के ज़रिए Gemini Enterprise एजेंट कनेक्ट करें।",
   "agents.directoryAnthropic": "Anthropic द्वारा प्रबंधित एजेंट",
   "agents.directoryAnthropicHint": "Anthropic से सेशन और अनुमोदन कनेक्ट करें।",
   "agents.directoryNoMatches": "आपकी खोज से कोई प्रदाता मेल नहीं खाता।",
@@ -240,14 +251,16 @@ const messages: AgentChatTranslation = {
   "composer.assets.contextTitle": "इमेज: {{title}}",
   "composer.assets.generatedImage": "बनाई गई इमेज",
   "composer.assets.generateImage": "इमेज बनाएँ",
-  "composer.assets.invalidUrl": "कॉन्फ़िगर किया गया इमेज पिकर URL मान्य नहीं है।",
+  "composer.assets.invalidUrl":
+    "कॉन्फ़िगर किया गया इमेज पिकर URL मान्य नहीं है।",
   "composer.assets.loadingPicker": "Assets पिकर लोड हो रहा है",
   "composer.assets.openPicker": "Assets इमेज पिकर खोलें",
   "composer.assets.openSecurely":
     "साइन इन करने और सुरक्षित रूप से इमेज चुनने के लिए Assets को नए टैब में खोलें।",
   "composer.assets.pickerTitle": "Assets इमेज पिकर",
   "composer.auto": "अपने-आप",
-  "composer.builderModelCredits": "Claude, OpenAI और Gemini के लिए मुफ़्त क्रेडिट",
+  "composer.builderModelCredits":
+    "Claude, OpenAI और Gemini के लिए मुफ़्त क्रेडिट",
   "composer.chatGptSubscription": "ChatGPT सदस्यता",
   "composer.closePreview": "प्रीव्यू बंद करें",
   "composer.configureProviderKeys":
@@ -288,9 +301,11 @@ const messages: AgentChatTranslation = {
   "composer.menu.generateImage": "इमेज बनाएँ",
   "composer.menu.generateImageDescription": "Assets इमेज पिकर खोलें",
   "composer.menu.integrations": "इंटीग्रेशन",
-  "composer.menu.integrationsDescription": "टूल और सेवाओं को एजेंट से कनेक्ट करें",
+  "composer.menu.integrationsDescription":
+    "टूल और सेवाओं को एजेंट से कनेक्ट करें",
   "composer.menu.scheduleTask": "कार्य शेड्यूल करें",
-  "composer.menu.scheduleTaskDescription": "किसी कार्य को शेड्यूल के अनुसार चलाएँ",
+  "composer.menu.scheduleTaskDescription":
+    "किसी कार्य को शेड्यूल के अनुसार चलाएँ",
   "composer.menu.uploadFile": "फ़ाइल अपलोड करें",
   "composer.menu.uploadFileDescription": "इमेज, PDFs, टेक्स्ट/कोड, JSON, CSV",
   "composer.messageAgent": "एजेंट को संदेश भेजें...",
@@ -331,7 +346,8 @@ const messages: AgentChatTranslation = {
     "स्किल का वर्णन करें और एजेंट को उसका ड्राफ़्ट बनाने दें",
   "composer.skill.createNew": "नई स्किल बनाएँ",
   "composer.skill.name": "स्किल का नाम",
-  "composer.skill.review": "सहेजने से पहले {{name}} की सामग्री की समीक्षा करें।",
+  "composer.skill.review":
+    "सहेजने से पहले {{name}} की सामग्री की समीक्षा करें।",
   "composer.skill.savedAt": "यहाँ सहेजा गया",
   "composer.skill.saveFailed": "स्किल फ़ाइल सहेजी नहीं जा सकी",
   "composer.skill.selectedFile": "चुनी गई फ़ाइल",
@@ -452,7 +468,8 @@ const messages: AgentChatTranslation = {
     "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
-  "errorMessages.creditsLimitReached": "आपने अपने AI क्रेडिट की सीमा पूरी कर ली है।",
+  "errorMessages.creditsLimitReached":
+    "आपने अपने AI क्रेडिट की सीमा पूरी कर ली है।",
   "errorMessages.inactivityTimeout":
     "एजेंट का कनेक्शन काम पूरा होने से पहले समय सीमा पर पहुँच गया। आप आंशिक काम से जारी रख सकते हैं या फिर से प्रयास कर सकते हैं।",
   "errorMessages.invalidToolSchema":
@@ -507,7 +524,8 @@ const messages: AgentChatTranslation = {
   "integrations.lookingForProviders": "OAuth या MCP प्रदाता ढूंढ रहे हैं?",
   "integrations.manage": "प्रबंधित करें",
   "integrations.recommended": "अनुशंसित",
-  "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
+  "integrations.subtitle":
+    "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
   "limit.account": "आपके खाते",
   "limit.descriptionAll":
     "एजेंट ने सभी उपलब्ध चरणों का उपयोग कर लिया। नए टर्न में जारी रखें या पहले {{scope}} की सीमा बढ़ाएँ।",
@@ -534,7 +552,8 @@ const messages: AgentChatTranslation = {
     "एजेंट अंतिम संदेश भेजे बिना रुक गया। उसे जारी रखने के लिए कहें या फिर से प्रयास करें।",
   "message.messages": "संदेश",
   "message.nextBranch": "अगली शाखा",
-  "message.noRestoreRun": "इस संदेश के लिए पुनर्स्थापित करने योग्य कोई रन नहीं है।",
+  "message.noRestoreRun":
+    "इस संदेश के लिए पुनर्स्थापित करने योग्य कोई रन नहीं है।",
   "message.previousBranch": "पिछली शाखा",
   "message.regenerate": "जवाब फिर से बनाएँ",
   "message.restoreFailed": "पुनर्स्थापना विफल रही ({{status}})।",
@@ -626,7 +645,8 @@ const messages: AgentChatTranslation = {
     "मौजूदा Builder.io या मॉडल प्रदाता क्रेडेंशियल अस्वीकार कर दिया गया। Builder.io को दोबारा कनेक्ट करें, फिर इस संदेश को दोबारा आज़माएँ।",
   "recovery.diagnoseRetry": "समस्या जाँचें और फिर प्रयास करें",
   "recovery.forkDescription": "इस बातचीत को एक अलग चैट थ्रेड में शाखित करें।",
-  "recovery.forkFailed": "इस चैट की शाखा नहीं बनाई जा सकी। नई चैट शुरू करके देखें।",
+  "recovery.forkFailed":
+    "इस चैट की शाखा नहीं बनाई जा सकी। नई चैट शुरू करके देखें।",
   "recovery.forking": "शाखा बनाई जा रही है...",
   "recovery.newChatHint":
     "अगर दोबारा प्रयास करने पर वही त्रुटि आए, तो नया चैट सत्र शुरू करें और पहले से हुए बदलावों से आगे बढ़ें।",
@@ -643,7 +663,8 @@ const messages: AgentChatTranslation = {
   "secrets.chooseKey": "कुंजी चुनें",
   "secrets.customKey": "कस्टम कुंजी",
   "secrets.customKeyHint": "नाम से कोई भी कुंजी जोड़ें",
-  "secrets.emptyHint": "अपने खुद के खातों का उपयोग करने के लिए एक कुंजी जोड़ें।",
+  "secrets.emptyHint":
+    "अपने खुद के खातों का उपयोग करने के लिए एक कुंजी जोड़ें।",
   "secrets.emptyMore":
     "और {{count}} अधिक 'नया' के अंतर्गत, या नाम से कोई भी कस्टम कुंजी जोड़ें",
   "secrets.emptyTitle": "अभी तक कोई कुंजी नहीं।",
@@ -696,7 +717,8 @@ const messages: AgentChatTranslation = {
   "share.commenterDescription": "देख सकता है और टिप्पणियाँ जोड़ सकता है",
   "share.advanced": "उन्नत",
   "share.advancedAccess": "उन्नत एक्सेस",
-  "share.advancedDescription": "नियंत्रित करें कि संगठन का एक्सेस खोज में कैसे दिखाई दे।",
+  "share.advancedDescription":
+    "नियंत्रित करें कि संगठन का एक्सेस खोज में कैसे दिखाई दे।",
   "share.copied": "कॉपी किया गया",
   "share.copy": "कॉपी करें",
   "share.shareWithAgents": "एजेंट्स के साथ साझा करें",
@@ -817,6 +839,183 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder बिलिंग से बाहर प्रदाता या पुराने कॉल",
   "usage.providerSpendToday": "आज का अन्य या अवर्गीकृत उपयोग: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder क्रेडिट / USD",
+  "usage.insights.verdictSmooth": "सब कुछ ठीक चल रहा है",
+  "usage.insights.handledLabel": "Agent Native द्वारा संभाला गया:",
+  "usage.insights.handledHeading": "Agent Native द्वारा संभाला गया",
+  "usage.insights.handledParallel":
+    "{{count}} टूल कॉल एक साथ चलाए, जो एक-एक करके चलाने से लगभग {{duration}} तेज़ था।",
+  "usage.insights.avgPerPrompt": "प्रति प्रॉम्प्ट औसत",
+  "usage.insights.completed": "पूरा हुआ",
+  "usage.insights.completedDetail": "आख़िरी {{total}} में से {{done}}",
+  "usage.insights.typicalTime": "सामान्य समय",
+  "usage.insights.median": "मीडियन",
+  "usage.insights.changeSame": "पिछली अवधि जैसा ही",
+  "usage.insights.changeUp": "↑ {{percent}}% पिछली अवधि की तुलना में",
+  "usage.insights.changeDown": "↓ {{percent}}% पिछली अवधि की तुलना में",
+  "usage.insights.kindProblem": "समस्या",
+  "usage.insights.kindSaving": "बचत हो सकती है",
+  "usage.insights.kindInfo": "जानने योग्य बात",
+  "usage.insights.fixLabel": "समाधान:",
+  "usage.insights.openPrompt": "प्रॉम्प्ट खोलें",
+  "usage.insights.erroredBody": "एजेंट पूरा करने से पहले ही रुक गया।",
+  "usage.insights.erroredFix":
+    "रुकने से पहले एजेंट ने आख़िरी बार क्या किया, यह देखने के लिए प्रॉम्प्ट खोलें।",
+  "usage.insights.toolFailedSaid": "उसने कहा: “{{error}}”",
+  "usage.insights.toolFailedGeneric": "टूल ने एक एरर की जानकारी दी।",
+  "usage.insights.toolRecoveredAll": "एजेंट हर बार उबरा और काम पूरा किया।",
+  "usage.insights.toolRecoveredSome":
+    "एजेंट उनमें से {{count}} में उबरा और काम पूरा किया।",
+  "usage.insights.restartTitle":
+    "फिर से शुरू करने में लगभग {{amount}} खर्च हुए ({{percent}}% खर्च का)",
+  "usage.insights.restartBody":
+    "आख़िरी {{total}} प्रॉम्प्ट में से {{count}} में, {{reason}} के बाद एजेंट ने पूरी बातचीत फिर से भेजी, बजाय इसके कि जो पहले भेजा था उसे फिर से इस्तेमाल करता।",
+  "usage.insights.reasonToolLookup": "नए टूल्स मिलने",
+  "usage.insights.reasonPrefixChanged":
+    "उसके इंस्ट्रक्शन्स की शुरुआत में कुछ बदलने",
+  "usage.insights.fixToolLookup":
+    "इस ऐप में इस्तेमाल होने वाले टूल्स को initialToolNames से पहले ही लोड करें, ताकि पूरे प्रॉम्प्ट में टूल लिस्ट एक जैसी बनी रहे।",
+  "usage.insights.fixPrefixChanged":
+    "बदलते रहने वाली चीज़ों को, जैसे टाइमस्टैंप या हर स्टेप की स्थिति को, सिस्टम प्रॉम्प्ट से बाहर रखें।",
+  "usage.insights.priciestTitle":
+    "एक प्रॉम्प्ट ने हाल के खर्च का {{percent}}% इस्तेमाल किया",
+  "usage.insights.untitledPrompt": "बिना शीर्षक वाला प्रॉम्प्ट",
+  "usage.insights.promptsHeading": "प्रॉम्प्ट्स",
+  "usage.insights.showing": "{{count}} दिखा रहे हैं",
+  "usage.insights.sortNewest": "सबसे नया",
+  "usage.insights.sortCost": "सबसे महंगा",
+  "usage.insights.emptyPrompts":
+    "इस अवधि में अभी तक कोई प्रॉम्प्ट नहीं है। पूरा होने के कुछ सेकंड बाद वे यहां दिखने लगते हैं।",
+  "usage.insights.promptNotSaved": "प्रॉम्प्ट का टेक्स्ट सेव नहीं हुआ",
+  "usage.insights.ratedHelpful": "उपयोगी बताया गया",
+  "usage.insights.ratedUnhelpful": "अनुपयोगी बताया गया",
+  "usage.insights.notRated": "कोई रेटिंग नहीं",
+  "usage.insights.stoppedWithError": "एरर के साथ रुका",
+  "usage.insights.detailsUnavailable": "स्टेप की जानकारी अब उपलब्ध नहीं है",
+  "usage.insights.answered": "जवाब दिया गया",
+  "usage.insights.finished": "पूरा हुआ",
+  "usage.insights.startedOverShort": "{{count}}× फिर से शुरू हुआ",
+  "usage.insights.headerDuration": "{{duration}} में",
+  "usage.insights.whatItDid": "उसने क्या किया:",
+  "usage.insights.replyNotSaved":
+    "इस प्रॉम्प्ट के लिए जवाब का टेक्स्ट सेव नहीं हुआ।",
+  "usage.insights.showAll": "सभी दिखाएं",
+  "usage.insights.showLess": "कम दिखाएं",
+  "usage.insights.moreTools": "+{{count}} और",
+  "usage.insights.failedSuffix": "फेल हुआ",
+  "usage.insights.timesCount": "{{label}} ×{{count}}",
+  "usage.insights.hideSteps": "स्टेप्स छिपाएं",
+  "usage.insights.costDetails": "लागत का विवरण और चेक्स",
+  "usage.insights.turnReply": "जवाब लिखा",
+  "usage.insights.turnThought": "सोच-समझकर विचार किया",
+  "usage.insights.startedOverTag": "फिर से शुरू हुआ",
+  "usage.insights.toolFailedTag": "टूल फेल हुआ",
+  "usage.insights.turnContext":
+    "{{tokens}} टोकन का कॉन्टेक्स्ट भेजा, जिसमें से {{percent}}% पहले से इस्तेमाल किया हुआ था।",
+  "usage.insights.turnExpired":
+    "रुकने के बाद सेव किया गया कॉन्टेक्स्ट एक्सपायर हो गया था, जो सामान्य बात है।",
+  "usage.insights.turnOutput": "{{tokens}} टोकन लिखे।",
+  "usage.insights.turnRestart":
+    "{{reason}} के बाद फिर से शुरू हुआ, जो इसे फिर से इस्तेमाल करने से लगभग {{amount}} ज़्यादा था।",
+  "usage.insights.noCacheCompare":
+    "लिस्ट प्राइस पर, पहले के कॉन्टेक्स्ट को फिर से इस्तेमाल करने से इस प्रॉम्प्ट की लागत {{noCache}} से घटकर {{estimated}} हो गई।",
+  "usage.insights.partReused": "फिर से इस्तेमाल किया गया कॉन्टेक्स्ट",
+  "usage.insights.partSaved": "कैश में सेव किया गया",
+  "usage.insights.partNew": "नया कॉन्टेक्स्ट",
+  "usage.insights.partOutput": "मॉडल द्वारा लिखा गया",
+  "usage.insights.checksHeading": "ऑटोमैटिक चेक्स",
+  "usage.insights.checksNone": "कोई भी रिकॉर्ड नहीं किया गया।",
+  "usage.insights.checksGraded": "(एक मॉडल द्वारा ग्रेड किया गया)",
+  "usage.insights.checksNote":
+    "फ्रेमवर्क चेक्स यह देखते हैं कि रन कैसे हुआ (एरर, स्टेप्स, स्पीड), न कि नतीजा कितना अच्छा था।",
+  "usage.insights.lookedForTools": "और टूल्स खोजे",
+  "usage.insights.prevPrompt": "पिछला प्रॉम्प्ट (K)",
+  "usage.insights.nextPrompt": "अगला प्रॉम्प्ट (J)",
+  "usage.insights.toolVerb.add": "{{object}} जोड़ा",
+  "usage.insights.toolVerb.analyze": "{{object}} एनालाइज़ किया",
+  "usage.insights.toolVerb.apply": "{{object}} अप्लाई किया",
+  "usage.insights.toolVerb.capture": "{{object}} कैप्चर किया",
+  "usage.insights.toolVerb.check": "{{object}} चेक किया",
+  "usage.insights.toolVerb.connect": "{{object}} कनेक्ट किया",
+  "usage.insights.toolVerb.create": "{{object}} बनाया",
+  "usage.insights.toolVerb.delete": "{{object}} डिलीट किया",
+  "usage.insights.toolVerb.duplicate": "{{object}} डुप्लीकेट किया",
+  "usage.insights.toolVerb.edit": "{{object}} एडिट किया",
+  "usage.insights.toolVerb.export": "{{object}} एक्सपोर्ट किया",
+  "usage.insights.toolVerb.fetch": "{{object}} फ़ेच किया",
+  "usage.insights.toolVerb.find": "{{object}} ढूंढा",
+  "usage.insights.toolVerb.generate": "{{object}} जनरेट किया",
+  "usage.insights.toolVerb.index": "{{object}} इंडेक्स किया",
+  "usage.insights.toolVerb.insert": "{{object}} इन्सर्ट किया",
+  "usage.insights.toolVerb.list": "{{object}} लिस्ट किया",
+  "usage.insights.toolVerb.move": "{{object}} मूव किया",
+  "usage.insights.toolVerb.navigate": "{{object}} नेविगेट किया",
+  "usage.insights.toolVerb.open": "{{object}} खोला",
+  "usage.insights.toolVerb.present": "{{object}} प्रेजेंट किया",
+  "usage.insights.toolVerb.propose": "{{object}} सुझाया",
+  "usage.insights.toolVerb.query": "{{object}} क्वेरी की",
+  "usage.insights.toolVerb.read": "{{object}} पढ़ा",
+  "usage.insights.toolVerb.remove": "{{object}} हटाया",
+  "usage.insights.toolVerb.rename": "{{object}} का नाम बदला",
+  "usage.insights.toolVerb.reply": "{{object}} को जवाब दिया",
+  "usage.insights.toolVerb.resolve": "{{object}} रिज़ॉल्व किया",
+  "usage.insights.toolVerb.run": "{{object}} चलाया",
+  "usage.insights.toolVerb.save": "{{object}} सेव किया",
+  "usage.insights.toolVerb.search": "{{object}} खोजा",
+  "usage.insights.toolVerb.send": "{{object}} भेजा",
+  "usage.insights.toolVerb.set": "{{object}} सेट किया",
+  "usage.insights.toolVerb.take": "{{object}} लिया",
+  "usage.insights.toolVerb.update": "{{object}} अपडेट किया",
+  "usage.insights.toolVerb.upload": "{{object}} अपलोड किया",
+  "usage.insights.toolVerb.view": "{{object}} देखा",
+  "usage.insights.toolVerb.write": "{{object}} लिखा",
+  "usage.insights.verdictLook_one": "ध्यान देने लायक {{count}} बात",
+  "usage.insights.verdictLook_other": "ध्यान देने लायक {{count}} बातें",
+  "usage.insights.verdictProblems_one": "{{count}} समस्या",
+  "usage.insights.verdictProblems_other": "{{count}} समस्याएं",
+  "usage.insights.spentSummary_one":
+    "पिछले {{days}} दिनों में {{count}} प्रॉम्प्ट पर {{amount}} खर्च हुआ।",
+  "usage.insights.spentSummary_other":
+    "पिछले {{days}} दिनों में {{count}} प्रॉम्प्ट पर {{amount}} खर्च हुए।",
+  "usage.insights.handledRecovered_one":
+    "एजेंट {{count}} टूल एरर से बिना रुके उबर गया।",
+  "usage.insights.handledRecovered_other":
+    "एजेंट {{count}} टूल एरर्स से बिना रुके उबर गया।",
+  "usage.insights.completedRecovered_one":
+    "आख़िरी {{total}} में से {{done}}, {{count}} टूल एरर से उबरने के बाद",
+  "usage.insights.completedRecovered_other":
+    "आख़िरी {{total}} में से {{done}}, {{count}} टूल एरर्स से उबरने के बाद",
+  "usage.insights.seePrompts_one": "{{count}} प्रॉम्प्ट देखें",
+  "usage.insights.seePrompts_other": "{{count}} प्रॉम्प्ट देखें",
+  "usage.insights.erroredTitle_one":
+    "{{count}} प्रॉम्प्ट किसी एरर के साथ खत्म हुआ।",
+  "usage.insights.erroredTitle_other":
+    "{{count}} प्रॉम्प्ट किसी एरर के साथ खत्म हुए।",
+  "usage.insights.toolFailedTitle_one":
+    "{{tool}} टूल {{count}} प्रॉम्प्ट में फेल हुआ।",
+  "usage.insights.toolFailedTitle_other":
+    "{{tool}} टूल {{count}} प्रॉम्प्ट में फेल हुआ।",
+  "usage.insights.priciestBody_one":
+    "“{{prompt}}” की लागत {{count}} स्टेप में {{amount}} रही।",
+  "usage.insights.priciestBody_other":
+    "“{{prompt}}” की लागत {{count}} स्टेप्स में {{amount}} रही।",
+  "usage.insights.recoveredShort_one": "{{count}} टूल एरर से उबरा",
+  "usage.insights.recoveredShort_other": "{{count}} टूल एरर्स से उबरा",
+  "usage.insights.toolsFailedShort_one": "{{count}} टूल फेल हुआ",
+  "usage.insights.toolsFailedShort_other": "{{count}} टूल फेल हुए",
+  "usage.insights.stepsCount_one": "{{count}} स्टेप",
+  "usage.insights.stepsCount_other": "{{count}} स्टेप्स",
+  "usage.insights.startedOverNote_one":
+    "{{reason}} के बाद {{count}} बार फिर से शुरू हुआ। इसमें {{total}} में से लगभग {{amount}} खर्च हुआ।",
+  "usage.insights.startedOverNote_other":
+    "{{reason}} के बाद {{count}} बार फिर से शुरू हुआ। इसमें {{total}} में से लगभग {{amount}} खर्च हुआ।",
+  "usage.insights.toolFailedNote_one": "{{tool}} टूल {{count}} बार फेल हुआ।",
+  "usage.insights.toolFailedNote_other": "{{tool}} टूल {{count}} बार फेल हुआ।",
+  "usage.insights.toolFailedRecoveredNote_one":
+    "{{tool}} टूल {{count}} बार फेल हुआ, लेकिन एजेंट ने काम जारी रखा और उसे पूरा किया।",
+  "usage.insights.toolFailedRecoveredNote_other":
+    "{{tool}} टूल {{count}} बार फेल हुआ, लेकिन एजेंट ने काम जारी रखा और उसे पूरा किया।",
+  "usage.insights.showSteps_one": "{{count}} स्टेप दिखाएं",
+  "usage.insights.showSteps_other": "{{count}} स्टेप्स दिखाएं",
 };
 
 export default messages;

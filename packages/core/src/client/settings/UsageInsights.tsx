@@ -20,8 +20,10 @@ import {
 } from "@tabler/icons-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
+import { useT } from "../i18n.js";
 import { useActionQuery } from "../use-action.js";
 
+type T = ReturnType<typeof useT>;
 type UsageScope = "me" | "workspace";
 
 interface CostBreakdown {
@@ -30,6 +32,7 @@ interface CostBreakdown {
   uncachedInputCents: number;
   outputCents: number;
   totalCents: number;
+  estimatedCents: number;
   noCacheCents: number;
 }
 
@@ -54,7 +57,7 @@ interface RunListItem {
   createdAt: number;
   model: string;
   prompt: string | null;
-  status: "success" | "error";
+  status: "success" | "error" | "unknown";
   tokens: TokenTotals;
   cost: CostBreakdown;
   modelCalls: number;
@@ -111,49 +114,6 @@ interface RunDetail extends RunListItem {
   }>;
 }
 
-const VERB_PAST: Record<string, string> = {
-  add: "added",
-  analyze: "analyzed",
-  apply: "applied",
-  capture: "captured",
-  check: "checked",
-  connect: "connected",
-  consume: "read",
-  create: "created",
-  delete: "deleted",
-  duplicate: "duplicated",
-  edit: "edited",
-  export: "exported",
-  fetch: "fetched",
-  find: "found",
-  generate: "generated",
-  get: "read",
-  index: "indexed",
-  insert: "inserted",
-  list: "listed",
-  move: "moved",
-  navigate: "navigated",
-  open: "opened",
-  present: "presented",
-  propose: "proposed",
-  query: "queried",
-  read: "read",
-  remove: "removed",
-  rename: "renamed",
-  reply: "replied to",
-  resolve: "resolved",
-  run: "ran",
-  save: "saved",
-  search: "searched",
-  send: "sent",
-  set: "set",
-  take: "took",
-  update: "updated",
-  upload: "uploaded",
-  view: "viewed",
-  write: "wrote",
-};
-
 const WRITE_VERBS = new Set([
   "add",
   "apply",
@@ -175,17 +135,52 @@ const WRITE_VERBS = new Set([
   "write",
 ]);
 
-const RESTART_REASON: Record<RestartCause, string> = {
-  "tool-lookup": "picking up new tools",
-  "prefix-changed": "something at the start of its instructions changed",
-};
-
-const RESTART_FIX: Record<RestartCause, string> = {
-  "tool-lookup":
-    "Preload the tools this app uses with initialToolNames so the tool list stays the same for the whole prompt.",
-  "prefix-changed":
-    "Keep changing content, like timestamps or per-step state, out of the system prompt.",
-};
+function verbLabel(t: T, verb: string, object: string): string | null {
+  const labels: Record<string, () => string> = {
+    add: () => t("agentChat.usage.insights.toolVerb.add", { object }),
+    analyze: () => t("agentChat.usage.insights.toolVerb.analyze", { object }),
+    apply: () => t("agentChat.usage.insights.toolVerb.apply", { object }),
+    capture: () => t("agentChat.usage.insights.toolVerb.capture", { object }),
+    check: () => t("agentChat.usage.insights.toolVerb.check", { object }),
+    connect: () => t("agentChat.usage.insights.toolVerb.connect", { object }),
+    consume: () => t("agentChat.usage.insights.toolVerb.read", { object }),
+    create: () => t("agentChat.usage.insights.toolVerb.create", { object }),
+    delete: () => t("agentChat.usage.insights.toolVerb.delete", { object }),
+    duplicate: () =>
+      t("agentChat.usage.insights.toolVerb.duplicate", { object }),
+    edit: () => t("agentChat.usage.insights.toolVerb.edit", { object }),
+    export: () => t("agentChat.usage.insights.toolVerb.export", { object }),
+    fetch: () => t("agentChat.usage.insights.toolVerb.fetch", { object }),
+    find: () => t("agentChat.usage.insights.toolVerb.find", { object }),
+    generate: () => t("agentChat.usage.insights.toolVerb.generate", { object }),
+    get: () => t("agentChat.usage.insights.toolVerb.read", { object }),
+    index: () => t("agentChat.usage.insights.toolVerb.index", { object }),
+    insert: () => t("agentChat.usage.insights.toolVerb.insert", { object }),
+    list: () => t("agentChat.usage.insights.toolVerb.list", { object }),
+    move: () => t("agentChat.usage.insights.toolVerb.move", { object }),
+    navigate: () => t("agentChat.usage.insights.toolVerb.navigate", { object }),
+    open: () => t("agentChat.usage.insights.toolVerb.open", { object }),
+    present: () => t("agentChat.usage.insights.toolVerb.present", { object }),
+    propose: () => t("agentChat.usage.insights.toolVerb.propose", { object }),
+    query: () => t("agentChat.usage.insights.toolVerb.query", { object }),
+    read: () => t("agentChat.usage.insights.toolVerb.read", { object }),
+    remove: () => t("agentChat.usage.insights.toolVerb.remove", { object }),
+    rename: () => t("agentChat.usage.insights.toolVerb.rename", { object }),
+    reply: () => t("agentChat.usage.insights.toolVerb.reply", { object }),
+    resolve: () => t("agentChat.usage.insights.toolVerb.resolve", { object }),
+    run: () => t("agentChat.usage.insights.toolVerb.run", { object }),
+    save: () => t("agentChat.usage.insights.toolVerb.save", { object }),
+    search: () => t("agentChat.usage.insights.toolVerb.search", { object }),
+    send: () => t("agentChat.usage.insights.toolVerb.send", { object }),
+    set: () => t("agentChat.usage.insights.toolVerb.set", { object }),
+    take: () => t("agentChat.usage.insights.toolVerb.take", { object }),
+    update: () => t("agentChat.usage.insights.toolVerb.update", { object }),
+    upload: () => t("agentChat.usage.insights.toolVerb.upload", { object }),
+    view: () => t("agentChat.usage.insights.toolVerb.view", { object }),
+    write: () => t("agentChat.usage.insights.toolVerb.write", { object }),
+  };
+  return labels[verb]?.() ?? null;
+}
 
 function toolWords(name: string): string[] {
   return name
@@ -196,54 +191,93 @@ function toolWords(name: string): string[] {
 
 function toolVerb(name: string): string | null {
   const words = toolWords(name);
-  if (VERB_PAST[words[0]!]) return words[0]!;
-  if (VERB_PAST[words.at(-1)!]) return words.at(-1)!;
+  if (WRITE_VERBS.has(words[0]!) || READ_VERBS.has(words[0]!)) return words[0]!;
+  const last = words.at(-1)!;
+  if (WRITE_VERBS.has(last) || READ_VERBS.has(last)) return last;
   return null;
 }
 
-/** "edit-design" → "edited design", "docs-search" → "searched docs". */
-function humanizeTool(name: string): string {
-  if (name === "tool-search") return "looked for more tools";
+const READ_VERBS = new Set([
+  "analyze",
+  "capture",
+  "check",
+  "connect",
+  "consume",
+  "fetch",
+  "find",
+  "get",
+  "index",
+  "list",
+  "navigate",
+  "open",
+  "present",
+  "propose",
+  "query",
+  "read",
+  "reply",
+  "resolve",
+  "run",
+  "search",
+  "take",
+  "view",
+]);
+
+/** "edit-design" → "Edited design", "docs-search" → "Searched docs". */
+function humanizeTool(t: T, name: string): string {
+  if (name === "tool-search") {
+    return t("agentChat.usage.insights.lookedForTools");
+  }
   const words = toolWords(name);
   const verb = toolVerb(name);
   if (!verb) return words.join(" ");
-  const rest = words[0] === verb ? words.slice(1) : words.slice(0, -1);
-  return [VERB_PAST[verb], ...rest].join(" ");
+  const object = (words[0] === verb ? words.slice(1) : words.slice(0, -1)).join(
+    " ",
+  );
+  return verbLabel(t, verb, object) ?? words.join(" ");
 }
 
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+function toolNoun(name: string): string {
+  return toolWords(name).join(" ");
 }
 
-function listTools(tools: Array<{ name: string; calls: number }>): string {
+function listTools(
+  t: T,
+  tools: Array<{ name: string; calls: number }>,
+): string {
   return tools
     .map((tool) =>
       tool.calls > 1
-        ? `${humanizeTool(tool.name)} ×${tool.calls}`
-        : humanizeTool(tool.name),
+        ? t("agentChat.usage.insights.timesCount", {
+            label: humanizeTool(t, tool.name),
+            count: tool.calls,
+          })
+        : humanizeTool(t, tool.name),
     )
     .join(", ");
 }
 
-function outcomeLine(tools: RunTool[]): string | null {
+function outcomeLine(t: T, tools: RunTool[]): string | null {
   const writes = tools.filter(
     (tool) =>
       WRITE_VERBS.has(toolVerb(tool.name) ?? "") && tool.calls > tool.failed,
   );
   if (writes.length === 0) return null;
-  return capitalize(listTools(writes.slice(0, 4)));
+  return listTools(t, writes.slice(0, 4));
 }
 
-function turnLabel(turn: RunTurn, isLast: boolean): string {
+function turnLabel(t: T, turn: RunTurn, isLast: boolean): string {
   if (turn.toolCalls.length === 0) {
-    return isLast ? "Wrote the reply" : "Thought it through";
+    return isLast
+      ? t("agentChat.usage.insights.turnReply")
+      : t("agentChat.usage.insights.turnThought");
   }
   const counts = new Map<string, number>();
   for (const call of turn.toolCalls) {
     counts.set(call.name, (counts.get(call.name) ?? 0) + 1);
   }
-  return capitalize(
-    listTools([...counts].map(([name, calls]) => ({ name, calls }))),
+  return listTools(
+    t,
+    [...counts].map(([name, calls]) => ({ name, calls })),
   );
 }
 
@@ -285,7 +319,8 @@ function percent(part: number, whole: number): number {
 /** Restarts worth mentioning: at least 10% of what the prompt cost. */
 function notableRestart(run: RunListItem): boolean {
   return (
-    run.restarts.cents > 0 && run.restarts.cents >= run.cost.totalCents * 0.1
+    run.restarts.cents > 0 &&
+    run.restarts.cents >= run.cost.estimatedCents * 0.1
   );
 }
 
@@ -300,6 +335,18 @@ function mainRestartCause(run: RunListItem): RestartCause {
     : "prefix-changed";
 }
 
+function restartReason(t: T, cause: RestartCause): string {
+  return cause === "tool-lookup"
+    ? t("agentChat.usage.insights.reasonToolLookup")
+    : t("agentChat.usage.insights.reasonPrefixChanged");
+}
+
+function restartFix(t: T, cause: RestartCause): string {
+  return cause === "tool-lookup"
+    ? t("agentChat.usage.insights.fixToolLookup")
+    : t("agentChat.usage.insights.fixPrefixChanged");
+}
+
 type InsightKind = "problem" | "saving" | "info";
 
 interface Insight {
@@ -311,8 +358,8 @@ interface Insight {
   runIds: string[];
 }
 
-function buildInsights(runs: RunListItem[]): Insight[] {
-  const total = runs.reduce((sum, run) => sum + run.cost.totalCents, 0);
+function buildInsights(t: T, runs: RunListItem[]): Insight[] {
+  const total = runs.reduce((sum, run) => sum + run.cost.estimatedCents, 0);
   const insights: Insight[] = [];
 
   const errored = runs.filter((run) => run.status === "error");
@@ -320,9 +367,11 @@ function buildInsights(runs: RunListItem[]): Insight[] {
     insights.push({
       key: "errored",
       kind: "problem",
-      title: `${errored.length} ${errored.length === 1 ? "prompt" : "prompts"} ended with an error`,
-      body: "The agent stopped before finishing.",
-      fix: "Open a prompt to see the last thing it did before it stopped.",
+      title: t("agentChat.usage.insights.erroredTitle", {
+        count: errored.length,
+      }),
+      body: t("agentChat.usage.insights.erroredBody"),
+      fix: t("agentChat.usage.insights.erroredFix"),
       runIds: errored.map((run) => run.runId),
     });
   }
@@ -349,15 +398,27 @@ function buildInsights(runs: RunListItem[]): Insight[] {
     const recovered = runs.filter(
       (run) => runIds.includes(run.runId) && run.status === "success",
     ).length;
+    const said = error
+      ? t("agentChat.usage.insights.toolFailedSaid", {
+          error: error.length > 180 ? `${error.slice(0, 179)}…` : error,
+        })
+      : t("agentChat.usage.insights.toolFailedGeneric");
+    const recovery =
+      recovered === 0
+        ? ""
+        : recovered === runIds.length
+          ? t("agentChat.usage.insights.toolRecoveredAll")
+          : t("agentChat.usage.insights.toolRecoveredSome", {
+              count: recovered,
+            });
     insights.push({
       key: `tool-${name}`,
       kind: "problem",
-      title: `The ${toolWords(name).join(" ")} tool failed in ${runIds.length} ${runIds.length === 1 ? "prompt" : "prompts"}`,
-      body: `${
-        error
-          ? `It said: “${error.length > 180 ? `${error.slice(0, 179)}…` : error}”`
-          : "The tool reported an error."
-      }${recovered ? ` The agent recovered and finished ${recovered === runIds.length ? "every time" : `in ${recovered} of them`}.` : ""}`,
+      title: t("agentChat.usage.insights.toolFailedTitle", {
+        tool: toolNoun(name),
+        count: runIds.length,
+      }),
+      body: recovery ? `${said} ${recovery}` : said,
       runIds,
     });
   }
@@ -374,59 +435,48 @@ function buildInsights(runs: RunListItem[]): Insight[] {
       insights.push({
         key: `restart-${cause}`,
         kind: "saving",
-        title: `Starting over cost about ${formatUsd(cents)} (${percent(cents, total)}% of spend)`,
-        body: `In ${affected.length} of ${runs.length} recent prompts the agent re-sent its whole conversation after ${RESTART_REASON[cause]}, instead of re-using what it had already sent.`,
-        fix: RESTART_FIX[cause],
+        title: t("agentChat.usage.insights.restartTitle", {
+          amount: formatUsd(cents),
+          percent: percent(cents, total),
+        }),
+        body: t("agentChat.usage.insights.restartBody", {
+          count: affected.length,
+          total: runs.length,
+          reason: restartReason(t, cause),
+        }),
+        fix: restartFix(t, cause),
         runIds: affected.map((run) => run.runId),
       });
     }
   }
 
+  const spend = runs.reduce((sum, run) => sum + run.cost.totalCents, 0);
   const priciest = [...runs].sort(
     (a, b) => b.cost.totalCents - a.cost.totalCents,
   )[0];
   if (
     runs.length >= 3 &&
     priciest &&
-    total >= 50 &&
-    priciest.cost.totalCents > total * 0.4
+    spend >= 50 &&
+    priciest.cost.totalCents > spend * 0.4
   ) {
     insights.push({
       key: "priciest",
       kind: "info",
-      title: `One prompt used ${percent(priciest.cost.totalCents, total)}% of recent spend`,
-      body: `“${priciest.prompt ?? "Untitled prompt"}” cost ${formatUsd(priciest.cost.totalCents)} over ${priciest.modelCalls} steps.`,
+      title: t("agentChat.usage.insights.priciestTitle", {
+        percent: percent(priciest.cost.totalCents, spend),
+      }),
+      body: t("agentChat.usage.insights.priciestBody", {
+        prompt: priciest.prompt ?? t("agentChat.usage.insights.untitledPrompt"),
+        amount: formatUsd(priciest.cost.totalCents),
+        count: priciest.modelCalls,
+      }),
       runIds: [priciest.runId],
     });
   }
 
   return insights.slice(0, 3);
 }
-
-const INSIGHT_STYLE: Record<
-  InsightKind,
-  { icon: ReactNode; label: string; className: string }
-> = {
-  problem: {
-    icon: (
-      <IconAlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
-    ),
-    label: "Problem",
-    className: "border-amber-500/30",
-  },
-  saving: {
-    icon: (
-      <IconPigMoney className="size-4 text-emerald-600 dark:text-emerald-400" />
-    ),
-    label: "Could save",
-    className: "border-emerald-500/30",
-  },
-  info: {
-    icon: <IconInfoCircle className="size-4 text-muted-foreground" />,
-    label: "Good to know",
-    className: "border-border/70",
-  },
-};
 
 function InsightCard({
   insight,
@@ -435,12 +485,37 @@ function InsightCard({
   insight: Insight;
   onShow: () => void;
 }) {
-  const style = INSIGHT_STYLE[insight.kind];
+  const t = useT();
+  const style: Record<
+    InsightKind,
+    { icon: ReactNode; label: string; className: string }
+  > = {
+    problem: {
+      icon: (
+        <IconAlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
+      ),
+      label: t("agentChat.usage.insights.kindProblem"),
+      className: "border-amber-500/30",
+    },
+    saving: {
+      icon: (
+        <IconPigMoney className="size-4 text-emerald-600 dark:text-emerald-400" />
+      ),
+      label: t("agentChat.usage.insights.kindSaving"),
+      className: "border-emerald-500/30",
+    },
+    info: {
+      icon: <IconInfoCircle className="size-4 text-muted-foreground" />,
+      label: t("agentChat.usage.insights.kindInfo"),
+      className: "border-border/70",
+    },
+  };
+  const kind = style[insight.kind];
   return (
-    <div className={`rounded-lg border bg-card p-4 ${style.className}`}>
+    <div className={`rounded-lg border bg-card p-4 ${kind.className}`}>
       <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-        {style.icon}
-        {style.label}
+        {kind.icon}
+        {kind.label}
       </div>
       <h4 className="mt-1.5 text-sm font-semibold leading-5 text-foreground">
         {insight.title}
@@ -450,7 +525,9 @@ function InsightCard({
       </p>
       {insight.fix ? (
         <p className="mt-1.5 text-xs leading-5 text-foreground/90">
-          <span className="font-medium">Fix: </span>
+          <span className="font-medium">
+            {t("agentChat.usage.insights.fixLabel")}{" "}
+          </span>
           {insight.fix}
         </p>
       ) : null}
@@ -462,15 +539,18 @@ function InsightCard({
         onClick={onShow}
       >
         {insight.runIds.length === 1
-          ? "Open the prompt"
-          : `See the ${insight.runIds.length} prompts`}
+          ? t("agentChat.usage.insights.openPrompt")
+          : t("agentChat.usage.insights.seePrompts", {
+              count: insight.runIds.length,
+            })}
       </Button>
     </div>
   );
 }
 
 function RunRow({ run, onOpen }: { run: RunListItem; onOpen: () => void }) {
-  const outcome = outcomeLine(run.tools);
+  const t = useT();
+  const outcome = outcomeLine(t, run.tools);
   const failures = failedTools(run);
   return (
     <button
@@ -481,16 +561,16 @@ function RunRow({ run, onOpen }: { run: RunListItem; onOpen: () => void }) {
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm text-foreground">
-            {run.prompt ?? "Prompt text wasn't saved"}
+            {run.prompt ?? t("agentChat.usage.insights.promptNotSaved")}
           </span>
           {run.feedback === "up" ? (
             <IconThumbUp
-              aria-label="Rated helpful"
+              aria-label={t("agentChat.usage.insights.ratedHelpful")}
               className="size-3.5 shrink-0 text-muted-foreground"
             />
           ) : run.feedback === "down" ? (
             <IconThumbDown
-              aria-label="Rated unhelpful"
+              aria-label={t("agentChat.usage.insights.ratedUnhelpful")}
               className="size-3.5 shrink-0 text-muted-foreground"
             />
           ) : null}
@@ -499,26 +579,39 @@ function RunRow({ run, onOpen }: { run: RunListItem; onOpen: () => void }) {
           {run.status === "error" ? (
             <span className="flex min-w-0 items-center gap-1 text-red-700 dark:text-red-400">
               <IconCircleX aria-hidden className="size-3.5 shrink-0" />
-              <span className="truncate">Stopped with an error</span>
+              <span className="truncate">
+                {t("agentChat.usage.insights.stoppedWithError")}
+              </span>
+            </span>
+          ) : run.status === "unknown" ? (
+            <span className="truncate">
+              {t("agentChat.usage.insights.detailsUnavailable")}
             </span>
           ) : (
             <span className="truncate">
-              {outcome ? `→ ${outcome}` : "→ Answered"}
+              → {outcome ?? t("agentChat.usage.insights.answered")}
             </span>
           )}
           {notableRestart(run) ? (
             <span className="shrink-0 text-amber-700 dark:text-amber-400">
-              · started over {run.restarts.count}×
+              ·{" "}
+              {t("agentChat.usage.insights.startedOverShort", {
+                count: run.restarts.count,
+              })}
             </span>
           ) : run.recoveredErrors > 0 ? (
             <span className="shrink-0">
-              · recovered from {run.recoveredErrors} tool{" "}
-              {run.recoveredErrors === 1 ? "error" : "errors"}
+              ·{" "}
+              {t("agentChat.usage.insights.recoveredShort", {
+                count: run.recoveredErrors,
+              })}
             </span>
           ) : failures.length > 0 ? (
             <span className="shrink-0 text-amber-700 dark:text-amber-400">
-              · {failures.length} {failures.length === 1 ? "tool" : "tools"}{" "}
-              failed
+              ·{" "}
+              {t("agentChat.usage.insights.toolsFailedShort", {
+                count: failures.length,
+              })}
             </span>
           ) : null}
         </div>
@@ -538,21 +631,22 @@ function RunRow({ run, onOpen }: { run: RunListItem; onOpen: () => void }) {
 }
 
 function CostDetails({ run }: { run: RunDetail }) {
+  const t = useT();
   const parts = [
     {
-      label: "Re-used context",
+      label: t("agentChat.usage.insights.partReused"),
       cents: run.cost.cacheReadCents,
       tokens: run.tokens.cacheReadTokens,
       color: "var(--usage-cache-read)",
     },
     {
-      label: "Saved to cache",
+      label: t("agentChat.usage.insights.partSaved"),
       cents: run.cost.cacheWriteCents,
       tokens: run.tokens.cacheWriteTokens,
       color: "var(--usage-cache-write)",
     },
     {
-      label: "New context",
+      label: t("agentChat.usage.insights.partNew"),
       cents: run.cost.uncachedInputCents,
       tokens: Math.max(
         0,
@@ -563,7 +657,7 @@ function CostDetails({ run }: { run: RunDetail }) {
       color: "var(--usage-fresh-input)",
     },
     {
-      label: "Written by the model",
+      label: t("agentChat.usage.insights.partOutput"),
       cents: run.cost.outputCents,
       tokens: run.tokens.outputTokens,
       color: "var(--usage-output)",
@@ -571,27 +665,23 @@ function CostDetails({ run }: { run: RunDetail }) {
   ];
   const checks = run.scores.filter((score) => score.source === "heuristic");
   const judged = run.scores.filter((score) => score.source === "judge");
+  const estimated = run.cost.estimatedCents;
   return (
     <div className="space-y-4 text-xs">
       <div>
         <p className="text-muted-foreground">
-          Without re-using earlier context this prompt would have cost{" "}
-          <span className="text-foreground">
-            {formatUsd(run.cost.noCacheCents)}
-          </span>{" "}
-          instead of{" "}
-          <span className="text-foreground">
-            {formatUsd(run.cost.totalCents)}
-          </span>
-          .
+          {t("agentChat.usage.insights.noCacheCompare", {
+            noCache: formatUsd(run.cost.noCacheCents),
+            estimated: formatUsd(estimated),
+          })}
         </p>
         <div className="mt-2 flex h-2 w-full gap-[2px] overflow-hidden rounded-full">
           {parts.map((part) =>
-            part.cents > 0 && run.cost.totalCents > 0 ? (
+            part.cents > 0 && estimated > 0 ? (
               <div
                 key={part.label}
                 style={{
-                  width: `${(part.cents / run.cost.totalCents) * 100}%`,
+                  width: `${(part.cents / estimated) * 100}%`,
                   minWidth: 3,
                   background: part.color,
                 }}
@@ -619,16 +709,22 @@ function CostDetails({ run }: { run: RunDetail }) {
         </div>
       </div>
       <div>
-        <div className="font-medium text-foreground">Automatic checks</div>
+        <div className="font-medium text-foreground">
+          {t("agentChat.usage.insights.checksHeading")}
+        </div>
         {judged.length === 0 && checks.length === 0 ? (
-          <p className="mt-1 text-muted-foreground">None were recorded.</p>
+          <p className="mt-1 text-muted-foreground">
+            {t("agentChat.usage.insights.checksNone")}
+          </p>
         ) : (
           <ul className="mt-1 space-y-0.5 text-muted-foreground">
             {[...judged, ...checks].map((score) => (
               <li key={score.criteria} className="flex justify-between gap-4">
                 <span>
-                  {capitalize(score.criteria.replaceAll("_", " "))}
-                  {score.source === "judge" ? " (graded by a model)" : ""}
+                  {score.criteria.replaceAll("_", " ")}
+                  {score.source === "judge"
+                    ? ` ${t("agentChat.usage.insights.checksGraded")}`
+                    : ""}
                 </span>
                 <span className="tabular-nums">
                   {Math.round(score.score * 100)}%
@@ -638,8 +734,7 @@ function CostDetails({ run }: { run: RunDetail }) {
           </ul>
         )}
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Framework checks look at how the run went (errors, steps, speed), not
-          at whether the result was good.
+          {t("agentChat.usage.insights.checksNote")}
         </p>
       </div>
     </div>
@@ -647,6 +742,7 @@ function CostDetails({ run }: { run: RunDetail }) {
 }
 
 function StepList({ turns }: { turns: RunTurn[] }) {
+  const t = useT();
   const [openTurn, setOpenTurn] = useState<number | null>(null);
   return (
     <ol className="mt-2 divide-y divide-border/50 rounded-lg border border-border/70">
@@ -665,44 +761,48 @@ function StepList({ turns }: { turns: RunTurn[] }) {
                 {turn.index}
               </span>
               <span className="min-w-0 flex-1 truncate text-foreground">
-                {turnLabel(turn, index === turns.length - 1)}
+                {turnLabel(t, turn, index === turns.length - 1)}
               </span>
               {turn.restart ? (
                 <span className="shrink-0 text-amber-700 dark:text-amber-400">
-                  started over
+                  {t("agentChat.usage.insights.startedOverTag")}
                 </span>
               ) : null}
               {failed ? (
                 <span className="shrink-0 text-red-700 dark:text-red-400">
-                  tool failed
+                  {t("agentChat.usage.insights.toolFailedTag")}
                 </span>
               ) : null}
               <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">
                 {formatDuration(turn.durationMs)}
               </span>
               <span className="w-10 shrink-0 text-right tabular-nums text-foreground">
-                {formatUsd(turn.cost.totalCents)}
+                {formatUsd(turn.cost.estimatedCents)}
               </span>
             </button>
             {open ? (
               <div className="space-y-1.5 bg-muted/30 px-3 py-2.5 pl-11 text-xs text-muted-foreground">
                 <p>
-                  Sent {compactTokens(turn.tokens.inputTokens)} tokens of
-                  context,{" "}
-                  {percent(
-                    turn.tokens.cacheReadTokens,
-                    turn.tokens.inputTokens,
-                  )}
-                  % re-used from earlier
+                  {t("agentChat.usage.insights.turnContext", {
+                    tokens: compactTokens(turn.tokens.inputTokens),
+                    percent: percent(
+                      turn.tokens.cacheReadTokens,
+                      turn.tokens.inputTokens,
+                    ),
+                  })}{" "}
                   {turn.cacheExpired
-                    ? " (the saved context had expired after a pause, which is expected)"
+                    ? `${t("agentChat.usage.insights.turnExpired")} `
                     : ""}
-                  . Wrote {compactTokens(turn.tokens.outputTokens)} tokens.
+                  {t("agentChat.usage.insights.turnOutput", {
+                    tokens: compactTokens(turn.tokens.outputTokens),
+                  })}
                 </p>
                 {turn.restart ? (
                   <p className="text-amber-700 dark:text-amber-400">
-                    Started over after {RESTART_REASON[turn.restart.cause]},
-                    about {formatUsd(turn.restart.cents)} more than re-using it.
+                    {t("agentChat.usage.insights.turnRestart", {
+                      reason: restartReason(t, turn.restart.cause),
+                      amount: formatUsd(turn.restart.cents),
+                    })}
                   </p>
                 ) : null}
                 {turn.toolCalls.map((call, callIndex) => (
@@ -714,7 +814,7 @@ function StepList({ turns }: { turns: RunTurn[] }) {
                         : ""
                     }
                   >
-                    {capitalize(humanizeTool(call.name))} ·{" "}
+                    {humanizeTool(t, call.name)} ·{" "}
                     {formatDuration(call.durationMs)}
                     {call.status === "error" && call.errorMessage
                       ? ` · ${call.errorMessage}`
@@ -739,6 +839,7 @@ function Expandable({
   lines: "line-clamp-4" | "line-clamp-6";
   limit: number;
 }) {
+  const t = useT();
   const [full, setFull] = useState(false);
   return (
     <>
@@ -749,10 +850,52 @@ function Expandable({
           className="mt-1 text-xs text-muted-foreground hover:text-foreground"
           onClick={() => setFull((value) => !value)}
         >
-          {full ? "Show less" : "Show all"}
+          {full
+            ? t("agentChat.usage.insights.showLess")
+            : t("agentChat.usage.insights.showAll")}
         </button>
       ) : null}
     </>
+  );
+}
+
+function handledText(
+  t: T,
+  parallel: { calls: number; savedMs: number },
+  recovered: number,
+): string[] {
+  const lines: string[] = [];
+  if (parallel.savedMs >= 1000) {
+    lines.push(
+      t("agentChat.usage.insights.handledParallel", {
+        count: parallel.calls,
+        duration: formatDuration(parallel.savedMs),
+      }),
+    );
+  }
+  if (recovered > 0) {
+    lines.push(
+      t("agentChat.usage.insights.handledRecovered", { count: recovered }),
+    );
+  }
+  return lines;
+}
+
+function HandledNote({ run }: { run: RunListItem }) {
+  const t = useT();
+  const lines = handledText(t, run.parallel, run.recoveredErrors);
+  if (lines.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3.5 py-3 text-xs leading-5">
+      <p className="font-medium text-foreground">
+        {t("agentChat.usage.insights.handledHeading")}
+      </p>
+      <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
+        {lines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -767,6 +910,7 @@ function RunPanel({
   userEmail?: string;
   appId?: string;
 }) {
+  const t = useT();
   const query = useActionQuery<RunDetail | null>("get-usage-run", {
     runId: run.runId,
     scope,
@@ -777,8 +921,14 @@ function RunPanel({
   const [showDetails, setShowDetails] = useState(false);
   const detail = query.data;
   const failures = failedTools(run);
-  const outcome = outcomeLine(run.tools);
+  const outcome = outcomeLine(t, run.tools);
   const cause = mainRestartCause(run);
+  const headline =
+    run.status === "error"
+      ? t("agentChat.usage.insights.stoppedWithError")
+      : run.status === "unknown"
+        ? t("agentChat.usage.insights.detailsUnavailable")
+        : t("agentChat.usage.insights.finished");
 
   return (
     <div className="flex h-full flex-col">
@@ -786,21 +936,32 @@ function RunPanel({
         <div className="flex items-center gap-2 pr-20">
           {run.status === "error" ? (
             <IconCircleX className="size-4 shrink-0 text-red-600 dark:text-red-400" />
+          ) : run.status === "unknown" ? (
+            <IconInfoCircle className="size-4 shrink-0 text-muted-foreground" />
           ) : (
             <IconCircleCheck className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
           )}
           <SheetTitle className="text-sm font-medium">
-            {run.status === "error" ? "Stopped with an error" : "Finished"}
+            {headline}
             {run.durationMs
-              ? ` in ${formatDuration(run.durationMs)}`
-              : ""} · {run.modelCalls} steps · {formatUsd(run.cost.totalCents)}
+              ? ` ${t("agentChat.usage.insights.headerDuration", {
+                  duration: formatDuration(run.durationMs),
+                })}`
+              : ""}{" "}
+            ·{" "}
+            {t("agentChat.usage.insights.stepsCount", {
+              count: run.modelCalls,
+            })}{" "}
+            · {formatUsd(run.cost.totalCents)}
           </SheetTitle>
         </div>
         <SheetDescription className="mt-1 text-xs">
           {formatTime(run.createdAt)} · {run.model} ·{" "}
-          {run.feedback
-            ? `Rated ${run.feedback === "up" ? "helpful" : "unhelpful"}`
-            : "Not rated"}
+          {run.feedback === "up"
+            ? t("agentChat.usage.insights.ratedHelpful")
+            : run.feedback === "down"
+              ? t("agentChat.usage.insights.ratedUnhelpful")
+              : t("agentChat.usage.insights.notRated")}
         </SheetDescription>
       </div>
 
@@ -808,7 +969,7 @@ function RunPanel({
         <div className="space-y-3">
           <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-muted px-3.5 py-2.5 text-sm leading-6">
             <Expandable
-              text={run.prompt ?? "Prompt text wasn't saved"}
+              text={run.prompt ?? t("agentChat.usage.insights.promptNotSaved")}
               lines="line-clamp-4"
               limit={240}
             />
@@ -817,7 +978,7 @@ function RunPanel({
             {outcome ? (
               <p className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">
-                  What it did:{" "}
+                  {t("agentChat.usage.insights.whatItDid")}{" "}
                 </span>
                 {outcome}
               </p>
@@ -834,7 +995,7 @@ function RunPanel({
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                The reply text wasn't saved for this prompt.
+                {t("agentChat.usage.insights.replyNotSaved")}
               </p>
             )}
             {run.tools.length > 0 ? (
@@ -846,14 +1007,22 @@ function RunPanel({
                     onClick={() => setShowSteps(true)}
                     className={`rounded-full border px-2 py-0.5 text-[11px] ${tool.failed ? "border-red-500/40 text-red-700 dark:text-red-400" : "border-border/70 text-muted-foreground hover:text-foreground"}`}
                   >
-                    {capitalize(humanizeTool(tool.name))}
-                    {tool.calls > 1 ? ` ×${tool.calls}` : ""}
-                    {tool.failed ? " · failed" : ""}
+                    {tool.calls > 1
+                      ? t("agentChat.usage.insights.timesCount", {
+                          label: humanizeTool(t, tool.name),
+                          count: tool.calls,
+                        })
+                      : humanizeTool(t, tool.name)}
+                    {tool.failed
+                      ? ` · ${t("agentChat.usage.insights.failedSuffix")}`
+                      : ""}
                   </button>
                 ))}
                 {run.tools.length > 8 ? (
                   <span className="px-1 py-0.5 text-[11px] text-muted-foreground">
-                    +{run.tools.length - 8} more
+                    {t("agentChat.usage.insights.moreTools", {
+                      count: run.tools.length - 8,
+                    })}
                   </span>
                 ) : null}
               </div>
@@ -868,17 +1037,18 @@ function RunPanel({
             {notableRestart(run) ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3.5 py-3 text-xs leading-5">
                 <p className="text-foreground">
-                  <span className="font-medium">
-                    Started over {run.restarts.count}{" "}
-                    {run.restarts.count === 1 ? "time" : "times"}
-                  </span>{" "}
-                  after {RESTART_REASON[cause]}. That cost about{" "}
-                  {formatUsd(run.restarts.cents)} of the{" "}
-                  {formatUsd(run.cost.totalCents)}.
+                  {t("agentChat.usage.insights.startedOverNote", {
+                    count: run.restarts.count,
+                    reason: restartReason(t, cause),
+                    amount: formatUsd(run.restarts.cents),
+                    total: formatUsd(run.cost.estimatedCents),
+                  })}
                 </p>
                 <p className="mt-1 text-muted-foreground">
-                  <span className="font-medium text-foreground/90">Fix: </span>
-                  {RESTART_FIX[cause]}
+                  <span className="font-medium text-foreground/90">
+                    {t("agentChat.usage.insights.fixLabel")}{" "}
+                  </span>
+                  {restartFix(t, cause)}
                 </p>
               </div>
             ) : null}
@@ -888,13 +1058,15 @@ function RunPanel({
                 className="rounded-lg border border-red-500/30 bg-red-500/5 px-3.5 py-3 text-xs leading-5"
               >
                 <p className="text-foreground">
-                  <span className="font-medium">
-                    The {toolWords(tool.name).join(" ")} tool failed
-                  </span>
-                  {tool.failed > 1 ? ` ${tool.failed} times` : ""}
                   {run.status === "success"
-                    ? ", but the agent kept going and finished."
-                    : "."}
+                    ? t("agentChat.usage.insights.toolFailedRecoveredNote", {
+                        tool: toolNoun(tool.name),
+                        count: tool.failed,
+                      })
+                    : t("agentChat.usage.insights.toolFailedNote", {
+                        tool: toolNoun(tool.name),
+                        count: tool.failed,
+                      })}
                 </p>
                 {tool.error ? (
                   <p className="mt-1 text-muted-foreground">{tool.error}</p>
@@ -904,26 +1076,32 @@ function RunPanel({
           </div>
         ) : null}
 
-        <section>
-          <button
-            type="button"
-            className="flex items-center gap-1.5 text-xs font-medium text-foreground"
-            onClick={() => setShowSteps((value) => !value)}
-            aria-expanded={showSteps}
-          >
-            <IconChevronDown
-              className={`size-3.5 transition-transform ${showSteps ? "rotate-180" : ""}`}
-            />
-            {showSteps ? "Hide steps" : `Show the ${run.modelCalls} steps`}
-          </button>
-          {showSteps ? (
-            detail ? (
-              <StepList turns={detail.turns} />
-            ) : (
-              <Skeleton className="mt-2 h-24 w-full" />
-            )
-          ) : null}
-        </section>
+        {run.status !== "unknown" ? (
+          <section>
+            <button
+              type="button"
+              className="flex items-center gap-1.5 text-xs font-medium text-foreground"
+              onClick={() => setShowSteps((value) => !value)}
+              aria-expanded={showSteps}
+            >
+              <IconChevronDown
+                className={`size-3.5 transition-transform ${showSteps ? "rotate-180" : ""}`}
+              />
+              {showSteps
+                ? t("agentChat.usage.insights.hideSteps")
+                : t("agentChat.usage.insights.showSteps", {
+                    count: run.modelCalls,
+                  })}
+            </button>
+            {showSteps ? (
+              detail ? (
+                <StepList turns={detail.turns} />
+              ) : (
+                <Skeleton className="mt-2 h-24 w-full" />
+              )
+            ) : null}
+          </section>
+        ) : null}
 
         <section>
           <button
@@ -935,7 +1113,7 @@ function RunPanel({
             <IconChevronDown
               className={`size-3.5 transition-transform ${showDetails ? "rotate-180" : ""}`}
             />
-            Cost details and checks
+            {t("agentChat.usage.insights.costDetails")}
           </button>
           {showDetails && detail ? (
             <div className="mt-3">
@@ -952,39 +1130,6 @@ function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)]!;
-}
-
-function handledText(
-  parallel: { calls: number; savedMs: number },
-  recovered: number,
-): string[] {
-  const lines: string[] = [];
-  if (parallel.savedMs >= 1000) {
-    lines.push(
-      `Ran ${parallel.calls} tool calls at the same time, about ${formatDuration(parallel.savedMs)} faster than one by one.`,
-    );
-  }
-  if (recovered > 0) {
-    lines.push(
-      `Recovered from ${recovered} tool ${recovered === 1 ? "error" : "errors"} without stopping.`,
-    );
-  }
-  return lines;
-}
-
-function HandledNote({ run }: { run: RunListItem }) {
-  const lines = handledText(run.parallel, run.recoveredErrors);
-  if (lines.length === 0) return null;
-  return (
-    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3.5 py-3 text-xs leading-5">
-      <p className="font-medium text-foreground">Handled by Agent Native</p>
-      <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
-        {lines.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </ul>
-    </div>
-  );
 }
 
 function Stat({
@@ -1009,11 +1154,17 @@ function Stat({
   );
 }
 
-function changeText(current: number, previous: number): string | undefined {
+function changeText(
+  t: T,
+  current: number,
+  previous: number,
+): string | undefined {
   if (previous <= 0) return undefined;
   const change = Math.round(((current - previous) / previous) * 100);
-  if (change === 0) return "same as the period before";
-  return `${change > 0 ? "↑" : "↓"} ${Math.abs(change)}% vs the period before`;
+  if (change === 0) return t("agentChat.usage.insights.changeSame");
+  return change > 0
+    ? t("agentChat.usage.insights.changeUp", { percent: change })
+    : t("agentChat.usage.insights.changeDown", { percent: -change });
 }
 
 export function UsageInsightsSection({
@@ -1027,6 +1178,7 @@ export function UsageInsightsSection({
   userEmail?: string;
   appId?: string;
 }) {
+  const t = useT();
   const query = useActionQuery<UsageInsightsData>("get-usage-insights", {
     sinceDays,
     scope,
@@ -1035,7 +1187,7 @@ export function UsageInsightsSection({
   });
   const data = query.data;
   const runs = useMemo(() => data?.runs ?? [], [data]);
-  const insights = useMemo(() => buildInsights(runs), [runs]);
+  const insights = useMemo(() => buildInsights(t, runs), [t, runs]);
   const [sort, setSort] = useState<"newest" | "cost">("newest");
   const [onlyRunIds, setOnlyRunIds] = useState<string[] | null>(null);
   const [openRunId, setOpenRunId] = useState<string | null>(null);
@@ -1086,9 +1238,11 @@ export function UsageInsightsSection({
   const previousAvg = previous.runs
     ? previous.cost.totalCents / previous.runs
     : 0;
-  const completed = runs.filter((run) => run.status === "success").length;
+  const known = runs.filter((run) => run.status !== "unknown");
+  const completed = known.filter((run) => run.status === "success").length;
   const recovered = runs.reduce((sum, run) => sum + run.recoveredErrors, 0);
   const handled = handledText(
+    t,
     {
       calls: runs.reduce((sum, run) => sum + run.parallel.calls, 0),
       savedMs: runs.reduce((sum, run) => sum + run.parallel.savedMs, 0),
@@ -1114,30 +1268,35 @@ export function UsageInsightsSection({
           {insights.length === 0 ? (
             <>
               <IconCircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
-              Running smoothly
+              {t("agentChat.usage.insights.verdictSmooth")}
             </>
           ) : (
             <>
               <IconAlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
-              {insights.length} {insights.length === 1 ? "thing" : "things"}{" "}
-              worth a look
+              {t("agentChat.usage.insights.verdictLook", {
+                count: insights.length,
+              })}
               {problems
-                ? ` · ${problems} ${problems === 1 ? "problem" : "problems"}`
+                ? ` · ${t("agentChat.usage.insights.verdictProblems", {
+                    count: problems,
+                  })}`
                 : ""}
             </>
           )}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          {formatUsd(current.cost.totalCents)} spent on {current.runs}{" "}
-          {current.runs === 1 ? "prompt" : "prompts"} in the last {sinceDays}{" "}
-          days.
+          {t("agentChat.usage.insights.spentSummary", {
+            amount: formatUsd(current.cost.totalCents),
+            count: current.runs,
+            days: sinceDays,
+          })}
         </p>
         {handled.length > 0 ? (
           <p className="mt-2 flex items-start gap-1.5 text-xs leading-5 text-muted-foreground">
             <IconCircleCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <span>
               <span className="font-medium text-foreground">
-                Handled by Agent Native:{" "}
+                {t("agentChat.usage.insights.handledLabel")}{" "}
               </span>
               {handled.join(" ")}
             </span>
@@ -1145,23 +1304,32 @@ export function UsageInsightsSection({
         ) : null}
         <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border/60 pt-4 sm:grid-cols-3">
           <Stat
-            label="Average per prompt"
+            label={t("agentChat.usage.insights.avgPerPrompt")}
             value={formatUsd(avgCents)}
-            detail={changeText(avgCents, previousAvg)}
+            detail={changeText(t, avgCents, previousAvg)}
           />
           <Stat
-            label="Completed"
-            value={runs.length ? `${percent(completed, runs.length)}%` : "—"}
+            label={t("agentChat.usage.insights.completed")}
+            value={known.length ? `${percent(completed, known.length)}%` : "—"}
             detail={
-              runs.length
-                ? `${completed} of the last ${runs.length}${recovered ? `, after recovering from ${recovered} tool ${recovered === 1 ? "error" : "errors"}` : ""}`
+              known.length
+                ? recovered
+                  ? t("agentChat.usage.insights.completedRecovered", {
+                      done: completed,
+                      total: known.length,
+                      count: recovered,
+                    })
+                  : t("agentChat.usage.insights.completedDetail", {
+                      done: completed,
+                      total: known.length,
+                    })
                 : undefined
             }
           />
           <Stat
-            label="Typical time"
+            label={t("agentChat.usage.insights.typicalTime")}
             value={typical ? formatDuration(typical) : "—"}
-            detail="median"
+            detail={t("agentChat.usage.insights.median")}
           />
         </div>
       </section>
@@ -1187,14 +1355,19 @@ export function UsageInsightsSection({
       <section className="rounded-lg border border-border/70 bg-card">
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-foreground">Prompts</h3>
+            <h3 className="text-sm font-semibold text-foreground">
+              {t("agentChat.usage.insights.promptsHeading")}
+            </h3>
             {onlyRunIds ? (
               <button
                 type="button"
                 className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
                 onClick={() => setOnlyRunIds(null)}
               >
-                Showing {onlyRunIds.length} <IconX className="size-3" />
+                {t("agentChat.usage.insights.showing", {
+                  count: onlyRunIds.length,
+                })}{" "}
+                <IconX className="size-3" />
               </button>
             ) : null}
           </div>
@@ -1209,15 +1382,16 @@ export function UsageInsightsSection({
                 onClick={() => setSort(value)}
                 aria-pressed={sort === value}
               >
-                {value === "newest" ? "Newest" : "Most expensive"}
+                {value === "newest"
+                  ? t("agentChat.usage.insights.sortNewest")
+                  : t("agentChat.usage.insights.sortCost")}
               </Button>
             ))}
           </div>
         </div>
         {visible.length === 0 ? (
           <p className="border-t border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
-            No prompts in this period yet. They show up here a few seconds after
-            they finish.
+            {t("agentChat.usage.insights.emptyPrompts")}
           </p>
         ) : (
           <div className="divide-y divide-border/60 border-t border-border/70">
@@ -1249,8 +1423,8 @@ export function UsageInsightsSection({
                   className="size-7"
                   disabled={openIndex <= 0}
                   onClick={() => openAt(openIndex - 1)}
-                  aria-label="Previous prompt (K)"
-                  title="Previous prompt (K)"
+                  aria-label={t("agentChat.usage.insights.prevPrompt")}
+                  title={t("agentChat.usage.insights.prevPrompt")}
                 >
                   <IconChevronUp className="size-4" />
                 </Button>
@@ -1261,8 +1435,8 @@ export function UsageInsightsSection({
                   className="size-7"
                   disabled={openIndex >= visible.length - 1}
                   onClick={() => openAt(openIndex + 1)}
-                  aria-label="Next prompt (J)"
-                  title="Next prompt (J)"
+                  aria-label={t("agentChat.usage.insights.nextPrompt")}
+                  title={t("agentChat.usage.insights.nextPrompt")}
                 >
                   <IconChevronDown className="size-4" />
                 </Button>

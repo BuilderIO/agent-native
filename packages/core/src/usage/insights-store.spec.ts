@@ -28,6 +28,7 @@ vi.mock("../db/client.js", () => ({
 const { resetAppConfigForTests } = await import("../app-config/index.js");
 const { insertTraceSpan } = await import("../observability/store.js");
 const { getUsageInsights, getUsageRun } = await import("./insights-store.js");
+const { calculateCost } = await import("./store.js");
 
 const OWNER = "owner@example.com";
 const ACCESS = { ownerEmail: OWNER, orgId: null, app: "design" };
@@ -35,9 +36,11 @@ const MODEL = "claude-sonnet-5";
 
 async function seedUsage(row: {
   id: number;
-  runId: string;
+  runId: string | null;
   threadId: string;
   owner?: string;
+  model?: string;
+  costX100?: number;
   input: number;
   output: number;
   read: number;
@@ -47,7 +50,8 @@ async function seedUsage(row: {
     (id, owner_email, input_tokens, output_tokens, cache_read_tokens,
      cache_write_tokens, cost_cents_x100, model, app, run_id, thread_id, created_at)
     VALUES (${row.id}, '${row.owner ?? OWNER}', ${row.input}, ${row.output},
-     ${row.read}, ${row.write}, 100, '${MODEL}', 'design', '${row.runId}',
+     ${row.read}, ${row.write}, ${row.costX100 ?? 100}, '${row.model ?? MODEL}',
+     'design', ${row.runId === null ? "NULL" : `'${row.runId}'`},
      '${row.threadId}', ${Date.now()})`);
 }
 
@@ -193,6 +197,7 @@ describe("getUsageRun", () => {
       read: 0,
       write: 0,
     });
+    await seedSpan("run-parallel", "agent_run", "agent_run");
     await seedSpan(
       "run-parallel",
       "llm_call",
@@ -244,7 +249,7 @@ describe("getUsageRun", () => {
     });
     await seedSpan("run-small", "llm_call", MODEL, {
       input: 1_000,
-      read: 0,
+      read: 500,
       write: 0,
     });
     await seedSpan("run-small", "llm_call", MODEL, {
@@ -254,6 +259,77 @@ describe("getUsageRun", () => {
     });
 
     const run = await getUsageRun({ runId: "run-small" }, ACCESS);
+
+    expect(run!.restarts.count).toBe(0);
+  });
+
+  it("prices each model in a run at its own rate and reports the recorded spend", async () => {
+    await seedUsage({
+      id: 20,
+      runId: "run-mixed",
+      threadId: "thread-6",
+      model: MODEL,
+      costX100: 100,
+      input: 100_000,
+      output: 1_000,
+      read: 0,
+      write: 0,
+    });
+    await seedUsage({
+      id: 21,
+      runId: "run-mixed",
+      threadId: "thread-6",
+      model: "gpt-5",
+      costX100: 300,
+      input: 100_000,
+      output: 1_000,
+      read: 0,
+      write: 0,
+    });
+
+    const run = await getUsageRun({ runId: "run-mixed" }, ACCESS);
+
+    expect(run!.cost.totalCents).toBe(4);
+    expect(run!.cost.estimatedCents).toBeCloseTo(
+      (calculateCost(100_000, 1_000, MODEL) +
+        calculateCost(100_000, 1_000, "gpt-5")) /
+        100,
+      2,
+    );
+  });
+
+  it("reports an unknown outcome when the run has no trace", async () => {
+    await seedUsage({
+      id: 22,
+      runId: "run-untraced",
+      threadId: "thread-7",
+      input: 1_000,
+      output: 10,
+      read: 0,
+      write: 0,
+    });
+
+    const run = await getUsageRun({ runId: "run-untraced" }, ACCESS);
+
+    expect(run!.status).toBe("unknown");
+    expect(run!.modelCalls).toBe(0);
+  });
+
+  it("does not diagnose restarts for a provider that never reports cache tokens", async () => {
+    await seedUsage({
+      id: 23,
+      runId: "run-nocache",
+      threadId: "thread-8",
+      input: 200_000,
+      output: 10,
+      read: 0,
+      write: 0,
+    });
+    await seedSpan("run-nocache", "llm_call", MODEL, { input: 100_000 });
+    await seedSpan("run-nocache", "tool_call", "tool-search");
+    await seedSpan("run-nocache", "llm_call", MODEL, { input: 100_000 });
+
+    const run = await getUsageRun({ runId: "run-nocache" }, ACCESS);
 
     expect(run!.restarts.count).toBe(0);
   });
@@ -276,6 +352,25 @@ describe("getUsageRun", () => {
 });
 
 describe("getUsageInsights", () => {
+  it("leaves usage that isn't tied to a prompt out of the prompt totals", async () => {
+    const before = await getUsageInsights({ sinceDays: 30 }, ACCESS);
+    await seedUsage({
+      id: 30,
+      runId: null,
+      threadId: "thread-9",
+      costX100: 50_000,
+      input: 1_000,
+      output: 10,
+      read: 0,
+      write: 0,
+    });
+
+    const after = await getUsageInsights({ sinceDays: 30 }, ACCESS);
+
+    expect(after.current.cost.totalCents).toBe(before.current.cost.totalCents);
+    expect(after.current.runs).toBe(before.current.runs);
+  });
+
   it("labels each run with its own prompt, without the hidden context block", async () => {
     await pglite.exec(`INSERT INTO chat_threads (id, preview, thread_data) VALUES (
       'thread-1', 'first prompt', '${JSON.stringify({

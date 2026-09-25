@@ -23,7 +23,10 @@ export interface UsageCostBreakdown {
   cacheWriteCents: number;
   uncachedInputCents: number;
   outputCents: number;
+  /** Recorded spend for the rows; the category splits above are token-priced estimates. */
   totalCents: number;
+  /** The same tokens priced at list rates, so it is comparable to `noCacheCents`. */
+  estimatedCents: number;
   /** What the same tokens would have cost with no prompt caching. */
   noCacheCents: number;
 }
@@ -71,7 +74,8 @@ export interface UsageRunListItem {
   label: string;
   model: string;
   prompt: string | null;
-  status: "success" | "error";
+  /** `unknown` when the trace was never written or has been cleaned up. */
+  status: "success" | "error" | "unknown";
   tokens: UsageTokenTotals;
   cost: UsageCostBreakdown;
   modelCalls: number;
@@ -159,13 +163,19 @@ function costBreakdown(
     outputCents: cents(calculateCost(0, outputTokens, model)),
     noCacheCents: cents(calculateCost(inputTokens, outputTokens, model)),
   };
+  const estimatedCents =
+    breakdown.cacheReadCents +
+    breakdown.cacheWriteCents +
+    breakdown.uncachedInputCents +
+    breakdown.outputCents;
+  return { ...breakdown, estimatedCents, totalCents: estimatedCents };
+}
+
+/** Token-priced breakdown for one model's rows, carrying their recorded spend. */
+function recordedBreakdown(row: Record<string, unknown>): UsageCostBreakdown {
   return {
-    ...breakdown,
-    totalCents:
-      breakdown.cacheReadCents +
-      breakdown.cacheWriteCents +
-      breakdown.uncachedInputCents +
-      breakdown.outputCents,
+    ...costBreakdown(tokensFromRow(row), String(row.model ?? "")),
+    totalCents: numberField(row, "cost_cents_x100") / 100,
   };
 }
 
@@ -179,6 +189,7 @@ function addBreakdown(
     uncachedInputCents: a.uncachedInputCents + b.uncachedInputCents,
     outputCents: a.outputCents + b.outputCents,
     totalCents: a.totalCents + b.totalCents,
+    estimatedCents: a.estimatedCents + b.estimatedCents,
     noCacheCents: a.noCacheCents + b.noCacheCents,
   };
 }
@@ -189,6 +200,7 @@ const EMPTY_BREAKDOWN: UsageCostBreakdown = {
   uncachedInputCents: 0,
   outputCents: 0,
   totalCents: 0,
+  estimatedCents: 0,
   noCacheCents: 0,
 };
 
@@ -255,6 +267,12 @@ function restartCents(
 
 function buildTurns(spans: SpanRow[]): UsageRunTurn[] {
   const turns: UsageRunTurn[] = [];
+  // A provider that never reports cache tokens has no cache to miss.
+  const providerCaches = spans.some(
+    (span) =>
+      span.spanType === "llm_call" &&
+      span.tokens.cacheReadTokens + span.tokens.cacheWriteTokens > 0,
+  );
   let previousStartedAt = 0;
   let toolLookupSinceLastTurn = false;
   for (const span of spans) {
@@ -272,6 +290,7 @@ function buildTurns(spans: SpanRow[]): UsageRunTurn[] {
     if (span.spanType !== "llm_call") continue;
     const previous = turns.at(-1);
     const missed =
+      providerCaches &&
       previous !== undefined &&
       span.tokens.cacheReadTokens < span.tokens.inputTokens / 2;
     const expired = missed && span.createdAt - previousStartedAt > CACHE_TTL_MS;
@@ -378,7 +397,7 @@ function summarizeTurns(turns: UsageRunTurn[]): {
 }
 
 interface RunTrace {
-  status: "success" | "error";
+  status: UsageRunListItem["status"];
   durationMs: number | null;
   turns: UsageRunTurn[];
 }
@@ -423,7 +442,7 @@ async function tracesByRun(runIds: string[]): Promise<Map<string, RunTrace>> {
   for (const runId of runIds) {
     const run = runSpans.get(runId);
     traces.set(runId, {
-      status: run?.status === "error" ? "error" : "success",
+      status: !run ? "unknown" : run.status === "error" ? "error" : "success",
       durationMs: run?.durationMs || null,
       turns: buildTurns(spansByRun.get(runId) ?? []),
     });
@@ -490,6 +509,7 @@ const RUN_COLUMNS = `MIN(id) AS id, MIN(created_at) AS created_at,
 
 function runListItem(
   row: Record<string, unknown>,
+  cost: UsageCostBreakdown,
   trace: RunTrace | undefined,
   prompt: string | null,
   feedback: "up" | "down" | null,
@@ -497,7 +517,7 @@ function runListItem(
   const tokens = tokensFromRow(row);
   const turns = trace?.turns ?? [];
   const { tools, restarts } = summarizeTurns(turns);
-  const status = trace?.status ?? "success";
+  const status = trace?.status ?? "unknown";
   return {
     runId: String(row.run_id),
     createdAt: numberField(row, "created_at"),
@@ -507,7 +527,7 @@ function runListItem(
     prompt,
     status,
     tokens,
-    cost: costBreakdown(tokens, String(row.model ?? "")),
+    cost,
     modelCalls: turns.length,
     tools,
     restarts,
@@ -519,6 +539,34 @@ function runListItem(
     durationMs: trace?.durationMs ?? null,
     feedback,
   };
+}
+
+/** Per-run spend, pricing each model's tokens at that model's rate. */
+async function costsByRun(
+  runIds: string[],
+  scope: { where: string; args: unknown[] },
+): Promise<Map<string, UsageCostBreakdown>> {
+  const costs = new Map<string, UsageCostBreakdown>();
+  if (runIds.length === 0) return costs;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT run_id, model, SUM(input_tokens) AS input_tokens,
+        SUM(output_tokens) AS output_tokens,
+        SUM(cache_read_tokens) AS cache_read_tokens,
+        SUM(cache_write_tokens) AS cache_write_tokens,
+        SUM(cost_cents_x100) AS cost_cents_x100
+      FROM token_usage
+      WHERE run_id IN (${runIds.map(() => "?").join(", ")}) AND ${scope.where}
+      GROUP BY run_id, model`,
+    args: [...runIds, ...scope.args],
+  });
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const runId = String(row.run_id);
+    costs.set(
+      runId,
+      addBreakdown(costs.get(runId) ?? EMPTY_BREAKDOWN, recordedBreakdown(row)),
+    );
+  }
+  return costs;
 }
 
 export async function getUsageInsights(
@@ -541,12 +589,26 @@ export async function getUsageInsights(
   const scopeWhere = `${appScope.where} AND ${resolved.ownerScope.where}`;
   const scopeArgs = [...appScope.args, ...resolved.ownerScope.args];
 
-  const [usageRows, runRows] = await Promise.all([
+  // Only prompt-linked usage, so "spent on N prompts" divides like with like.
+  const period = "CASE WHEN created_at >= ? THEN 'current' ELSE 'previous' END";
+  const periodWhere = `${scopeWhere} AND created_at >= ? AND run_id IS NOT NULL`;
+  const periodArgs = [sinceMs, ...scopeArgs, previousSinceMs];
+  const [periodRows, periodRunRows, runRows] = await Promise.all([
     getDbExec().execute({
-      sql: `SELECT created_at, run_id, model, input_tokens, output_tokens,
-          cache_read_tokens, cache_write_tokens
-        FROM token_usage WHERE ${scopeWhere} AND created_at >= ?`,
-      args: [...scopeArgs, previousSinceMs],
+      sql: `SELECT ${period} AS period, model,
+          SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+          SUM(cache_read_tokens) AS cache_read_tokens,
+          SUM(cache_write_tokens) AS cache_write_tokens,
+          SUM(cost_cents_x100) AS cost_cents_x100
+        FROM token_usage WHERE ${periodWhere}
+        GROUP BY 1, 2`,
+      args: periodArgs,
+    }),
+    getDbExec().execute({
+      sql: `SELECT ${period} AS period, COUNT(DISTINCT run_id) AS runs
+        FROM token_usage WHERE ${periodWhere}
+        GROUP BY 1`,
+      args: periodArgs,
     }),
     getDbExec().execute({
       sql: `SELECT run_id, ${RUN_COLUMNS}
@@ -559,53 +621,38 @@ export async function getUsageInsights(
     }),
   ]);
 
-  const periods = {
-    current: {
-      runIds: new Set<string>(),
-      tokens: emptyTokens(),
-      cost: EMPTY_BREAKDOWN,
-    },
-    previous: {
-      runIds: new Set<string>(),
-      tokens: emptyTokens(),
-      cost: EMPTY_BREAKDOWN,
-    },
+  const periods: Record<"current" | "previous", UsagePeriodTotals> = {
+    current: { runs: 0, tokens: emptyTokens(), cost: EMPTY_BREAKDOWN },
+    previous: { runs: 0, tokens: emptyTokens(), cost: EMPTY_BREAKDOWN },
   };
-  for (const row of usageRows.rows as Array<Record<string, unknown>>) {
-    const period =
-      numberField(row, "created_at") >= sinceMs
-        ? periods.current
-        : periods.previous;
-    const rowTokens = tokensFromRow(row);
-    period.tokens = addTokens(period.tokens, rowTokens);
-    period.cost = addBreakdown(
-      period.cost,
-      costBreakdown(rowTokens, String(row.model ?? "")),
-    );
-    if (typeof row.run_id === "string") period.runIds.add(row.run_id);
+  for (const row of periodRows.rows as Array<Record<string, unknown>>) {
+    const totals = periods[row.period === "current" ? "current" : "previous"];
+    totals.tokens = addTokens(totals.tokens, tokensFromRow(row));
+    totals.cost = addBreakdown(totals.cost, recordedBreakdown(row));
+  }
+  for (const row of periodRunRows.rows as Array<Record<string, unknown>>) {
+    periods[row.period === "current" ? "current" : "previous"].runs =
+      numberField(row, "runs");
   }
 
   const rawRuns = runRows.rows as Array<Record<string, unknown>>;
   const runIds = rawRuns.map((row) => String(row.run_id));
-  const [exchanges, traces, feedback] = await Promise.all([
+  const [exchanges, traces, feedback, costs] = await Promise.all([
     loadRunExchanges(rawRuns),
     tracesByRun(runIds),
     feedbackByRun(runIds),
+    costsByRun(runIds, { where: scopeWhere, args: scopeArgs }),
   ]);
 
-  const totals = (period: typeof periods.current): UsagePeriodTotals => ({
-    runs: period.runIds.size,
-    tokens: period.tokens,
-    cost: period.cost,
-  });
   return {
     sinceDays,
-    current: totals(periods.current),
-    previous: totals(periods.previous),
+    current: periods.current,
+    previous: periods.previous,
     runs: rawRuns.map((row) => {
       const runId = String(row.run_id);
       return runListItem(
         row,
+        costs.get(runId) ?? recordedBreakdown(row),
         traces.get(runId),
         exchanges.get(runId)?.prompt ?? null,
         feedback.get(runId) ?? null,
@@ -640,17 +687,23 @@ export async function getUsageRun(
   // caller's scope can already see.
   if (!row || numberField(row, "row_count") === 0) return null;
 
-  const [exchanges, traces, scores, feedback] = await Promise.all([
+  const runScope = {
+    where: `${appScope.where} AND ${resolved.ownerScope.where}`,
+    args: [...appScope.args, ...resolved.ownerScope.args],
+  };
+  const [exchanges, traces, scores, feedback, costs] = await Promise.all([
     loadRunExchanges([row]),
     tracesByRun([input.runId]),
     scoresByRun([input.runId]),
     feedbackByRun([input.runId]),
+    costsByRun([input.runId], runScope),
   ]);
   const exchange = exchanges.get(input.runId);
   const trace = traces.get(input.runId);
   return {
     ...runListItem(
       row,
+      costs.get(input.runId) ?? recordedBreakdown(row),
       trace,
       exchange?.prompt ?? null,
       feedback.get(input.runId) ?? null,
