@@ -2992,6 +2992,7 @@ describe("copyInstalledExternalSsrPackages", () => {
     const nodeModules = path.join(root, "node_modules");
     const reactDir = path.join(nodeModules, "react");
     const looseEnvifyDir = path.join(nodeModules, "loose-envify");
+    const undiciDir = path.join(nodeModules, "undici");
     const reactRouterDir = path.join(nodeModules, "react-router");
     const cookieEsDir = path.join(nodeModules, "cookie-es");
     const reactQueryDir = path.join(nodeModules, "@tanstack", "react-query");
@@ -3005,6 +3006,7 @@ describe("copyInstalledExternalSsrPackages", () => {
     const queryModernDir = path.join(reactQueryDir, "build", "modern");
     fs.mkdirSync(reactDir, { recursive: true });
     fs.mkdirSync(looseEnvifyDir, { recursive: true });
+    fs.mkdirSync(undiciDir, { recursive: true });
     fs.mkdirSync(reactRouterDir, { recursive: true });
     fs.mkdirSync(cookieEsDir, { recursive: true });
     fs.mkdirSync(reactQueryDir, { recursive: true });
@@ -3023,6 +3025,10 @@ describe("copyInstalledExternalSsrPackages", () => {
     fs.writeFileSync(
       path.join(looseEnvifyDir, "package.json"),
       JSON.stringify({ name: "loose-envify", version: "1.4.0" }),
+    );
+    fs.writeFileSync(
+      path.join(undiciDir, "package.json"),
+      JSON.stringify({ name: "undici", version: "7.28.0" }),
     );
     fs.writeFileSync(
       path.join(reactRouterDir, "package.json"),
@@ -3075,12 +3081,12 @@ describe("copyInstalledExternalSsrPackages", () => {
     expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
     fs.writeFileSync(
       path.join(serverDir, "chunk.mjs"),
-      'const react = require(`react`);\nexport { Link } from "react-router";\nexport * from "@tanstack/react-query";\nexport { react };',
+      'const react = require(`react`);\nexport { Link } from "react-router";\nexport * from "@tanstack/react-query";\nconst undiciSpecifier = "undici";\nawait import(undiciSpecifier);\nexport { react };',
     );
 
     expect(
       copyInstalledExternalSsrPackages(serverDir, root),
-    ).toBeGreaterThanOrEqual(6);
+    ).toBeGreaterThanOrEqual(7);
     expect(
       fs.existsSync(
         path.join(serverDir, "node_modules", "react", "package.json"),
@@ -3089,6 +3095,11 @@ describe("copyInstalledExternalSsrPackages", () => {
     expect(
       fs.existsSync(
         path.join(serverDir, "node_modules", "loose-envify", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "undici", "package.json"),
       ),
     ).toBe(true);
     expect(
@@ -3167,6 +3178,7 @@ describe("copyInstalledExternalSsrPackages", () => {
       react: "19.2.7",
       "react-router": "8.1.0",
       "@tanstack/react-query": "5.101.2",
+      undici: "7.28.0",
     });
   });
 
