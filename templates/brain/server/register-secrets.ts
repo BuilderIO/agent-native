@@ -10,6 +10,14 @@ registerRequiredSecret({
   docsUrl: "https://api.slack.com/authentication/token-types",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Slack backfills",
+      effectWhenRemoved:
+        "Uses the Slack workspace integration, or stops if there is none.",
+    },
+  ],
   required: false,
 });
 
@@ -21,6 +29,13 @@ registerRequiredSecret({
   docsUrl: "https://api.slack.com/authentication/verifying-requests-from-slack",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Slack events",
+      effectWhenRemoved: "Channel threads stop refreshing from Slack events.",
+    },
+  ],
   required: false,
 });
 
@@ -33,6 +48,13 @@ registerRequiredSecret({
     "https://docs.granola.ai/help-center/sharing/integrations/enterprise-api",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Granola imports",
+      effectWhenRemoved: "Granola meeting imports stop.",
+    },
+  ],
   required: false,
 });
 
@@ -45,6 +67,13 @@ registerRequiredSecret({
     "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "GitHub sync",
+      effectWhenRemoved: "GitHub source sync stops.",
+    },
+  ],
   required: false,
 });
 
@@ -56,6 +85,14 @@ registerRequiredSecret({
   docsUrl: "https://aistudio.google.com/apikey",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Embeddings",
+      effectWhenRemoved:
+        "Semantic search uses another provider, or falls back to keyword search.",
+    },
+  ],
   required: false,
 });
 
@@ -67,6 +104,14 @@ registerRequiredSecret({
   docsUrl: "https://dashboard.cohere.com/api-keys",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Embeddings",
+      effectWhenRemoved:
+        "Semantic search uses another provider, or falls back to keyword search.",
+    },
+  ],
   required: false,
 });
 
@@ -78,5 +123,13 @@ registerRequiredSecret({
   docsUrl: "https://dashboard.voyageai.com/api-keys",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Embeddings",
+      effectWhenRemoved:
+        "Semantic search uses another provider, or falls back to keyword search.",
+    },
+  ],
   required: false,
 });

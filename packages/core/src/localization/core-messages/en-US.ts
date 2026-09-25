@@ -670,6 +670,11 @@ const messages = {
   "secrets.managedInVault":
     "Managed in the workspace Vault. Every app in this workspace uses this value.",
   "secrets.openVault": "Open Vault",
+  "secrets.managedByOwner": "Managed in {{owner}}",
+  "secrets.removeCredentials": "Remove credentials",
+  "secrets.confirmRemove": "Remove",
+  "secrets.sharedKeysKept":
+    "Some shared keys were not removed. Only workspace admins can remove them.",
   "secrets.newKey": "New",
   "secrets.noKeysFound": "No keys found.",
   "secrets.overridesVault":

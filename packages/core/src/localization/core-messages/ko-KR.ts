@@ -666,6 +666,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",
   "secrets.openVault": "Vault 열기",
+  "secrets.managedByOwner": "{{owner}}에서 관리",
+  "secrets.removeCredentials": "자격 증명 제거",
+  "secrets.confirmRemove": "제거",
+  "secrets.sharedKeysKept":
+    "일부 공유 키가 제거되지 않았습니다. 워크스페이스 관리자만 제거할 수 있습니다.",
   "secrets.newKey": "새로 만들기",
   "secrets.noKeysFound": "키를 찾을 수 없습니다.",
   "secrets.overridesVault":

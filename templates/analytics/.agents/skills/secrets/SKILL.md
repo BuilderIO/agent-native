@@ -222,6 +222,26 @@ anyone else a personal one) for older clients only.
 | `validator`        | `(v) => Promise<boolean \| {ok,error}>` | Runs on save and from the Test button. Never log `v`.                    |
 | `oauthProvider`    | `string?` (oauth-kind only)             | Provider id in `oauth-tokens` that backs this entry.                     |
 | `oauthConnectUrl`  | `string?` (oauth-kind only)             | URL the Connect button points at.                                        |
+| `usedFor` | `{ appId?, feature, effectWhenRemoved }[]?` | What this app uses the key for. Set `appId` to the app's id; omit it only for every-app uses. |
+| `managedBy` | `{ id, owner, route }?` | The Settings page that creates and rotates the key. Its deletes then need `?managedBy=<id>`. |
+
+### What a key powers
+
+Every registered secret should say what it powers, so API keys shows "Used by
+{feature}" and remove confirms list what stops. Write `effectWhenRemoved` as the
+user-visible outcome ("Uses another image provider, or stops if none is set
+up."), not the mechanism.
+
+- A provider key's model use ("Agent", models leaving the picker) is derived
+  from the engine registry. Don't add it to `usedFor`.
+- Framework-wide uses live in `register-framework-secrets.ts` via
+  `registerSecretUsage()`, which survives a template registering the same key.
+- Keys an owner flow writes (Builder.io credentials, `S3_*` storage fields,
+  channel tokens, calendar tokens) are mapped in `secrets/managed-keys.ts`. A
+  registration wins over the map: registering a key puts it on API keys unless
+  the registration sets `managedBy`.
+- Before deleting a key or removing a provider, call `preview-secret-removal`
+  (or `GET /_agent-native/secrets/:key/usage`) and tell the user the effects.
 
 ## Reading a secret from an action
 
@@ -330,9 +350,15 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
   characters. Values are never returned.
 - `POST /_agent-native/secrets/:key` — body `{ value, scope?, scopeId? }`.
   Runs the registered validator; returns 400 with the error on failure.
-- `DELETE /_agent-native/secrets/:key` — remove the stored value.
+- `DELETE /_agent-native/secrets/:key` — remove the stored value. A managed
+  key returns 409 naming its owner unless the owner passes `?managedBy=<id>`
+  (same on `DELETE /secrets/adhoc/:name`). Owner pages call
+  `removeManagedSecrets(keys, managerId)` from `@agent-native/core/client`.
 - `POST /_agent-native/secrets/:key/test` — re-run the validator against the
   currently stored value.
+- `GET /_agent-native/secrets/:key/usage[?scope=]` — the remove-impact
+  preview (same result as the `preview-secret-removal` action). List payloads
+  carry `usedFor` and `managedBy` for registered and ad-hoc keys.
 
 ## Storage & encryption
 

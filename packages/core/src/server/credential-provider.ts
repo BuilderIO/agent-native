@@ -31,6 +31,7 @@ import {
   isTransientDatabaseError,
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
+import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
   BuilderOAuthScopeError,
   BUILDER_OAUTH_SCOPE,
@@ -279,18 +280,7 @@ export const BUILDER_GATEWAY_TOKEN_ENV_VAR = "BUILDER_GATEWAY_TOKEN";
 /** The space id that pairs with it, sent as `x-builder-api-key`. */
 export const BUILDER_GATEWAY_SPACE_ID_ENV_VAR = "BUILDER_GATEWAY_SPACE_ID";
 
-const BUILDER_CREDENTIAL_KEYS = [
-  "BUILDER_PRIVATE_KEY",
-  "BUILDER_PUBLIC_KEY",
-  "BUILDER_USER_ID",
-  "BUILDER_ORG_NAME",
-  "BUILDER_ORG_KIND",
-  "BUILDER_SUBSCRIPTION",
-  "BUILDER_SUBSCRIPTION_LEVEL",
-  "BUILDER_SUBSCRIPTION_NAME",
-  "BUILDER_IS_ENTERPRISE",
-  "BUILDER_IS_FREE_ACCOUNT",
-] as const;
+export { BUILDER_CREDENTIAL_KEYS };
 
 function isBuilderCredentialKey(key: string): boolean {
   return (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key);

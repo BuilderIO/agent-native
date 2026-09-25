@@ -34,6 +34,14 @@ registerRequiredSecret({
   docsUrl: "https://aistudio.google.com/apikey",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Dictation cleanup",
+      effectWhenRemoved:
+        "Uses Builder.io when it's connected, otherwise dictation stays uncleaned.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;
@@ -70,6 +78,13 @@ registerRequiredSecret({
     "https://cloud.google.com/speech-to-text/v2/docs/streaming-recognize",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Google speech-to-text",
+      effectWhenRemoved: "Google realtime speech-to-text stops.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;
@@ -117,6 +132,14 @@ registerRequiredSecret({
   docsUrl: "https://console.groq.com/keys",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Voice dictation",
+      effectWhenRemoved:
+        "Desktop dictation uses another provider, or stops if none is set up.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;
@@ -158,6 +181,14 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Meetings",
+      effectWhenRemoved:
+        "Google Calendar can't connect, and upcoming meetings stop syncing.",
+    },
+  ],
   required: false,
 });
 
@@ -169,6 +200,14 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Meetings",
+      effectWhenRemoved:
+        "Google Calendar can't connect, and upcoming meetings stop syncing.",
+    },
+  ],
   required: false,
 });
 
@@ -184,6 +223,13 @@ registerRequiredSecret({
   docsUrl: "https://api.slack.com/apps",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Slack link previews",
+      effectWhenRemoved: "Slack link previews stop.",
+    },
+  ],
   required: false,
 });
 
@@ -195,6 +241,13 @@ registerRequiredSecret({
   docsUrl: "https://api.slack.com/apps",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Slack link previews",
+      effectWhenRemoved: "New Slack workspaces can't install link previews.",
+    },
+  ],
   required: false,
 });
 
@@ -206,6 +259,13 @@ registerRequiredSecret({
   docsUrl: "https://api.slack.com/apps",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Slack link previews",
+      effectWhenRemoved: "New Slack workspaces can't install link previews.",
+    },
+  ],
   required: false,
 });
 
@@ -217,6 +277,14 @@ registerRequiredSecret({
   docsUrl: "https://api.slack.com/apps",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Slack link previews",
+      effectWhenRemoved:
+        "Link previews stop in workspaces that use the legacy token.",
+    },
+  ],
   required: false,
 });
 
@@ -232,6 +300,13 @@ registerRequiredSecret({
     "Signed Brain generic-ingest endpoint for ready Clips transcripts. Pair with BRAIN_INGEST_TOKEN.",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Brain transcripts",
+      effectWhenRemoved: "Ready transcripts stop going to Brain.",
+    },
+  ],
   required: false,
   validator: (value) => {
     if (!value) return true;
@@ -253,6 +328,13 @@ registerRequiredSecret({
     "Bearer token for the configured Brain ingest URL. Stored encrypted and never returned to Clips clients or export receipts.",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Brain transcripts",
+      effectWhenRemoved: "Ready transcripts stop going to Brain.",
+    },
+  ],
   required: false,
   validator: (value) => {
     if (!value) return true;
@@ -274,6 +356,13 @@ registerRequiredSecret({
     "Emergency kill switch for Clips background calls to Builder's compress-media endpoint.",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Media compression",
+      effectWhenRemoved: "Builder.io media compression turns back on.",
+    },
+  ],
   required: false,
   validator: (value) => {
     if (!value) return true;
@@ -293,6 +382,13 @@ registerRequiredSecret({
     "Boolean flag for the upcoming ai-services media worker. Leave unset or false until the worker endpoint is deployed.",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Media compression",
+      effectWhenRemoved: "Compression goes back to Builder.io.",
+    },
+  ],
   required: false,
   validator: (value) => {
     if (!value) return true;
@@ -312,6 +408,13 @@ registerRequiredSecret({
     "Absolute enqueue endpoint URL for the upcoming ai-services media worker.",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Media compression",
+      effectWhenRemoved: "Compression goes back to Builder.io.",
+    },
+  ],
   required: false,
   validator: (value) => {
     if (!value) return true;
@@ -331,6 +434,13 @@ registerRequiredSecret({
     "Shared HMAC secret used to sign media-worker enqueue requests and verify callbacks.",
   scope: "workspace",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "clips",
+      feature: "Media compression",
+      effectWhenRemoved: "Compression goes back to Builder.io.",
+    },
+  ],
   required: false,
   validator: (value) => {
     if (!value) return true;

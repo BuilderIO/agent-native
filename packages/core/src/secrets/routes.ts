@@ -9,6 +9,7 @@
 import {
   defineEventHandler,
   getMethod,
+  getQuery,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -61,10 +62,17 @@ async function canMutateOrgScope(
 }
 import { listOAuthAccountsByOwner } from "../oauth-tokens/store.js";
 import {
+  isManagedDeleteAllowed,
+  managedDeleteRefusal,
+  resolveSecretManagedBy,
+} from "./managed-keys.js";
+import {
   listRequiredSecrets,
   getRequiredSecret,
   type RegisteredSecret,
+  type SecretManagedBy,
   type SecretScope,
+  type SecretUsage,
 } from "./register.js";
 import {
   writeAppSecret,
@@ -75,6 +83,7 @@ import {
   VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretMeta,
 } from "./storage.js";
+import { describeSecretUsage, previewSecretRemoval } from "./usage.js";
 
 /**
  * Where a stored value came from, as shown in Settings. `personal` and
@@ -156,6 +165,10 @@ export interface SecretStatusPayload {
   oauthConnectUrl?: string;
   /** Validator error message if status === "invalid". */
   error?: string;
+  /** What uses the key, per app and feature. Empty when nothing is known to. */
+  usedFor: SecretUsage[];
+  /** Present when another Settings surface owns this key. */
+  managedBy?: SecretManagedBy;
 }
 
 function redactSecretFromMessage(message: string, secretValue: string): string {
@@ -253,6 +266,8 @@ export function createListSecretsHandler() {
         kind: secret.kind,
         required: !!secret.required,
         status: "unset",
+        usedFor: describeSecretUsage(secret.key),
+        ...(secret.managedBy ? { managedBy: secret.managedBy } : {}),
       };
 
       if (secret.kind === "oauth") {
@@ -461,6 +476,8 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
       error: `"${secret.key}" is an OAuth-kind secret — disconnect via the OAuth flow instead`,
     };
   }
+  const refusal = refuseManagedDelete(event, secret.key);
+  if (refusal) return refusal;
   const { scopeId, reason } = await resolveScopeId(event, secret.scope);
   if (!scopeId) {
     setResponseStatus(event, 401);
@@ -489,6 +506,76 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
     scopeId,
   });
   return { ok: true, removed };
+}
+
+/**
+ * A managed key is removed from its owner surface, which names itself with
+ * `?managedBy=<id>`. Returns the 409 body to send, or null to continue.
+ */
+function refuseManagedDelete(event: H3Event, key: string) {
+  const managedBy = resolveSecretManagedBy(key);
+  if (!managedBy) return null;
+  const requestedBy = getQuery(event).managedBy;
+  if (
+    isManagedDeleteAllowed(
+      managedBy,
+      typeof requestedBy === "string" ? requestedBy : null,
+    )
+  ) {
+    return null;
+  }
+  setResponseStatus(event, 409);
+  return managedDeleteRefusal(key, managedBy);
+}
+
+/**
+ * GET /_agent-native/secrets/:key/usage — what stops working per app and
+ * feature if the caller removes this key. `?scope=` targets a stored row
+ * other than the registered scope. Never returns a value.
+ */
+export function createSecretUsageHandler() {
+  return defineEventHandler(async (event: H3Event) => {
+    if (getMethod(event) !== "GET") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const pathname = (event.url?.pathname || "")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    const parts = pathname.split("/");
+    const key =
+      parts.length === 2 && parts[1] === "usage"
+        ? decodeURIComponent(parts[0])
+        : "";
+    if (!key) {
+      setResponseStatus(event, 400);
+      return { error: "Secret key required" };
+    }
+    const rawScope = getQuery(event).scope;
+    if (
+      rawScope !== undefined &&
+      rawScope !== "user" &&
+      rawScope !== "workspace" &&
+      rawScope !== "org"
+    ) {
+      setResponseStatus(event, 400);
+      return { error: 'scope must be "user", "workspace", or "org"' };
+    }
+    const preview = await asRequestUser(
+      event,
+      () =>
+        previewSecretRemoval({
+          key,
+          ...(rawScope ? { scope: rawScope } : {}),
+        }),
+      null,
+    );
+    if (!preview) {
+      setResponseStatus(event, 401);
+      return { error: "Authentication required" };
+    }
+    return preview;
+  });
 }
 
 /**
@@ -616,12 +703,19 @@ export interface AdHocSecretPayload {
   urlAllowlist: string[] | null;
   createdAt: number;
   updatedAt: number;
+  /** What uses the key. Empty when nothing is known to. */
+  usedFor: SecretUsage[];
+  /** Present when another Settings surface owns this key. */
+  managedBy?: SecretManagedBy;
 }
 
 const AD_HOC_NAME_REGEX = /^[A-Za-z0-9_-]+$/;
 
 function metaToPayload(meta: SecretMeta): AdHocSecretPayload {
+  const managedBy = resolveSecretManagedBy(meta.key);
   return {
+    usedFor: describeSecretUsage(meta.key),
+    ...(managedBy ? { managedBy } : {}),
     name: meta.key,
     scope: meta.scope,
     scopeId: meta.scopeId,
@@ -788,6 +882,8 @@ async function handleAdHocDelete(event: H3Event, name: string) {
       error: `"${name}" is a registered secret — delete via the registered route instead`,
     };
   }
+  const refusal = refuseManagedDelete(event, name);
+  if (refusal) return refusal;
   const scope: SecretScope = "user";
   const { scopeId, reason } = await resolveScopeId(event, scope);
   if (!scopeId) {

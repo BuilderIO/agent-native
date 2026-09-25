@@ -81,6 +81,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/agent/actions/disconnect-chatgpt-subscription",
   },
   {
+    name: "preview-secret-removal",
+    specifier: "@agent-native/core/secrets/actions/preview-secret-removal",
+  },
+  {
     name: "get-hosted-harness-config",
     specifier:
       "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",

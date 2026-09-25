@@ -11,12 +11,15 @@ const mockListRequiredSecrets = vi.fn();
 const mockHasOAuthTokens = vi.fn();
 const mockListOAuthAccountsByOwner = vi.fn();
 const mockResolveSecretDetailed = vi.fn();
+const mockPreviewSecretRemoval = vi.fn();
 
 let lastStatus = 200;
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: (event: any) => event._method ?? "GET",
+  getQuery: (event: any) =>
+    Object.fromEntries(new URL(event.url).searchParams.entries()),
   setResponseStatus: (_event: any, code: number) => {
     lastStatus = code;
   },
@@ -44,6 +47,13 @@ vi.mock("../oauth-tokens/store.js", () => ({
 vi.mock("./register.js", () => ({
   getRequiredSecret: (...args: any[]) => mockGetRequiredSecret(...args),
   listRequiredSecrets: (...args: any[]) => mockListRequiredSecrets(...args),
+  getRegisteredSecretUsage: (key: string) =>
+    mockGetRequiredSecret(key)?.usedFor ?? [],
+}));
+
+vi.mock("./usage.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./usage.js")>()),
+  previewSecretRemoval: (...args: any[]) => mockPreviewSecretRemoval(...args),
 }));
 
 vi.mock("./storage.js", () => ({
@@ -63,11 +73,13 @@ vi.mock("../server/credential-provider.js", () => ({
 
 vi.mock("../server/request-context.js", () => ({
   runWithRequestContext: (_ctx: any, fn: () => any) => fn(),
+  getRequestOrgId: () => "org-qa",
 }));
 
 import {
   createAdHocSecretHandler,
   createListSecretsHandler,
+  createSecretUsageHandler,
   createTestSecretHandler,
   createWriteSecretHandler,
 } from "./routes.js";
@@ -867,5 +879,170 @@ describe("secrets routes", () => {
 
     expect(lastStatus).toBe(404);
     expect(result).toEqual({ error: "No value stored" });
+  });
+
+  describe("usage metadata and managed keys", () => {
+    it("lists what each registered key powers and who manages it", async () => {
+      const secrets = [
+        {
+          key: "OPENAI_API_KEY",
+          label: "OpenAI API Key",
+          scope: "user",
+          kind: "api-key",
+          usedFor: [
+            {
+              appId: "slides",
+              feature: "Image generation",
+              effectWhenRemoved: "Uses another image provider.",
+            },
+          ],
+        },
+        {
+          key: "OWNED_TOKEN",
+          label: "Owned token",
+          scope: "workspace",
+          kind: "api-key",
+          managedBy: { id: "channels", owner: "Channels", route: "channels" },
+        },
+      ];
+      mockListRequiredSecrets.mockReturnValue(secrets);
+      mockGetRequiredSecret.mockImplementation((key: string) =>
+        secrets.find((secret) => secret.key === key),
+      );
+
+      const result = (await createListSecretsHandler()(
+        event("/", "GET"),
+      )) as Array<{ key: string; usedFor: unknown[]; managedBy?: unknown }>;
+
+      expect(result[0].usedFor).toEqual([
+        {
+          feature: "Agent",
+          effectWhenRemoved: "OpenAI models leave the model picker.",
+        },
+        {
+          appId: "slides",
+          feature: "Image generation",
+          effectWhenRemoved: "Uses another image provider.",
+        },
+      ]);
+      expect(result[0].managedBy).toBeUndefined();
+      expect(result[1]).toMatchObject({
+        usedFor: [],
+        managedBy: { id: "channels", owner: "Channels", route: "channels" },
+      });
+    });
+
+    it("tags managed ad-hoc keys with their owner page", async () => {
+      mockListAppSecretsForScope.mockImplementation(async (scope: string) =>
+        scope === "user"
+          ? ["BUILDER_PRIVATE_KEY", "S3_BUCKET", "MY_WEBHOOK"].map((key) => ({
+              key,
+              scope: "user",
+              scopeId: "alice+qa@example.com",
+              last4: "1111",
+              description: null,
+              urlAllowlist: null,
+              createdAt: 1,
+              updatedAt: 2,
+            }))
+          : [],
+      );
+
+      const result = (await createAdHocSecretHandler()(
+        event("/", "GET"),
+      )) as Array<{ name: string; managedBy?: { route: string } }>;
+
+      expect(result.map((row) => [row.name, row.managedBy?.route])).toEqual([
+        ["BUILDER_PRIVATE_KEY", "integrations/builder"],
+        ["S3_BUCKET", "infrastructure"],
+        ["MY_WEBHOOK", undefined],
+      ]);
+      expect(result[2]).toMatchObject({ usedFor: [] });
+    });
+
+    it("refuses to delete a managed ad-hoc key and names its owner", async () => {
+      const result = await createAdHocSecretHandler()(
+        event("/BUILDER_PRIVATE_KEY", "DELETE"),
+      );
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        error:
+          '"BUILDER_PRIVATE_KEY" is managed by Builder.io. Remove it there.',
+        errorCode: "secret_managed_elsewhere",
+        managedBy: { owner: "Builder.io", route: "integrations/builder" },
+      });
+      expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+    });
+
+    it("lets the owner surface delete its own managed key", async () => {
+      mockDeleteAppSecret.mockResolvedValue(true);
+
+      const refused = await createAdHocSecretHandler()(
+        event("/S3_BUCKET?managedBy=builder", "DELETE"),
+      );
+      expect(lastStatus).toBe(409);
+      expect(refused).toMatchObject({
+        managedBy: { owner: "File uploads and storage" },
+      });
+
+      lastStatus = 200;
+      const result = await createAdHocSecretHandler()(
+        event("/S3_BUCKET?managedBy=storage", "DELETE"),
+      );
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual({ ok: true, removed: true });
+      expect(mockDeleteAppSecret).toHaveBeenCalledWith({
+        key: "S3_BUCKET",
+        scope: "user",
+        scopeId: "alice+qa@example.com",
+      });
+    });
+
+    it("refuses to delete a registered key whose registration names an owner", async () => {
+      mockGetRequiredSecret.mockReturnValue({
+        key: "OWNED_TOKEN",
+        label: "Owned token",
+        scope: "workspace",
+        kind: "api-key",
+        managedBy: { id: "channels", owner: "Channels", route: "channels" },
+      });
+
+      const result = await createWriteSecretHandler()(
+        event("/OWNED_TOKEN", "DELETE"),
+      );
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        error: '"OWNED_TOKEN" is managed by Channels. Remove it there.',
+      });
+      expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+    });
+
+    it("serves the removal preview for signed-in callers only", async () => {
+      mockPreviewSecretRemoval.mockResolvedValue({ key: "OPENAI_API_KEY" });
+      const handler = createSecretUsageHandler();
+
+      expect(
+        await handler(event("/OPENAI_API_KEY/usage?scope=org", "GET")),
+      ).toEqual({ key: "OPENAI_API_KEY" });
+      expect(mockPreviewSecretRemoval).toHaveBeenCalledWith({
+        key: "OPENAI_API_KEY",
+        scope: "org",
+      });
+
+      expect(
+        await handler(event("/OPENAI_API_KEY/usage?scope=team", "GET")),
+      ).toEqual({ error: 'scope must be "user", "workspace", or "org"' });
+      expect(lastStatus).toBe(400);
+
+      mockGetSession.mockResolvedValue(null);
+      mockPreviewSecretRemoval.mockClear();
+      expect(await handler(event("/OPENAI_API_KEY/usage", "GET"))).toEqual({
+        error: "Authentication required",
+      });
+      expect(lastStatus).toBe(401);
+      expect(mockPreviewSecretRemoval).not.toHaveBeenCalled();
+    });
   });
 });

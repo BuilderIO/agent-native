@@ -368,6 +368,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "Se administra en el Vault del espacio de trabajo. Todas las apps de este espacio de trabajo usan este valor.",
   "secrets.openVault": "Abrir Vault",
+  "secrets.managedByOwner": "Gestionado en {{owner}}",
+  "secrets.removeCredentials": "Quitar credenciales",
+  "secrets.confirmRemove": "Quitar",
+  "secrets.sharedKeysKept":
+    "Algunas claves compartidas no se quitaron. Solo los administradores del espacio de trabajo pueden quitarlas.",
   "secrets.newKey": "Nuevo",
   "secrets.noKeysFound": "No se encontraron claves.",
   "secrets.overridesVault":

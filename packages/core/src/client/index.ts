@@ -99,6 +99,8 @@ export {
   SettingsPanel,
   SettingsTabsPage,
   SecretsSection,
+  removeManagedSecrets,
+  type ManagedSecretRemoval,
   BuilderConnectPopover,
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,

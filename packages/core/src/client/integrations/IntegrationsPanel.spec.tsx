@@ -251,6 +251,49 @@ describe("IntegrationsPanel MCP connection errors", () => {
     expect(container.textContent).toContain("Turn off Socket Mode");
   });
 
+  it("removes a channel's stored credentials as their owner", async () => {
+    const deletes: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "DELETE") {
+          deletes.push(url);
+          return Response.json({ ok: true, removed: true });
+        }
+        if (url.endsWith("/_agent-native/secrets/adhoc")) {
+          return Response.json([
+            { name: "SLACK_BOT_TOKEN", scope: "workspace" },
+            { name: "SLACK_SIGNING_SECRET", scope: "org" },
+          ]);
+        }
+        return Response.json({});
+      }),
+    );
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Connect Slack (agent in channels)"]',
+        )
+        ?.click(),
+    );
+
+    const buttonWithText = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === text,
+      );
+    await act(async () => buttonWithText("secrets.removeCredentials")?.click());
+    await act(async () => buttonWithText("secrets.confirmRemove")?.click());
+
+    expect(deletes).toEqual([
+      "/_agent-native/secrets/adhoc/SLACK_BOT_TOKEN?managedBy=channels",
+    ]);
+  });
+
   it.each([
     ["Claude Cowork", "codex"],
     ["Claude Code", "claude-code"],

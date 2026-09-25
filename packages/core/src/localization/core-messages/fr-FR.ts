@@ -369,6 +369,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "Géré dans le Vault de l'espace de travail. Chaque application de cet espace de travail utilise cette valeur.",
   "secrets.openVault": "Ouvrir Vault",
+  "secrets.managedByOwner": "Géré dans {{owner}}",
+  "secrets.removeCredentials": "Supprimer les identifiants",
+  "secrets.confirmRemove": "Supprimer",
+  "secrets.sharedKeysKept":
+    "Certaines clés partagées n’ont pas été supprimées. Seuls les administrateurs de l’espace de travail peuvent les supprimer.",
   "secrets.newKey": "Nouveau",
   "secrets.noKeysFound": "Aucune clé trouvée.",
   "secrets.overridesVault":

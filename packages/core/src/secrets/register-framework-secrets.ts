@@ -15,9 +15,108 @@
  */
 
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
-import { getRequiredSecret, registerRequiredSecret } from "./register.js";
+import {
+  getRequiredSecret,
+  registerRequiredSecret,
+  registerSecretUsage,
+  type SecretUsage,
+} from "./register.js";
+
+/**
+ * What the framework itself uses each key for, in every app. Recorded apart
+ * from the registrations so a template that registers the same key keeps
+ * these. A provider key's model use is derived from the engine registry at
+ * read time, so it is not listed here.
+ */
+const FRAMEWORK_SECRET_USAGE: Record<string, SecretUsage[]> = {
+  OPENAI_API_KEY: [
+    {
+      feature: "Realtime voice",
+      effectWhenRemoved:
+        "Uses Builder.io when it's connected, otherwise stops.",
+    },
+    {
+      feature: "Voice input",
+      effectWhenRemoved:
+        "Uses another voice provider, or stops if none is set up.",
+    },
+  ],
+  GROQ_API_KEY: [
+    {
+      feature: "Voice input",
+      effectWhenRemoved:
+        "Uses another voice provider, or stops if none is set up.",
+    },
+  ],
+  GEMINI_API_KEY: [
+    {
+      feature: "Voice input",
+      effectWhenRemoved:
+        "Uses another voice provider, or stops if none is set up.",
+    },
+  ],
+  JEV_API_KEY: [
+    {
+      feature: "Tool selection",
+      effectWhenRemoved: "The agent picks tools without the decision model.",
+    },
+  ],
+  POSTHOG_API_KEY: [
+    {
+      feature: "Analytics",
+      effectWhenRemoved:
+        "Stops sending product analytics, errors, and LLM traces to PostHog.",
+    },
+  ],
+  BRAVE_SEARCH_API_KEY: [
+    {
+      feature: "Web search",
+      effectWhenRemoved:
+        "Uses the next search provider, or Builder.io when it's connected.",
+    },
+  ],
+  TAVILY_API_KEY: [
+    {
+      feature: "Web search",
+      effectWhenRemoved:
+        "Uses the next search provider, or Builder.io when it's connected.",
+    },
+  ],
+  EXA_API_KEY: [
+    {
+      feature: "Web search",
+      effectWhenRemoved:
+        "Uses the next search provider, or Builder.io when it's connected.",
+    },
+  ],
+  FIRECRAWL_API_KEY: [
+    {
+      feature: "Web search",
+      effectWhenRemoved:
+        "Uses Builder.io when it's connected, otherwise stops.",
+    },
+  ],
+  GITHUB_TOKEN: [
+    {
+      feature: "Repository files",
+      effectWhenRemoved:
+        "Background agents can't read or write repository files.",
+    },
+  ],
+  FIGMA_ACCESS_TOKEN: [
+    {
+      feature: "Figma context",
+      effectWhenRemoved:
+        "Figma links only work while the hosted Figma MCP server is available.",
+    },
+  ],
+};
 
 export function registerFrameworkSecrets(): void {
+  for (const [key, usage] of Object.entries(FRAMEWORK_SECRET_USAGE)) {
+    registerSecretUsage(key, usage);
+  }
+
   const workspaceOAuthProviders = [
     {
       id: "figma",
@@ -88,6 +187,12 @@ export function registerFrameworkSecrets(): void {
       { suffix: "CLIENT_SECRET", label: "OAuth client secret" },
     ] as const) {
       const key = `${prefix}_${credential.suffix}`;
+      registerSecretUsage(key, [
+        {
+          feature: `${provider.label} connections`,
+          effectWhenRemoved: `New ${provider.label} connections fail, and existing ones stop when their access expires.`,
+        },
+      ]);
       if (!getRequiredSecret(key)) {
         registerRequiredSecret({
           key,

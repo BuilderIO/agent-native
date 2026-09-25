@@ -677,6 +677,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "تتم إدارته في Vault الخاص بمساحة العمل. يستخدم كل تطبيق في مساحة العمل هذه القيمة.",
   "secrets.openVault": "فتح Vault",
+  "secrets.managedByOwner": "تتم إدارته في {{owner}}",
+  "secrets.removeCredentials": "إزالة بيانات الاعتماد",
+  "secrets.confirmRemove": "إزالة",
+  "secrets.sharedKeysKept":
+    "لم تتم إزالة بعض المفاتيح المشتركة. يمكن لمسؤولي مساحة العمل فقط إزالتها.",
   "secrets.newKey": "جديد",
   "secrets.noKeysFound": "لم يتم العثور على مفاتيح.",
   "secrets.overridesVault":

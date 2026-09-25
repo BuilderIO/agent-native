@@ -662,6 +662,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",
   "secrets.openVault": "Vault खोलें",
+  "secrets.managedByOwner": "{{owner}} में प्रबंधित",
+  "secrets.removeCredentials": "क्रेडेंशियल हटाएँ",
+  "secrets.confirmRemove": "हटाएँ",
+  "secrets.sharedKeysKept":
+    "कुछ साझा कुंजियाँ नहीं हटाई गईं। केवल वर्कस्पेस एडमिन ही उन्हें हटा सकते हैं।",
   "secrets.newKey": "नया",
   "secrets.noKeysFound": "कोई कुंजी नहीं मिली।",
   "secrets.overridesVault":

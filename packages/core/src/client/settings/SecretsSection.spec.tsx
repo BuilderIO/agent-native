@@ -414,4 +414,57 @@ describe("SecretsSection", () => {
       "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
     );
   });
+
+  it("shows a key another page manages as read-only, naming its owner", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith("/secrets/adhoc")) {
+          return Response.json([
+            {
+              name: "S3_BUCKET",
+              scope: "workspace",
+              scopeId: "org-1",
+              source: "workspace",
+              description: null,
+              last4: "cket",
+              createdAt: 1,
+              updatedAt: 1,
+              usedFor: [],
+              managedBy: {
+                id: "storage",
+                owner: "File uploads and storage",
+                route: "infrastructure",
+              },
+            },
+            {
+              name: "CUSTOM_TOKEN",
+              scope: "user",
+              scopeId: "user-1",
+              source: "personal",
+              description: null,
+              last4: "5678",
+              createdAt: 1,
+              updatedAt: 1,
+              usedFor: [],
+            },
+          ]);
+        }
+        return Response.json(registeredSecrets);
+      }),
+    );
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(
+      container.querySelector(
+        '[aria-label="Managed in File uploads and storage"]',
+      ),
+    ).toBeTruthy();
+    // Only the unmanaged custom key keeps its trash button.
+    expect(container.querySelectorAll(".tabler-icon-trash")).toHaveLength(1);
+  });
 });

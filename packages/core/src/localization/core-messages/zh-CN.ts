@@ -639,6 +639,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "在工作区 Vault 中管理。此工作区中的每个应用都使用此值。",
   "secrets.openVault": "打开 Vault",
+  "secrets.managedByOwner": "在 {{owner}} 中管理",
+  "secrets.removeCredentials": "移除凭据",
+  "secrets.confirmRemove": "移除",
+  "secrets.sharedKeysKept":
+    "部分共享密钥未被移除。只有工作区管理员可以移除它们。",
   "secrets.newKey": "新建",
   "secrets.noKeysFound": "未找到密钥。",
   "secrets.overridesVault":

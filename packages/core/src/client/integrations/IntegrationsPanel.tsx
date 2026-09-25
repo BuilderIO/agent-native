@@ -57,6 +57,10 @@ import {
   type McpServer,
 } from "../resources/use-mcp-servers.js";
 import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
+import {
+  listRemovableSecretNames,
+  removeManagedSecrets,
+} from "../settings/managed-secrets.js";
 import { SettingsCrossLinkHint } from "../settings/SettingsCrossLinkHint.js";
 import { SettingsSurfaceProvider } from "../settings/SettingsSection.js";
 import {
@@ -207,6 +211,49 @@ function IntegrationDetail({
   const [copied, setCopied] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
   const agentEngineConfigured = useAgentEngineConfigured();
+  // null until the key list loads, or when it cannot be read.
+  const [storedKeys, setStoredKeys] = useState<string[] | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [keysReloadToken, setKeysReloadToken] = useState(0);
+
+  useEffect(() => {
+    if (platform.envVars.length === 0) return;
+    let cancelled = false;
+    listRemovableSecretNames()
+      .then((names) => {
+        if (!cancelled) {
+          setStoredKeys(platform.envVars.filter((key) => names.has(key)));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStoredKeys(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [platform.envVars, keysReloadToken]);
+
+  const handleRemoveCredentials = useCallback(async () => {
+    if (removing || !storedKeys?.length) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      const result = await removeManagedSecrets(storedKeys, "channels");
+      setConfirmRemove(false);
+      if (result.kept.length > 0) setRemoveError(t("secrets.sharedKeysKept"));
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+      onRefresh();
+    } catch (err) {
+      setRemoveError(
+        err instanceof Error ? err.message : t("integrations.networkError"),
+      );
+    } finally {
+      setRemoving(false);
+      setKeysReloadToken((token) => token + 1);
+    }
+  }, [removing, storedKeys, onRefresh, t]);
 
   const handleToggle = useCallback(async () => {
     setToggling(true);
@@ -381,6 +428,44 @@ function IntegrationDetail({
             <p className="text-[10px] text-amber-500 mt-1">
               {t("integrations.envHelp")}
             </p>
+          )}
+          {storedKeys && storedKeys.length > 0 && (
+            <div className="mt-1.5 flex items-center gap-1">
+              {confirmRemove ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleRemoveCredentials}
+                    disabled={removing}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-destructive/15 text-destructive hover:bg-destructive/25 disabled:opacity-40"
+                  >
+                    {removing ? (
+                      <IconLoader2 size={10} className="animate-spin" />
+                    ) : null}
+                    {t("secrets.confirmRemove")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRemove(false)}
+                    disabled={removing}
+                    className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemove(true)}
+                  className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-destructive"
+                >
+                  {t("secrets.removeCredentials")}
+                </button>
+              )}
+            </div>
+          )}
+          {removeError && (
+            <p className="text-[10px] text-destructive mt-1">{removeError}</p>
           )}
         </div>
       )}

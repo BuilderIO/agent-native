@@ -20,6 +20,14 @@ registerRequiredSecret({
   docsUrl: "https://aistudio.google.com/apikey",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Image generation",
+      effectWhenRemoved:
+        "Uses another image provider, or stops if none is set up.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;
@@ -51,6 +59,14 @@ registerRequiredSecret({
   docsUrl: "https://platform.openai.com/api-keys",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Image generation",
+      effectWhenRemoved:
+        "Uses another image provider, or stops if none is set up.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;
@@ -81,6 +97,13 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Image search",
+      effectWhenRemoved: "Image search stops.",
+    },
+  ],
   required: false,
 });
 
@@ -91,6 +114,13 @@ registerRequiredSecret({
   docsUrl: "https://programmablesearchengine.google.com/controlpanel/all",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Image search",
+      effectWhenRemoved: "Image search stops.",
+    },
+  ],
   required: false,
 });
 
@@ -101,6 +131,13 @@ registerRequiredSecret({
   docsUrl: "https://www.logo.dev/",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Logo search",
+      effectWhenRemoved: "Logo search uses the other logo sources.",
+    },
+  ],
   required: false,
 });
 
@@ -111,6 +148,13 @@ registerRequiredSecret({
   docsUrl: "https://www.logo.dev/",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Logo search",
+      effectWhenRemoved: "Logo search uses the other logo sources.",
+    },
+  ],
   required: false,
 });
 
@@ -121,6 +165,13 @@ registerRequiredSecret({
   docsUrl: "https://developers.brandfetch.com/",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Logo search",
+      effectWhenRemoved: "Logo search uses the other logo sources.",
+    },
+  ],
   required: false,
 });
 
@@ -131,6 +182,13 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Google Docs import",
+      effectWhenRemoved: "Google Docs import stops.",
+    },
+  ],
   required: false,
 });
 
@@ -141,6 +199,13 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Google Docs import",
+      effectWhenRemoved: "Google Docs import stops.",
+    },
+  ],
   required: false,
 });
 
@@ -151,6 +216,13 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Google Docs import",
+      effectWhenRemoved: "The Google Docs picker stops.",
+    },
+  ],
   required: false,
 });
 
@@ -161,5 +233,12 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Google Docs import",
+      effectWhenRemoved: "The Google Docs picker stops.",
+    },
+  ],
   required: false,
 });

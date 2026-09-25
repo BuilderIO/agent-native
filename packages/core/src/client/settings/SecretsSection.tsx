@@ -11,6 +11,7 @@ import {
   IconChevronRight,
   IconExternalLink,
   IconLoader2,
+  IconLock,
   IconPlugConnected,
   IconTrash,
   IconRefresh,
@@ -850,6 +851,8 @@ interface AdHocKey {
   last4: string;
   createdAt: number;
   updatedAt: number;
+  /** Present when another Settings surface owns this key. */
+  managedBy?: { id: string; owner: string; route: string };
 }
 
 const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
@@ -991,7 +994,12 @@ function AdHocKeysSection({
           },
         );
         if (!res.ok) {
-          showToast("err", "Failed to delete key");
+          const err = await res
+            .json()
+            .then((j: { error?: string }) => j.error)
+            // coercion-ok: the error body is optional; the toast still reports the failure.
+            .catch(() => null);
+          showToast("err", err ?? "Failed to delete key");
           return;
         }
         const body = (await res.json()) as { removed?: boolean };
@@ -1150,6 +1158,25 @@ function AdHocKeysSection({
                         <IconExternalLink size={10} />
                       </a>
                     )
+                  ) : key.managedBy ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          tabIndex={0}
+                          aria-label={t("secrets.managedByOwner", {
+                            owner: key.managedBy.owner,
+                          })}
+                          className="inline-flex p-1 text-muted-foreground"
+                        >
+                          <IconLock size={12} />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("secrets.managedByOwner", {
+                          owner: key.managedBy.owner,
+                        })}
+                      </TooltipContent>
+                    </Tooltip>
                   ) : confirmDeleteName === key.name ? (
                     <div className="flex items-center gap-1">
                       <Button

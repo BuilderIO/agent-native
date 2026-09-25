@@ -217,6 +217,11 @@ const messages = {
     managedInVault:
       "Managed in the workspace Vault. Every app in this workspace uses this value.",
     openVault: "Open Vault",
+    managedByOwner: "Managed in {{owner}}",
+    removeCredentials: "Remove credentials",
+    confirmRemove: "Remove",
+    sharedKeysKept:
+      "Some shared keys were not removed. Only workspace admins can remove them.",
     setForWorkspace: "Set for everyone in this workspace.",
     fromEnvironment: "Provided by the deployment environment.",
     usePersonalKey: "Use a personal key instead",

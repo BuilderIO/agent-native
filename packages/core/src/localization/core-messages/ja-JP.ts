@@ -681,6 +681,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "ワークスペースの Vault で管理されています。このワークスペース内のすべてのアプリがこの値を使用します。",
   "secrets.openVault": "Vault を開く",
+  "secrets.managedByOwner": "{{owner}} で管理",
+  "secrets.removeCredentials": "認証情報を削除",
+  "secrets.confirmRemove": "削除",
+  "secrets.sharedKeysKept":
+    "一部の共有キーは削除されませんでした。削除できるのはワークスペース管理者のみです。",
   "secrets.newKey": "新規",
   "secrets.noKeysFound": "キーが見つかりません。",
   "secrets.overridesVault":

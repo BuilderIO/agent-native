@@ -269,6 +269,7 @@
     "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./secrets": "./dist/secrets/index.js",
     "./secrets/crypto": "./dist/secrets/crypto.js",
+    "./secrets/actions/preview-secret-removal": "./dist/secrets/actions/preview-secret-removal.js",
     "./org": "./dist/org/index.js",
     "./org-team": "./dist/org-team/index.js",
     "./client/org": "./dist/client/org/index.js",

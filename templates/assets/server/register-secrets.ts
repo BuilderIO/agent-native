@@ -8,6 +8,19 @@ registerRequiredSecret({
   docsUrl: "https://aistudio.google.com/apikey",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "assets",
+      feature: "Video generation",
+      effectWhenRemoved: "Video generation uses Builder.io, or stops.",
+    },
+    {
+      appId: "assets",
+      feature: "Image generation",
+      effectWhenRemoved:
+        "Uses another image provider, or stops if none is set up.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value || value.length < 20) {
@@ -36,6 +49,14 @@ registerRequiredSecret({
   docsUrl: "https://platform.openai.com/api-keys",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "assets",
+      feature: "Image generation",
+      effectWhenRemoved:
+        "Uses another image provider, or stops if none is set up.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;

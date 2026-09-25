@@ -53,6 +53,10 @@ export {
   type StorageSettingsFormProps,
 } from "./StorageSettingsForm.js";
 export {
+  removeManagedSecrets,
+  type ManagedSecretRemoval,
+} from "./managed-secrets.js";
+export {
   SettingsGroup,
   SettingsRow,
   type SettingsGroupProps,
