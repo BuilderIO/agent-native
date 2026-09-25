@@ -51,6 +51,62 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.188.0
+
+### Minor Changes
+
+- 9b9c28d: Add LaunchDarkly flag support: `@agent-native/core/launchdarkly` for server code, `@agent-native/core/client/launchdarkly` for browser hooks (`useLaunchDarklyFlag`, `useLaunchDarklyFlags`), and the auto-mounted `get-launchdarkly-flags` action. Configure with the `LAUNCHDARKLY_SDK_KEY` environment variable; every read fails closed to its caller-supplied default when unconfigured, unreachable, or slow.
+- 7045f6f: Use Builder-managed embeddings and video generation through an existing Builder connection.
+- 556f777: Show Builder workspace credit balances and daily or monthly plan usage in Usage settings.
+- 21fdd86: Add the shared serializable icon contract and reusable resource icon picker.
+- 21fdd86: Add persistent workspace icons with organization-admin updates, optimistic client integration, switcher and settings rendering, and cross-app identity revision propagation.
+
+### Patch Changes
+
+- 1795ecc: Rotate sessions after two-factor changes, filter resolved action surfaces by `initialToolNames`, preserve rich MCP chat submits, and retain device-flow catalog scope.
+- 7e1176b: Scope local visual-edit handoffs to the requested design.
+- b839826: Expand human review inline with saved Design previews, full thread history, and quick feedback actions.
+- f2bc8d1: Report exact Builder gateway credit usage in usage metrics and link credit-limit errors to Builder's subscription page.
+- dbb860c: Backfill safely attributable observability runs and bound organization review reads.
+- 3afa6be: Propagate canonical Better Auth IDs to authenticated tracking events.
+- e645755: Fail release migrations when the database role cannot apply schema changes.
+- 4917d34: Refresh the Builder model catalog and display current versions in the chat picker.
+- 14124f8: Keep the DOCX parser dependency discoverable in serverless builds.
+- dbb860c: Expose admin-scoped observability review actions
+- 8fe9fc4: Stop writing the first-run onboarding eligibility marker for apps whose first-run onboarding is positively known to be off at build time (e.g. Plan), so "completed ÷ eligible" onboarding metrics no longer include rows that can never complete. Apps where the build couldn't resolve the mode keep writing the marker, matching today's behavior.
+- 70e612f: Raise the default delegated agent-loop token budget (used by cross-app A2A calls and same-app `ask_app` MCP calls) from 750,000 to 5,000,000 input tokens. The old value was too low for tool-heavy apps and could trip `run-input-token-budget` on every multi-step turn regardless of task size.
+- 3866afe: Restart supervised dev servers that remain alive while serving persistent server errors.
+- 7e1176b: Preserve startup app state while first-run onboarding eligibility resolves and report unreadable onboarding cookies.
+- 61a856b: Close three remaining gaps in the hosted-database guard (refuses to silently open ephemeral PGlite when `DATABASE_URL` is missing on a real deployment): Cloudflare Pages' generated worker entry now sets `globalThis.__env__` like the Module/Workers entry already did, a production Node/Docker server now refuses PGlite too, detected via a process-local marker set the first time the real Nitro app wires up its H3 routes rather than an env-var heuristic that would misfire during builds, and Better Auth's database adapter setup now calls the same guard, so signup/login fail with `HostedRuntimeLocalDatabaseError` instead of attempting PGlite. Also exempts migration-authorized runtimes (`withMigrationRuntime()`) from the guard, since a durable background worker can be a real hosted invocation and is allowed to touch PGlite there.
+- bdd0a03: Fix the hosted tools-only harness being silently unavailable in production for apps that only set `harness` in `agent-native.config.ts` (Chat, Mail, Analytics, Calendar). `loadHostedHarnessConfig` read that file from disk at request time, but a deployed serverless function never ships `agent-native.config.ts`/`agent-native.json`, so the read resolved to "not configured" instead of the app's actual setting. The setting is now resolved once at build time from the same app config the client bundle uses and embedded into the server bundle; the disk read remains as a fallback for dev servers and `agent-native start`, where the config file is actually present.
+- fe7e5d8: Hide empty human-review preview placeholders.
+- 451cb34: Hide human-review thumbnails when the list has no renderable preview content.
+- Release all public npm packages with a patch version bump.
+- 83dffad: Keep deployment environment credentials out of API key settings and disable hosted model-provider key fallback.
+- c2a760f: Emit `invite_sent` and `invite_accepted` tracking events for the org invite lifecycle, so referral/virality reporting can see team growth. Register the telemetry with the request's `waitUntil` (or a bounded wait when no request is reachable) so a serverless runtime can't freeze the function before the event ships.
+- 67b921b: Show an organization loading placeholder in every app sidebar while organization data loads.
+- 5cd90b0: Remove the close button from first-run onboarding.
+- ac01083: Align PDF attachment limits with their serialized message budget.
+- dbb4504: Stop connect flows from waiting after an OAuth popup is cancelled.
+- 3afa6be: Keep tab-scoped agent chat state tied to its tab while identity resolves and let replay capture continue until explicitly stopped or capped by configuration.
+- 7e1176b: Authenticate local visual-edit bridge registration and pending handoffs with a design-scoped capability.
+- 3afa6be: Track replay upload quota pauses and oversized-event drops with bounded reason metadata so incomplete recordings can be diagnosed without capturing replay content.
+- 3afa6be: Remove the default replay duration cap while preserving configured limits and safely stopping at Analytics' per-recording chunk ceiling.
+- 3afa6be: Track first-run onboarding abandonment so setup drop-off is distinguishable from a completed or dismissed flow.
+- a15d38f: Keep app-driven continuations in their original chat, reopening closed tabs and waiting for delivery confirmation. `useGuidedQuestionFlow` also exposes `refetchPendingQuestion` so a caller can force a fresh check instead of racing the reactive app-state read before dropping run correlation.
+- 74fc788: Keep an explicit PGlite database URL in test processes ahead of inherited hosted database aliases for runtime, migration, and Drizzle configuration.
+- 185e25d: Move the auth page Learn more link beside the marketing copy and show a GitHub icon on the open-source project link.
+- b5efaf9: Show captured trace span details and open full conversations from observability.
+- Updated dependencies [21fdd86]
+- Updated dependencies [4917d34]
+- Updated dependencies
+- Updated dependencies [ac01083]
+- Updated dependencies [21fdd86]
+- Updated dependencies [185e25d]
+  - @agent-native/toolkit@0.21.0
+  - @agent-native/agentkit@0.2.10
+  - @agent-native/recap-cli@0.5.40
+
 ## 0.187.0
 
 ### Minor Changes
@@ -3087,20 +3143,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 8e51925: Fix Electron chat feedback around app visibility, local development tools, and run recovery.
-
-## 0.164.5
-
-### Patch Changes
-
-- fc85cb2: Bind desktop Google OAuth exchanges to a high-entropy verifier so a known flow ID alone cannot retrieve a session token.
-
-  Previously `/_agent-native/auth/desktop-exchange` returned a live session token to any caller that named the flow ID, and the flow ID came straight from the query string. An attacker could pick an ID, send someone to `/_agent-native/google/auth-url?desktop=1&flow_id=<known>&redirect=1`, then poll the exchange after that person signed in and receive their session token. The verifier now travels in an `X-Agent-Native-Desktop-Verifier` request header — which a link navigation cannot set — only its hash is stored, and the exchange read fails closed when the verifier is missing or does not match.
-
-  **Desktop clients must be upgraded.** The old `GET ?desktop=1&flow_id=…` bootstrap is rejected, because that request shape is exactly what made the exchange stealable; there is no backward-compatible variant that keeps the fix. An older independently deployed desktop client will fail Google sign-in with `Invalid desktop exchange challenge.` until it ships the header-based bootstrap.
-
-- fc85cb2: Stop treating an unreadable code-agent schedules file as an empty schedule list. A transient read error, a corrupt file, or a partially-written `schedules.json` collapsed to `[]`, and because every create/update/delete rewrites the whole file, the next mutation silently deleted every stored schedule. Only a genuinely absent file initializes as empty now; anything unreadable raises `CodeAgentSchedulesUnreadableError` and mutations refuse to run.
-- 61ca441: Persist scheduled automation transcripts into chat threads so Open thread shows the run's agent steps.
-- Updated dependencies [fc85cb2]
-  - @agent-native/toolkit@0.16.7
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
