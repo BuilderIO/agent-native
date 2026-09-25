@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   mutateUserSetting: vi.fn(),
   registerRecurringSweepHandler: vi.fn(),
   requestJevThroughBuilder: vi.fn(),
+  getEvent: vi.fn(),
   rsvpEvent: vi.fn(),
   runWithRequestContext: vi.fn(),
 }));
@@ -45,6 +46,7 @@ vi.mock("../lib/google-api.js", () => ({
 }));
 vi.mock("../lib/google-calendar.js", () => ({
   getClientsForAccountsWithErrors: mocks.getClientsForAccountsWithErrors,
+  getEvent: mocks.getEvent,
   rsvpEvent: mocks.rsvpEvent,
 }));
 
@@ -120,8 +122,8 @@ describe("calendar event rules sweep", () => {
         const current = settingsByOwner[owner]?.[key];
         const next = typeof update === "function" ? update(current) : update;
         settingsByOwner[owner] ??= {};
-        settingsByOwner[owner][key] = next;
-        return next;
+        settingsByOwner[owner][key] = structuredClone(next);
+        return settingsByOwner[owner][key];
       },
     );
     mocks.getClientsForAccountsWithErrors.mockImplementation(
@@ -181,5 +183,147 @@ describe("calendar event rules sweep", () => {
       },
       lastError: "calendar unavailable",
     });
+  });
+
+  it("persists the first watermark before evaluation so a failure retries the same backlog", async () => {
+    const accountKey = "one@example.com:primary";
+    const settingsByOwner: Record<string, Record<string, any>> = {
+      "owner@example.com": {
+        "calendar-settings": { eventRules: { hide: "Hide focus blocks" } },
+      },
+    };
+    const event = {
+      id: "event-1",
+      created: new Date(Date.now() + 60_000).toISOString(),
+      updated: "2026-09-25T12:00:00.000Z",
+      status: "confirmed",
+      end: { dateTime: new Date(Date.now() + 3_600_000).toISOString() },
+      attendees: [{ email: "one@example.com", responseStatus: "needsAction" }],
+    };
+    mocks.listOAuthAccounts.mockResolvedValue([{ owner: "owner@example.com" }]);
+    mocks.getJevContextCredentials.mockResolvedValue({ builderAuth: "auth" });
+    mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.requestJevThroughBuilder
+      .mockRejectedValueOnce(new Error("Jev unavailable"))
+      .mockResolvedValue({ answers: { event_0_0: { noul: 0 } } });
+    mocks.getUserSetting.mockImplementation(
+      async (owner: string, key: string) => settingsByOwner[owner]?.[key],
+    );
+    mocks.mutateUserSetting.mockImplementation(
+      async (owner: string, key: string, update: any) => {
+        const current = settingsByOwner[owner]?.[key];
+        const next = typeof update === "function" ? update(current) : update;
+        settingsByOwner[owner] ??= {};
+        settingsByOwner[owner][key] = structuredClone(next);
+        return settingsByOwner[owner][key];
+      },
+    );
+    mocks.getClientsForAccountsWithErrors.mockResolvedValue({
+      clients: [{ email: "one@example.com", accessToken: "one" }],
+    });
+    mocks.calendarListEvents.mockResolvedValue({
+      items: [event],
+      nextSyncToken: "sync-token",
+    });
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+    const watermark =
+      settingsByOwner["owner@example.com"]["calendar-event-rules-runtime"]
+        .initialSyncAt[accountKey];
+    expect(watermark).toBeTruthy();
+    expect(
+      settingsByOwner["owner@example.com"]["calendar-event-rules-runtime"]
+        .cursors,
+    ).toEqual({});
+
+    await runCalendarEventRulesOnce();
+
+    expect(mocks.calendarListEvents).toHaveBeenCalledTimes(2);
+    expect(mocks.calendarListEvents.mock.calls[0][2].timeMin).toBe(watermark);
+    expect(mocks.calendarListEvents.mock.calls[1][2].timeMin).toBe(watermark);
+  });
+
+  it("reconciles a durable pending RSVP when activity persistence fails", async () => {
+    const owner = "owner@example.com";
+    const account = "one@example.com";
+    const accountKey = `${account}:primary`;
+    const event = {
+      id: "event-1",
+      created: new Date(Date.now() + 60_000).toISOString(),
+      updated: "2026-09-25T12:00:00.000Z",
+      status: "confirmed",
+      end: { dateTime: new Date(Date.now() + 3_600_000).toISOString() },
+      attendees: [{ email: account, responseStatus: "needsAction" }],
+    };
+    const updatedEvent = {
+      ...event,
+      attendees: [{ email: account, responseStatus: "accepted" }],
+    };
+    const settingsByOwner: Record<string, Record<string, any>> = {
+      [owner]: {
+        "calendar-settings": { eventRules: { accept: "Accept team meetings" } },
+      },
+    };
+    let failActivityWrite = true;
+    mocks.listOAuthAccounts.mockResolvedValue([{ owner }]);
+    mocks.getJevContextCredentials.mockResolvedValue({ builderAuth: "auth" });
+    mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.requestJevThroughBuilder.mockResolvedValue({
+      answers: { event_0_0: { noul: 1 } },
+    });
+    mocks.getUserSetting.mockImplementation(
+      async (email: string, key: string) => settingsByOwner[email]?.[key],
+    );
+    mocks.mutateUserSetting.mockImplementation(
+      async (email: string, key: string, update: any) => {
+        if (key === "calendar-settings" && failActivityWrite) {
+          failActivityWrite = false;
+          throw new Error("settings unavailable");
+        }
+        const current = settingsByOwner[email]?.[key];
+        const next = typeof update === "function" ? update(current) : update;
+        settingsByOwner[email] ??= {};
+        settingsByOwner[email][key] = structuredClone(next);
+        return settingsByOwner[email][key];
+      },
+    );
+    mocks.getClientsForAccountsWithErrors.mockResolvedValue({
+      clients: [{ email: account, accessToken: "one" }],
+    });
+    mocks.calendarListEvents
+      .mockResolvedValueOnce({ items: [event], nextSyncToken: "sync-token" })
+      .mockResolvedValue({
+        items: [updatedEvent],
+        nextSyncToken: "sync-token-2",
+      });
+    mocks.getEvent.mockResolvedValue({ responseStatus: "accepted" });
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+
+    const activityId = `google:${account}:primary:${event.id}|${event.updated}:${event.status}|accepted`;
+    expect(
+      settingsByOwner[owner]["calendar-event-rules-runtime"],
+    ).toMatchObject({
+      pendingRsvps: {
+        [activityId]: { eventId: event.id, action: "accepted" },
+      },
+    });
+    expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1);
+
+    await runCalendarEventRulesOnce();
+
+    expect(
+      settingsByOwner[owner]["calendar-settings"].eventRuleActivity,
+    ).toContainEqual(
+      expect.objectContaining({ id: activityId, action: "accepted" }),
+    );
+    expect(
+      settingsByOwner[owner]["calendar-event-rules-runtime"].pendingRsvps,
+    ).toEqual({});
+    expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1);
   });
 });

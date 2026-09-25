@@ -2543,6 +2543,7 @@ export function EmailList({
     view !== "sent" &&
     view !== "drafts" &&
     view !== "trash";
+  const canTrashInView = view !== "inbox" && view !== "trash";
   const virtualItems = rowVirtualizer.getVirtualItems();
 
   return (
@@ -2599,6 +2600,7 @@ export function EmailList({
                   )}
                   canArchive={canArchiveInView}
                   canSnooze={canSnoozeInView}
+                  canTrash={canTrashInView}
                   scheduledJobId={getScheduledJobId(thread.latestMessage)}
                   onSelect={handleSelect}
                   onToggleMultiSelect={handleToggleMultiSelect}
@@ -2606,8 +2608,12 @@ export function EmailList({
                   onToggleRead={handleToggleReadThread}
                   onArchive={handleArchiveThread}
                   onSnooze={handleSnoozeButtonClick}
-                  onImportanceFeedback={(decision) =>
-                    recordPriorityFeedback(thread.latestMessage, decision)
+                  onTrash={handleTrashThread}
+                  onImportanceFeedback={
+                    view === "inbox"
+                      ? (decision) =>
+                          recordPriorityFeedback(thread.latestMessage, decision)
+                      : undefined
                   }
                   onSendNow={handleSendScheduledNow}
                   onCancelSchedule={handleCancelScheduled}

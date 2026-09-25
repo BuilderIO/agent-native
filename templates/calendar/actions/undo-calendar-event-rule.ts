@@ -37,13 +37,22 @@ export default defineAction({
       ownerEmail,
     );
     if (activity.action === "accepted" || activity.action === "declined") {
+      const event = await googleCalendar.getEvent(activity.eventId, {
+        ownerEmail,
+        accountEmail,
+      });
+      if (event.responseStatus !== activity.action)
+        fail("Could not undo this action.", {
+          errorCode: "conflict",
+          statusCode: 409,
+        });
       await googleCalendar.rsvpEvent(
         activity.eventId,
         "needsAction",
         { ownerEmail, accountEmail },
         "single",
         undefined,
-        "all",
+        "none",
       );
     }
 

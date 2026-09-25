@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   createRule: vi.fn(),
   deleteRule: vi.fn(),
   updateRule: vi.fn(),
+  updatePreferences: vi.fn(),
+  includeTagRule: false,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -75,7 +77,23 @@ vi.mock("@/hooks/use-automations", () => ({
         updatedAt: "2026-09-25T00:00:00.000Z",
       },
     ];
-    return () => ({ data, isLoading: false });
+    const tagRule = {
+      id: "tag-rule",
+      ownerEmail: "mail-test@example.test",
+      domain: "mail",
+      kind: "ai-filter",
+      name: "AI tag: GitHub receipts",
+      condition: "GitHub receipts",
+      actions: [{ type: "label", labelName: "Existing tag" }],
+      enabled: true,
+      createdAt: "2026-09-25T00:00:00.000Z",
+      updatedAt: "2026-09-25T00:00:00.000Z",
+    };
+    const dataWithTag = [...data, tagRule];
+    return () => ({
+      data: mocks.includeTagRule ? dataWithTag : data,
+      isLoading: false,
+    });
   })(),
   useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
   useDeleteAutomation: () => ({ mutateAsync: mocks.deleteRule }),
@@ -85,7 +103,7 @@ vi.mock("@/hooks/use-automations", () => ({
 vi.mock("@/hooks/use-emails", () => ({
   useLabels: () => ({ data: [] }),
   useSettings: () => ({ data: { pinnedLabels: [] } }),
-  useUpdateSettings: () => ({ mutateAsync: vi.fn() }),
+  useUpdateSettings: () => ({ mutateAsync: mocks.updatePreferences }),
 }));
 
 vi.mock("@/hooks/use-google-auth", () => ({
@@ -98,6 +116,7 @@ describe("AiFilterSection prompt blur saves", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    mocks.includeTagRule = false;
   });
 
   it("does not mutate existing rules when a prompt blurs unchanged", async () => {
@@ -122,6 +141,28 @@ describe("AiFilterSection prompt blur saves", () => {
     expect(
       screen.queryByRole("button", { name: "mail.sort.aiSetupRunAgain" }),
     ).toBeNull();
+  });
+
+  it("does not patch tags when trimmed drafts match the saved rule", async () => {
+    mocks.includeTagRule = true;
+    render(<AiFilterSection />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Existing tag/ }));
+    const name = screen.getByRole("textbox", {
+      name: "mail.aiFilter.tagNamePlaceholder",
+    });
+    const condition = screen.getByRole("textbox", {
+      name: "mail.aiFilter.tagPlaceholder",
+    });
+    fireEvent.change(name, { target: { value: " Existing tag " } });
+    fireEvent.change(condition, { target: { value: " GitHub receipts " } });
+    fireEvent.blur(name);
+    fireEvent.blur(condition);
+
+    await waitFor(() => {
+      expect(mocks.updateRule).not.toHaveBeenCalled();
+      expect(mocks.updatePreferences).not.toHaveBeenCalled();
+    });
   });
 
   it("adds a suggested tag from one click", async () => {

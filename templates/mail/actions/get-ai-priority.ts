@@ -4,6 +4,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import {
   getJevContextCredentials,
   getRequestUserEmail,
+  isJevEnabled,
 } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
@@ -80,17 +81,18 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) fail("Unauthenticated", { errorCode: "unauthenticated" });
     const jevCredentials = await getJevContextCredentials(ownerEmail);
-    if (!jevCredentials.personalApiKey && !jevCredentials.builderAuth) {
+    const [jevEnabled, rules, cache, storedFeedback] = await Promise.all([
+      isJevEnabled(jevCredentials),
+      listAutomationRules(ownerEmail),
+      getAiPriorityCache(ownerEmail),
+      getUserSetting(ownerEmail, "ai-priority-feedback"),
+    ]);
+    if (!jevEnabled) {
       fail("Jev is not enabled for this account.", {
         errorCode: "jev_not_enabled",
         statusCode: 403,
       });
     }
-    const [rules, cache, storedFeedback] = await Promise.all([
-      listAutomationRules(ownerEmail),
-      getAiPriorityCache(ownerEmail),
-      getUserSetting(ownerEmail, "ai-priority-feedback"),
-    ]);
 
     const priorityRules = importantRules(rules);
     const instruction = priorityRules.length

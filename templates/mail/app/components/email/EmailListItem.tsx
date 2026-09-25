@@ -7,6 +7,7 @@ import {
   IconClock,
   IconMail,
   IconMailOpened,
+  IconTrash,
   IconSquare,
   IconSquareCheck,
   IconSend,
@@ -41,12 +42,12 @@ interface EmailListItemProps {
   isSelected: boolean;
   isFocused: boolean;
   isMultiSelected?: boolean;
-  /** Whether archive/snooze/trash row actions apply in the current view
-   *  (e.g. hidden in the trash/sent/drafts views). Passed as booleans instead
-   *  of `undefined`-vs-closure so the handler props below stay referentially
-   *  stable across rows and renders. */
+  /** Whether archive/snooze/trash row actions apply in the current view.
+   *  Passed as booleans instead of `undefined`-vs-closure so handlers stay
+   *  referentially stable across rows and renders. */
   canArchive?: boolean;
   canSnooze?: boolean;
+  canTrash?: boolean;
   /** Present only for scheduled-send rows; drives the send-now/cancel actions. */
   scheduledJobId?: string | null;
   onSelect: (thread: ThreadSummary) => void;
@@ -55,6 +56,7 @@ interface EmailListItemProps {
   onToggleRead?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onArchive?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onSnooze?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onTrash?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onImportanceFeedback?: (decision: "important" | "not-important") => void;
   onSendNow?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onCancelSchedule?: (e: React.MouseEvent, thread: ThreadSummary) => void;
@@ -136,6 +138,7 @@ export const EmailListItem = memo(function EmailListItem({
   isMultiSelected,
   canArchive,
   canSnooze,
+  canTrash,
   scheduledJobId,
   onSelect,
   onToggleMultiSelect,
@@ -143,6 +146,7 @@ export const EmailListItem = memo(function EmailListItem({
   onToggleRead,
   onArchive,
   onSnooze,
+  onTrash,
   onImportanceFeedback,
   onSendNow,
   onCancelSchedule,
@@ -157,6 +161,7 @@ export const EmailListItem = memo(function EmailListItem({
 
   const showArchive = Boolean(onArchive && canArchive);
   const showSnooze = Boolean(onSnooze && canSnooze);
+  const showTrash = Boolean(onTrash && canTrash);
   const showSendNow = Boolean(onSendNow && scheduledJobId);
   const showCancelSchedule = Boolean(onCancelSchedule && scheduledJobId);
 
@@ -376,6 +381,13 @@ export const EmailListItem = memo(function EmailListItem({
       if (thread) onSnooze?.(e, thread);
     },
     [onSnooze, thread],
+  );
+
+  const handleTrashClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onTrash?.(e, thread);
+    },
+    [onTrash, thread],
   );
 
   const handleSendNowClick = useCallback(
@@ -802,6 +814,21 @@ export const EmailListItem = memo(function EmailListItem({
                 <TooltipContent>
                   {t("mail.sendLater.cancelScheduledSend")}
                 </TooltipContent>
+              </Tooltip>
+            )}
+            {showTrash && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleTrashClick}
+                    aria-label={t("mail.actions.moveToTrash")}
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <IconTrash className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.actions.moveToTrash")}</TooltipContent>
               </Tooltip>
             )}
             {onImportanceFeedback && (

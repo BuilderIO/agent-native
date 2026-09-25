@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
   getUserSetting: vi.fn(),
   mutateUserSetting: vi.fn(),
+  getEvent: vi.fn(),
   resolveOwnedAccountEmail: vi.fn(),
   rsvpEvent: vi.fn(),
 }));
@@ -22,6 +23,7 @@ vi.mock("@agent-native/core/settings", () => ({
   mutateUserSetting: mocks.mutateUserSetting,
 }));
 vi.mock("../server/lib/google-calendar.js", () => ({
+  getEvent: mocks.getEvent,
   rsvpEvent: mocks.rsvpEvent,
 }));
 vi.mock("./event-action-helpers.js", () => ({
@@ -67,6 +69,7 @@ describe("undo-calendar-event-rule", () => {
       },
     );
     mocks.resolveOwnedAccountEmail.mockResolvedValue("owner@example.com");
+    mocks.getEvent.mockResolvedValue({ responseStatus: "accepted" });
   });
 
   it("unhides the recorded event and removes its activity", async () => {
@@ -88,14 +91,32 @@ describe("undo-calendar-event-rule", () => {
       "owner@example.com",
       "owner@example.com",
     );
+    expect(mocks.getEvent).toHaveBeenCalledWith("event-accepted", {
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+    });
     expect(mocks.rsvpEvent).toHaveBeenCalledWith(
       "event-accepted",
       "needsAction",
       { ownerEmail: "owner@example.com", accountEmail: "owner@example.com" },
       "single",
       undefined,
-      "all",
+      "none",
     );
     expect(settings.eventRuleActivity).toEqual([hiddenActivity]);
+  });
+
+  it("preserves activity when the RSVP no longer matches the recorded action", async () => {
+    mocks.getEvent.mockResolvedValue({ responseStatus: "declined" });
+
+    await expect(
+      action.run({ activityId: acceptedActivity.id }),
+    ).rejects.toThrow("Could not undo this action.");
+
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+    expect(settings.eventRuleActivity).toEqual([
+      hiddenActivity,
+      acceptedActivity,
+    ]);
   });
 });

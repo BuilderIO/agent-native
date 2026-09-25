@@ -95,10 +95,12 @@ export default function Settings() {
     { activityId: string }
   >("undo-calendar-event-rule", {
     onSuccess: () => toast.success(t("settings.eventRuleUndoDone")),
-    onError: (error) =>
-      toast.error(
-        actionErrorMessage(error) ?? t("settings.eventRuleUndoFailed"),
-      ),
+    onError: (error) => {
+      const code = (error as { errorCode?: unknown } | null)?.errorCode;
+      const message =
+        code === "conflict" ? undefined : actionErrorMessage(error);
+      toast.error(message ?? t("settings.eventRuleUndoFailed"));
+    },
   });
   const googleStatus = useGoogleAuthStatus();
   const disconnectGoogle = useDisconnectGoogle();

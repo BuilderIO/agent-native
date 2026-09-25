@@ -28,6 +28,7 @@ import {
   IconInbox,
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -1480,13 +1481,30 @@ export function EmailThread({
                     {t("mail.actions.archive")} (E)
                   </TooltipContent>
                 </Tooltip>
-                {email && view !== "trash" && (
+                {email && view === "inbox" && (
                   <ImportanceFeedbackMenu
                     onFeedback={(decision) =>
                       void submitPriorityFeedback(decision)
                     }
                     className="h-7 w-7"
                   />
+                )}
+                {email && view !== "inbox" && view !== "trash" && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={handleTrash}
+                        aria-label={t("mail.actions.moveToTrash")}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("mail.actions.moveToTrash")} (D / #)
+                    </TooltipContent>
+                  </Tooltip>
                 )}
                 <button
                   type="button"

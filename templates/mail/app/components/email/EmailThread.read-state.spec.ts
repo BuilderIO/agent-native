@@ -26,6 +26,14 @@ describe("EmailThread trash shortcuts", () => {
     );
     expect(source).toContain('t("mail.actions.moveToTrash")} (D / #)');
   });
+
+  it("shows importance feedback in Inbox and trash in other non-trash views", () => {
+    expect(source).toContain('email && view === "inbox" && (');
+    expect(source).toContain(
+      'email && view !== "inbox" && view !== "trash" && (',
+    );
+    expect(source).toContain('<IconTrash className="h-4 w-4" />');
+  });
 });
 
 describe("EmailThread removal undo", () => {

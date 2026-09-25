@@ -21,10 +21,15 @@ const INTERVAL_MS = 5 * 60_000;
 const EVENT_BATCH_SIZE = 10;
 const PROCESSED_LIMIT = 2000;
 const RUNTIME_KEY = "calendar-event-rules-runtime";
+type PendingRsvp = Pick<
+  CalendarEventRuleActivity,
+  "id" | "eventId" | "accountEmail" | "title" | "action" | "occurredAt"
+> & { action: "accepted" | "declined" };
 type Runtime = {
   cursors?: Record<string, string>;
   processed?: Record<string, string>;
   initialSyncAt?: Record<string, string>;
+  pendingRsvps?: Record<string, PendingRsvp>;
   lastError?: string;
   lastConflictCount?: number;
   lastSweepAt?: number;
@@ -157,41 +162,114 @@ async function evaluate(
   return decisions;
 }
 
+async function persistEventRuleActivity(
+  owner: string,
+  activity: CalendarEventRuleActivity[],
+  addedHiddenKeys: ReadonlySet<string> = new Set(),
+) {
+  if (!activity.length && !addedHiddenKeys.size) return;
+  await mutateUserSetting(owner, "calendar-settings", (current) => {
+    const record = (current ?? {}) as Record<string, unknown>;
+    const latest = normalizeCalendarSettings(record);
+    const nextActivity = new Map(
+      latest.eventRuleActivity?.map((entry) => [entry.id, entry]),
+    );
+    for (const entry of activity) nextActivity.set(entry.id, entry);
+    return {
+      ...record,
+      hiddenEventKeys: [
+        ...new Set([...(latest.hiddenEventKeys ?? []), ...addedHiddenKeys]),
+      ].slice(-5000),
+      eventRuleActivity: [...nextActivity.values()].slice(-50),
+    };
+  });
+}
+
 async function syncOwner(owner: string, signal?: AbortSignal) {
   const settings = normalizeCalendarSettings(
     await getUserSetting(owner, "calendar-settings"),
   );
   const rules = settings.eventRules ?? {};
-  if (!Object.values(rules).some((rule) => rule?.trim())) return;
+  const hasActiveRules = Object.values(rules).some((rule) => rule?.trim());
   // coercion-ok: null means this owner has not recorded a sweep cursor yet.
   const runtime = ((await getUserSetting(owner, RUNTIME_KEY)) ?? {}) as Runtime;
-  if (runtime.lastSweepAt && Date.now() - runtime.lastSweepAt < INTERVAL_MS)
-    return;
-  const accounts = await googleCalendar.getClientsForAccountsWithErrors(owner);
   const cursors = { ...(runtime.cursors ?? {}) };
   const processed = { ...(runtime.processed ?? {}) };
   const initialSyncAt = { ...(runtime.initialSyncAt ?? {}) };
+  const pendingRsvps = { ...(runtime.pendingRsvps ?? {}) };
+  const resolvedPendingRsvps = new Set<string>();
   let conflictCount = 0;
   const persistProgress = (lastSweepAt?: number) =>
-    mutateUserSetting(owner, RUNTIME_KEY, (current) => ({
-      ...((current ?? {}) as Runtime),
-      cursors,
-      processed: Object.fromEntries(
-        Object.entries(processed).slice(-PROCESSED_LIMIT),
-      ),
-      initialSyncAt,
-      lastConflictCount: conflictCount,
-      ...(lastSweepAt ? { lastSweepAt } : {}),
-    }));
+    mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+      const latest = (current ?? {}) as Runtime;
+      const latestPendingRsvps = {
+        ...(latest.pendingRsvps ?? {}),
+        ...pendingRsvps,
+      };
+      for (const id of resolvedPendingRsvps) delete latestPendingRsvps[id];
+      return {
+        ...latest,
+        cursors,
+        processed: Object.fromEntries(
+          Object.entries(processed).slice(-PROCESSED_LIMIT),
+        ),
+        initialSyncAt,
+        pendingRsvps: latestPendingRsvps,
+        lastConflictCount: conflictCount,
+        ...(lastSweepAt ? { lastSweepAt } : {}),
+      };
+    });
+  const persistPendingRsvp = async (pending: PendingRsvp) => {
+    pendingRsvps[pending.id] = pending;
+    resolvedPendingRsvps.delete(pending.id);
+    await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+      const latest = (current ?? {}) as Runtime;
+      return {
+        ...latest,
+        pendingRsvps: {
+          ...(latest.pendingRsvps ?? {}),
+          [pending.id]: pending,
+        },
+      };
+    });
+  };
+
+  for (const [id, pending] of Object.entries(pendingRsvps)) {
+    signal?.throwIfAborted();
+    const event = await googleCalendar.getEvent(pending.eventId, {
+      ownerEmail: owner,
+      accountEmail: pending.accountEmail,
+    });
+    const currentResponse =
+      event.responseStatus ??
+      event.attendees?.find(
+        (attendee) =>
+          attendee.self ||
+          attendee.email?.toLowerCase() === pending.accountEmail.toLowerCase(),
+      )?.responseStatus;
+    if (currentResponse === pending.action)
+      await persistEventRuleActivity(owner, [pending]);
+    delete pendingRsvps[id];
+    resolvedPendingRsvps.add(id);
+  }
+  if (resolvedPendingRsvps.size) await persistProgress();
+
+  if (!hasActiveRules) return;
+  if (runtime.lastSweepAt && Date.now() - runtime.lastSweepAt < INTERVAL_MS)
+    return;
+
+  const accounts = await googleCalendar.getClientsForAccountsWithErrors(owner);
 
   for (const account of accounts.clients) {
     signal?.throwIfAborted();
     const calendarId = "primary";
     const accountCalendarKey = `${account.email.toLowerCase()}:${calendarId}`;
-    let cursor = cursors[accountCalendarKey];
+    let cursor: string | undefined = cursors[accountCalendarKey];
     let initial = initialSyncAt[accountCalendarKey];
-    if (!initial)
+    if (!initial) {
       initial = initialSyncAt[accountCalendarKey] = new Date().toISOString();
+      await persistProgress();
+    }
     let fullSyncStartedAt = cursor ? undefined : initial;
     let events: any[] = [];
     let pageToken: string | undefined;
@@ -216,9 +294,11 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
         throw error;
       // Google invalidates sync tokens periodically; reset from now and resume incremental reads.
       delete cursors[accountCalendarKey];
+      cursor = undefined;
       initial = new Date().toISOString();
       fullSyncStartedAt = initial;
       initialSyncAt[accountCalendarKey] = initial;
+      await persistProgress();
       do {
         const result = await calendarListEvents(
           account.accessToken,
@@ -252,19 +332,14 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
       const identity = eventKey(account.email, calendarId, event.id);
       const version = `${event.updated ?? ""}:${event.status ?? ""}`;
       const actions = decisions.get(event.id) ?? new Set();
-      let responseAction: "accepted" | "declined" | undefined;
       if (actions.has("accept") && actions.has("decline")) {
         conflictCount += 1;
         console.warn(
           "[calendar-event-rules] skipped conflicting Jev RSVP rules.",
         );
       } else if (actions.has("accept") || actions.has("decline")) {
-        responseAction = actions.has("accept") ? "accepted" : "declined";
-        await googleCalendar.rsvpEvent(event.id, responseAction, {
-          ownerEmail: owner,
-          accountEmail: account.email,
-        });
-        activity.push({
+        const responseAction = actions.has("accept") ? "accepted" : "declined";
+        const entry: PendingRsvp = {
           id: `${identity}|${version}|${responseAction}`,
           eventId: event.id,
           accountEmail: account.email,
@@ -274,7 +349,13 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
               : "",
           action: responseAction,
           occurredAt: new Date().toISOString(),
+        };
+        await persistPendingRsvp(entry);
+        await googleCalendar.rsvpEvent(event.id, responseAction, {
+          ownerEmail: owner,
+          accountEmail: account.email,
         });
+        activity.push(entry);
       }
       if (actions.has("hide")) {
         addedHiddenKeys.add(identity);
@@ -295,21 +376,12 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
       processed[identity] = version;
     }
     if (activity.length || addedHiddenKeys.size) {
-      await mutateUserSetting(owner, "calendar-settings", (current) => {
-        const record = (current ?? {}) as Record<string, unknown>;
-        const latest = normalizeCalendarSettings(record);
-        const nextActivity = new Map(
-          latest.eventRuleActivity?.map((entry) => [entry.id, entry]),
-        );
-        for (const entry of activity) nextActivity.set(entry.id, entry);
-        return {
-          ...record,
-          hiddenEventKeys: [
-            ...new Set([...(latest.hiddenEventKeys ?? []), ...addedHiddenKeys]),
-          ].slice(-5000),
-          eventRuleActivity: [...nextActivity.values()].slice(-50),
-        };
-      });
+      await persistEventRuleActivity(owner, activity, addedHiddenKeys);
+      for (const entry of activity) {
+        if (entry.action === "hidden") continue;
+        delete pendingRsvps[entry.id];
+        resolvedPendingRsvps.add(entry.id);
+      }
     }
     await persistProgress();
   }

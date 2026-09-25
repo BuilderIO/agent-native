@@ -402,6 +402,7 @@ export function AiFilterSection() {
     const name = nameDraft.trim() || labelForRule(rule);
     const condition = conditionDraft.trim() || rule.condition;
     if (!name || !condition) return;
+    if (name === labelForRule(rule) && condition === rule.condition) return;
     try {
       await updateRule.mutateAsync({
         id: rule.id,

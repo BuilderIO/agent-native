@@ -5,6 +5,7 @@ import { aiPriorityEmailKey } from "../shared/ai-priority.js";
 const mocks = vi.hoisted(() => ({
   getJevContextCredentials: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  isJevEnabled: vi.fn(),
   getUserSetting: vi.fn(),
   getAiPriorityCache: vi.fn(),
   getCachedPriorityScores: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/server", () => ({
   getJevContextCredentials: mocks.getJevContextCredentials,
   getRequestUserEmail: mocks.getRequestUserEmail,
+  isJevEnabled: mocks.isJevEnabled,
 }));
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: mocks.getUserSetting,
@@ -40,6 +42,7 @@ describe("get-ai-priority action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.isJevEnabled.mockResolvedValue(false);
     mocks.getUserSetting.mockResolvedValue(null);
     mocks.getJevContextCredentials.mockResolvedValue({
       apiKey: undefined,
@@ -60,7 +63,22 @@ describe("get-ai-priority action", () => {
     await expect(action.run({ emails: [] })).rejects.toThrow(
       /Jev is not enabled/,
     );
-    expect(mocks.listAutomationRules).not.toHaveBeenCalled();
+    expect(mocks.previewAutomationPriority).not.toHaveBeenCalled();
+  });
+
+  it("checks Jev entitlement even when Builder credentials resolve", async () => {
+    const credentials = {
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: { authorization: "Bearer builder-test-token" },
+    };
+    mocks.getJevContextCredentials.mockResolvedValue(credentials);
+
+    await expect(action.run({ emails: [] })).rejects.toThrow(
+      /Jev is not enabled/,
+    );
+
+    expect(mocks.isJevEnabled).toHaveBeenCalledWith(credentials);
     expect(mocks.previewAutomationPriority).not.toHaveBeenCalled();
   });
 
@@ -71,6 +89,7 @@ describe("get-ai-priority action", () => {
       personalApiKey: undefined,
       builderAuth: { authorization: "Bearer builder-test-token" },
     });
+    mocks.isJevEnabled.mockResolvedValue(true);
     mocks.getCachedPriorityScores.mockImplementation(
       (
         _cache,
@@ -132,6 +151,7 @@ describe("get-ai-priority action", () => {
       personalApiKey: undefined,
       builderAuth,
     });
+    mocks.isJevEnabled.mockResolvedValue(true);
     mocks.previewAutomationPriority.mockResolvedValue({
       scores: new Map([
         [aiPriorityEmailKey(undefined, "email-1"), { score: 0.9 }],
@@ -172,6 +192,7 @@ describe("get-ai-priority action", () => {
       personalApiKey: undefined,
       builderAuth: { authorization: "Bearer builder-test-token" },
     });
+    mocks.isJevEnabled.mockResolvedValue(true);
     mocks.previewAutomationPriority.mockImplementation(
       async (emails: Array<{ id: string; accountEmail?: string }>) => ({
         scores: new Map(
