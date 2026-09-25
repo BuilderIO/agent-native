@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 
 import { applyVisualEdit } from "@shared/code-layer";
-import { createCornerNode, type PenPath } from "@shared/pen-path";
+import {
+  closePenPath,
+  createCornerNode,
+  serializePenPath,
+  type PenPath,
+} from "@shared/pen-path";
 import {
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
@@ -632,16 +637,75 @@ describe("pen path paint defaults", () => {
     return path;
   };
 
-  it("commits a closed pen path like a drawn rectangle: filled, unstroked", () => {
+  it("commits a closed pen path stroke-only, as Figma does on close", () => {
     const path = committedPath(penPath("M 10 10 L 90 10 L 50 70 Z"));
-    expect(path.getAttribute("fill")).toBe("rgb(218 218 218)");
-    expect(path.getAttribute("stroke")).toBe("none");
+    expect(path.getAttribute("fill")).toBe("none");
+    expect(path.getAttribute("stroke")).toBe("#000000");
+  });
+
+  it("keeps a pen path's box on its bounds when it starts past the screen edge", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "path",
+      nodeId: "pen-1",
+      geometry: { x: -40.5, y: -20, width: 140.25, height: 90 },
+      pathData: "M -40.5 -20 L 99.75 70",
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector<SVGSVGElement>("svg");
+    expect(svg?.getAttribute("viewBox")).toBe("-40.5 -20 140.25 90");
+    expect(svg?.style.left).toBe("-40.5px");
+    expect(svg?.style.top).toBe("-20px");
+    expect(svg?.style.width).toBe("140.25px");
+    expect(svg?.style.height).toBe("90px");
   });
 
   it("keeps the stroke on an open pen path, which is only its stroke", () => {
     const path = committedPath(penPath("M 10 10 L 90 10 L 50 70"));
     expect(path.getAttribute("fill")).toBe("none");
     expect(path.getAttribute("stroke")).toBe("#000000");
+    // A fill added later must not paint the chord (Figma).
+    expect(path.getAttribute("fill-opacity")).toBeNull();
+    expect(path.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(path.style.getPropertyPriority("fill-opacity")).toBe("important");
+    expect(
+      committedPath(penPath("M 10 10 L 90 10 L 50 70 Z")).getAttribute(
+        "fill-opacity",
+      ),
+    ).toBeNull();
+  });
+
+  it("restores fresh open-path opacity on its first close", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 10, y: 10 }),
+        createCornerNode({ x: 90, y: 10 }),
+        createCornerNode({ x: 50, y: 70 }),
+      ],
+    };
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      ...penPath(serializePenPath(openPath)),
+    });
+    if (!html) throw new Error("open pen path did not commit");
+    const openElement = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector("path")!;
+    expect(openElement.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openElement.hasAttribute("data-an-open-fill-opacity")).toBe(true);
+
+    const closed = writeBackVectorEditedPenPath(
+      html,
+      "pen-1",
+      closePenPath(openPath),
+    );
+    if (!closed) throw new Error("first close did not commit");
+    const closedElement = new DOMParser()
+      .parseFromString(closed, "text/html")
+      .querySelector("path")!;
+    expect(closedElement.getAttribute("fill-opacity")).toBeNull();
+    expect(closedElement.style.getPropertyValue("fill-opacity")).toBe("");
+    expect(closedElement.hasAttribute("data-an-open-fill-opacity")).toBe(false);
   });
 
   it("still honours an explicitly chosen fill and stroke", () => {
@@ -665,7 +729,7 @@ describe("pen path paint defaults", () => {
     const polygon = new DOMParser()
       .parseFromString(html ?? "", "text/html")
       .querySelector("polygon");
-    expect(polygon?.getAttribute("fill")).toBe("rgb(218 218 218)");
+    expect(polygon?.getAttribute("fill")).toBe("rgb(217 217 217)");
     expect(polygon?.getAttribute("stroke")).toBe("none");
   });
 });
@@ -727,9 +791,17 @@ describe("reopening and reclosing a pen path", () => {
     );
     if (!reopened) throw new Error("pen path reopen did not commit");
     expect(pathAttributes(reopened)).toEqual({
-      fill: "none",
+      fill: "rgb(218 218 218)",
       stroke: "#000000",
     });
+    const reopenedPath = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("path")!;
+    expect(reopenedPath.getAttribute("fill-opacity")).toBeNull();
+    expect(reopenedPath.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(reopenedPath.style.getPropertyPriority("fill-opacity")).toBe(
+      "important",
+    );
 
     const reclosed = writeBackVectorEditedPenPath(
       reopened,
@@ -741,6 +813,45 @@ describe("reopening and reclosing a pen path", () => {
       fill: "rgb(218 218 218)",
       stroke: "none",
     });
+  });
+
+  it("paints a kept fill only while the path is closed", () => {
+    const reopened = writeBackVectorEditedPenPath(
+      svgHtml("none", "#000000").replace(
+        "<path ",
+        '<path style="fill: #ff0000" ',
+      ),
+      "pen-1",
+      openPath,
+    );
+    if (!reopened) throw new Error("reopen did not commit");
+    const openEl = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("path")!;
+    expect(openEl.getAttribute("fill-opacity")).toBeNull();
+    expect(openEl.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openEl.style.getPropertyPriority("fill-opacity")).toBe("important");
+    expect(openEl.style.fill).toBe("#ff0000");
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened,
+      "pen-1",
+      closedPath,
+    );
+    if (!reclosed) throw new Error("reclose did not commit");
+    const closedEl = new DOMParser()
+      .parseFromString(reclosed, "text/html")
+      .querySelector("path")!;
+    expect(closedEl.getAttribute("fill-opacity")).toBeNull();
+  });
+
+  it("keeps a stroke-only pen path unfilled when it closes, like Figma", () => {
+    const content = svgHtml("none", "#000000").replace(
+      'd="M 0 0 L 10 0 L 5 10 Z"',
+      'd="M 0 0 L 10 0 L 5 10"',
+    );
+    const closed = writeBackVectorEditedPenPath(content, "pen-1", closedPath);
+    if (!closed) throw new Error("pen path close did not commit");
+    expect(pathAttributes(closed)).toEqual({ fill: "none", stroke: "#000000" });
   });
 
   it("keeps a stroke the user chose when the path closes", () => {
@@ -1112,5 +1223,19 @@ describe("appendCanvasPrimitiveToHtml fill survives a source-based computedStyle
     const rawStyles = parseInlineStyleAttribute(el.getAttribute("style"));
     const aliased = cssStyleAliases(rawStyles);
     expect(aliased.backgroundColor).toBeTruthy();
+  });
+});
+
+describe("cssStyleAliases border and outline shorthands", () => {
+  it("expands an authored border into the longhands the Stroke section reads", () => {
+    const aliased = cssStyleAliases({ border: "1px solid #f08989" });
+    expect(aliased.borderWidth).toBe("1px");
+    expect(aliased.borderStyle).toBe("solid");
+    expect(aliased.borderColor).toBeTruthy();
+  });
+
+  it("keeps an outline with style none unpainted", () => {
+    const aliased = cssStyleAliases({ outline: "#ff6666 none 9px" });
+    expect(aliased.outlineStyle).toBe("none");
   });
 });

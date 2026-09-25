@@ -2,6 +2,13 @@ import { z } from "zod";
 
 /** Inbound integration webhook policy. */
 export const integrationsConfig = z.object({
+  durableDispatch: z
+    .boolean()
+    .optional()
+    .meta({
+      env: ["AGENT_INTEGRATION_DURABLE_DISPATCH"],
+      doc: "Use a durable background function for integration work. Explicit false stops an enabled rollout; unset leaves it unavailable.",
+    }),
   allowUnverifiedWebhooks: z
     .boolean()
     .default(false)

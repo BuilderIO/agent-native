@@ -3,10 +3,37 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-23
+
+### Improved
+
+- Slides loads AI prompt tools and extra slide controls only when you open them.
+
+### Fixed
+
+- Deck access errors leave the loading state and explain that the deck is unavailable.
+- Slide chat follows the current selection, and loaded slides remain visible when a background refresh fails
+- Slides home retries failed deck-list reads sooner.
+- Slides no longer shows an error page while the deck list is recovering.
+
+## 2026-09-22
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Design system indexing checks now back off instead of polling every few seconds indefinitely.
+- Moving and resizing slide content now works like Google Slides: boxes drag from anywhere on them, a second click edits their text, containers outline on hover, and resizing AI-generated text works even while editing.
+- An open deck no longer reloads every deck your teammates change.
+
+### Fixed
+
+- AI-generated bullets keep their markers when you add, indent, or undo bullet rows.
+
 ## 2026-09-21
 
 ### Fixed
 
+- PDF exports preserve slide fonts and text wrapping
 - Keep slide additions aligned with the deck's existing design system
 
 ## 2026-09-20
@@ -34,6 +61,10 @@ time from the command menu (Cmd+K → "What's new").
 - Inline slide editing now preserves text changes through teardown and reload
 - Slides keeps chat controls, queued prompts, sharing, and design-system status in sync.
 - Slides now hydrates configured design system defaults when references load after opening.
+
+### Removed
+
+- Slides opens directly into the deck workspace without the extra first-run setup flow
 
 ## 2026-09-17
 

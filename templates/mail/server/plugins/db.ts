@@ -281,6 +281,25 @@ ADD COLUMN IF NOT EXISTS local_mutation_history_id TEXT;
 ALTER TABLE mail_inbox_threads
 ADD COLUMN IF NOT EXISTS local_mutation_fields INTEGER`,
     },
+    {
+      version: 25,
+      name: "mail-inbox-push-invalidations",
+      sql: `CREATE TABLE IF NOT EXISTS mail_inbox_push_invalidations (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_mail_inbox_push_invalidations_owner_account
+  ON mail_inbox_push_invalidations(owner_email, account_email);`,
+    },
+    {
+      version: 26,
+      name: "mail-inbox-push-generation",
+      sql: `ALTER TABLE mail_inbox_push_invalidations
+  ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_push_generation BIGINT NOT NULL DEFAULT 0;`,
+    },
   ],
   { table: "mail_migrations" },
 );

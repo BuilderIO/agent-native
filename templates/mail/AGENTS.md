@@ -58,7 +58,7 @@ Read the relevant skill before deeper work:
 
 | Action | Purpose |
 | --- | --- |
-| `list-inbox-threads` | Inbox tab bar, counts, and rows from one synced-store partition; other views/search use `list-emails`/`search-emails`. |
+| `list-inbox-threads` | Synced inbox partition feeds tabs, counts, and rows; All includes every thread by default. |
 | `resync-inbox` | Force an immediate inbox resync from Gmail, bypassing the freshness window. |
 | `search-emails` / `list-emails` | Query mail by view/query. |
 | `list-labels` | List mailbox labels. |
@@ -76,6 +76,7 @@ Read the relevant skill before deeper work:
 | `manage-automations` | Recurring and event-triggered automations shown in Settings. |
 | `manage-email-rules` / `trigger-automations` | Inbox automation rules. |
 | `get-ai-filter` / `apply-ai-filter` | Reversible AI filtering, feedback, and learned instructions. |
+| `get-ai-priority` | Optional Jev Priority sort; requires Jev access. |
 | `respond-calendar-invite` | Accept/decline/tentative an invite. |
 | `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Drafting preferences, including Send + Mark Done. |
 | `manage-snippets` | Saved reply snippets. |
@@ -87,12 +88,10 @@ Read the relevant skill before deeper work:
 
 - `navigation` exposes inbox/thread/draft-queue views and selected ids.
 - `compose-{id}` entries are open compose tabs and draft content.
-- `navigate` moves the UI via `view`, `tab` (inbox tab id; `label`/`filter`
-  are aliases), `threadId`, `settingsSection`, `queuedDraftId`, or
-  `composeDraftId`; accepted values are listed in `inbox-reads-and-triage`.
+- `navigate` moves the UI via `view`, `tab` (`label`/`filter` aliases), `sort`
+  (`newest` or `priority`), `threadId`, `settingsSection`, `queuedDraftId`,
+  or `composeDraftId`.
 - `settingsSection: "ai-filter"` opens the AI filter controls and review ledger.
 
-## Source Changes
-
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`;
+read `customizing-agent-native` before adapting shared UI.

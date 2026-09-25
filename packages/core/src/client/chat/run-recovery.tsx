@@ -19,7 +19,14 @@ import {
   IconPlus,
   IconClipboardList,
 } from "@tabler/icons-react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
@@ -28,10 +35,17 @@ import {
   localizeKnownChatErrorText,
 } from "../error-format.js";
 import { useFormatters, useT } from "../i18n.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
-import { AgentProviderSetupForm } from "../settings/ProviderSetupForm.js";
+import { LazyChunkErrorBoundary } from "../lazy-chunk-error-boundary.js";
+import { LazyChunkRetryFallback } from "../lazy-chunk-retry-fallback.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
+
+const LazyAgentProviderSetupForm = lazy(() =>
+  import("../settings/ProviderSetupForm.js").then((module) => ({
+    default: module.AgentProviderSetupForm,
+  })),
+);
 
 // ─── Type definitions ─────────────────────────────────────────────────────────
 
@@ -268,7 +282,7 @@ export function BuilderConnectCta({
 
     return (
       <div className="agent-builder-setup-card__builder-cta flex min-w-0 flex-col items-start gap-1 sm:items-end">
-        <BuilderConnectPopover flow={flow}>
+        <DeferredBuilderConnectPopover flow={flow}>
           <button
             type="button"
             disabled={connecting}
@@ -286,7 +300,7 @@ export function BuilderConnectCta({
               t("agentChat.setup.connectBuilder")
             )}
           </button>
-        </BuilderConnectPopover>
+        </DeferredBuilderConnectPopover>
         {error && (
           <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end">
             {error}
@@ -331,7 +345,7 @@ export function BuilderConnectCta({
         </p>
         {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
       </div>
-      <BuilderConnectPopover flow={flow}>
+      <DeferredBuilderConnectPopover flow={flow}>
         <button
           type="button"
           disabled={connecting}
@@ -347,7 +361,7 @@ export function BuilderConnectCta({
             t("agentChat.common.connect")
           )}
         </button>
-      </BuilderConnectPopover>
+      </DeferredBuilderConnectPopover>
     </div>
   );
 }
@@ -355,12 +369,39 @@ export function BuilderConnectCta({
 // ─── ApiKeyConnect ────────────────────────────────────────────────────────────
 
 export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
+  const t = useT();
+  const loadingForm = (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={t("agentChat.common.loading")}
+      className="space-y-2 rounded-md border border-border bg-accent/20 p-2.5"
+    >
+      <div
+        aria-hidden="true"
+        className="h-8 animate-pulse rounded-md bg-muted"
+      />
+      <div
+        aria-hidden="true"
+        className="h-16 animate-pulse rounded-md bg-muted"
+      />
+      <div
+        aria-hidden="true"
+        className="ms-auto h-8 w-20 animate-pulse rounded-md bg-muted"
+      />
+    </div>
+  );
+
   return (
-    <AgentProviderSetupForm
-      onConnected={() => onConnected?.()}
-      layout="compact"
-      showTitle={false}
-    />
+    <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+      <Suspense fallback={loadingForm}>
+        <LazyAgentProviderSetupForm
+          onConnected={() => onConnected?.()}
+          layout="compact"
+          showTitle={false}
+        />
+      </Suspense>
+    </LazyChunkErrorBoundary>
   );
 }
 
@@ -769,7 +810,7 @@ export function RunErrorRecoveryCard({
       </div>
       <div className="mt-3 flex min-w-0 items-center gap-2">
         {shouldShowBuilderReconnect && !builderReconnectResolved && (
-          <BuilderConnectPopover flow={builderReconnect}>
+          <DeferredBuilderConnectPopover flow={builderReconnect}>
             <button
               type="button"
               disabled={builderReconnect.connecting}
@@ -782,7 +823,7 @@ export function RunErrorRecoveryCard({
                 ? t("agentChat.recovery.connectingBuilder")
                 : t("agentChat.recovery.reconnectBuilder")}
             </button>
-          </BuilderConnectPopover>
+          </DeferredBuilderConnectPopover>
         )}
         {canRecover && (
           <button

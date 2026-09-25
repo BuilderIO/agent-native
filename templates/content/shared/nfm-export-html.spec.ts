@@ -1,7 +1,8 @@
+import { serializeIconValue, type IconValue } from "@agent-native/core/icons";
 import { describe, expect, it } from "vitest";
 
 import { buildDocumentExport } from "./document-export";
-import { docToNfm, type PMDoc, type PMNode } from "./nfm";
+import { docToNfm, nfmToDoc, type PMDoc, type PMNode } from "./nfm";
 
 const paragraph = (text: string): PMNode => ({
   type: "paragraph",
@@ -21,6 +22,11 @@ function exportedBody(content: string, format: "pdf" | "html" = "pdf") {
     format,
   });
   return payload.content.split("<article>")[1].split("</article>")[0];
+}
+
+function calloutWithIcon(icon: IconValue) {
+  const stored = serializeIconValue(icon)!.replace(/"/g, "&quot;");
+  return `<callout icon="${stored}">\n\tHeads up\n</callout>`;
 }
 
 /**
@@ -132,6 +138,19 @@ describe("NFM container export", () => {
     expect(html).toContain('class="nfm-align-right"');
     expect(table!.body[0][0].html).toBe("<code>left | right</code>");
     expect(table!.body[1][0].html).toBe("<code>multi | pipe</code>");
+  });
+
+  it("keeps extra ragged cells visible in exported tables", () => {
+    const html = exportedBody(
+      "| Name | Price |\n| :--- | ---: |\n| A | $1 | extra |",
+    );
+    const table = readTable(html);
+    expect(table!.head[0]).toHaveLength(3);
+    expect(table!.body[0].map((cell) => cell.html)).toEqual([
+      "A",
+      "$1",
+      "extra",
+    ]);
   });
 
   it("requires three-hyphen delimiters and supports one-column tables", () => {
@@ -257,6 +276,64 @@ describe("NFM container export", () => {
     expect(html.match(/<div class="nfm-column">/g)).toHaveLength(2);
   });
 
+  it("renders colored Tabler callout icons in standalone HTML and PDF output", () => {
+    const markdown = calloutWithIcon({
+      version: 1,
+      kind: "library",
+      library: "tabler",
+      name: "book",
+      color: "blue",
+    });
+    for (const format of ["html", "pdf"] as const) {
+      const html = exportedBody(markdown, format);
+      expect(html).toMatch(/<span class="nfm-callout-icon"><svg[^>]*>/);
+      expect(html).toContain('stroke="#337ea9"');
+      expect(html).toContain("<p>Heads up</p>");
+      expect(html).not.toContain("&quot;library&quot;");
+    }
+  });
+
+  it("colors filled Tabler callout icons", () => {
+    const html = exportedBody(
+      calloutWithIcon({
+        version: 1,
+        kind: "library",
+        library: "tabler",
+        name: "star",
+        variant: "filled",
+        color: "red",
+      }),
+    );
+    expect(html).toContain("tabler-icon-star-filled");
+    expect(html).toContain("color:#c4554d");
+  });
+
+  it("renders uploaded callout images with safe URLs and escaped alt text", () => {
+    const html = exportedBody(
+      calloutWithIcon({
+        version: 1,
+        kind: "image",
+        authority: "url",
+        assetId: "https://example.com/icon.png?x=1&y=2",
+        alt: 'Logo "square"',
+      }),
+    );
+    expect(html).toContain(
+      '<img src="https://example.com/icon.png?x=1&amp;y=2" alt="Logo &quot;square&quot;" />',
+    );
+
+    const unsafe = exportedBody(
+      calloutWithIcon({
+        version: 1,
+        kind: "image",
+        authority: "url",
+        assetId: "javascript:alert(1)",
+      }),
+    );
+    expect(unsafe).not.toContain("<img");
+    expect(unsafe).not.toContain("javascript:");
+  });
+
   it("expands toggles so a printed export cannot hide their content", () => {
     const html = exportedBody(
       ["<details>", "<summary>Appendix</summary>", "\tBody", "</details>"].join(
@@ -350,5 +427,12 @@ describe("NFM container export", () => {
     expect(
       readTable(exportedBody(docToNfm(TABLE_DOC), "html"))!.body,
     ).toHaveLength(2);
+  });
+
+  it("keeps editable GFM column alignment in HTML export", () => {
+    const source = "| Item | Price |\n| :--- | ---: |\n| A | $1 |";
+    const html = exportedBody(docToNfm(nfmToDoc(source)), "html");
+    expect(html).toContain('class="nfm-align-right"');
+    expect(html).toContain("$1");
   });
 });

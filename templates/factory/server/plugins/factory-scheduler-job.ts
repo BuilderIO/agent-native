@@ -247,12 +247,18 @@ type AutomationSeed = {
   legacySchedules?: string[];
   timezone?: string;
   model: string;
+  reasoningEffort: string;
   maxIterations: number;
   maxRunInputTokens: number;
   body: string;
 };
 
 const FACTORY_DEFAULT_MODEL = "gpt-5.6-luna";
+// Not yet honored end to end for GPT + tools on the Builder gateway — see
+// packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md. Seeded
+// here so it takes effect immediately for non-GPT models, and for GPT once
+// that gateway lane ships, without a follow-up migration of every seed.
+const FACTORY_DEFAULT_REASONING_EFFORT = "high";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
 const AUTOMATION_SEEDS: AutomationSeed[] = [
@@ -261,6 +267,7 @@ const AUTOMATION_SEEDS: AutomationSeed[] = [
     schedule: "*/5 * * * *",
     legacySchedules: ["* * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -295,6 +302,7 @@ unless an action returned that state.
     schedule: "0 9 * * *",
     timezone: "America/Los_Angeles",
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 24,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -347,6 +355,7 @@ passing those values.
     schedule: "0 * * * *",
     legacySchedules: ["* * * * *", "*/5 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -400,6 +409,7 @@ passing those values.
     schedule: "*/10 * * * *",
     legacySchedules: ["*/5 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 40,
     maxRunInputTokens: 2_000_000,
     body: `
@@ -443,8 +453,14 @@ approval; record their exact states and never call them clean. Active credible
 safety findings in fresh review evidence always block approval. Apply the
 verified Alice/Content, Nick/Slides, Enzo/Factory-specific, Sid/Design, and
 docs-only owner exceptions from review-prs only after membership and an
-explicit ultra-scary assessment. Those exceptions do not waive membership,
-external-author, or ultra-scary gates.
+explicit ultra-scary assessment. For BuilderIO/agent-native PRs, Shomix
+(shomix, GitHub user ID 100691266) may be auto-approved across app and framework areas, including UX
+changes, refactors, ordinary unresolved feedback, and failed or pending checks.
+Verify both the login and immutable GitHub ID; do not rely on the mutable login alone.
+The Shomix exception does not apply to
+review/approval policy, agent-safety instructions, membership verification, or
+CI/deployment security changes; those require independent human review. These
+exceptions do not waive membership, external-author, or ultra-scary gates.
 
 Never auto-merge. Approval is the only GitHub write this workflow may request;
 a normal open PR must never be treated as a Builder-triggered run.
@@ -461,6 +477,7 @@ confirms it.
     schedule: "*/5 * * * *",
     legacySchedules: ["*/2 * * * *"],
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: 12,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
@@ -548,6 +565,7 @@ factoryId: ${factoryId}
 createdBy: ${ownerEmail}
 runAs: creator
 model: ${seed.model}
+reasoningEffort: ${seed.reasoningEffort}
 maxIterations: ${seed.maxIterations}
 maxRunInputTokens: ${seed.maxRunInputTokens}
 alignmentRevision: ${FACTORY_ALIGNMENT_REVISION}
@@ -893,6 +911,7 @@ function blankAutomationSeed(
     name: leafName,
     schedule: "*/5 * * * *",
     model: FACTORY_DEFAULT_MODEL,
+    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
     maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
     maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `# Factory ${source} automation\n`,

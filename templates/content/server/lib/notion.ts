@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import { parseIconValue, type IconValue } from "@agent-native/core/icons";
 import { findConnectedMcpServersForProvider } from "@agent-native/core/mcp-client";
 import {
   deleteOAuthTokens,
@@ -45,7 +46,13 @@ type NotionTokens = {
 type NotionPage = {
   id: string;
   url?: string;
-  icon?: { type: string; emoji?: string } | null;
+  icon?: {
+    type: string;
+    emoji?: string;
+    external?: { url?: string };
+    file?: { url?: string };
+    custom_emoji?: { url?: string; name?: string };
+  } | null;
   last_edited_time?: string;
   properties?: Record<string, any>;
   parent?: Record<string, any>;
@@ -62,7 +69,7 @@ export type NotionPageMarkdown = {
 export type NotionPageContent = {
   pageId: string;
   title: string;
-  icon: string | null;
+  icon: IconValue | null;
   content: string;
   lastEditedTime: string | null;
   warnings: string[];
@@ -83,6 +90,35 @@ export class NotionApiError extends Error {
     this.code = code;
     this.body = body;
   }
+}
+
+function iconFromNotion(icon: NotionPage["icon"]): IconValue | null {
+  if (icon?.type === "emoji" && icon.emoji) {
+    return { version: 1, kind: "emoji", emoji: icon.emoji };
+  }
+  // Notion file and custom-emoji URLs are short-lived signed URLs. Only the
+  // external variant is durable enough to retain as icon identity.
+  const url = icon?.external?.url;
+  return url
+    ? {
+        version: 1,
+        kind: "image",
+        authority: "notion",
+        assetId: url,
+        alt: icon?.custom_emoji?.name,
+      }
+    : null;
+}
+
+function iconForNotion(icon: IconValue | string | null | undefined) {
+  if (!icon) return undefined;
+  const parsed = parseIconValue(icon);
+  if (!parsed) return undefined;
+  if (parsed.kind === "emoji") return { type: "emoji", emoji: parsed.emoji };
+  if (parsed.kind === "image") {
+    return { type: "external", external: { url: parsed.assetId } };
+  }
+  return undefined;
 }
 
 function getOrigin(event: H3Event): string {
@@ -427,7 +463,7 @@ export async function readNotionPageAsDocument(
   return {
     pageId: page.id,
     title: extractPageTitle(page),
-    icon: page.icon?.type === "emoji" ? page.icon.emoji || null : null,
+    icon: iconFromNotion(page.icon),
     content: markdown,
     lastEditedTime: page.last_edited_time || null,
     warnings,
@@ -439,8 +475,9 @@ export async function pushDocumentToNotionPage(args: {
   pageId: string;
   title: string;
   content: string;
-  icon?: string | null;
+  icon?: IconValue | string | null;
 }): Promise<NotionPageContent> {
+  const notionIcon = iconForNotion(args.icon);
   const page = await fetchNotionPage(args.accessToken, args.pageId);
 
   // The canonical content already contains `<page>`/`<database>` tags for any
@@ -480,9 +517,7 @@ export async function pushDocumentToNotionPage(args: {
     },
   };
 
-  if (args.icon) {
-    updateBody.icon = { type: "emoji", emoji: args.icon };
-  }
+  if (args.icon === null || notionIcon) updateBody.icon = notionIcon ?? null;
 
   await notionFetch(`/pages/${args.pageId}`, args.accessToken, {
     method: "PATCH",
@@ -497,7 +532,7 @@ export async function createNotionPageWithMarkdown(args: {
   parentPageId: string;
   title: string;
   content: string;
-  icon?: string | null;
+  icon?: IconValue | string | null;
 }): Promise<{ id: string; url: string }> {
   const body: Record<string, unknown> = {
     parent: { page_id: args.parentPageId },
@@ -514,9 +549,8 @@ export async function createNotionPageWithMarkdown(args: {
     markdown: canonicalizeNfm(args.content),
   };
 
-  if (args.icon) {
-    body.icon = { type: "emoji", emoji: args.icon };
-  }
+  const notionIcon = iconForNotion(args.icon);
+  if (notionIcon) body.icon = notionIcon;
 
   return notionFetch<{ id: string; url: string }>("/pages", args.accessToken, {
     method: "POST",

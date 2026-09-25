@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
+import { runInIdleSlices } from "@/pages/design-editor/idle-slices";
 import type { EditorMode } from "@/pages/design-editor/types";
 
 import { AppearanceProperties } from "./edit-panel/appearance-properties";
@@ -79,8 +80,10 @@ import {
   type RuntimeComponentDetails,
 } from "./edit-panel/component-section";
 import {
+  type DocumentColorCountCache,
   type DocumentColorSourceFile,
   type SelectionColorValue,
+  documentFileColorCounts,
   extractDocumentColorPalette,
   type SelectionColorScope,
   selectionColorValues,
@@ -100,6 +103,7 @@ import {
 } from "./edit-panel/element-classification";
 import {
   deriveLockedAspectSize,
+  elementStableKey,
   interactionStateSelectionKey,
 } from "./edit-panel/element-identity";
 import {
@@ -158,6 +162,10 @@ import {
   textStrokeIsVisible,
 } from "./edit-panel/position-helpers";
 import { PositionLayoutProperties } from "./edit-panel/position-layout-properties";
+import {
+  ScaleProperties,
+  type ScaleToolControls,
+} from "./edit-panel/scale-properties";
 import { mixedElementFromSelection } from "./edit-panel/selection-helpers";
 import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
@@ -185,6 +193,7 @@ import {
   ExportSettingsPanel,
   DesignColorPicker,
   SizingField,
+  type ScrubInputChangeMeta,
   type ExportSettingsValue,
   type FrameSizePreset,
   InteractionStatePanel,
@@ -209,6 +218,13 @@ import type { ReviewPanelProps } from "./ReviewPanel";
 import type { StatesPanelProps } from "./StatesPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo, TextEditingState } from "./types";
+
+function elementInspectorKey(
+  element: ElementInfo,
+  scope: string | null | undefined,
+): string {
+  return `${scope || "selection"}:${elementStableKey(element)}`;
+}
 
 // guard:allow-raw-color — authored selections need a concrete CSS color fallback.
 const DEFAULT_AUTHORED_COLOR = "#000000";
@@ -355,6 +371,12 @@ interface EditPanelProps {
    *  properties at once; without this they degrade to one-at-a-time writes
    *  that each rebuild from the same stale projection. */
   onSelectedScreenStylesChange?: StylesChangeHandler;
+  vectorPointRadius?: { value: number; max: number } | null;
+  vectorPointSelected?: boolean;
+  onVectorPointRadiusChange?: (
+    value: number,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
   /** Source ranges covered by the current selection for Figma-style color
    *  replacement. Multiple scopes may belong to one file or several screens. */
   selectionColorScopes?: SelectionColorScope[];
@@ -408,7 +430,10 @@ interface EditPanelProps {
   /** Server revision for activeContent. */
   activeFileUpdatedAt?: string | null;
   /** Current hashes for every HTML file when a linked component edit spans Screens. */
-  componentExpectedFiles?: Array<{ fileId: string; versionHash: string }>;
+  getComponentExpectedFiles?: () => Array<{
+    fileId: string;
+    versionHash: string;
+  }>;
   /**
    * Every file's content in the current design (all screens, not just the
    * active one) — used to compute the document-wide "Document colors"
@@ -517,6 +542,8 @@ interface EditPanelProps {
    * type without EditPanel importing it.
    */
   activeTool?: string;
+  /** Shows Figma's Scale section while `activeTool === "scale"`. */
+  scaleToolControls?: ScaleToolControls;
   /**
    * Creates a new screen sized to the clicked preset. Only takes effect while
    * `activeTool === "frame"`; when omitted the frame tool falls back to the
@@ -1892,6 +1919,7 @@ function PageProperties({
           <ColorInput
             label={t("editPanel.labels.background")}
             value={canvasBackground ?? canvasBackgroundFallback ?? ""}
+            supportedPaintTypes={["solid", "none"]}
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
@@ -2411,6 +2439,47 @@ function GroupFillProperties({
   );
 }
 
+const NO_DOCUMENT_COLORS: string[] = [];
+
+/**
+ * Document-wide color palette (real "Document colors", not just the selected
+ * element's own color props). Only a color picker shows it, so it is read in
+ * idle slices rather than tokenizing every screen during the render that
+ * opens a design; after an edit only the changed file is re-read.
+ */
+function useDocumentColorPalette(files?: DocumentColorSourceFile[]) {
+  const cacheRef = useRef<DocumentColorCountCache>(new Map());
+  const [palette, setPalette] = useState(NO_DOCUMENT_COLORS);
+  useEffect(() => {
+    const cache = cacheRef.current;
+    if (!files?.length) {
+      cache.clear();
+      setPalette(NO_DOCUMENT_COLORS);
+      return;
+    }
+    let next = 0;
+    return runInIdleSlices((deadline) => {
+      do {
+        const file = files[next];
+        if (!file) {
+          const read = extractDocumentColorPalette(files, undefined, cache);
+          setPalette((current) =>
+            current.length === read.length &&
+            current.every((color, index) => color === read[index])
+              ? current
+              : read,
+          );
+          return true;
+        }
+        next += 1;
+        documentFileColorCounts(file, cache);
+      } while (performance.now() < deadline);
+      return false;
+    });
+  }, [files]);
+  return palette;
+}
+
 // PF8: EditPanel re-renders on every DesignEditor state change (drag,
 // hover, zoom) unless memoized. Nearly all props are already stabilized at
 // the call site (useMemo/useCallback — see DesignEditor.tsx's
@@ -2448,6 +2517,9 @@ export const EditPanel = memo(function EditPanel({
   selectedScreenElement,
   onSelectedScreenStyleChange,
   onSelectedScreenStylesChange,
+  vectorPointRadius,
+  vectorPointSelected,
+  onVectorPointRadiusChange,
   selectionColorScopes = [],
   onSelectionColorChange: onSelectionColorChangeProp,
   onSelectionColorTarget,
@@ -2479,7 +2551,7 @@ export const EditPanel = memo(function EditPanel({
   activeContent,
   pendingInteractionStateStyles,
   activeFileUpdatedAt,
-  componentExpectedFiles,
+  getComponentExpectedFiles,
   files,
   designId,
   onComponentPropApplied,
@@ -2503,6 +2575,7 @@ export const EditPanel = memo(function EditPanel({
   inspectCode,
   aiActions,
   activeTool,
+  scaleToolControls,
   onCreateScreenFromPreset,
   onAlignSelection,
   alignSelectionDisabled = false,
@@ -2635,18 +2708,7 @@ export const EditPanel = memo(function EditPanel({
     onShaderSourceApplied,
     onEditCode,
   ]);
-  // Document-wide color palette (real "Document colors", not just the
-  // selected element's own color props) — recomputed only when the set of
-  // file contents actually changes, since scanning every file's HTML/CSS
-  // text is nontrivially more work than the old per-element prop read.
-  const filesContentKey = files
-    ? files.map((file) => `${file.id}:${file.content.length}`).join("|")
-    : "";
-  const documentColorPalette = useMemo(
-    () => (files && files.length > 0 ? extractDocumentColorPalette(files) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on filesContentKey (cheap length+id fingerprint) instead of `files` itself so an unstable-but-equal array identity from the parent doesn't force a full re-scan every render.
-    [filesContentKey],
-  );
+  const documentColorPalette = useDocumentColorPalette(files);
   const selectionAlreadyComponent =
     selectedCount === 1 &&
     (selectedElementAlreadyComponent ||
@@ -2808,6 +2870,15 @@ export const EditPanel = memo(function EditPanel({
         : null,
     [activeInteractionStateStyles, inspectorElement],
   );
+
+  const inspectorElementForSections =
+    stateResolvedInspectorElement ?? inspectorElement;
+  const inspectorElementSectionKey = inspectorElementForSections
+    ? elementInspectorKey(inspectorElementForSections, fileId)
+    : "inspector";
+  const selectedScreenElementSectionKey = selectedScreenElement
+    ? elementInspectorKey(selectedScreenElement, selectedScreenGeometry?.id)
+    : "selected-screen";
 
   // Motion keyframe diamonds (Figma Motion parity) — see `motionKeyframeState`
   // on EditPanelProps. `undefined` (feature off, or a multi-selection, which
@@ -3124,7 +3195,7 @@ export const EditPanel = memo(function EditPanel({
                   }
                   activeContent={activeContent}
                   activeFileUpdatedAt={activeFileUpdatedAt}
-                  expectedFiles={componentExpectedFiles}
+                  getExpectedFiles={getComponentExpectedFiles}
                   componentDetailsReady={componentDetailsReady}
                   nodeId={componentNodeId}
                   runtime={componentRuntime}
@@ -3200,6 +3271,7 @@ export const EditPanel = memo(function EditPanel({
                   {selectedScreenElement && onSelectedScreenStyleChange ? (
                     <>
                       <LayoutContextProperties
+                        key={`layout-context:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3208,6 +3280,7 @@ export const EditPanel = memo(function EditPanel({
                         showContainerSizing={false}
                       />
                       <AppearanceProperties
+                        key={`appearance:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3215,17 +3288,20 @@ export const EditPanel = memo(function EditPanel({
                         onToggleHidden={onToggleSelectionHidden}
                       />
                       <FillProperties
+                        key={`fill:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                         documentColorPalette={documentColorPalette}
                       />
                       <StrokeProperties
+                        key={`stroke:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                       />
                       <EffectsProperties
+                        key={`effects:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3294,6 +3370,7 @@ export const EditPanel = memo(function EditPanel({
               {inspectorElement && (
                 <>
                   <PositionLayoutProperties
+                    key={`position:${inspectorElementSectionKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
@@ -3302,7 +3379,19 @@ export const EditPanel = memo(function EditPanel({
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
+                  {activeTool === "scale" &&
+                  scaleToolControls &&
+                  effectiveSelectedElements.length === 1 ? (
+                    <ScaleProperties
+                      key={`scale:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      controls={scaleToolControls}
+                    />
+                  ) : null}
                   <LayoutContextProperties
+                    key={`layout-context:${inspectorElementSectionKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
@@ -3312,6 +3401,7 @@ export const EditPanel = memo(function EditPanel({
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
                   <AppearanceProperties
+                    key={`appearance:${inspectorElementSectionKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={
@@ -3321,9 +3411,13 @@ export const EditPanel = memo(function EditPanel({
                     onToggleHidden={onToggleSelectionHidden}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
+                    vectorPointRadius={vectorPointRadius}
+                    vectorPointSelected={vectorPointSelected}
+                    onVectorPointRadiusChange={onVectorPointRadiusChange}
                   />
                   {selectionHasTextElement ? (
                     <TypographyProperties
+                      key={`typography:${inspectorElementSectionKey}`}
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
@@ -3337,6 +3431,7 @@ export const EditPanel = memo(function EditPanel({
                   ) : null}
                   {selectionIsGroup ? (
                     <GroupFillProperties
+                      key={`group-fill:${inspectorElementSectionKey}`}
                       scopes={selectionColorScopes}
                       documentColors={documentColorPalette}
                       disabled={readOnly || Boolean(interactionState)}
@@ -3349,6 +3444,7 @@ export const EditPanel = memo(function EditPanel({
                     />
                   ) : (
                     <FillProperties
+                      key={`fill:${inspectorElementSectionKey}`}
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
@@ -3363,6 +3459,7 @@ export const EditPanel = memo(function EditPanel({
                     />
                   )}
                   <StrokeProperties
+                    key={`stroke:${inspectorElementSectionKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
@@ -3370,6 +3467,7 @@ export const EditPanel = memo(function EditPanel({
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
                   <EffectsProperties
+                    key={`effects:${inspectorElementSectionKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}

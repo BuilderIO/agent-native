@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "收件箱",
+      all: "全部",
       unread: "未读",
       starred: "已加星标",
       snoozed: "已稍后提醒",
@@ -26,6 +27,12 @@ const messages = {
     },
     inbox: {
       syncing: "收件箱同步中…",
+    },
+    sort: {
+      label: "排序收件箱",
+      newest: "最新",
+      priority: "优先级",
+      priorityFailed: "无法对收件箱排序。",
     },
     toolbar: {
       toggleMenu: "切换菜单",
@@ -61,7 +68,8 @@ const messages = {
       renameTab: "重命名标签页",
       savedFilters: "已保存的筛选条件",
       combinedInbox: "合并收件箱",
-      help: "勾选的项目会显示为标签页。标签邮件会从收件箱中分离。",
+      allTab: "全部标签页",
+      help: "全部会显示收件箱中的所有对话。勾选的标签会拆分收件箱。",
     },
     accounts: {
       remove: "移除",
@@ -488,6 +496,10 @@ const messages = {
       instructionFailed: "无法保存 AI 筛选指令。",
       spamMode: "垃圾邮件",
       tagMode: "标签",
+      importantMode: "重要",
+      importantLabel: "AI 重要",
+      reviewImportant: "查看重要邮件",
+      importantPlaceholder: "例如：需要回复或有截止日期的邮件",
       ruleAdded: "已添加 AI 规则。",
       instructionHelp: "使用自然语言",
       tagNamePlaceholder: "标签名称",
@@ -502,6 +514,7 @@ const messages = {
       previewButton: "运行预览",
       previewRunning: "正在检查最近的收件箱邮件…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev 匹配概率 {{percent}}%",
       feedbackLabel: "勾选不应包含的匹配项",
       notSpamShort: "不是垃圾邮件",
       notMatchShort: "不匹配",

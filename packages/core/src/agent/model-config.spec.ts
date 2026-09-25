@@ -15,16 +15,9 @@ import {
 } from "./model-config.js";
 
 describe("agent model config catalog", () => {
-  it("derives the builder gateway OpenAI id by dot->dash from the OpenAI default", () => {
-    // The framework default bump lives in one place (the OpenAI id); the
-    // builder gateway id is mechanically derived by replacing dots with dashes.
-    const dashed = DEFAULT_OPENAI_MODEL.replace(/\./g, "-");
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain(dashed);
-    // Sanity: the derivation actually changes a dotted id.
-    expect(dashed).not.toContain(".");
-    if (DEFAULT_OPENAI_MODEL.includes(".")) {
-      expect(dashed).not.toBe(DEFAULT_OPENAI_MODEL);
-    }
+  it("uses the current public Builder gateway default", () => {
+    expect(BUILDER_MODEL_CONFIG.defaultModel).toBe("gpt-6-luna");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("gpt-6-luna");
   });
 
   it("derives the OpenRouter default as openai/<openai-default>", () => {
@@ -38,7 +31,7 @@ describe("agent model config catalog", () => {
 
   it("uses Luna for Builder/OpenAI defaults and Sonnet for Anthropic", () => {
     expect(DEFAULT_MODEL).toBe(BUILDER_MODEL_CONFIG.defaultModel);
-    expect(DEFAULT_MODEL).toBe("gpt-5-6-luna");
+    expect(DEFAULT_MODEL).toBe("gpt-6-luna");
     expect(DEFAULT_OPENAI_MODEL).toBe("gpt-5.6-luna");
     expect(DEFAULT_MODEL).not.toBe(DEFAULT_ANTHROPIC_MODEL);
     expect(DEFAULT_ANTHROPIC_MODEL).toBe("claude-sonnet-5");
@@ -67,6 +60,16 @@ describe("agent model config catalog", () => {
         `${provider} default not in supportedModels`,
       ).toContain(cfg.defaultModel);
     }
+  });
+
+  it("offers Gemini 3.8 Flash in the direct Google and OpenRouter catalogs", () => {
+    expect(AI_SDK_MODEL_CONFIG.google.defaultModel).toBe("gemini-3.8-flash");
+    expect(AI_SDK_MODEL_CONFIG.google.supportedModels).toContain(
+      "gemini-3.8-flash",
+    );
+    expect(AI_SDK_MODEL_CONFIG.openrouter.supportedModels).toContain(
+      "google/gemini-3.8-flash",
+    );
   });
 
   it("exposes the expected ai-sdk providers each with a non-empty model list", () => {
@@ -99,35 +102,57 @@ describe("agent model config catalog", () => {
     );
   });
 
-  it("includes claude-opus-4-8 in current Anthropic catalogs", () => {
+  it("keeps claude-opus-4-8 in direct Anthropic catalogs only", () => {
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
     expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
       "claude-opus-4-8",
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-opus-4-8",
+    );
   });
 
-  it("keeps the Builder catalog aligned to the gateway allow-list", () => {
-    const hiddenSonnetModel =
-      CLAUDE_SONNET_MODEL_ID === "claude-sonnet-5"
-        ? "claude-sonnet-4-6"
-        : "claude-sonnet-5";
+  it("includes Claude Opus 5.5 in direct APIs and the Builder catalog", () => {
+    expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain("claude-opus-5-5");
+    expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
+      "claude-opus-5-5",
+    );
+    expect(AI_SDK_MODEL_CONFIG.openrouter.supportedModels).toContain(
+      "anthropic/claude-opus-5.5",
+    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-5-5");
+  });
 
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("auto");
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain(
-      CLAUDE_SONNET_MODEL_ID,
+  it("advertises current Builder model IDs instead of retired aliases", () => {
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toEqual([
+      "auto",
+      "claude-haiku-4-5",
+      "claude-sonnet-5",
+      "claude-opus-5-5",
+      "gpt-6-sol",
+      "gpt-5-6-terra",
+      "gpt-6-luna",
+      "gemini-3-1-pro",
+      "gemini-3-8-flash",
+      "gemini-3-5-flash-lite",
+      "grok-code-fast",
+      "qwen3-coder",
+      "kimi-k2-5",
+      "deepseek-v4-pro",
+      "deepseek-v3-1",
+      "z-ai-glm-4-5",
+      "z-ai-glm-5-1",
+    ]);
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-opus-4-8",
     );
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
-      hiddenSonnetModel,
+      "gemini-3-5-flash",
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
-    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
-      "claude-opus-4-7",
-    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain("gpt-5-6-luna");
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       "gemini-3-1-flash-lite",
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain("z-ai-glm-4-5");
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-7",
     );
@@ -141,11 +166,13 @@ describe("agent model config catalog", () => {
       (BUILDER_MODEL_CONFIG.supportedModels as readonly string[]).filter(
         (model) => model.startsWith("gpt-"),
       ),
-    ).toEqual(["gpt-5-6-luna", "gpt-5-6-terra", "gpt-5-6-sol"]);
+    ).toEqual(["gpt-6-sol", "gpt-5-6-terra", "gpt-6-luna"]);
     expect(AI_SDK_MODEL_CONFIG.openai.supportedModels).toEqual([
       "gpt-5.6-luna",
+      "gpt-6-luna",
       "gpt-5.6-terra",
       "gpt-5.6-sol",
+      "gpt-6-sol",
     ]);
     expect(
       (
@@ -153,8 +180,10 @@ describe("agent model config catalog", () => {
       ).filter((model) => model.startsWith("openai/gpt-")),
     ).toEqual([
       "openai/gpt-5.6-luna",
+      "openai/gpt-6-luna",
       "openai/gpt-5.6-terra",
       "openai/gpt-5.6-sol",
+      "openai/gpt-6-sol",
       "openai/gpt-6-astra",
       "openai/gpt-6-astra-pro",
     ]);
@@ -164,6 +193,7 @@ describe("agent model config catalog", () => {
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toEqual([
       "claude-haiku-4-5-20251001",
       "claude-sonnet-5",
+      "claude-opus-5-5",
       "claude-opus-4-8",
       "claude-fable-5",
     ]);
@@ -199,7 +229,8 @@ describe("agent model config catalog", () => {
         ? "anthropic/claude-sonnet-5"
         : "anthropic/claude-sonnet-4.6",
     );
-    expect(openrouterModels).toContain("google/gemini-2.5-flash");
+    expect(openrouterModels).not.toContain("google/gemini-2.5-flash");
+    expect(openrouterModels).toContain("google/gemini-3.8-flash");
     expect(openrouterModels).toEqual(
       expect.arrayContaining([
         "openai/gpt-6-astra",
@@ -223,7 +254,7 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("claude-haiku-4-5-20251001")).toBe(200_000);
   });
 
-  it("returns 1M for Claude Fable 5, Sonnet 5/4.6, and Opus 4.x", () => {
+  it("returns 1M for Claude Fable 5, Sonnet 5/4.6, and Opus 4.6+", () => {
     expect(getContextWindowForModel("claude-fable-5")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-sonnet-5")).toBe(1_000_000);
     expect(getContextWindowForModel("anthropic/claude-sonnet-5")).toBe(
@@ -232,6 +263,10 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("claude-sonnet-4-6")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-opus-4-7")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-opus-4-8")).toBe(1_000_000);
+    expect(getContextWindowForModel("claude-opus-5-5")).toBe(1_000_000);
+    expect(getContextWindowForModel("anthropic/claude-opus-5.5")).toBe(
+      1_000_000,
+    );
   });
 
   it("returns the documented context windows for GPT-5.6 models", () => {
@@ -244,6 +279,17 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("gpt-5-6-luna")).toBe(400_000);
     // OpenRouter advertises Luna with the same 1.05M context as Sol and Terra.
     expect(getContextWindowForModel("openai/gpt-5.6-luna")).toBe(1_050_000);
+  });
+
+  it("returns the documented 1.05M context window for GPT-6 Sol and Luna", () => {
+    for (const model of [
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "openai/gpt-6-sol",
+      "openai/gpt-6-luna",
+    ]) {
+      expect(getContextWindowForModel(model)).toBe(1_050_000);
+    }
   });
 
   it("returns 1M for Gemini 2.x / 3.x models", () => {
@@ -271,6 +317,7 @@ describe("getContextWindowForModel", () => {
   it("uses heuristic fallback for unlisted gpt-5 variants", () => {
     expect(getContextWindowForModel("gpt-5.6")).toBe(1_050_000);
     expect(getContextWindowForModel("openai/gpt-5.6")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-6-preview")).toBe(1_050_000);
   });
 });
 
@@ -279,6 +326,10 @@ describe("getContextWindowForModel", () => {
 describe("getMaxOutputTokensForModel", () => {
   it("returns 128K for Claude flagship models (Fable 5, Opus 4.6+, Sonnet 5/4.6)", () => {
     expect(getMaxOutputTokensForModel("claude-fable-5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("claude-opus-5-5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("anthropic/claude-opus-5.5")).toBe(
+      128_000,
+    );
     expect(getMaxOutputTokensForModel("claude-opus-4-8")).toBe(128_000);
     expect(getMaxOutputTokensForModel("claude-opus-4-7")).toBe(128_000);
     expect(getMaxOutputTokensForModel("claude-sonnet-5")).toBe(128_000);
@@ -309,10 +360,22 @@ describe("getMaxOutputTokensForModel", () => {
     expect(getMaxOutputTokensForModel("openai/gpt-5.6-luna")).toBe(128_000);
   });
 
+  it("returns 128K for GPT-6 Sol and Luna in direct and OpenRouter forms", () => {
+    for (const model of [
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "openai/gpt-6-sol",
+      "openai/gpt-6-luna",
+    ]) {
+      expect(getMaxOutputTokensForModel(model)).toBe(128_000);
+    }
+  });
+
   it("uses heuristic fallback for unlisted flagship variants", () => {
     expect(getMaxOutputTokensForModel("claude-opus-4-9")).toBe(64_000);
     expect(getMaxOutputTokensForModel("gpt-5.6")).toBe(128_000);
     expect(getMaxOutputTokensForModel("openai/gpt-5.6")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("gpt-6-preview")).toBe(128_000);
   });
 
   it("returns the conservative 64K default for unknown or missing models", () => {
@@ -341,7 +404,7 @@ describe("resolveFallbackModel", () => {
   it("falls back opus to sonnet on the Builder catalog", () => {
     expect(
       resolveFallbackModel(
-        "claude-opus-4-8",
+        "claude-opus-5-5",
         BUILDER_MODEL_CONFIG.supportedModels,
       ),
     ).toBe(CLAUDE_SONNET_MODEL_ID);
@@ -370,14 +433,11 @@ describe("resolveFallbackModel", () => {
       resolveFallbackModel("auto", BUILDER_MODEL_CONFIG.supportedModels),
     ).toBeUndefined();
     expect(
-      resolveFallbackModel(
-        "gpt-5-6-luna",
-        BUILDER_MODEL_CONFIG.supportedModels,
-      ),
+      resolveFallbackModel("gpt-6-luna", BUILDER_MODEL_CONFIG.supportedModels),
     ).toBeUndefined();
     expect(
       resolveFallbackModel(
-        "gemini-3-5-flash",
+        "gemini-3-8-flash",
         BUILDER_MODEL_CONFIG.supportedModels,
       ),
     ).toBeUndefined();

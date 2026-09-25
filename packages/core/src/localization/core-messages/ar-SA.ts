@@ -32,22 +32,33 @@ const messages: AgentChatTranslation = {
   "commands.mention": "الإشارة إلى ملفات أو وكلاء أو موارد",
   "commands.new": "مثل /clear",
   "commands.plan": "التبديل إلى التخطيط للقراءة فقط",
+  "observability.viewDetails": "عرض التفاصيل",
+  "observability.hideDetails": "إخفاء التفاصيل",
+  "observability.input": "الإدخال",
+  "observability.output": "الإخراج",
+  "observability.error": "خطأ",
+  "observability.metadata": "بيانات وصفية",
+  "observability.notCaptured": "لم يتم الالتقاط",
+  "observability.openFullConversation": "فتح المحادثة الكاملة",
+  "observability.learnAboutTab": "تعرّف على علامة التبويب",
   "onboarding.back": "رجوع",
   "onboarding.chooseRole": "اختر دورك",
   "onboarding.customizeRole": "لنخصص هذه التجربة لك.",
   "onboarding.roleQuestion": "ما الوصف الأفضل لدورك؟",
-  "onboarding.roleProduct": "المنتج",
-  "onboarding.roleDesign": "التصميم",
+  "onboarding.roleHelperText": "يساعدنا هذا على تخصيص تجربتك",
+  "onboarding.roleProduct": "مدير المنتج",
+  "onboarding.roleDesign": "المصمم",
   "onboarding.roleDeveloper": "مطور",
   "onboarding.roleMarketing": "التسويق",
   "onboarding.roleSales": "المبيعات",
   "onboarding.roleOps": "العمليات",
   "onboarding.roleIndividual": "فردي",
   "onboarding.roleOther": "أخرى",
+  "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
-  "onboarding.builderActivateCredits": "تفعيل أرصدة Builder.io المجانية",
-  "onboarding.builderConnectCredits": "الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderCreateAccount": "إنشاء حساب Builder.io",
+  "onboarding.builderSignInWithAccount": "تسجيل الدخول بحساب Builder.io",
   "onboarding.builderActivateDescription":
     "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
   "onboarding.builderActiveCredits":
@@ -59,9 +70,9 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "سننشئ حساب Builder.io الخاص بك تلقائيًا بنقرة واحدة.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
-  "onboarding.builderConsentPrefix": "بمتابعة العملية، فإنك توافق على",
-  "onboarding.builderTerms": "الشروط",
-  "onboarding.builderPrivacy": "الخصوصية",
+  "onboarding.builderConsentPrefix": "بإنشاء حساب Builder.io، فإنك توافق على",
+  "onboarding.builderTerms": "شروط الخدمة",
+  "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لدي حساب Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
@@ -75,10 +86,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "اعتمادات الذكاء الاصطناعي جاهزة للاستخدام. تتطلب تعديلات التعليمات البرمجية السحابية مشروع Builder في إعدادات الوكيل في الخلفية.",
   "onboarding.openBackgroundAgentSettings": "فتح إعدادات الوكيل في الخلفية",
-  "onboarding.capability.llm.keySummary":
-    "اربط مزود ذكاء اصطناعي أو نموذجًا محليًا",
-  "onboarding.capability.fileStorage.keySummary":
-    "تخزين Builder أو حاوية متوافقة مع S3",
+  "onboarding.capability.llm.keySummary": "اربط نموذج الذكاء الاصطناعي الخاص بك",
+  "onboarding.capability.fileStorage.keySummary": "تحميل الملفات وتخزينها",
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
   "onboarding.fileStorage.description":
     "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
@@ -86,13 +95,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
   "onboarding.capability.voiceInput.label": "الإدخال الصوتي",
-  "onboarding.capability.voiceInput.keySummary":
-    "التعرف على الكلام في المتصفح أو تحويل الكلام إلى نص",
+  "onboarding.capability.voiceInput.keySummary": "الإدخال الصوتي",
   "onboarding.capability.voiceInput.why":
     "يحوّل الإدخال الصوتي الطلبات المنطوقة إلى نص؛ وتظل الكتابة متاحة دائمًا.",
   "onboarding.capability.embeddings.label": "التضمينات",
-  "onboarding.capability.embeddings.keySummary":
-    "مفتاح Gemini أو Cohere أو Voyage",
+  "onboarding.capability.embeddings.keySummary": "التضمينات",
   "onboarding.capability.embeddings.why":
     "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
@@ -131,6 +138,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "مفتاح مشترك قيد الاستخدام.",
   "agentPanel.useOrganizationKey": "استخدم مفتاح المؤسسة",
   "agentPanel.keyStatusUnavailable": "حالة المفتاح غير متاحة.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول مرة أخرى.",
+  "agentPanel.chatgptSubscriptionTitle": "اشتراك ChatGPT",
+  "agentPanel.chatgptSubscriptionDescription":
+    "وصول تجريبي إلى Codex عبر اشتراك ChatGPT.",
+  "agentPanel.chatgptSubscriptionInUse": "قيد الاستخدام",
+  "agentPanel.chatgptSubscriptionConnected": "متصل",
+  "agentPanel.chatgptSubscriptionConnecting": "جارٍ الاتصال…",
+  "agentPanel.chatgptSubscriptionReconnect": "إعادة الاتصال",
+  "agentPanel.chatgptSubscriptionConnect": "توصيل ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "استخدامه في المحادثة",
+  "agentPanel.chatgptSubscriptionDisconnect": "قطع الاتصال",
   "agentHostNudge.sidebarTitle": "استخدم محادثة {{agent}}",
   "agentHostNudge.sidebarDescription":
     "أنت تتحدث مع {{agent}} بالفعل. اطلب منه العمل مع هذا التطبيق مباشرةً.",
@@ -152,6 +171,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "جارٍ التحميل...",
   "common.no": "لا",
   "common.retry": "إعادة المحاولة",
+  "common.chunkLoadFailed": "تعذّر التحميل. يُرجى المحاولة مرة أخرى.",
   "common.save": "حفظ",
   "agents.hostedAgent": "وكيل مستضاف",
   "agents.provider": "المزوّد",
@@ -263,6 +283,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "صِف المهارة التي تريد إنشاءها...",
   "composer.documentTooLarge":
     'حجم "{{name}}" هو {{size}} MB — الحد الأقصى لـ {{label}} هو {{maxSize}} MB للالتزام بحدود الرسائل. يُرجى تقليل حجم الملف أو تقسيمه إلى أجزاء أصغر.',
+  "composer.requestTooLarge":
+    "هذه الرسالة ومرفقاتها كبيرة جدًا بحيث يتعذر إرسالها. أزل مرفقًا أو اختصر الرسالة.",
   "composer.file": "ملف",
   "composer.imageModel": "نموذج الصور",
   "composer.imagePreview": "معاينة الصورة",
@@ -473,7 +495,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "رفض مزوّد الذكاء الاصطناعي هذا الطلب مؤقتًا. عادةً ما يُحل هذا خلال دقيقة — أعد المحاولة.",
   "errorMessages.startNewChat": "بدء محادثة جديدة",
-  "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
+  "errorMessages.addCreditsInBuilder": "إضافة أرصدة في Builder",
   "feedback.inaccurate": "غير دقيق",
   "feedback.keyboardHint": "{{shortcut}} Enter للإرسال",
   "feedback.notHelpful": "غير مفيد",
@@ -831,6 +853,21 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "تعذر إرسال التأكيد.",
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
+  "usage.builderCredits": "أرصدة Builder",
+  "usage.creditBalance": "رصيد مساحة العمل",
+  "usage.monthlyPlan": "الخطة الشهرية",
+  "usage.dailyFreeLimit": "الحد اليومي المجاني",
+  "usage.creditUsedOfLimit": "استخدام {{used}} من {{limit}}",
+  "usage.creditRemaining": "المتبقي {{amount}}",
+  "usage.creditUsageUnavailable": "تعذّر تحميل استخدام أرصدة Builder.",
+  "usage.estimatedBuilderCredits": "~{{amount}} رصيد مقدّر",
+  "usage.otherUsdSpend": "{{amount}} دولار أمريكي أخرى",
+  "usage.noBuilderCredits": "0 من أرصدة Builder",
+  "usage.otherUnclassifiedSpend": "إنفاق آخر أو غير مصنّف بالدولار الأمريكي",
+  "usage.providerSpendDetail":
+    "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
+  "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
+  "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
 };
 
 export default messages;

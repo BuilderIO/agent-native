@@ -1,15 +1,16 @@
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 import {
   isInboxScopedAppLabel,
   mailLabelsInclude,
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
+import { ALL_TAB_PARAM } from "@shared/inbox-threads";
 import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
 import type { EmailMessage, SavedMailFilter } from "@shared/types";
 
 /**
- * Single source of truth for partitioning the loaded inbox into the top-bar
- * tabs (Important / pinned triage labels / "Other").
+ * Shared helpers for inbox tab destinations and client-side partitioning.
  *
  * The badge counts (AppLayout) and the rendered list (InboxPage) BOTH go
  * through these helpers so a tab's number can never disagree with the emails
@@ -40,7 +41,7 @@ export function inboxThreadKey(
   return `${email.accountEmail?.trim().toLowerCase() ?? ""}:${email.threadId || email.id}`;
 }
 
-/** Use the default Important tab only before the user has saved pin choices. */
+/** Use Important as the pinned-tab fallback before the user saves pin choices. */
 export function resolvePinnedLabels(
   userPinnedLabels: readonly string[] | undefined,
   isGoogleConnected: boolean,
@@ -62,18 +63,18 @@ export function labelTabHref(labelId: string): string {
 }
 
 /**
- * Resolves the default destination href when opening the mail app. Selects
- * the first top label by default (e.g. Important), or the first user label /
- * saved filter, falling back to /inbox when combined inbox is enabled or all
- * triage tabs are unpinned.
+ * Resolves the default destination when opening the mail app. All is the
+ * default unless hidden or the user has enabled Combined Inbox.
  */
 export function resolveDefaultMailHref(opts: {
   combineInbox?: boolean;
+  showAllTab?: boolean;
   pinnedLabels?: readonly string[];
   isGoogleConnected?: boolean;
   savedFilters?: readonly Pick<SavedMailFilter, "id">[];
 }): string {
   if (opts.combineInbox) return "/inbox";
+  if (opts.showAllTab !== false) return `/inbox?tab=${ALL_TAB_PARAM}`;
   const resolved = resolvePinnedLabels(
     opts.pinnedLabels,
     opts.isGoogleConnected ?? true,
@@ -168,9 +169,16 @@ export function qualifiesForInboxTab(
   triageLabels: readonly string[],
 ): boolean {
   if (tab === null) {
-    return !mailLabelsIncludeAny(latestLabelIds, triageLabels);
+    return (
+      !mailLabelsIncludeAny(latestLabelIds, triageLabels) &&
+      !mailLabelsInclude(latestLabelIds, AI_IMPORTANT_LABEL)
+    );
   }
-  if (!mailLabelsInclude(latestLabelIds, tab)) return false;
+  const isImportant =
+    mailLabelsInclude(latestLabelIds, tab) ||
+    (tab === "important" &&
+      mailLabelsInclude(latestLabelIds, AI_IMPORTANT_LABEL));
+  if (!isImportant) return false;
   if (tab === "important") {
     const others = triageLabels.filter((l) => l !== "important");
     if (mailLabelsIncludeAny(latestLabelIds, others)) return false;
@@ -228,8 +236,10 @@ export function filterInboxTabEmails(
   const qualified = new Set<string>();
   for (const [key, latestMsg] of latest) {
     if (
-      !savedFilterThreads.has(key) &&
-      qualifiesForInboxTab(latestMsg.labelIds, tab, triage)
+      (!savedFilterThreads.has(key) &&
+        qualifiesForInboxTab(latestMsg.labelIds, tab, triage)) ||
+      (tab === "important" &&
+        mailLabelsInclude(latestMsg.labelIds, AI_IMPORTANT_LABEL))
     ) {
       qualified.add(key);
     }

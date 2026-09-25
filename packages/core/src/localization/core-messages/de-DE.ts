@@ -35,23 +35,35 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
+  "observability.viewDetails": "Details anzeigen",
+  "observability.hideDetails": "Details ausblenden",
+  "observability.input": "Eingabe",
+  "observability.output": "Ausgabe",
+  "observability.error": "Fehler",
+  "observability.metadata": "Metadaten",
+  "observability.notCaptured": "Nicht erfasst",
+  "observability.openFullConversation": "Vollständige Unterhaltung öffnen",
+  "observability.learnAboutTab": "Mehr über diesen Tab erfahren",
   "onboarding.back": "Zurück",
   "onboarding.chooseRole": "Wähle deine Rolle",
   "onboarding.customizeRole": "Wir passen das für dich an.",
   "onboarding.roleQuestion":
     "Welche Beschreibung passt am besten zu deiner Rolle?",
-  "onboarding.roleProduct": "Produkt",
-  "onboarding.roleDesign": "Design",
+  "onboarding.roleHelperText":
+    "Das hilft uns, deine Erfahrung zu personalisieren",
+  "onboarding.roleProduct": "Produktmanager",
+  "onboarding.roleDesign": "Designer",
   "onboarding.roleDeveloper": "Entwicklung",
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Vertrieb",
   "onboarding.roleOps": "Operations",
   "onboarding.roleIndividual": "Einzelperson",
   "onboarding.roleOther": "Andere",
+  "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
-  "onboarding.builderActivateCredits": "Builder.io-Gratiscredits aktivieren",
-  "onboarding.builderConnectCredits": "Builder.io-Gratiscredits verbinden",
+  "onboarding.builderCreateAccount": "Builder.io-Konto erstellen",
+  "onboarding.builderSignInWithAccount": "Mit Builder.io-Konto anmelden",
   "onboarding.builderActivateDescription":
     "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
   "onboarding.builderActiveCredits":
@@ -65,9 +77,10 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "Wir erstellen dein Builder.io-Konto automatisch für dich mit einem Klick.",
   "onboarding.builderCreateAndActivate": "Erstellen und aktivieren",
-  "onboarding.builderConsentPrefix": "Wenn du fortfährst, stimmst du den",
+  "onboarding.builderConsentPrefix":
+    "Mit der Erstellung eines Builder.io-Kontos stimmst du unseren",
   "onboarding.builderTerms": "Nutzungsbedingungen",
-  "onboarding.builderPrivacy": "Datenschutzbestimmungen",
+  "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
   "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
@@ -82,10 +95,8 @@ const messages: AgentChatTranslation = {
     "KI-Credits können verwendet werden. Cloud-Codeänderungen erfordern ein Builder-Projekt in den Einstellungen für Hintergrundagenten.",
   "onboarding.openBackgroundAgentSettings":
     "Einstellungen für Hintergrundagenten öffnen",
-  "onboarding.capability.llm.keySummary":
-    "Verbinde einen KI-Anbieter oder ein lokales Modell",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder-Speicher oder S3-kompatibler Bucket",
+  "onboarding.capability.llm.keySummary": "Verbinde dein eigenes KI-Modell",
+  "onboarding.capability.fileStorage.keySummary": "Datei-Uploads und Speicher",
   "onboarding.fileStorage.title": "Wähle den Dateispeicher",
   "onboarding.fileStorage.description":
     "Wähle den verwalteten Builder-Speicher oder eigene Speicherschlüssel für deinen S3-kompatiblen Bucket.",
@@ -93,13 +104,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "Konfiguriere einen S3-kompatiblen Bucket mit einer stabilen öffentlichen URL.",
   "onboarding.capability.voiceInput.label": "Spracheingabe",
-  "onboarding.capability.voiceInput.keySummary":
-    "Browser-Spracherkennung oder Sprache-zu-Text",
+  "onboarding.capability.voiceInput.keySummary": "Spracheingabe",
   "onboarding.capability.voiceInput.why":
     "Spracheingabe wandelt gesprochene Anfragen in Text um; Tippen funktioniert weiterhin.",
   "onboarding.capability.embeddings.label": "Semantische Vektoren",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini-, Cohere- oder Voyage-Schlüssel",
+  "onboarding.capability.embeddings.keySummary": "Semantische Vektoren",
   "onboarding.capability.embeddings.why":
     "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
   "onboarding.capability.assetsImageGeneration.label": "Bilderzeugung",
@@ -141,6 +150,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "Ein gemeinsamer Schlüssel wird verwendet.",
   "agentPanel.useOrganizationKey": "Organisationsschlüssel verwenden",
   "agentPanel.keyStatusUnavailable": "Der Schlüsselstatus ist nicht verfügbar.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Erlaube Pop-ups für diese Website und versuche es erneut.",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT-Abonnement",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Experimenteller Codex-Zugriff über dein ChatGPT-Abonnement.",
+  "agentPanel.chatgptSubscriptionInUse": "Wird verwendet",
+  "agentPanel.chatgptSubscriptionConnected": "Verbunden",
+  "agentPanel.chatgptSubscriptionConnecting": "Wird verbunden…",
+  "agentPanel.chatgptSubscriptionReconnect": "Erneut verbinden",
+  "agentPanel.chatgptSubscriptionConnect": "ChatGPT verbinden",
+  "agentPanel.chatgptSubscriptionUse": "Im Chat verwenden",
+  "agentPanel.chatgptSubscriptionDisconnect": "Trennen",
   "agentHostNudge.sidebarTitle": "{{agent}}-Chat verwenden",
   "agentHostNudge.sidebarDescription":
     "Du chattest bereits mit {{agent}}. Bitte ihn, direkt mit dieser App zu arbeiten.",
@@ -162,6 +183,8 @@ const messages: AgentChatTranslation = {
   "common.loading": "Wird geladen...",
   "common.no": "Nein",
   "common.retry": "Erneut versuchen",
+  "common.chunkLoadFailed":
+    "Das Laden ist fehlgeschlagen. Bitte versuche es erneut.",
   "common.save": "Speichern",
   "agents.hostedAgent": "Gehosteter Agent",
   "agents.provider": "Anbieter",
@@ -489,6 +512,8 @@ const messages: AgentChatTranslation = {
     "Beschreibe den Skill, den du erstellen möchtest...",
   "composer.documentTooLarge":
     "„{{name}}“ ist {{size}} MB groß. {{label}} sind auf {{maxSize}} MB begrenzt, damit die Nachrichtengröße nicht überschritten wird. Verkleinere die Datei oder teile sie in kleinere Teile auf.",
+  "composer.requestTooLarge":
+    "Diese Nachricht und ihre Anhänge sind zu groß zum Senden. Entferne einen Anhang oder kürze die Nachricht.",
   "composer.file": "Datei",
   "composer.imageModel": "Bildmodell",
   "composer.imagePreview": "Bildvorschau",
@@ -713,7 +738,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "Der KI-Anbieter hat diese Anfrage vorübergehend abgelehnt. Das behebt sich meist innerhalb einer Minute – versuche es erneut.",
   "errorMessages.startNewChat": "Neuen Chat starten",
-  "errorMessages.upgradeAtBuilder": "Bei Builder.io upgraden",
+  "errorMessages.addCreditsInBuilder": "Credits bei Builder hinzufügen",
   "feedback.inaccurate": "Ungenau",
   "feedback.keyboardHint": "{{shortcut}} Enter zum Senden",
   "feedback.notHelpful": "Nicht hilfreich",
@@ -852,6 +877,24 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "Bestätigung konnte nicht gesendet werden.",
   "settings.emailNewLabel": "Neue E-Mail-Adresse",
   "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
+  "usage.builderCredits": "Builder-Credits",
+  "usage.creditBalance": "Workspace-Guthaben",
+  "usage.monthlyPlan": "Monatsplan",
+  "usage.dailyFreeLimit": "Tägliches Gratislimit",
+  "usage.creditUsedOfLimit": "{{used}} von {{limit}} verbraucht",
+  "usage.creditRemaining": "{{amount}} verbleibend",
+  "usage.creditUsageUnavailable":
+    "Der Builder-Credit-Verbrauch konnte nicht geladen werden.",
+  "usage.estimatedBuilderCredits": "~{{amount}} geschätzte Credits",
+  "usage.otherUsdSpend": "{{amount}} USD sonstige",
+  "usage.noBuilderCredits": "0 Builder-Credits",
+  "usage.otherUnclassifiedSpend":
+    "Sonstige oder nicht zugeordnete Ausgaben in USD",
+  "usage.providerSpendDetail":
+    "Anbieteraufrufe oder ältere Aufrufe außerhalb der Builder-Abrechnung",
+  "usage.providerSpendToday":
+    "Sonstige oder nicht zugeordnete Nutzung heute: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder-Credits / USD",
 };
 
 export default messages;

@@ -13,9 +13,9 @@ import type {
   Attachment,
 } from "@assistant-ui/react";
 
-// Maximum document size (4 MB). Larger files would bloat the JSON POST
-// body past Vercel's ~4.5 MB limit after base64 encoding (+33% overhead).
-export const MAX_PDF_BYTES = 4 * 1024 * 1024;
+// A 2.5 MiB PDF becomes about 3.33 MiB after base64 encoding, within the
+// 3.5 MiB attachment budget.
+export const MAX_PDF_BYTES = 2.5 * 1024 * 1024;
 
 // Anthropic / OpenAI vision inputs choke on multi-megabyte images, and
 // base64-encoding a raw screenshot eats enough heap to crash the composer
@@ -23,11 +23,12 @@ export const MAX_PDF_BYTES = 4 * 1024 * 1024;
 // images on the client before we ever serialize them.
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAGE_DIMENSION = 2048;
-// Vercel/Netlify cap requests at roughly 4.5 MB. Keep 1 MB for the message,
-// bounded history, and JSON framing; attachments get the remaining 3.5 MB.
+// Vercel/Netlify cap requests at ~4.5 MB. Reserve 1 MB for history and JSON;
+// the remaining 3.5 MB covers attachments and both prompt fields.
 export const MAX_NON_ATTACHMENT_BODY_BYTES = 1 * 1024 * 1024;
+export const MAX_REQUEST_BODY_BYTES = 4.5 * 1024 * 1024;
 export const MAX_ESTIMATED_BODY_BYTES =
-  4.5 * 1024 * 1024 - MAX_NON_ATTACHMENT_BODY_BYTES;
+  MAX_REQUEST_BODY_BYTES - MAX_NON_ATTACHMENT_BODY_BYTES;
 // Text files are read into memory before they can be sent as inline content.
 // Keep one file below the aggregate budget so an oversized EML is rejected
 // before file.text() allocates the whole payload.
@@ -69,7 +70,7 @@ export function getFileDataURL(file: File | Blob): Promise<string> {
 
 function formatOversizedDocumentError(name: string, size: number): string {
   const mb = (size / 1024 / 1024).toFixed(1);
-  const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
+  const maxMb = Number((MAX_PDF_BYTES / 1024 / 1024).toFixed(1)).toString();
   return `"${name}" is ${mb} MB - documents are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
 }
 
@@ -174,21 +175,25 @@ export async function getImageFileDataURL(file: File): Promise<string> {
   }
 }
 
-/**
- * Estimate the serialized byte cost of attachment payload strings (base64 or
- * text, accounting for UTF-8 encoding and JSON string escaping overhead).
- */
-export function estimateAttachmentBodyBytes(values: string[]): number {
+/** Measure the exact JSON-encoded byte cost of payload strings. */
+export function measureJsonStringBytes(values: string[]): number {
   const encodedBytes = new TextEncoder();
-  // Measure each string after JSON escaping so quote-heavy or control-heavy
-  // text cannot pass the guard with an underestimated request size.
-  return (
-    values.reduce(
-      (sum, value) =>
-        sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
-      0,
-    ) * 1.15
+  return values.reduce(
+    (sum, value) => sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
+    0,
   );
+}
+
+export function getSubmittedPromptBodyStrings(
+  prompt: string,
+  isContinuation: boolean,
+): string[] {
+  return isContinuation ? [prompt, prompt, prompt] : [prompt, prompt];
+}
+
+/** Conservatively estimate attachment bytes when other request fields are unknown. */
+export function estimateAttachmentBodyBytes(values: string[]): number {
+  return measureJsonStringBytes(values) * 1.15;
 }
 
 export type QueuedAttachment = CompleteAttachment & {

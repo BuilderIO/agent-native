@@ -31,6 +31,28 @@ async function readJson(res: Response): Promise<any> {
   }
 }
 
+/**
+ * Carries the `errorCode`/`details` the server forwarded from an
+ * `ActionContractError` (e.g. the DSI tier-limit 402) so
+ * `readDesignSystemTierLimitFailure` can recover the upgrade link the same
+ * way it does for the GitHub/design.md index paths, instead of losing that
+ * structure behind a plain `Error` message.
+ */
+export class BuilderIndexRequestError extends Error {
+  readonly errorCode?: string;
+  readonly details?: Record<string, unknown>;
+
+  constructor(
+    message: string,
+    options: { errorCode?: string; details?: Record<string, unknown> } = {},
+  ) {
+    super(message);
+    this.name = "BuilderIndexRequestError";
+    this.errorCode = options.errorCode;
+    this.details = options.details;
+  }
+}
+
 async function requestUploadSlots(files: File[]): Promise<UploadSlot[]> {
   const res = await fetch(appApiPath("/api/design-system-upload-start"), {
     method: "POST",
@@ -221,7 +243,10 @@ export async function uploadAndIndexFigmaFiles(
   });
   const json = await readJson(res);
   if (!res.ok || json?.error) {
-    throw new Error(json?.error || `Indexing failed (${res.status})`);
+    throw new BuilderIndexRequestError(
+      json?.error || `Indexing failed (${res.status})`,
+      { errorCode: json?.errorCode, details: json?.details },
+    );
   }
   return json as BuilderIndexResult;
 }

@@ -37,6 +37,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
+import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -66,7 +67,6 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
-import { LOADING_LABELS } from "../shared/loading-labels.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
@@ -87,6 +87,9 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  readAgentNativeBuildConfigMarker,
+  resolveFirstRunOnboardingBuildReplacement,
+  resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import {
   cloneServerBundleForFunction,
@@ -322,7 +325,14 @@ function configureAwsRuntimeOutput(
     ...declaredEnvKeys(),
     ...readEnvExampleKeys(path.join(appDir, ".env.example")),
   ]);
-  for (const key of appScopedRuntimeEnvKeys(env.APP_NAME)) {
+  const appIdentity = [
+    env.AGENT_NATIVE_WORKSPACE_APP_ID,
+    env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,
+    env.APP_NAME,
+  ]
+    .find((value) => value !== undefined && value.trim() !== "")
+    ?.trim();
+  for (const key of appScopedRuntimeEnvKeys(appIdentity)) {
     declaredKeys.add(key);
   }
   const runtimeEnv = [...declaredKeys].sort().flatMap((key) => {
@@ -401,17 +411,21 @@ export function configureAwsLambdaRuntimeOutput(
   configureAwsRuntimeOutput(serverDir, appDir, "aws_lambda", env);
 }
 
-export function generateCloudflareModuleWorkerEntry(): string {
-  return `let handler;
-
-export * from "./index.mjs";
-
-async function loadHandler() {
-  handler ??= (await import("./index.mjs")).default;
-  return handler;
-}
-
-function initializeBindings(env) {
+/**
+ * JS source for a generated Cloudflare Worker entry's `initializeBindings(env)`
+ * helper, shared between the Module (`generateCloudflareModuleWorkerEntry`) and
+ * Pages (`generateWorkerEntry`) entries so they cannot drift apart.
+ *
+ * Setting `globalThis.__env__` is not optional decoration: it is the
+ * framework's canonical "this is a real Cloudflare invocation" signal
+ * (`hasCloudflareRuntime()` in db/client.ts, also read by `isNodeRuntime()` /
+ * `isCloudflareRuntime()` in shared/runtime.ts). The Pages entry used to copy
+ * bindings into `process.env` without ever setting `__env__`, which silently
+ * defeated every one of those checks on every Pages deploy — including the
+ * hosted-database guard, which never refused to open PGlite there.
+ */
+function cloudflareBindingsInitScript(): string {
+  return `function initializeBindings(env) {
   if (!env) return;
   globalThis.__env__ = env;
   globalThis.process = globalThis.process || { env: {} };
@@ -419,7 +433,96 @@ function initializeBindings(env) {
   for (const [key, value] of Object.entries(env)) {
     if (typeof value === "string") globalThis.process.env[key] = value;
   }
+}`;
 }
+
+/**
+ * Global-scope key Module's timer shim (see `cloudflareModuleTimerShimPrefix`
+ * in `buildWithNitro`'s post-build patch) uses to stash the real
+ * `setInterval` before neutering it. Cloudflare Workers loads each server
+ * chunk as its own ES module, so a chunk's own top-level `var` can't be read
+ * back from `worker.mjs` — the original has to be captured on `globalThis`
+ * instead, and only once, since `worker.mjs` always loads (and shims) first.
+ */
+const CF_MODULE_ORIG_SET_INTERVAL_KEY = "__cfModuleOrigSetInterval";
+const CF_MODULE_TIMER_SHIM_MARKER = "__cf_module_timer_shim__";
+
+/**
+ * Restores the real `setInterval`, captured by
+ * `cloudflareModuleTimerShimPrefix`. Callers must invoke this only after the
+ * shimmed dependency graph has actually been evaluated (e.g. after `await
+ * loadHandler()` in the Module entry, or unconditionally in the Pages entry,
+ * whose dependencies are all statically imported and so are already
+ * evaluated by the time any handler body runs) — calling it any earlier is a
+ * no-op on a cold isolate, since nothing has captured the original yet, and
+ * the shim then immediately re-neuters it during that later evaluation with
+ * nothing left to restore it again.
+ */
+function cloudflareModuleTimerRestoreScript(): string {
+  return `function __cfRestoreModuleTimers() {
+  if (typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY} !== "undefined") {
+    globalThis.setInterval = globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY};
+  }
+}`;
+}
+
+/**
+ * Prepended (in `buildWithNitro`'s post-build patch) to every server chunk
+ * that calls `setInterval` at module scope — Cloudflare Workers disallows
+ * timer creation outside a request/handler context. Neuters the call and,
+ * the first time any chunk runs this, stashes the real `setInterval` on
+ * `globalThis` for `__cfRestoreModuleTimers` (see
+ * `cloudflareModuleTimerRestoreScript`) to hand back once a handler runs.
+ */
+function cloudflareModuleTimerShimPrefix(): string {
+  return (
+    `/* ${CF_MODULE_TIMER_SHIM_MARKER} */` +
+    `if(typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY}==="undefined"){globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY}=globalThis.setInterval;}` +
+    `globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};`
+  );
+}
+
+/**
+ * Shims one already-read Cloudflare Pages output file's module-scope
+ * `setInterval` calls, sharing the Module preset's globalThis-keyed capture
+ * (`cloudflareModuleTimerShimPrefix` / `CF_MODULE_ORIG_SET_INTERVAL_KEY`)
+ * instead of a disconnected per-file mechanism.
+ *
+ * Pages used to prepend its own shim keyed on a per-file `var
+ * __origSetInterval`, captured independently by every chunk. Since the
+ * generated entry statically imports routes, actions, and plugins (they
+ * evaluate before the entry's own top-level code runs, same as any ES
+ * module's imports), a dependency chunk's shim neutered
+ * `globalThis.setInterval` before the entry's own `var` ever captured
+ * it — so the entry's "original" was already the neutered stub, and its
+ * restore call restored nothing. Sharing this capture with the Module
+ * preset's `__cfRestoreModuleTimers()` (already emitted into the generated
+ * entry by `cloudflareModuleTimerRestoreScript` — see `generateWorkerEntry`)
+ * fixes both: whichever chunk evaluates first captures the one true
+ * original, and every later chunk (including the entry) sees it's already
+ * captured and skips straight to neutering.
+ */
+export function shimCloudflarePagesModuleTimers(code: string): string {
+  if (
+    code.includes("setInterval") &&
+    !code.includes(CF_MODULE_TIMER_SHIM_MARKER)
+  ) {
+    return cloudflareModuleTimerShimPrefix() + code;
+  }
+  return code;
+}
+
+export function generateCloudflareModuleWorkerEntry(): string {
+  return `let handler;
+
+async function loadHandler() {
+  handler ??= (await import("./index.mjs")).default;
+  return handler;
+}
+
+${cloudflareBindingsInitScript()}
+
+${cloudflareModuleTimerRestoreScript()}
 
 export default {
   async fetch(request, env, ctx) {
@@ -427,27 +530,39 @@ export default {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
     initializeBindings(env);
-    return (await loadHandler()).fetch(request, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).scheduled?.(controller, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.scheduled?.(controller, env, ctx);
   },
   async email(message, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).email?.(message, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.email?.(message, env, ctx);
   },
   async queue(batch, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).queue?.(batch, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.queue?.(batch, env, ctx);
   },
   async tail(traces, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).tail?.(traces, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.tail?.(traces, env, ctx);
   },
   async trace(traces, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).trace?.(traces, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.trace?.(traces, env, ctx);
   },
 };
 `;
@@ -1481,6 +1596,7 @@ function getAppBasePath() {
 function stripAppBasePath(pathname) {
   const basePath = getAppBasePath();
   if (!basePath) return pathname;
+  if (pathname === basePath + ".data") return "/.data";
   if (pathname === basePath) return "/";
   if (pathname === basePath + "//") return "/";
   if (pathname.startsWith(basePath + "/")) {
@@ -1537,7 +1653,8 @@ function requestWithMountedApiPrefixStripped(request) {
 
 function prefixMountedPath(path, basePath) {
   if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
-  if (path === basePath || path.startsWith(basePath + "/")) return path;
+  const pathname = path.split(/[?#]/, 1)[0] || path;
+  if (pathname === basePath || pathname === basePath + ".data" || pathname.startsWith(basePath + "/")) return path;
   return basePath + path;
 }
 
@@ -1839,7 +1956,10 @@ function getAppOriginClientConfigScript() {
       return;
     }
   })();
-  const appHomePath = resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app);
+  const appHomePath = resolveAgentNativeAppHomePath(
+    getAgentNativeAppConfig().app,
+    getAgentNativeAppConfig().workspace,
+  );
   const config = {
     appHomePath,
     ...(appUrl ? { appUrl } : {}),
@@ -1899,7 +2019,10 @@ const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^
 function getAgentNativeAuthRedirectScript() {
   return getAgentNativeSsrAuthRedirectScript(
     SSR_AUTH_REDIRECT_COOKIE_NAME,
-    resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app),
+    resolveAgentNativeAppHomePath(
+      getAgentNativeAppConfig().app,
+      getAgentNativeAppConfig().workspace,
+    ),
     getAgentNativeFrameworkRoutePrefix(),
   );
 }
@@ -2263,21 +2386,23 @@ ${
   return _handler;
 }
 
+${cloudflareBindingsInitScript()}
+
+${cloudflareModuleTimerRestoreScript()}
+
 export default {
   async fetch(request, env, ctx) {
     // Attach the request-scoped continuation hook before any URL rewrite.
     if (typeof ctx?.waitUntil === "function") {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
-    if (env) {
-      globalThis.process = globalThis.process || { env: {} };
-      globalThis.process.env = globalThis.process.env || {};
-      for (const [key, value] of Object.entries(env)) {
-        if (typeof value === "string") {
-          globalThis.process.env[key] = value;
-        }
-      }
-    }
+    initializeBindings(env);
+    // Unlike the Module entry, every dependency here is statically imported
+    // (see routeImports/actionImports above), so patchCloudflareModuleServerOutput's
+    // shim has already run — and already re-neutered setInterval — by the
+    // time this handler body executes. No loadHandler()-style deferred
+    // import to wait on: restoring here is always safe and always needed.
+    __cfRestoreModuleTimers();
 
     // Try serving static assets first (CF Pages advanced mode).
     // Only attempt this for GET/HEAD — the ASSETS binding is a static file
@@ -2702,44 +2827,32 @@ const EMPTY_REACT_ROUTER_TURBO_STREAM =
 const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
   '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
 
-const STATIC_SHELL_CUBE_DELAYS = [90, 180, 270, 0, 90, 180, 90, 180, 270];
 const STATIC_SHELL_LOADING_MARKUP = [
-  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:var(--agent-native-viewport-height, 100vh);width:100%">',
-  '<div style="display:flex;align-items:center;gap:12px">',
-  '<svg aria-label="Loading" role="status" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="size-6" data-agent-native-cube-loader="true">',
+  '<div role="status" aria-label="Loading application" data-agent-native-app-skeleton="true" style="display:flex;height:var(--agent-native-viewport-height, 100vh);width:100%;overflow:hidden;background-color:hsl(var(--background, 0 0% 100%));color:hsl(var(--foreground, 240 10% 3.9%))">',
   `<style>
-        @keyframes an-cube-pulse {
-          0%, 100% { opacity: 0.15; }
-          50% { opacity: 0.95; }
+        [data-agent-native-app-skeleton] [aria-hidden="true"] {
+          animation: an-app-shell-skeleton-pulse 1.2s ease-in-out infinite;
         }
-        .an-cube-cell {
-          animation: an-cube-pulse 650ms ease-in-out infinite;
-          fill: currentColor;
-          opacity: 0.15;
+        @keyframes an-app-shell-skeleton-pulse {
+          0%, 100% { opacity: 0.45; }
+          50% { opacity: 0.85; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .an-cube-cell { animation: none; }
+          [data-agent-native-app-skeleton] [aria-hidden="true"] { animation: none; }
+        }
+        @media (max-width: 767px) {
+          [data-agent-native-app-skeleton] [data-agent-native-app-skeleton-sidebar] { display: none; }
         }
       </style>`,
-  ...STATIC_SHELL_CUBE_DELAYS.map(
-    (delay, index) =>
-      `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:calc(${delay}ms - var(--an-cube-loader-phase, 0ms))"></rect>`,
-  ),
-  `</svg><span data-agent-native-loading-label="true" class="agent-running-shimmer agent-loading-label" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">${LOADING_LABELS[0]}</span>`,
-  `<\/div><style>
-        html {
-          background: hsl(var(--background, 0 0% 100%));
-          color: hsl(var(--foreground, 240 10% 3.9%));
-        }
-        @media (prefers-color-scheme: dark) {
-          html {
-            background: hsl(var(--background, 240 10% 3.9%));
-            color: hsl(var(--foreground, 0 0% 98%));
-          }
-        }
-      </style></div>`,
+  '<aside data-agent-native-app-skeleton-sidebar="true" aria-hidden="true" style="display:flex;width:248px;flex-shrink:0;flex-direction:column;gap:16px;border-right:1px solid hsl(var(--border, 240 5.9% 90%));padding:16px">',
+  '<span aria-hidden="true" style="display:block;width:132px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span>',
+  '<div style="display:flex;flex-direction:column;gap:10px"><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div>',
+  "</aside>",
+  '<main style="display:flex;min-width:0;flex:1;flex-direction:column">',
+  '<header aria-hidden="true" style="display:flex;height:48px;flex-shrink:0;align-items:center;gap:12px;border-bottom:1px solid hsl(var(--border, 240 5.9% 90%));padding:0 16px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:128px;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></header>',
+  '<section aria-hidden="true" style="display:flex;width:100%;max-width:960px;flex:1;flex-direction:column;gap:12px;margin:0 auto;padding:24px"><span aria-hidden="true" style="display:block;width:38%;height:28px;margin-bottom:8px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:24%;height:14px;margin-bottom:16px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:34%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:44%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:54%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:64%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:74%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:84%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div></section>',
+  "</main></div>",
 ].join("");
-const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var labels=${JSON.stringify(LOADING_LABELS)};var label=document.querySelector('[data-agent-native-loading-label]');var loader=document.querySelector('[data-agent-native-cube-loader]');var observer;var cleanup=function(){if(window.__agentNativeLoadingLabelInterval!==undefined){window.clearInterval(window.__agentNativeLoadingLabelInterval);delete window.__agentNativeLoadingLabelInterval;}if(observer)observer.disconnect();if(window.__agentNativeLoadingLabelCleanup===cleanup)delete window.__agentNativeLoadingLabelCleanup;};window.__agentNativeLoadingLabelCleanup=cleanup;var update=function(){var now=window.performance.now();if(loader)loader.style.setProperty('--an-cube-loader-phase',(now%650)+'ms');if(label){label.textContent=labels[window.__agentNativeLoadingLabelIndex];label.style.animationDelay='-'+now%2600+'ms';}};window.__agentNativeLoadingLabelIndex=Math.floor(Math.random()*labels.length);update();window.__agentNativeLoadingLabelInterval=window.setInterval(function(){if(window.__agentNativeLoadingLabelHydrated||!loader||!loader.isConnected){cleanup();return;}window.__agentNativeLoadingLabelIndex=(window.__agentNativeLoadingLabelIndex+1)%labels.length;update();},3000);if(window.MutationObserver){observer=new MutationObserver(function(){if(!loader.isConnected)cleanup();});observer.observe(document,{childList:true,subtree:true});}})();</script>`;
 
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,
@@ -2776,7 +2889,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}${STATIC_SHELL_LOADING_LABEL_SCRIPT}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
@@ -3127,7 +3240,6 @@ async function buildCloudflarePages() {
   const allJsFiles = getAllJsFiles(workerOutDir);
   for (const jsFile of allJsFiles) {
     let code = fs.readFileSync(jsFile, "utf-8");
-    const isEntry = path.basename(jsFile) === "index.js";
 
     // Strip "node:" prefix from all imports/requires. Cloudflare Pages
     // Functions runs under nodejs_compat v1, which exposes builtins as
@@ -3181,24 +3293,7 @@ async function buildCloudflarePages() {
     );
 
     // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
-    // Some dependencies (e.g. Anthropic SDK rate limiter) call setInterval at module init.
-    // With code splitting, chunks evaluate before the entry, so the shim must be in every file.
-    // The restore only happens in the entry's fetch() handler.
-    if (!code.includes("__origSetInterval")) {
-      const timerShim = [
-        "var __origSetInterval=globalThis.setInterval;",
-        "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};",
-      ].join("");
-      code = timerShim + code;
-    }
-    if (isEntry) {
-      const timerRestore =
-        "if(__origSetInterval)globalThis.setInterval=__origSetInterval;";
-      code = code.replace(
-        /async fetch\(request,\s*env,\s*ctx\)\s*\{/,
-        (match) => match + timerRestore,
-      );
-    }
+    code = shimCloudflarePagesModuleTimers(code);
 
     assertNoCloudflareWorkerStubDynamicImports(code, jsFile);
 
@@ -3394,6 +3489,58 @@ const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
 ] as const;
 const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
   "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
+// Must track every package createAgentNativeConfig's ssr.external adds beyond
+// @agent-native/core and yjs (which have their own dedicated copy paths
+// below) — anything left off this list keeps its build-machine-only copy,
+// so the deployed function and the prebuilt route chunks resolve two
+// different module instances of the "same" package (e.g. a Router provider
+// from one react-router copy and useLocation() from another).
+const SERVERLESS_EXTERNAL_SSR_PACKAGES = [
+  "react",
+  "react-dom",
+  "react-router",
+  "@tanstack/react-query",
+] as const;
+const SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS: Record<string, readonly string[]> =
+  {
+    "react-dom": [
+      // Netlify's Node runtime resolves react-dom/server to server.node, while
+      // the shared streaming entrypoint imports react-dom/server.browser.
+      // Keep that browser wrapper and its production implementation; the
+      // other browser, edge, bun, and profiling renderers cannot be reached.
+      "cjs/react-dom-client.development.js",
+      "cjs/react-dom-profiling.development.js",
+      "cjs/react-dom-profiling.profiling.js",
+      "cjs/react-dom-server-legacy.browser.development.js",
+      "cjs/react-dom-server-legacy.node.development.js",
+      "cjs/react-dom-server.browser.development.js",
+      "cjs/react-dom-server.bun.development.js",
+      "cjs/react-dom-server.bun.production.js",
+      "cjs/react-dom-server.edge.development.js",
+      "cjs/react-dom-server.edge.production.js",
+      "cjs/react-dom-server.node.development.js",
+      "cjs/react-dom-test-utils.development.js",
+      "cjs/react-dom-test-utils.production.js",
+      "cjs/react-dom.development.js",
+      "cjs/react-dom.react-server.development.js",
+      "profiling.js",
+      "server.bun.js",
+      "server.edge.js",
+      "server.react-server.js",
+      "static.browser.js",
+      "static.edge.js",
+      "static.react-server.js",
+      "test-utils.js",
+    ],
+    "react-router": ["dist/development", "docs", "CHANGELOG.md"],
+    "@tanstack/react-query": [
+      "build/codemods",
+      "build/legacy",
+      "build/query-codemods",
+      "src",
+    ],
+    "@tanstack/query-core": ["build/legacy", "src"],
+  };
 
 function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   const manifest = readPackageManifest(projectCwd);
@@ -3661,6 +3808,39 @@ function copyRuntimePackageTree(
   return copiedCount;
 }
 
+function pruneExternalSsrPackageArtifacts(
+  serverDir: string,
+  packageName: string,
+): void {
+  const packageDir = path.join(
+    serverDir,
+    "node_modules",
+    ...packageName.split("/"),
+  );
+  if (!fs.existsSync(packageDir)) return;
+
+  for (const relativePath of SERVERLESS_EXTERNAL_SSR_UNUSED_PATHS[
+    packageName
+  ] ?? []) {
+    fs.rmSync(path.join(packageDir, relativePath), {
+      recursive: true,
+      force: true,
+    });
+  }
+  for (const sourceMap of fs.globSync("**/*.map", { cwd: packageDir })) {
+    fs.rmSync(path.join(packageDir, sourceMap), { force: true });
+  }
+  if (packageName.startsWith("@tanstack/")) {
+    for (const cjsFile of fs.globSync("**/*.cjs", { cwd: packageDir })) {
+      if (cjsFile.startsWith("build/modern/")) continue;
+      fs.rmSync(path.join(packageDir, cjsFile), { force: true });
+    }
+    for (const declaration of fs.globSync("**/*.d.cts", { cwd: packageDir })) {
+      fs.rmSync(path.join(packageDir, declaration), { force: true });
+    }
+  }
+}
+
 export function copyInstalledBrowserRuntimePackages(
   serverDir: string | undefined,
   projectCwd = cwd,
@@ -3734,6 +3914,72 @@ export function copyInstalledBrowserRuntimePackages(
 
   console.log(
     `[deploy] Copied ${copiedCount} serverless browser runtime package(s) into the server bundle (required by ${consumer}).`,
+  );
+  return copiedCount;
+}
+
+/**
+ * Vite's production SSR graph keeps React external so every SSR entry shares
+ * one hook dispatcher. Nitro preserves that external from the prebuilt route
+ * chunks, so the serverless artifact must carry the package itself.
+ */
+export function copyInstalledExternalSsrPackages(
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): number {
+  if (!serverDir || !fs.existsSync(serverDir)) return 0;
+
+  const packagesToCopy = new Set<string>();
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const source = fs.readFileSync(filePath, "utf-8");
+    for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
+      if (hasExternalSsrRuntimeReference(source, packageName)) {
+        packagesToCopy.add(packageName);
+      }
+    }
+  });
+  if (packagesToCopy.size === 0) return 0;
+
+  const nodeModulesRoots = nodeModulesAncestors(projectCwd);
+  const copiedPackages = new Set<string>();
+  let copiedCount = 0;
+  const versions: Record<string, string> = {};
+  for (const packageName of packagesToCopy) {
+    const packageDir = findInstalledPackageRoot(packageName, nodeModulesRoots);
+    if (!packageDir) continue;
+    const manifest = readPackageManifest(packageDir);
+    if (typeof manifest?.version === "string") {
+      versions[packageName] = manifest.version;
+    }
+    copiedCount += copyRuntimePackageTree(
+      packageName,
+      packageDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+  }
+  for (const packageName of copiedPackages) {
+    pruneExternalSsrPackageArtifacts(serverDir, packageName);
+  }
+
+  if (copiedCount === 0) return 0;
+
+  const packageJsonPath = path.join(serverDir, "package.json");
+  if (fs.existsSync(packageJsonPath) && Object.keys(versions).length > 0) {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    packageJson.dependencies = {
+      ...(packageJson.dependencies ?? {}),
+      ...versions,
+    };
+    fs.writeFileSync(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    );
+  }
+
+  console.log(
+    `[deploy] Copied ${copiedCount} external SSR runtime package(s) into the server bundle.`,
   );
   return copiedCount;
 }
@@ -4562,9 +4808,31 @@ const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const quote = `["\'\\\`]`;
+  const staticModuleReference = new RegExp(
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+  );
+  const dynamicImport = new RegExp(
+    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+  );
+  return staticModuleReference.test(source) || dynamicImport.test(source);
+}
+
+function hasBareRuntimeRequire(source: string, packageName: string): boolean {
+  const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(
-    `\\b(?:from\\s*|import\\s*\\(\\s*|import\\s*)(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+    `\\b(?:require|[A-Za-z_$][\\w$]*)\\s*\\(\\s*(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
   ).test(source);
+}
+
+function hasExternalSsrRuntimeReference(
+  source: string,
+  packageName: string,
+): boolean {
+  return (
+    hasBareRuntimeImport(source, packageName) ||
+    hasBareRuntimeRequire(source, packageName)
+  );
 }
 
 function hasUnsupportedYjsSubpathImport(source: string): boolean {
@@ -4594,6 +4862,89 @@ function walkServerJavaScriptFiles(
     }
     if (/\.(?:[cm]?js)$/.test(entry.name)) onFile(entryPath);
   }
+}
+
+const CF_MODULE_NODE_BUILTINS = [
+  "fs",
+  "path",
+  "os",
+  "crypto",
+  "http",
+  "https",
+  "stream",
+  "url",
+  "util",
+  "events",
+  "buffer",
+  "console",
+  "querystring",
+  "zlib",
+  "net",
+  "tls",
+  "assert",
+  "timers",
+  "child_process",
+  "module",
+  "process",
+  "worker_threads",
+  "string_decoder",
+  "diagnostics_channel",
+  "async_hooks",
+  "perf_hooks",
+  "inspector",
+  "vm",
+];
+
+/**
+ * Post-build patches for `cloudflare_module` server output. Recurses (via
+ * `walkServerJavaScriptFiles`) because esbuild/Nitro can emit a dependency at
+ * a nested path (e.g. `_libs/@agent-native/core.mjs`) — a flat `readdirSync`
+ * silently skips it, leaving its module-scope `setInterval` call unpatched,
+ * which Cloudflare rejects with error 10021.
+ */
+export function patchCloudflareModuleServerOutput(serverDir: string): void {
+  if (!fs.existsSync(serverDir)) return;
+
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    let code = fs.readFileSync(filePath, "utf-8");
+    let changed = false;
+
+    // 1. Rewrite bare Node.js imports to node: prefixed.
+    // CF Workers requires the node: prefix for built-in modules.
+    for (const mod of CF_MODULE_NODE_BUILTINS) {
+      // Match: from"fs" or from "fs" (but not from"node:fs")
+      const re = new RegExp(`from\\s*["']${mod}["']`, "g");
+      if (re.test(code)) {
+        code = code.replace(re, `from"node:${mod}"`);
+        changed = true;
+      }
+    }
+
+    // 2. Patch import.meta.url for createRequire().
+    // React Router's server build uses createRequire(import.meta.url)
+    // but import.meta.url is undefined on CF Workers.
+    if (code.includes("import.meta.url")) {
+      code = code.replace(/import\.meta\.url/g, '"file:///worker.mjs"');
+      changed = true;
+    }
+
+    // 3. Patch setInterval/setTimeout at global scope.
+    // CF Workers disallows timers in global scope. Shim every matching
+    // chunk; only worker.mjs restores the real function, from inside its
+    // own handlers (baked into generateCloudflareModuleWorkerEntry), never
+    // via an immediate per-chunk restore — a chunk loaded ahead of
+    // worker.mjs's handlers running would otherwise leave setInterval
+    // neutered for the rest of the request.
+    if (
+      code.includes("setInterval") &&
+      !code.includes(CF_MODULE_TIMER_SHIM_MARKER)
+    ) {
+      code = cloudflareModuleTimerShimPrefix() + code;
+      changed = true;
+    }
+
+    if (changed) fs.writeFileSync(filePath, code);
+  });
 }
 
 /**
@@ -5785,6 +6136,8 @@ export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
+  firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
+  harnessMode: string = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -5861,6 +6214,17 @@ export function resolveNitroBuildReplacements(
       JSON.stringify(
         env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || "",
       ),
+    // org/context.ts's eligibility-marker write must not read
+    // agent-native.json at runtime (not shipped into the deployed function),
+    // so embed the mode resolved from the full app config. "" is unknown.
+    "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
+      firstRunOnboardingMode,
+    ),
+    // hosted-harness-policy.ts's config read has the same problem: apps set
+    // `harness` only in agent-native.config.ts, which is not shipped into the
+    // deployed function either. "" is "a build recorded nothing"; a recorded
+    // value is always a JSON string (see resolveHarnessBuildReplacement).
+    "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
   };
 }
 
@@ -5921,6 +6285,12 @@ async function buildWithNitro() {
     createAgentNativeConfigContext("build", nitroMode),
     { environment: nitroEnvironment },
   );
+  // `agent-native build` runs the Vite build (which can see config passed
+  // inline to `agentNative()`) and this deploy build as separate processes.
+  // Prefer whatever the Vite step already resolved; only re-resolve from the
+  // config this function loaded above when no marker exists (a build that
+  // skipped the Vite step, or an older core).
+  const buildConfigMarker = readAgentNativeBuildConfigMarker(cwd);
   // Resolve the workspace core (if present) up front so the bundle embeds
   // enterprise-wide AGENTS.md + skills alongside the template's.
   const nitroWorkspaceCore = await getWorkspaceCoreExports(cwd);
@@ -6003,6 +6373,14 @@ export default bundle;
     replace: resolveNitroBuildReplacements(
       nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
+      cwd,
+      buildConfigMarker?.firstRunOnboarding ??
+        resolveFirstRunOnboardingBuildReplacement(
+          nitroAgentConfig,
+          nitroEnvironment,
+        ),
+      buildConfigMarker?.harness ??
+        resolveHarnessBuildReplacement(nitroAgentConfig),
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
@@ -6095,6 +6473,7 @@ export default bundle;
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
+    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
@@ -6412,88 +6791,9 @@ export default bundle;
   // Cloudflare-specific post-build patches
   if (preset.startsWith("cloudflare")) {
     const serverDir2 = nitro.options.output.serverDir;
-    const scanDirs = [serverDir2];
-    if (serverDir2) {
-      const chunksDir = path.join(serverDir2, "_chunks");
-      const libsDir = path.join(serverDir2, "_libs");
-      if (fs.existsSync(chunksDir)) scanDirs.push(chunksDir);
-      if (fs.existsSync(libsDir)) scanDirs.push(libsDir);
-    }
 
-    for (const scanDir of scanDirs) {
-      if (!scanDir || !fs.existsSync(scanDir)) continue;
-      for (const file of fs.readdirSync(scanDir)) {
-        if (!file.endsWith(".mjs") && !file.endsWith(".js")) continue;
-        const filePath = path.join(scanDir, file);
-        let code = fs.readFileSync(filePath, "utf-8");
-        let changed = false;
-
-        // 1. Rewrite bare Node.js imports to node: prefixed.
-        // CF Workers requires the node: prefix for built-in modules.
-        const NODE_BUILTINS = [
-          "fs",
-          "path",
-          "os",
-          "crypto",
-          "http",
-          "https",
-          "stream",
-          "url",
-          "util",
-          "events",
-          "buffer",
-          "console",
-          "querystring",
-          "zlib",
-          "net",
-          "tls",
-          "assert",
-          "timers",
-          "child_process",
-          "module",
-          "process",
-          "worker_threads",
-          "string_decoder",
-          "diagnostics_channel",
-          "async_hooks",
-          "perf_hooks",
-          "inspector",
-          "vm",
-        ];
-        for (const mod of NODE_BUILTINS) {
-          // Match: from"fs" or from "fs" (but not from"node:fs")
-          const re = new RegExp(`from\\s*["']${mod}["']`, "g");
-          if (re.test(code)) {
-            code = code.replace(re, `from"node:${mod}"`);
-            changed = true;
-          }
-        }
-
-        // 2. Patch import.meta.url for createRequire().
-        // React Router's server build uses createRequire(import.meta.url)
-        // but import.meta.url is undefined on CF Workers.
-        if (code.includes("import.meta.url")) {
-          code = code.replace(/import\.meta\.url/g, '"file:///worker.mjs"');
-          changed = true;
-        }
-
-        // 3. Patch setInterval/setTimeout at global scope.
-        // CF Workers disallows timers in global scope.
-        if (code.includes("setInterval") && !code.includes("__timer_shim__")) {
-          const shim =
-            "/* __timer_shim__ */" +
-            "var __origSetInterval=globalThis.setInterval;" +
-            "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};";
-          const restore =
-            ";(function(){if(typeof __origSetInterval!=='undefined')globalThis.setInterval=__origSetInterval})();";
-          code = shim + code + "\n" + restore;
-          changed = true;
-        }
-
-        if (changed) fs.writeFileSync(filePath, code);
-      }
-    }
-    // 3. Create stub modules in _libs/ for native deps that Nitro's rolldown
+    if (serverDir2) patchCloudflareModuleServerOutput(serverDir2);
+    // Create stub modules in _libs/ for native deps that Nitro's rolldown
     // bundler references but can't resolve on CF Workers, and rewrite
     // bare imports to point to the stub files.
     const libsDir2 = path.join(

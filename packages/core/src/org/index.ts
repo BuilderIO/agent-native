@@ -272,6 +272,10 @@ export const setWorkspaceAppDefaultVisibilityHandler = lazyFunction(
   loadOrgHandlers,
   "setWorkspaceAppDefaultVisibilityHandler",
 );
+export const setOrgVisualIdentityHandler = lazyFunction(
+  loadOrgHandlers,
+  "setOrgVisualIdentityHandler",
+);
 
 export const listAppRolesHandler = lazyFunction(
   loadOrgAppRolesHandlers,

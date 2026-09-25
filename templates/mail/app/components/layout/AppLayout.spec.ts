@@ -80,13 +80,30 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'import { inboxTabHref } from "@shared/inbox-threads";',
+      'import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";',
     );
     expect(source).toContain("const tabs = inboxThreads.data?.tabs ?? [];");
     expect(source).toContain("href: inboxTabHref(tab.id)");
+    expect(source).toContain(
+      'tab.kind === "all" ? t("mail.views.all") : tab.name',
+    );
+    expect(source).toContain("allTabVisible={showAllTab}");
+    expect(source).toContain('className={cn("relative shrink-0", tabsLoading');
+    expect(source).not.toContain('"relative hidden sm:block"');
     expect(source).toContain("tooltip: tab.query");
     expect(source).toContain("total: tab.total");
     expect(source).toContain("unread: tab.unread");
+  });
+
+  it("keeps the route-selected tab while loading and uses the server fallback when loaded", () => {
+    const source = appLayoutSource();
+
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "const activeInboxTabId = inboxThreads.isPlaceholderData ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id) : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);",
+    );
+    expect(source).toContain(
+      'isActive: view === "inbox" && activeInboxTabId === tab.id,',
+    );
   });
 
   it("keeps the search restoration path", () => {
@@ -231,9 +248,8 @@ describe("AppLayout inbox tab bar", () => {
   it("closes the captured popout drafts through the save-aware close-all path", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      "compose.closeAll(\n                popoutDrafts.map((draft) => draft.id),\n              )",
-    );
+    expect(source).toContain("const savePromises = compose.closeAll(");
+    expect(source).toContain("popoutDrafts.map((draft) => draft.id)");
     expect(source).toContain("compose.setActiveId(snapshot.id)");
     expect(source).toContain("compose.discard(snapshot.id)");
   });

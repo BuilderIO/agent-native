@@ -13,6 +13,7 @@ import {
   inArray,
   isNull,
   lt,
+  notInArray,
   or,
   sql,
   type SQL,
@@ -32,6 +33,11 @@ import {
   documentDiscoveryPagination,
   documentDiscoveryWhere,
 } from "./_document-discovery-query.js";
+import {
+  documentSearchRanking,
+  searchQueryProximityPattern,
+} from "./_document-search-ranking.js";
+import { loadPageSubtree } from "./_page-subtree.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -45,15 +51,21 @@ function escapeLike(s: string): string {
 // no-match case. The row is still returned either way.
 function makeSnippet(content: string, query: string, radius = 120) {
   const compact = content.replace(/\s+/g, " ").trim();
+  const compactQuery = query.replace(/\s+/g, " ").trim();
   if (!compact) return "";
-  const index = compact.toLowerCase().indexOf(query.toLowerCase());
+  if (!compactQuery) {
+    return compact.length <= radius * 2
+      ? compact
+      : `${compact.slice(0, radius * 2).trimEnd()}...`;
+  }
+  const index = compact.toLowerCase().indexOf(compactQuery.toLowerCase());
   if (index < 0) {
     return compact.length <= radius * 2
       ? compact
       : `${compact.slice(0, radius * 2).trimEnd()}...`;
   }
   const start = Math.max(0, index - radius);
-  const end = Math.min(compact.length, index + query.length + radius);
+  const end = Math.min(compact.length, index + compactQuery.length + radius);
   return `${start > 0 ? "..." : ""}${compact.slice(start, end).trim()}${
     end < compact.length ? "..." : ""
   }`;
@@ -61,7 +73,7 @@ function makeSnippet(content: string, query: string, radius = 120) {
 
 export default defineAction({
   description:
-    'Search one bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
+    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
   deferLoading: false,
   mcpTool: true,
   schema: z
@@ -79,6 +91,13 @@ export default defineAction({
         .optional()
         .describe("Exact parent document ID; null selects roots"),
       spaceId: z.string().min(1).optional().describe("Exact Content space ID"),
+      excludeSubtreeOf: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Leave out this document and every page beneath it, e.g. to list valid new parents when moving it",
+        ),
       documentType: z
         .enum(["page", "database"])
         .optional()
@@ -131,6 +150,7 @@ export default defineAction({
       ]),
     ];
     let bodyNeedles: string[] = [];
+    let parsedQuery: ReturnType<typeof parseSearchQuery> | null = null;
     const queryTermPredicate = (term: SearchQueryTerm): SQL => {
       const pattern = `%${escapeLike(term.text)}%`;
       const columns =
@@ -148,6 +168,7 @@ export default defineAction({
     const matchPredicates: SQL[] = [];
     if (args.query) {
       const parsed = parseSearchQuery(args.query);
+      parsedQuery = parsed;
       if (parsed.empty) {
         // Punctuation-only input (lone `-`, empty quotes) matches nothing by
         // design; report that as a loud empty page rather than every document.
@@ -169,8 +190,20 @@ export default defineAction({
                 .map((term) => term.text),
             ),
           ),
-        ];
+        ].slice(0, 256);
       }
+    }
+    let excludedIds: string[] = [];
+    if (args.excludeSubtreeOf) {
+      const [excludedRoot] = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, args.excludeSubtreeOf));
+      excludedIds = excludedRoot
+        ? (
+            await loadPageSubtree(db, excludedRoot, { includeTrashed: false })
+          ).map((document) => document.id)
+        : [args.excludeSubtreeOf];
     }
     const where = documentDiscoveryWhere({
       userEmail,
@@ -187,6 +220,9 @@ export default defineAction({
             )
           : undefined,
         ...matchPredicates,
+        excludedIds.length > 0
+          ? notInArray(schema.documents.id, excludedIds)
+          : undefined,
         // updatedAt is a text column holding both ISO "T"-separated values and
         // PostgreSQL "space"-separated defaults, so it must be compared as a
         // timestamp; a lexical compare drops valid rows at page boundaries.
@@ -204,39 +240,110 @@ export default defineAction({
           : undefined,
       ),
     });
-    const [countRow] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.documents)
-      .where(where);
-    const totalItems = Number(countRow?.count ?? 0);
-
     // Project a bounded preview of `content` instead of the full column:
     // document bodies can be multi-MB, and this action only returns a short
     // snippet (use get-document for full content). In free-text mode the
-    // preview window is anchored at the earliest in-body occurrence of an
-    // eligible positive term. The selected term is projected with the window
-    // so `makeSnippet` centers on the same match. Query order breaks ties;
+    // preview window is anchored at an in-body occurrence that keeps the most
+    // eligible positive terms in view. The selected term is projected with the
+    // window so `makeSnippet` preserves the complete match. Position and query
+    // order break ties;
     // title-only matches and exactTitle mode keep the head projection. The
     // true length still comes from SQL `length()` rather than reading `.length`
     // off a truncated string. Mirrors the
     // `substr`/`length` projection style in list-documents.ts; `position`,
     // `substr`, and `length` all work in PostgreSQL and PGlite.
     const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
-    const selectedBodyNeedle = bodyNeedles.length
-      ? sql<string>`(
-          select candidate.needle
-          from unnest(array[${sql.join(
-            bodyNeedles.map((needle) => sql`${needle}`),
-            sql`, `,
-          )}]::text[]) with ordinality as candidate(needle, query_order)
-          where position(lower(candidate.needle) in lower(${normalizedContent})) > 0
-          order by position(lower(candidate.needle) in lower(${normalizedContent})), candidate.query_order
+    const bodyNeedleArray = bodyNeedles.length
+      ? sql`array[${sql.join(
+          bodyNeedles.map((needle) => sql`${needle}`),
+          sql`, `,
+        )}]::text[]`
+      : undefined;
+    const maxOccurrencesPerNeedle = Math.max(
+      1,
+      Math.floor(256 / Math.max(1, bodyNeedles.length)),
+    );
+    const proximityPattern =
+      bodyNeedleArray && parsedQuery
+        ? searchQueryProximityPattern(parsedQuery)
+        : null;
+    const proximityPosition = proximityPattern
+      ? sql<number>`regexp_instr(${normalizedContent}, ${proximityPattern}, 1, 1, 0, 'i')`
+      : undefined;
+    // Inspect repeated occurrences so the snippet can prefer a later,
+    // denser passage. Cap each needle to keep pathological repeated-token
+    // documents from turning one result preview into an unbounded scan.
+    const fallbackBodyPosition =
+      bodyNeedles.length === 1
+        ? sql<number>`nullif(position(lower(${bodyNeedles[0]!}) in lower(${normalizedContent})), 0)`
+        : bodyNeedleArray
+          ? sql<number>`(
+          with recursive body_occurrence(needle, query_order, match_position, occurrence_number) as (
+            select candidate.needle, candidate.query_order,
+              position(lower(candidate.needle) in lower(${normalizedContent})), 1
+            from unnest(${bodyNeedleArray}) with ordinality as candidate(needle, query_order)
+            where position(lower(candidate.needle) in lower(${normalizedContent})) > 0
+            union all
+            select occurrence.needle, occurrence.query_order,
+              occurrence.match_position + position(
+                lower(occurrence.needle)
+                in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
+              ), occurrence.occurrence_number + 1
+            from body_occurrence as occurrence
+            where occurrence.occurrence_number < ${maxOccurrencesPerNeedle} and position(
+              lower(occurrence.needle)
+              in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
+            ) > 0
+          )
+          select candidate.match_position
+          from body_occurrence as candidate
+          order by (
+            select count(*)
+            from unnest(${bodyNeedleArray}) as nearby(needle)
+            where position(
+              lower(nearby.needle)
+              in lower(substr(
+                ${normalizedContent},
+                greatest(1, candidate.match_position - 120),
+                240 + length(candidate.needle)
+              ))
+            ) > 0
+          ) desc,
+          candidate.match_position,
+          candidate.query_order
           limit 1
         )`
-      : undefined;
-    const matchWindow = selectedBodyNeedle
-      ? sql<string>`case when ${selectedBodyNeedle} is not null then substr(${normalizedContent}, greatest(1, position(lower(${selectedBodyNeedle}) in lower(${normalizedContent})) - 120), 240 + length(${selectedBodyNeedle})) else substr(${normalizedContent}, 1, 5000) end`
+          : undefined;
+    const selectedBodyPosition =
+      proximityPosition && fallbackBodyPosition
+        ? sql<number>`coalesce(nullif(${proximityPosition}, 0), ${fallbackBodyPosition})`
+        : fallbackBodyPosition;
+    const selectedBodyNeedle =
+      bodyNeedleArray && selectedBodyPosition
+        ? sql<string>`(
+            select candidate.needle
+            from unnest(${bodyNeedleArray}) with ordinality as candidate(needle, query_order)
+            where lower(substr(${normalizedContent}, ${selectedBodyPosition}, length(candidate.needle))) = lower(candidate.needle)
+            order by candidate.query_order
+            limit 1
+          )`
+        : undefined;
+    const matchWindow = selectedBodyPosition
+      ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - 120), least(5000, 240 + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
       : sql<string>`substr(${normalizedContent}, 1, 5000)`;
+    const ranking = parsedQuery?.groups.length
+      ? documentSearchRanking(
+          parsedQuery,
+          {
+            title: schema.documents.title,
+            description: schema.documents.description,
+            content: normalizedContent,
+          },
+          {
+            includeNonTitleFields: args.searchFields !== "title",
+          },
+        )
+      : null;
     const docs = await db
       .select({
         id: schema.documents.id,
@@ -244,11 +351,6 @@ export default defineAction({
         title: schema.documents.title,
         description: schema.documents.description,
         icon: schema.documents.icon,
-        contentPreview: matchWindow,
-        snippetNeedle: selectedBodyNeedle
-          ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
-          : sql<string>`''`,
-        contentLength: sql<number>`length(${normalizedContent})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,
         sourceKind: schema.documents.sourceKind,
@@ -264,12 +366,63 @@ export default defineAction({
               ),
             ),
         )} then 'database' else 'page' end`,
+        totalItems: sql<number>`count(*) over()`,
       })
       .from(schema.documents)
       .where(where)
-      .orderBy(desc(schema.documents.updatedAt), asc(schema.documents.id))
+      .orderBy(
+        ...(ranking
+          ? [
+              desc(ranking.matchTier),
+              desc(ranking.titleCoverage),
+              desc(ranking.descriptionCoverage),
+              // Phrase coherence is a minor body-only tie-breaker. Bound its
+              // full-body scan so broad searches keep predictable latency;
+              // protected field tiers still rank the complete result set.
+              desc(
+                sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
+              ),
+            ]
+          : []),
+        desc(schema.documents.updatedAt),
+        asc(schema.documents.id),
+      )
       .limit(args.limit)
       .offset(args.offset);
+    const previews = docs.length
+      ? await db
+          .select({
+            id: schema.documents.id,
+            contentPreview: matchWindow,
+            snippetNeedle: selectedBodyNeedle
+              ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
+              : sql<string>`''`,
+            contentLength: sql<number>`length(${normalizedContent})`,
+          })
+          .from(schema.documents)
+          .where(
+            and(
+              where,
+              inArray(
+                schema.documents.id,
+                docs.map((doc) => doc.id),
+              ),
+            ),
+          )
+      : [];
+    const previewById = new Map(
+      previews.map((preview) => [preview.id, preview]),
+    );
+    const totalItems = docs.length
+      ? Number(docs[0]!.totalItems)
+      : Number(
+          (
+            await db
+              .select({ count: sql<number>`count(*)` })
+              .from(schema.documents)
+              .where(where)
+          )[0]?.count ?? 0,
+        );
 
     const parentIds = [
       ...new Set(docs.flatMap((doc) => (doc.parentId ? [doc.parentId] : []))),
@@ -290,24 +443,30 @@ export default defineAction({
     const parentById = new Map(parents.map((parent) => [parent.id, parent]));
 
     return {
-      documents: docs.map((doc) => ({
-        id: doc.id,
-        parentId:
-          doc.parentId && parentById.has(doc.parentId) ? doc.parentId : null,
-        parentTitle: doc.parentId
-          ? (parentById.get(doc.parentId)?.title ?? null)
-          : null,
-        documentType: doc.documentType,
-        sourceKind: doc.sourceKind,
-        sourceUpdatedAt: doc.sourceUpdatedAt,
-        title: doc.title,
-        description: doc.description,
-        icon: doc.icon,
-        snippet: makeSnippet(doc.contentPreview, doc.snippetNeedle),
-        contentLength: Number(doc.contentLength) || 0,
-        hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-        updatedAt: doc.updatedAt,
-      })),
+      documents: docs.map((doc) => {
+        const preview = previewById.get(doc.id);
+        return {
+          id: doc.id,
+          parentId:
+            doc.parentId && parentById.has(doc.parentId) ? doc.parentId : null,
+          parentTitle: doc.parentId
+            ? (parentById.get(doc.parentId)?.title ?? null)
+            : null,
+          documentType: doc.documentType,
+          sourceKind: doc.sourceKind,
+          sourceUpdatedAt: doc.sourceUpdatedAt,
+          title: doc.title,
+          description: doc.description,
+          icon: doc.icon,
+          snippet: makeSnippet(
+            preview?.contentPreview ?? "",
+            preview?.snippetNeedle ?? "",
+          ),
+          contentLength: Number(preview?.contentLength) || 0,
+          hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+          updatedAt: doc.updatedAt,
+        };
+      }),
       pagination: documentDiscoveryPagination({
         offset: args.offset,
         limit: args.limit,

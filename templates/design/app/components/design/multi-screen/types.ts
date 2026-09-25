@@ -10,7 +10,7 @@ import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 
 import type {
   IframeContextMenuPayload,
@@ -23,6 +23,8 @@ import type {
   ElementInfo,
   ElementSelectionIntent,
   PortableStyleSnapshot,
+  RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
 } from "../types";
 import type { ScreenHeightMode } from "./screen-height";
 
@@ -122,6 +124,7 @@ export interface CanvasPrimitiveInsert {
   geometry: FrameGeometry;
   points?: Point[];
   pathData?: string;
+  penPath?: PenPath;
   text?: string;
   fill?: string;
   stroke?: string;
@@ -134,6 +137,7 @@ export interface CanvasPrimitiveInsert {
 export interface PersistedDraftPrimitive {
   frameId: string;
   nodeId: string;
+  sourceNodeId?: string;
   preparedTargetNodeId?: string;
   preparedTargetIdentity?: ScreenProjectionNodeIdentity;
 }
@@ -170,6 +174,13 @@ export interface DuplicateRequest {
 export interface ScreenContentRenderOptions {
   onBootStart?: () => void;
   onBootReady?: () => void;
+  /**
+   * Invalidates the cached React element without changing the renderer
+   * callback. Runtime requests use this while the overview keeps the same
+   * live iframe mounted: the element must receive the new one-shot request,
+   * but its iframe document must not be remounted.
+   */
+  cacheKey?: string | number | null;
 }
 
 export interface MultiScreenCanvasProps {
@@ -187,6 +198,8 @@ export interface MultiScreenCanvasProps {
    * fitted outline + resize handles around the real element, so drawing the
    * frame-sized box on top of it would be wrong, not just redundant. */
   selectedElementScreenId?: string | null;
+  /** Stable source id for the currently selected canvas layer. */
+  selectedPenPathNodeId?: string | null;
   /** Hidden screen/file rows retain geometry but do not render or participate
    * in overview hit testing, fit, or selection until shown again. */
   hiddenScreenIds?: ReadonlySet<string> | readonly string[];
@@ -201,6 +214,11 @@ export interface MultiScreenCanvasProps {
   /** Lets every live frame receive native pointer interaction while the
    * overview camera and frame chrome remain available. */
   interactMode?: boolean;
+  /** Screen whose mounted editor receives input in focused Interact view. */
+  interactScreenId?: string | null;
+  /** Responsive viewport for a focused Interact screen that stays in this
+   * mounted canvas. */
+  focusedInteractViewport?: { width: number; height: number } | null;
   /** Viewer mode keeps selection/inspection available without edit chrome. */
   readOnly?: boolean;
   /** Live localhost screens whose DOM editor may receive pointer input. */
@@ -277,6 +295,11 @@ export interface MultiScreenCanvasProps {
     nodeId: string,
     options?: { nextTool?: "move" | "pen" },
   ) => void;
+  onUpdatePenPath?: (
+    screenId: string,
+    nodeId: string,
+    path: PenPath,
+  ) => boolean;
   onPrimitiveReparent?: (args: {
     sourceNodeId: string;
     sourceScreenId: string;
@@ -321,8 +344,18 @@ export interface MultiScreenCanvasProps {
     geometry: FrameGeometry,
     options?: ScreenContentRenderOptions,
   ) => ReactNode;
+  /**
+   * Changes to a transient per-screen runtime request must invalidate the
+   * cached React element so a mounted DesignCanvas receives the request. This
+   * is intentionally separate from the renderer identity: changing it updates
+   * props in place and preserves the iframe document and running-app state.
+   */
+  screenContentRenderKey?: string | number | null;
   /** Cached inert HTML used while a live screen is waiting for a boot slot. */
   screenSnapshotsById?: Record<string, { html: string } | undefined>;
+  /** The design's resolved tweak CSS custom properties. Editors receive them
+   *  from their own DesignCanvas; static previews are posted them here. */
+  tweakValues?: Record<string, string>;
   /**
    * Renders the fully editable runtime for one responsive sub-frame. Keeping
    * this separate from `renderScreenContent` prevents a breakpoint preview
@@ -412,6 +445,7 @@ export interface MultiScreenCanvasProps {
   onCrossScreenElementDrop?: (args: {
     sourceSelector: string;
     sourceNodeId?: string;
+    sourceDeleteRequestId?: string;
     sourceProvenance?: SourceNodeProvenance;
     targetAnchorProvenance?: SourceNodeProvenance;
     sourceScreenId: string;
@@ -437,6 +471,8 @@ export interface MultiScreenCanvasProps {
     targetLocalPoint?: Point;
     /** Pointer offset from the dragged element's top-left in source iframe px. */
     sourcePointerOffset?: Point;
+    /** CSS width/height used by the source before auto-layout is removed. */
+    sourceComputedSize?: { width?: number; height?: number };
     /** Host-captured HTML for a board root, including its current DOM subtree. */
     sourceHtmlSnapshot?: string;
     /** True when the source bridge is carrying an Alt-drag copy. */
@@ -488,9 +524,41 @@ export interface MultiScreenCanvasProps {
   // ── Board edit callbacks (active-target model) ───────────────────────────
   /**
    * When true the board <DesignCanvas> is in edit mode.
-   * Pass `canEditDesign` from DesignEditor. Defaults to false.
+   * Pass the persisted-design or public visual-edit capability from
+   * DesignEditor. Defaults to false.
    */
   boardEditMode?: boolean;
+  /** Runtime-only requests targeted at the board iframe. */
+  boardRuntimeStructureInsertRequest?:
+    | (RuntimeStructureInsertRequest & {
+        screenId: string;
+      })
+    | null;
+  boardRuntimeStructureRollbackRequest?:
+    | (RuntimeStructureRollbackRequest & {
+        screenId: string;
+      })
+    | null;
+  /** Shared admission lock used to associate a board timeout with its transaction. */
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
+  onBoardRuntimeStructureInsertRejected?: (
+    reason: string,
+    transactionId?: string,
+  ) => boolean | void;
+  onBoardRuntimeStructureInsertApplied?: (details: {
+    requestId: string;
+    transactionId?: string;
+    routePath?: string;
+    selector: string;
+    sourceId?: string;
+    applied?: boolean;
+  }) => void;
+  onBoardRuntimeStructureRollbackResult?: (details: {
+    requestId: string;
+    transactionId?: string;
+    applied: boolean;
+    reason?: string;
+  }) => void;
   /**
    * When true the board is the active surface (activeFileId === boardFileId),
    * so the board <DesignCanvas> owns the global window runtime bridge
@@ -714,6 +782,15 @@ export interface MultiScreenCanvasProps {
    */
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
+  /** Reads the canvas-space rectangle currently visible between editor chrome. */
+  visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;
+}
+
+export interface VisibleCanvasRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface FrameGeometry {
@@ -752,6 +829,7 @@ export interface ScreenContentCacheEntry {
   renderScreenContent: NonNullable<
     MultiScreenCanvasProps["renderScreenContent"]
   >;
+  renderKey: string | number | null | undefined;
   contentNode: ReactNode;
 }
 
@@ -775,6 +853,8 @@ export interface Point {
 export interface VectorEditOverlayState {
   path: PenPath;
   originCanvas: Point;
+  selectedAnchorIndex: number | null;
+  onSelectedAnchorChange: (nodeIndex: number | null) => void;
   onChange: (nextPath: PenPath, phase: "preview" | "commit") => void;
   onExit: () => void;
 }
@@ -1042,6 +1122,16 @@ export interface VectorEditHandleDragState {
   symmetryBroken: boolean;
 }
 
+export interface VectorEditSegmentDragState {
+  type: "vector-segment";
+  originClient: Point;
+  originLocal: Point;
+  segmentIndex: number;
+  t: number;
+  pathBefore: PenPath;
+  hasMoved: boolean;
+}
+
 export interface DraftCreationPreview {
   tool: DraftCreationTool;
   geometry: FrameGeometry;
@@ -1060,7 +1150,8 @@ export type DragState =
   | DraftCreateDragState
   | PenNodeDragState
   | VectorEditAnchorDragState
-  | VectorEditHandleDragState;
+  | VectorEditHandleDragState
+  | VectorEditSegmentDragState;
 
 export type PendingWheelGesture =
   | {
@@ -1183,6 +1274,8 @@ export type {
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
   IframeImagePastePayload,
+  RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
 };
 
 export interface ResolvedScreenMetadata {

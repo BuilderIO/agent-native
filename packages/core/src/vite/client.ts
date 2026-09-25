@@ -23,6 +23,10 @@ import {
   mergePendingChangelog,
   parsePendingEntry,
 } from "../changelog/parse.js";
+import {
+  DEV_SERVER_RECOVERY_EXIT_CODE,
+  DEV_SERVER_SUPERVISOR_ENV,
+} from "../cli/process.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
   inferAgentNativeDeploymentEnvironment,
@@ -83,6 +87,9 @@ import {
   loadAgentNativeConfigFile,
   loadWorkspaceAgentNativeConfigFile,
   readAgentNativeJsonConfig,
+  resolveFirstRunOnboardingBuildReplacement,
+  resolveHarnessBuildReplacement,
+  writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -3533,6 +3540,58 @@ function nitroStartupRecovery(): Plugin {
   };
 }
 
+function persistent5xxRecovery(
+  options: {
+    enabled?: boolean;
+    now?: () => number;
+    exit?: (code: number) => void;
+  } = {},
+): Plugin {
+  return {
+    name: "agent-native-persistent-5xx-recovery",
+    apply: "serve",
+    enforce: "pre",
+    configureServer(server) {
+      if (
+        !(options.enabled ?? process.env[DEV_SERVER_SUPERVISOR_ENV] === "1")
+      ) {
+        return;
+      }
+
+      const now = options.now ?? Date.now;
+      const exit = options.exit ?? ((code: number) => process.exit(code));
+      let hasServedHealthyResponse = false;
+      let first5xxAt: number | undefined;
+      server.middlewares.use((req, res, next) => {
+        if (!isHtmlDocumentRequest(req)) {
+          next();
+          return;
+        }
+
+        res.once("finish", () => {
+          if ((res.statusCode ?? 500) < 500) {
+            hasServedHealthyResponse = true;
+            first5xxAt = undefined;
+            return;
+          }
+
+          const failedAt = now();
+          first5xxAt ??= failedAt;
+          if (!hasServedHealthyResponse || failedAt - first5xxAt <= 75_000) {
+            return;
+          }
+
+          console.error(
+            `[agent-native] Dev server kept returning HTTP ${res.statusCode} after recovery; restarting.`,
+          );
+          exit(DEV_SERVER_RECOVERY_EXIT_CODE);
+        });
+        next();
+      });
+    },
+  };
+}
+
 /**
  * Silence benign connection-reset noise from Vite's dev middleware.
  * Fires when a browser closes/reloads/navigates mid-request — the peer has
@@ -3812,6 +3871,7 @@ function arrayFrom<T>(value: T | T[] | undefined): T[] {
 }
 
 const LOCAL_WORKSPACE_SOURCE_ALIAS_EXCLUDES = new Set([
+  "@agent-native/core",
   "@agent-native/pinpoint",
 ]);
 
@@ -3920,18 +3980,34 @@ function aliasArrayFrom(alias: unknown): any[] {
   return [];
 }
 
-const DEFAULT_VITE_WATCH_IGNORES = [
-  "**/.git/**",
-  "**/node_modules/**",
-  "**/.react-router/**",
-  "**/.generated/**",
-  "**/.agents/**",
-  "**/.claude/**",
-  "**/.data/**",
-  "**/data/**",
-  "**/dist/**",
-  "**/build/**",
-];
+const DEFAULT_VITE_WATCH_IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  ".react-router",
+  ".generated",
+  ".agents",
+  ".claude",
+  ".data",
+  "data",
+  "dist",
+  "build",
+]);
+
+/**
+ * Ignores files inside these directories, judged from the app root only. A
+ * `**\/.claude/**` glob also matches the root's own ancestors, so an app run
+ * from a `.claude/worktrees/*` checkout silently got no file watching or HMR.
+ */
+export function defaultViteWatchIgnored(
+  root: string,
+): (file: string) => boolean {
+  return (file) =>
+    path
+      .relative(root, file)
+      .split(/[\\/]/)
+      .slice(0, -1)
+      .some((segment) => DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment));
+}
 
 function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
@@ -4117,6 +4193,7 @@ function createAgentNativePlugins(
       : [];
 
   return [
+    persistent5xxRecovery(),
     presetMarkerPlugin,
     // Stub packages from `options.ssrStubs` in the SSR bundle so they
     // don't bloat the edge worker. Opt-in per template — the framework
@@ -4278,6 +4355,19 @@ function createAgentNativeConfig(
           },
         }
       : appConfig;
+  const firstRunOnboardingMode = resolveFirstRunOnboardingBuildReplacement(
+    resolvedAppConfig,
+    runtimeEnv,
+  );
+  const harnessMode = resolveHarnessBuildReplacement(resolvedAppConfig);
+  if (command === "build") {
+    writeAgentNativeBuildConfigMarker(cwd, {
+      firstRunOnboarding: firstRunOnboardingMode,
+      harness: harnessMode,
+    });
+  }
+  const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
+  const harnessBuildMode = JSON.stringify(harnessMode);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   // The public framework route prefix is resolved exactly here, once. The
@@ -4383,6 +4473,19 @@ function createAgentNativeConfig(
     userConfig.optimizeDeps ?? {};
 
   return {
+    // Nitro builds the server separately with its own replacement map. Its
+    // `nitro:init` config hook reads `config.nitro` after this pre-enforced
+    // hook returns, so the server embeds the mode resolved from the same
+    // config, Vite mode and env files as the client. Do not also set this key
+    // in createNitroDevPlugin: Nitro's plugin options take precedence over
+    // `config.nitro`.
+    nitro: {
+      replace: {
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
+          firstRunOnboardingBuildMode,
+        "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+      },
+    },
     logLevel:
       options.logLevel ??
       userConfig.logLevel ??
@@ -4432,6 +4535,15 @@ function createAgentNativeConfig(
       [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
         resolveRecurringJobsBuildMarker(process.env),
       ),
+      // Same reason as the release owner above: org/context.ts's eligibility
+      // marker write must not read agent-native.json at runtime (not shipped
+      // into the deployed function), so embed the resolved mode here too.
+      "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
+        firstRunOnboardingBuildMode,
+      // hosted-harness-policy.ts's config read has the same problem: apps set
+      // `harness` only in agent-native.config.ts, which is not shipped into
+      // the deployed function either.
+      "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
       ...(resolvedAppConfig.deployment?.environment
         ? {
             "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
@@ -4473,7 +4585,7 @@ function createAgentNativeConfig(
       watch: {
         ...userWatch,
         ignored: [
-          ...DEFAULT_VITE_WATCH_IGNORES,
+          defaultViteWatchIgnored(path.resolve(cwd, userConfig.root ?? "")),
           ...arrayFrom((userWatch as { ignored?: any })?.ignored),
         ],
         ...(forcePollingWatch
@@ -4531,7 +4643,13 @@ function createAgentNativeConfig(
     ssr: isBuildCommand(command)
       ? {
           ...(userConfig.ssr ?? {}),
-          noExternal: /^(?!node:)/,
+          // Keep the framework router and its React peers external in the
+          // intermediate SSR graph. Nitro consumes this graph as a prebuilt
+          // server chunk and bundles the same packages for the final runtime;
+          // inlining them here creates a second Router context in serverless
+          // output, so <ServerRouter> and route hooks disagree at request time.
+          noExternal:
+            /^(?!(?:react|react-dom|react-router|@tanstack\/react-query)(?:\/|$))(?!node:)/,
           external: [
             // Yjs is used by both server-side collaboration actions and the
             // client SSR graph. If Vite inlines it here, Nitro also emits its
@@ -4541,6 +4659,15 @@ function createAgentNativeConfig(
             // bundle still owns and bundles the dependency, so both paths
             // share one portable module instance.
             "yjs",
+            // Nitro owns the final Core graph. Keeping Core external here
+            // prevents Vite's intermediate SSR build from duplicating it.
+            "@agent-native/core",
+            // Core's external client entries must share singleton contexts with
+            // the SSR graph or prerendering sees duplicate providers.
+            "react",
+            "react-dom",
+            "react-router",
+            "@tanstack/react-query",
             ...arrayFrom((userConfig.ssr as { external?: any })?.external),
           ],
           // Pick the workspace-core's compiled `dist/` exports in prod —
@@ -4664,12 +4791,14 @@ function createAgentNativeConfig(
       ],
       alias: [
         // Published npm installs: one react-router instance for app + core.
-        ...getReactRouterAliases(cwd),
+        ...(isBuildCommand(command) ? [] : getReactRouterAliases(cwd)),
         ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
+        // Production must use compiled exports so the React Router SSR graph
+        // and Nitro do not bundle separate copies of Core.
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
-        ...getCoreSourceAliases(cwd),
+        ...(isBuildCommand(command) ? [] : getCoreSourceAliases(cwd)),
         ...localWorkspacePackageResolveAliases,
         // Standard path aliases (prefix matching is fine here)
         { find: "@", replacement: path.resolve(cwd, "./app") },
@@ -4767,6 +4896,7 @@ export {
   getReactRouterAliases as _getReactRouterAliases,
   nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
+  persistent5xxRecovery as _persistent5xxRecovery,
   nitroModuleGraphSignature as _nitroModuleGraphSignature,
   resolveNitroSsrServiceEntry as _resolveNitroSsrServiceEntry,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,

@@ -58,7 +58,11 @@ describe("MarketingHome", () => {
     expect(html).toContain("Sign in form");
     expect(html).toContain('id="auth-starfield"');
     expect(html).toContain("max-w-6xl");
+    expect(html).toContain("auth-marketing-layout");
     expect(html).toContain("max-w-md");
+    expect(html.indexOf("Sign in form")).toBeLessThan(
+      html.indexOf("Marketing copy"),
+    );
   });
 
   it("renders the starfield canvas without browser APIs during SSR", () => {

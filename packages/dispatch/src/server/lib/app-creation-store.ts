@@ -166,15 +166,12 @@ export interface WorkspaceAppSummary {
 }
 
 interface FinalizeWorkspaceAppsOptions {
-  /** Delete org rows absent from an authoritative manifest. */
-  reconcile?: boolean;
   /** Write registry rows. False for a source the caller could not authenticate. */
   persist?: boolean;
 }
 
 interface WorkspaceAppDiscovery {
   apps: WorkspaceAppSummary[];
-  authoritative: boolean;
 }
 
 export interface ListWorkspaceAppsOptions {
@@ -913,10 +910,49 @@ async function assertPendingWorkspaceAppCreationAvailable(
     ?.trim()
     .toLowerCase();
   if (ownerEmail && ownerEmail !== viewerEmail) {
-    throw new Error(
-      `Workspace app "${appId}" is already being created by another member.`,
-    );
+    throw new WorkspaceAppIdTakenError({
+      appId,
+      conflict: "pending",
+      owner: existing.createdBy ?? existing.owner,
+      message: `Workspace app "${appId}" is already being created by another member.`,
+    });
   }
+}
+
+/**
+ * A requested app id is already taken. Typed so reservation failures the caller
+ * can fix stay separable from the registry/storage failures these same helpers
+ * throw: only this one may be reported back as a normal result.
+ */
+export class WorkspaceAppIdTakenError extends Error {
+  readonly appId: string;
+  readonly conflict: "registered" | "pending";
+  readonly owner: string | null;
+
+  constructor(input: {
+    appId: string;
+    conflict: "registered" | "pending";
+    owner?: string | null;
+    message: string;
+  }) {
+    super(input.message);
+    this.name = "WorkspaceAppIdTakenError";
+    this.appId = input.appId;
+    this.conflict = input.conflict;
+    this.owner = input.owner?.trim() || null;
+  }
+}
+
+function appIdTakenResult(
+  err: WorkspaceAppIdTakenError,
+): AppCreationAppIdTakenResult {
+  return {
+    mode: "app-id-taken",
+    appId: err.appId,
+    conflict: err.conflict,
+    owner: err.owner,
+    message: `${err.message} Choose a different app name and try again.`,
+  };
 }
 
 async function assertWorkspaceAppIdRegisteredFree(
@@ -935,7 +971,11 @@ async function assertWorkspaceAppIdRegisteredFree(
     );
   }
   if (existing.length > 0) {
-    throw new Error(`Workspace app "${appId}" is already registered.`);
+    throw new WorkspaceAppIdTakenError({
+      appId,
+      conflict: "registered",
+      message: `Workspace app "${appId}" is already registered.`,
+    });
   }
 }
 
@@ -960,13 +1000,15 @@ async function reservePendingWorkspaceApp(input: {
       .filter((app) => !isPendingWorkspaceAppExpired(app))
       .find((app) => app.id === input.appId);
     if (existing) {
-      throw new Error(
-        `Workspace app "${input.appId}" is already being created${
-          existing.createdBy || existing.owner
-            ? ` by ${existing.createdBy ?? existing.owner}`
-            : ""
+      const owner = existing.createdBy ?? existing.owner ?? null;
+      throw new WorkspaceAppIdTakenError({
+        appId: input.appId,
+        conflict: "pending",
+        owner,
+        message: `Workspace app "${input.appId}" is already being created${
+          owner ? ` by ${owner}` : ""
         }.`,
-      );
+      });
     }
 
     const reservation: PendingWorkspaceApp = {
@@ -1277,18 +1319,16 @@ function appRecordTimestamp(value: string | null | undefined): number {
  */
 async function ensureWorkspaceAppRecords(
   apps: WorkspaceAppSummary[],
-  options: { reconcile?: boolean; persist?: boolean } = {},
+  options: { persist?: boolean } = {},
 ): Promise<WorkspaceAppSummary[]> {
   const readyApps = apps.filter(
     (app) => app.status !== "pending" && !app.isDispatch,
   );
   // A source the caller could not authenticate annotates from existing rows
   // only. Minting a row here would create the very authorization the access
-  // filter then checks, and reconciling would delete rows and shares on the
-  // word of a manifest no authoritative registry confirmed.
+  // filter then checks.
   const shouldPersist = options.persist !== false;
-  const shouldReconcile = options.reconcile === true && shouldPersist;
-  if (!shouldReconcile && readyApps.length === 0) {
+  if (readyApps.length === 0) {
     return apps;
   }
 
@@ -1458,34 +1498,6 @@ async function ensureWorkspaceAppRecords(
       console.warn(
         `[dispatch] unverified workspace app read has no access record for ${unresolvedIds.length} app(s); hidden from this response: ${unresolvedIds.join(", ")}`,
       );
-    }
-
-    if (shouldReconcile && orgId) {
-      const currentAppIds = new Set(readyApps.map((app) => app.id));
-      const result = await db.execute({
-        sql: "SELECT id FROM workspace_apps WHERE org_id = ?",
-        args: [orgId],
-      });
-      const staleIds = result.rows
-        .map((row) => cleanOptionalText((row as Record<string, unknown>).id))
-        .filter(
-          (id): id is string =>
-            !!id && id !== "dispatch" && !currentAppIds.has(id),
-        );
-
-      for (let start = 0; start < staleIds.length; start += 500) {
-        const ids = staleIds.slice(start, start + 500);
-        await db.execute({
-          sql: `WITH removed AS (
-                  DELETE FROM workspace_apps
-                  WHERE id IN (${ids.map(() => "?").join(", ")}) AND org_id = ?
-                  RETURNING id
-                )
-                DELETE FROM workspace_app_shares
-                WHERE resource_id IN (SELECT id FROM removed)`,
-          args: [...ids, orgId],
-        });
-      }
     }
   } catch (error) {
     console.warn("[dispatch] workspace app access records unavailable", error);
@@ -1794,7 +1806,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
           // must fall through to the local manifest sources.
           await localResponse.json().catch(() => null),
         );
-        return apps ? { apps, authoritative: true } : null;
+        return apps ? { apps } : null;
       }
     }
 
@@ -1827,7 +1839,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       // must fall through to the local manifest sources.
       await actionResponse.json().catch(() => null),
     );
-    return apps ? { apps, authoritative: false } : null;
+    return apps ? { apps } : null;
   } catch (error) {
     if (error instanceof WorkspaceAppsGatewayAuthorizationError) throw error;
     return null;
@@ -2069,15 +2081,12 @@ export async function listWorkspaceApps(
 ): Promise<WorkspaceAppSummary[]> {
   const finalize = async (
     apps: WorkspaceAppSummary[],
-    { reconcile = false, persist = true }: FinalizeWorkspaceAppsOptions = {},
+    { persist = true }: FinalizeWorkspaceAppsOptions = {},
   ) => {
-    // Reconcile from the complete manifest. Archive and audience filters only
-    // control the response; treating hidden apps as absent deletes their rows.
+    // Record rows from the complete manifest. Archive and audience filters
+    // only control the response.
     const annotated = await applyArchivedAndPending(apps);
-    const recorded = await ensureWorkspaceAppRecords(annotated, {
-      reconcile,
-      persist,
-    });
+    const recorded = await ensureWorkspaceAppRecords(annotated, { persist });
     const listed = options.includeArchived
       ? recorded
       : recorded.filter((app) => !app.archived);
@@ -2098,7 +2107,7 @@ export async function listWorkspaceApps(
     gatewayDenial = error;
   }
   if (gatewayApps) {
-    return finalize(gatewayApps.apps, { reconcile: gatewayApps.authoritative });
+    return finalize(gatewayApps.apps);
   }
   const unverified = gatewayDenial !== null;
 
@@ -2109,20 +2118,14 @@ export async function listWorkspaceApps(
       : null;
   if (localFilesystemApps) {
     warnWorkspaceAppsGatewayDenial(gatewayDenial, "local filesystem");
-    return finalize(localFilesystemApps, {
-      reconcile: !unverified,
-      persist: !unverified,
-    });
+    return finalize(localFilesystemApps, { persist: !unverified });
   }
 
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
   if (manifestApps) {
     warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment manifest");
-    return finalize(manifestApps, {
-      reconcile: !unverified,
-      persist: !unverified,
-    });
+    return finalize(manifestApps, { persist: !unverified });
   }
 
   if (gatewayDenial) throw gatewayDenial;
@@ -2910,6 +2913,21 @@ export interface AppCreationComingSoonResult {
   message: string;
 }
 
+/**
+ * The requested app id collides with an existing app or an in-flight creation.
+ * Distinct from `builder-unavailable`: nothing is wrong with the deployment,
+ * and the caller fixes it by choosing another name.
+ */
+export interface AppCreationAppIdTakenResult {
+  mode: "app-id-taken";
+  appId: string;
+  /** `registered` = a live workspace app; `pending` = a creation in flight. */
+  conflict: "registered" | "pending";
+  /** Who is already creating it, when the conflict is a pending creation. */
+  owner: string | null;
+  message: string;
+}
+
 export interface AppCreationBuilderResult {
   mode: "builder";
   appId: string;
@@ -2925,6 +2943,7 @@ export interface AppCreationBuilderResult {
 export type StartWorkspaceAppCreationResult =
   | AppCreationIdentityUnavailableResult
   | AppCreationBuilderUnavailableResult
+  | AppCreationAppIdTakenResult
   | AppCreationLocalAgentResult
   | AppCreationComingSoonResult
   | AppCreationBuilderResult;
@@ -2960,7 +2979,12 @@ export async function startWorkspaceAppCreation(input: {
   }
 
   const creationVisibility = await workspaceAppDefaultVisibility();
-  await assertPendingWorkspaceAppCreationAvailable(initial.appId);
+  try {
+    await assertPendingWorkspaceAppCreationAvailable(initial.appId);
+  } catch (err) {
+    if (err instanceof WorkspaceAppIdTakenError) return appIdTakenResult(err);
+    throw err;
+  }
 
   const selectedKeys = input.secretIds?.length
     ? (await listSecretOptions())
@@ -3037,12 +3061,20 @@ export async function startWorkspaceAppCreation(input: {
     }
   }
 
-  await reservePendingWorkspaceApp({
-    appId: built.appId,
-    description: appDescription,
-    projectId: builderProjectId,
-    visibility: creationVisibility,
-  });
+  try {
+    await reservePendingWorkspaceApp({
+      appId: built.appId,
+      description: appDescription,
+      projectId: builderProjectId,
+      visibility: creationVisibility,
+    });
+  } catch (err) {
+    // Narrow on purpose: reservation also fails when the app registry cannot
+    // be read, and that must keep propagating rather than be reported as a
+    // name the caller can simply change.
+    if (err instanceof WorkspaceAppIdTakenError) return appIdTakenResult(err);
+    throw err;
+  }
 
   let result: {
     branchName: string;

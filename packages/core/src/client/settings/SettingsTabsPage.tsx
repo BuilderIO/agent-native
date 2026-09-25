@@ -21,6 +21,7 @@ import {
 import { Link, useInRouterContext, useLocation } from "react-router";
 
 import { appMountPath, appMountedPath } from "../../client/api-path.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import type { LabDefinition } from "../../labs/registry.js";
 import {
   buildSettingsRoute,
@@ -358,6 +359,12 @@ function SettingsTabsPageContent({
   const autoFocusedSearchRef = useRef(false);
   const controlledHashRef = useRef<string | null>(null);
   const t = useT();
+  const visibleLabs = useMemo(() => {
+    if (labs.some((lab) => lab.key === CHATGPT_SUBSCRIPTION_LAB.key)) {
+      return labs;
+    }
+    return [CHATGPT_SUBSCRIPTION_LAB, ...labs];
+  }, [labs]);
   const tabs = useMemo<SettingsTabItem[]>(() => {
     const hasOrganizationTab = extraTabs.some(
       (tab) => tab.id === "organization",
@@ -387,16 +394,20 @@ function SettingsTabsPageContent({
       });
     }
     next.push(...inlineTabs);
-    if (labs.length > 0) {
+    if (visibleLabs.length > 0) {
       next.push({
         id: "labs",
         label: labsLabel,
         icon: IconFlask,
         keywords: "experimental unstable beta bugs feedback",
         content: (
-          <LabsSettings labs={labs} title={labsLabel} intro={labsIntro} />
+          <LabsSettings
+            labs={visibleLabs}
+            title={labsLabel}
+            intro={labsIntro}
+          />
         ),
-        searchEntries: labs.map((lab) => ({
+        searchEntries: visibleLabs.map((lab) => ({
           id: `lab:${lab.key}`,
           label: lab.displayName ?? lab.key,
           keywords: `${lab.key} ${lab.keywords ?? ""}`,
@@ -429,7 +440,7 @@ function SettingsTabsPageContent({
     account,
     accountLabel,
     extraTabs,
-    labs,
+    visibleLabs,
     labsIntro,
     labsLabel,
     general,
@@ -927,7 +938,7 @@ function SettingsTabsPageContent({
         role="tabpanel"
         aria-labelledby={`settings-tab-${selectedTab?.id ?? "general"}`}
         className={cn(
-          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:border-s sm:border-border/60 sm:px-6 sm:py-6 lg:px-8 lg:py-8",
+          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:pt-4 sm:pb-6 lg:px-8 lg:pt-4 lg:pb-8",
           contentClassName,
         )}
       >

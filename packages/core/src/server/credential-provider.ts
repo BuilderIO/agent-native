@@ -32,6 +32,7 @@ import {
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
 import {
+  BuilderOAuthScopeError,
   BUILDER_OAUTH_SCOPE,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
@@ -187,25 +188,38 @@ export function assertCredentialStoreReadable(result: {
  * Multi-tenant call sites must gate this explicitly before calling.
  */
 export function readDeployCredentialEnv(key: string): string | undefined {
+  if (
+    HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key) &&
+    !canUseDeployCredentialFallbackForRequest(key)
+  ) {
+    return undefined;
+  }
   return process.env[key] || undefined;
 }
 
-const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
+const HOSTED_MODEL_PROVIDER_ENV_KEYS = new Set([
   "ANTHROPIC_API_KEY",
-  "JEV_API_KEY",
-  // The Builder-credits pair pays for the deployed app's own model calls and
-  // carries no end-user identity — the token is scoped to ['gateway'] and can
-  // make no identity-bearing Builder call. The legacy BUILDER_PRIVATE_KEY /
-  // BUILDER_PUBLIC_KEY pair can, so it must never be added to this set.
-  "BUILDER_GATEWAY_TOKEN",
   "BUILDER_GATEWAY_SPACE_ID",
+  "BUILDER_GATEWAY_TOKEN",
+  "COHERE_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GROQ_API_KEY",
+  "JEV_API_KEY",
+  "MISTRAL_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "TYPESAFE_API_KEY",
+  "VOYAGE_API_KEY",
+]);
+
+const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "EMAIL_FROM",
   "EMAIL_INBOUND_WEBHOOK_SECRET",
   "EMAIL_AGENT_ADDRESS",
-  "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "OLLAMA_BASE_URL",
-  "OPENROUTER_API_KEY",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   // OAuth client ids identify the deployment; user identity remains in scoped tokens.
@@ -215,10 +229,6 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   // actor. The adapter still pins it to the incoming team and app via
   // auth.test + bots.info before using it.
   "SLACK_BOT_TOKEN",
-  "GOOGLE_GENERATIVE_AI_API_KEY",
-  "GROQ_API_KEY",
-  "MISTRAL_API_KEY",
-  "COHERE_API_KEY",
   "RESEND_API_KEY",
   "SENDGRID_API_KEY",
 ]);
@@ -230,14 +240,11 @@ function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
 /**
  * Deployment-level credentials are safe as a runtime fallback only in local /
  * single-tenant contexts. In hosted production with a shared database, every
- * signed-in user needs their own user/org/workspace credential for
- * identity-bearing provider keys so one deploy key does not silently
- * impersonate another tenant. App-provided service credentials are different:
- * they configure the deployed app itself rather than identifying a user. This
- * includes LLM keys that let the app developer pay for model usage, email
- * transport configuration owned by the deployment, and OAuth client
- * credentials whose per-user identity remains in scoped OAuth tokens. Key-aware
- * callers may use those env vars.
+ * signed-in user needs their own user/org/workspace credential for provider
+ * keys. Model-provider env keys are never shared with hosted users because
+ * they bill the app owner. Other app-provided service credentials configure
+ * the deployed app itself, such as email transport and OAuth client
+ * credentials whose per-user identity remains in scoped OAuth tokens.
  *
  * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
  * provider secrets. This stricter helper remains for legacy call sites with
@@ -255,6 +262,10 @@ export function canUseDeployCredentialFallbackForRequest(
   // If the dedicated test credential is rejected, using the site's shared key
   // would make a green retry both misleading and billable to real traffic.
   if (getRequestContext()?.isSyntheticTraffic === true) return false;
+  if (key && HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key)) {
+    if (isHostedWorkspaceRuntime()) return false;
+    if (isProductionLikeRuntime() && !isLocalDatabase()) return false;
+  }
   const email = getRequestUserEmail();
   if (!email) return true;
   if (isAppProvidedDeployCredentialKey(key)) return true;
@@ -313,6 +324,24 @@ export function hasPlatformRuntimeMarker(): boolean {
 
 export function isProductionLikeRuntime(): boolean {
   return process.env.NODE_ENV === "production" || hasPlatformRuntimeMarker();
+}
+
+/**
+ * Whether this process is a genuinely self-hosted, single-tenant deployment
+ * rather than the hosted multi-tenant workspace runtime — the same bar
+ * `canUseDeployCredentialFallbackForRequest` uses to decide whether relaxing
+ * a security boundary for "this is the operator's own machine" is safe.
+ * `NODE_ENV` alone proves nothing (it travels with a copied `.env`), so a
+ * production-shaped runtime still counts as trusted when it is backed by the
+ * local embedded database, which has no cross-tenant blast radius.
+ *
+ * Used to allow a user-supplied Ollama endpoint to target a LAN address
+ * instead of only loopback — see `provider-endpoint-validation.ts`.
+ */
+export function isTrustedSelfHostedRuntime(): boolean {
+  if (isHostedWorkspaceRuntime()) return false;
+  if (!isProductionLikeRuntime()) return true;
+  return isLocalDatabase();
 }
 
 /**
@@ -484,8 +513,10 @@ const NOT_FOUND: ScopedCredentialResult = {
 
 async function resolveScopedBuilderCredential(
   key: string,
+  identity?: BuilderCredentialLookupIdentity,
 ): Promise<ScopedCredentialResult> {
-  const email = getRequestUserEmail();
+  const email =
+    identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return NOT_FOUND;
 
   // Trace only when explicitly requested. These diagnostics are useful for
@@ -512,11 +543,12 @@ async function resolveScopedBuilderCredential(
       return { value: userSecret.value, source: "user", lookupFailed: false };
     }
 
-    let orgId: string | null | undefined = getRequestOrgId();
+    let orgId: string | null | undefined =
+      identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
     let orgSource: "request" | "email-fallback" | "none" = orgId
       ? "request"
       : "none";
-    if (!orgId) {
+    if (!orgId && !(identity !== undefined && identity.orgId === null)) {
       const resolved = await resolveOrgIdForRequestEmail(email);
       orgLookupCause = resolved.cause;
       orgId = resolved.orgId;
@@ -649,7 +681,8 @@ export interface BuilderCredentialLookupIdentity {
 async function resolveScopedBuilderCredentials(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<ScopedBuilderCredentialsResult> {
-  const email = identity?.userEmail?.trim() || getRequestUserEmail();
+  const email =
+    identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return { creds: null, lookupFailed: false };
 
   const traceLookup = shouldTraceCredentialResolve();
@@ -679,11 +712,11 @@ async function resolveScopedBuilderCredentials(
     }
 
     let orgId: string | null | undefined =
-      identity?.orgId?.trim() || getRequestOrgId();
+      identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
     let orgSource: "request" | "email-fallback" | "none" = orgId
       ? "request"
       : "none";
-    if (!orgId) {
+    if (!orgId && !(identity !== undefined && identity.orgId === null)) {
       const resolved = await resolveOrgIdForRequestEmail(email);
       orgLookupCause = resolved.cause;
       orgId = resolved.orgId;
@@ -759,8 +792,9 @@ async function resolveScopedBuilderCredentials(
  */
 export async function resolveBuilderCredential(
   key: string,
+  identity?: BuilderCredentialLookupIdentity,
 ): Promise<string | null> {
-  const scoped = await resolveScopedBuilderCredential(key);
+  const scoped = await resolveScopedBuilderCredential(key, identity);
   if (scoped.value) return scoped.value;
   const envValue = canUseBuilderDeployCredentialFallbackForRequest()
     ? (readDeployCredentialEnv(key) ?? null)
@@ -789,8 +823,10 @@ export function isBuilderEnvManaged(): boolean {
  * Resolve the Builder private key for the current request. User/org OAuth
  * credentials win; deploy-level `BUILDER_PRIVATE_KEY` is the fallback.
  */
-export async function resolveBuilderPrivateKey(): Promise<string | null> {
-  return resolveBuilderCredential("BUILDER_PRIVATE_KEY");
+export async function resolveBuilderPrivateKey(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<string | null> {
+  return resolveBuilderCredential("BUILDER_PRIVATE_KEY", identity);
 }
 
 /**
@@ -1057,8 +1093,10 @@ export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
  * is read by the project owner.
  */
 export function isBuilderGatewayDeployConfigured(): boolean {
-  if (isHostedWorkspaceRuntime()) return false;
-  return Boolean(readDeployCredentialEnv(BUILDER_GATEWAY_TOKEN_ENV_VAR));
+  return (
+    canUseDeployCredentialFallbackForRequest(BUILDER_GATEWAY_TOKEN_ENV_VAR) &&
+    Boolean(readDeployCredentialEnv(BUILDER_GATEWAY_TOKEN_ENV_VAR))
+  );
 }
 
 /** One decision for every gateway-lane consumer; a per-consumer copy drifts. */
@@ -1175,6 +1213,16 @@ export interface BuilderGatewayAuth {
   userId: string | null;
 }
 
+export class BuilderCredentialLookupError extends Error {
+  override readonly cause: unknown;
+
+  constructor(cause?: unknown) {
+    super("Builder credential lookup is temporarily unavailable.");
+    this.name = "BuilderCredentialLookupError";
+    this.cause = cause;
+  }
+}
+
 /**
  * The gate for gateway-lane features. Not `resolveHasBuilderPrivateKey`, which is
  * identity-only and false on a credits site.
@@ -1192,10 +1240,22 @@ export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
  * needs reconnect) reports "not configured" rather than falling through to a
  * key-based credential that could belong to a different Builder identity.
  */
-export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | null> {
-  const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId() ?? null;
-  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
+export async function resolveBuilderGatewayAuth(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<BuilderGatewayAuth | null> {
+  const ownerEmail =
+    identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
+  // undefined resolves the owner's org; null deliberately pins the lookup to Personal.
+  const orgId = identity === undefined ? getRequestOrgId() : identity.orgId;
+  let hasOAuthSession = false;
+  if (ownerEmail) {
+    try {
+      hasOAuthSession = await hasBuilderOAuthSession(ownerEmail, orgId);
+    } catch (error) {
+      throw new BuilderCredentialLookupError(error);
+    }
+  }
+  if (ownerEmail && hasOAuthSession) {
     try {
       const session = await getBuilderOAuthSession(
         ownerEmail,
@@ -1209,30 +1269,38 @@ export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | 
             userId: null,
           }
         : null;
-    } catch {
-      // coercion-ok: custody exists but the grant needs reconnecting
-      // (expired, missing scope) -- report "not configured" rather than
-      // falling through to a different identity's credential.
-      return null;
+    } catch (error) {
+      if (error instanceof BuilderOAuthScopeError) return null;
+      throw new BuilderCredentialLookupError(error);
     }
   }
-  const creds = await resolveBuilderGatewayCredentialsDetailed();
-  const token = creds.privateKey?.trim();
-  const spaceId = creds.publicKey?.trim();
-  if (token && spaceId) {
-    return {
-      authorization: `Bearer ${token}`,
-      spaceId,
-      userId: creds.userId?.trim() || null,
-    };
+  try {
+    const creds = await resolveBuilderGatewayCredentialsDetailed(identity);
+    if (creds.lookupFailed) {
+      throw new BuilderCredentialLookupError(creds.cause);
+    }
+    const token = creds.privateKey?.trim();
+    const spaceId = creds.publicKey?.trim();
+    if (token && spaceId) {
+      return {
+        authorization: `Bearer ${token}`,
+        spaceId,
+        userId: creds.userId?.trim() || null,
+      };
+    }
+    // Single-key deployments predate the space id and still authenticate on a
+    // `bpk-` private key alone. A gateway token never reaches this branch — its
+    // pair is required above.
+    const legacyKey = (await resolveBuilderPrivateKey(identity))?.trim();
+    return legacyKey
+      ? { authorization: `Bearer ${legacyKey}`, spaceId: null, userId: null }
+      : null;
+  } catch (error) {
+    if (error instanceof CredentialStoreUnavailableError) {
+      throw new BuilderCredentialLookupError(error);
+    }
+    throw error;
   }
-  // Single-key deployments predate the space id and still authenticate on a
-  // `bpk-` private key alone. A gateway token never reaches this branch — its
-  // pair is required above.
-  const legacyKey = (await resolveBuilderPrivateKey())?.trim();
-  return legacyKey
-    ? { authorization: `Bearer ${legacyKey}`, spaceId: null, userId: null }
-    : null;
 }
 
 /**
@@ -1744,9 +1812,8 @@ export async function deleteBuilderCredentials(
 // User-pasted and shared secrets live in `app_secrets` (encrypted). The
 // settings UI / onboarding panels can write user, org, or workspace rows.
 // Deploy-level env vars are the fallback for unauthenticated/CLI/background
-// contexts where there's no user to scope by. Authenticated requests may also
-// use app-provided LLM provider keys such as OPENAI_API_KEY or
-// ANTHROPIC_API_KEY, but Builder identity keys keep the stricter scoped policy.
+// contexts where there's no user to scope by. Hosted requests never use a
+// deploy-level model-provider key; personal and shared keys live in app_secrets.
 // ---------------------------------------------------------------------------
 
 /**
@@ -2188,9 +2255,11 @@ export async function resolveSecretDetailed(
       ...(envFallback ? { source: "env" as const } : {}),
     };
   }
-  // Unauthenticated / local-dev / CLI / background context: env fallback
-  // is safe because there's no user to mis-identify.
-  const value = process.env[key] || null;
+  // Unauthenticated / local-dev / CLI / background context: only return an
+  // env fallback when the same hosted model-key policy allows it.
+  const value = canUseDeployCredentialFallbackForRequest(key)
+    ? process.env[key] || null
+    : null;
   if (traceLookup) {
     console.log(
       `[resolve-secret] key=${key} email=(none) scope=env-anonymous hit=${!!value}`,
@@ -2250,6 +2319,14 @@ export function getBuilderImageGenerationBaseUrl(): string {
     process.env.BUILDER_IMAGE_GENERATION_BASE_URL ||
     "https://api.builder.io/agent-native/images/v1"
   );
+}
+
+export function getBuilderEmbeddingsBaseUrl(): string {
+  return "https://api.builder.io/agent-native/embeddings/v1";
+}
+
+export function getBuilderVideoGenerationBaseUrl(): string {
+  return "https://api.builder.io/agent-native/videos/v1";
 }
 
 /**

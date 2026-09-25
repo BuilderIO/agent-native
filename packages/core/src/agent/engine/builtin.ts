@@ -8,6 +8,11 @@
 
 import { AppConfigurationError, getAppConfig } from "../../app-config/index.js";
 import {
+  CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
+  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+  CHATGPT_SUBSCRIPTION_MODELS,
+} from "../chatgpt-subscription-contract.js";
+import {
   createAISDKEngine,
   PROVIDER_CAPABILITIES,
   PROVIDER_DEFAULT_MODELS,
@@ -28,6 +33,7 @@ import {
   BUILDER_DEFAULT_MODEL,
   BUILDER_SUPPORTED_MODELS,
 } from "./builder-engine.js";
+import { createChatGPTSubscriptionEngine } from "./chatgpt-subscription-engine.js";
 import {
   registerAgentEngine,
   unregisterAgentEngine,
@@ -135,6 +141,19 @@ function builtinEngineEntries(): AgentEngineEntry[] {
       create: (config: Record<string, unknown>) =>
         createAISDKEngine(provider, config),
     })),
+    {
+      name: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      label: "ChatGPT subscription",
+      description:
+        "Experimental Codex access through a user's ChatGPT subscription. Enable the matching lab first.",
+      capabilities: PROVIDER_CAPABILITIES.openai,
+      defaultModel: CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
+      supportedModels: CHATGPT_SUBSCRIPTION_MODELS,
+      acceptsCustomModels: false,
+      requiredEnvVars: [],
+      create: (config: Record<string, unknown>) =>
+        createChatGPTSubscriptionEngine(config),
+    },
   ];
 }
 
@@ -143,6 +162,7 @@ export const BUILT_IN_ENGINE_NAMES: readonly string[] = [
   "builder",
   "anthropic",
   ...aiSdkProviders.map((provider) => `ai-sdk:${provider}`),
+  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
 ];
 
 /**

@@ -60,6 +60,7 @@ describe("server/agent-run-context", () => {
     const event = makeEvent();
     getSessionMock.mockResolvedValue({
       email: "alice@example.com",
+      authUserId: "ba-user-1",
       name: "Alice",
       orgId: "org-session",
     });
@@ -69,6 +70,7 @@ describe("server/agent-run-context", () => {
 
     expect(owner).toEqual({
       owner: "alice@example.com",
+      authUserId: "ba-user-1",
       name: "Alice",
       anonymous: false,
     });
@@ -181,6 +183,7 @@ describe("server/agent-run-context", () => {
         event,
         ownerContext: {
           owner: "alice@example.com",
+          authUserId: "ba-user-1",
           name: "Alice",
           anonymous: false,
         },
@@ -188,6 +191,7 @@ describe("server/agent-run-context", () => {
       },
       async () => ({
         userEmail: getRequestUserEmail(),
+        authUserId: getRequestContext()?.authUserId,
         userName: getRequestUserName(),
         orgId: getRequestOrgId(),
         timezone: getRequestTimezone(),
@@ -198,6 +202,7 @@ describe("server/agent-run-context", () => {
 
     expect(seen).toEqual({
       userEmail: "alice@example.com",
+      authUserId: "ba-user-1",
       userName: "Alice",
       orgId: "org-session",
       timezone: "America/Los_Angeles",

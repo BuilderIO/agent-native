@@ -9,7 +9,6 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -26,7 +25,6 @@ import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
-import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import type {
   ClipsAiRequestKind,
   ClipsAiRequestStatus,
@@ -41,7 +39,10 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "@shared/loom";
-import { CLIP_SHARE_REF, REF_PARAM } from "@shared/share-attribution";
+import {
+  buildShareContinuationQuery,
+  CLIP_SHARE_REF,
+} from "@shared/share-attribution";
 import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
@@ -149,14 +150,15 @@ import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-cou
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
-import { recordingShareUrl } from "@/lib/recording-link";
 import {
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
 } from "@/lib/recording-processing-lifecycle";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
+import { parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
+import { parseRedactions } from "@/lib/video-redactions";
 
 import { buildAgentApiUrls } from "../../shared/agent-context";
 import { STALE_PENDING_TRANSCRIPT_REASON } from "../../shared/transcript-status";
@@ -419,6 +421,46 @@ export function removePendingReaction(
   return pendingReactions.filter((reaction) => reaction.id !== pendingId);
 }
 
+export function buildRecordingBreadcrumbItems({
+  title,
+  trashedAt,
+  libraryLabel,
+  trashLabel,
+  spacesLabel,
+  space,
+  folder,
+}: {
+  title: string;
+  trashedAt?: string | null;
+  libraryLabel: string;
+  trashLabel: string;
+  spacesLabel: string;
+  space?: { id: string; name: string };
+  folder?: { id: string; name: string; spaceId?: string | null };
+}): PageBreadcrumbItem[] {
+  return [
+    ...(trashedAt
+      ? [{ label: trashLabel, to: "/trash" }]
+      : space
+        ? [
+            { label: spacesLabel, to: "/spaces" },
+            { label: space.name, to: `/spaces/${space.id}` },
+          ]
+        : [{ label: libraryLabel, to: "/library" }]),
+    ...(!trashedAt && folder
+      ? [
+          {
+            label: folder.name,
+            to: folder.spaceId
+              ? `/spaces/${folder.spaceId}/folder/${folder.id}`
+              : `/library/folder/${folder.id}`,
+          },
+        ]
+      : []),
+    { label: title },
+  ];
+}
+
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
@@ -559,6 +601,11 @@ export default function RecordingPage() {
   );
   const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
   const panelParam = searchParams.get("panel");
+  const legacyShareQuery = buildShareContinuationQuery(
+    { ref: CLIP_SHARE_REF, via: undefined },
+    routePlaybackParam,
+    panelParam,
+  );
   const { session, isLoading: sessionLoading } = useSession();
   const videoEditingLabEnabled = useLab(CLIPS_VIDEO_EDITING.key);
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
@@ -730,15 +777,13 @@ export default function RecordingPage() {
     playerDataForbidden || (playerDataUnauthorized && !session);
   useEffect(() => {
     if (!recordingId || !shouldFallbackToShare) return;
-    const shareParams = new URLSearchParams();
-    shareParams.set(REF_PARAM, CLIP_SHARE_REF);
     void navigate(
-      `/share/${encodeURIComponent(recordingId)}?${shareParams.toString()}`,
+      `/share/${encodeURIComponent(recordingId)}?${legacyShareQuery}`,
       {
         replace: true,
       },
     );
-  }, [recordingId, shouldFallbackToShare, navigate]);
+  }, [legacyShareQuery, recordingId, shouldFallbackToShare, navigate]);
 
   const recording = playerDataQ.data?.recording;
   const {
@@ -772,7 +817,10 @@ export default function RecordingPage() {
     prime: primeCompletionCue,
   } = useCompletionAudioCue();
   const lifecyclePhaseRef = useRef<RecordingProcessingSnapshot | null>(null);
-  const activeAiRequestKindRef = useRef<ClipsAiRequestKind | null>(null);
+  const activeAiRequestRef = useRef<{
+    kind: ClipsAiRequestKind;
+    requestedAt: string | null;
+  } | null>(null);
   const transcriptLifecycleActiveRef = useRef(false);
   const transcriptLifecycleRecordingIdRef = useRef<string | null>(null);
   const transcriptPendingObservedRef = useRef(false);
@@ -1057,39 +1105,18 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
-  const recordingBreadcrumbItems: PageBreadcrumbItem[] = [
-    ...(recordingSpace
-      ? [
-          { label: t("navigation.spaces"), to: "/spaces" },
-          {
-            label: recordingSpace.name,
-            to: `/spaces/${recordingSpace.id}`,
-          },
-        ]
-      : [{ label: t("navigation.library"), to: "/library" }]),
-    ...(recordingFolder
-      ? [
-          {
-            label: recordingFolder.name,
-            to: recordingFolder.spaceId
-              ? `/spaces/${recordingFolder.spaceId}/folder/${recordingFolder.id}`
-              : `/library/folder/${recordingFolder.id}`,
-          },
-        ]
-      : []),
-    { label: visibleTitle },
-  ];
+  const recordingBreadcrumbItems = buildRecordingBreadcrumbItems({
+    title: visibleTitle,
+    trashedAt: recording?.trashedAt,
+    libraryLabel: t("navigation.library"),
+    trashLabel: t("trashRoute.title"),
+    spacesLabel: t("navigation.spaces"),
+    space: recordingSpace,
+    folder: recordingFolder,
+  });
   const recordingBreadcrumb = (
     <PageBreadcrumb items={recordingBreadcrumbItems} />
   );
-  // Attribution `via` must never point at someone who isn't the owner, so it
-  // is only tagged when the viewer is the owner (same rule as the share dialog).
-  const shareViaId =
-    role === "owner" ? (session?.userId ?? undefined) : undefined;
-  const pendingShareUrl = useMemo(() => {
-    if (!recordingId || typeof window === "undefined") return "";
-    return recordingShareUrl(recordingId, shareViaId);
-  }, [recordingId, shareViaId]);
   useEffect(() => {
     if (!recording?.id) return;
     const now = Date.now();
@@ -1158,7 +1185,7 @@ export default function RecordingPage() {
     : null;
 
   useEffect(() => {
-    activeAiRequestKindRef.current = null;
+    activeAiRequestRef.current = null;
     workflowLifecycleActiveRef.current = false;
     dismissAiRequestToast();
     dismissWorkflowToast();
@@ -1213,11 +1240,26 @@ export default function RecordingPage() {
     if (!kind || !status) return;
 
     if (status === "queued" || status === "working") {
-      activeAiRequestKindRef.current = kind;
+      activeAiRequestRef.current = {
+        kind,
+        requestedAt: aiRequestStatus.requestedAt ?? null,
+      };
       startAiRequestToast(t(aiRequestProgressKey(kind)));
       return;
     }
-    if (activeAiRequestKindRef.current !== kind) return;
+    if (
+      !aiRequestStatus.requestedAt ||
+      activeAiRequestRef.current?.kind !== kind ||
+      activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt
+    ) {
+      return;
+    }
+    if (status === "cancelled") {
+      activeAiRequestRef.current = null;
+      cancelCompletionCue();
+      dismissAiRequestToast();
+      return;
+    }
 
     if (status === "completed") {
       completeAiRequestToast(t(aiRequestCompletionKey(kind)), {
@@ -1235,14 +1277,16 @@ export default function RecordingPage() {
       });
       cancelCompletionCue();
     }
-    activeAiRequestKindRef.current = null;
+    activeAiRequestRef.current = null;
   }, [
     aiRequestStatus?.kind,
     aiRequestStatus?.message,
     aiRequestStatus?.status,
     aiRequestStatus?.updatedAt,
+    aiRequestStatus?.requestedAt,
     cancelCompletionCue,
     completeAiRequestToast,
+    dismissAiRequestToast,
     failAiRequestToast,
     playCompletionCue,
     startAiRequestToast,
@@ -1275,6 +1319,7 @@ export default function RecordingPage() {
   const renderShareControl = () => (
     <ShareRecordingPopover
       recordingId={recording.id}
+      pendingRedactions={pendingRedactions}
       recordingTitle={recording.title}
       initialVisibility={recording.visibility}
       initialRole={role}
@@ -1289,7 +1334,25 @@ export default function RecordingPage() {
       <ClipsShareTrigger label={t("recordingPage.share")} />
     </ShareRecordingPopover>
   );
+  /**
+   * Redactions drawn but not burned into the file. Sharing is held back while
+   * there are any: the stored video still shows everything under them.
+   */
+  const pendingRedactions = parseRedactions(
+    parseEdits(recording?.editsJson).overlays,
+  ).length;
+
   const downloadRecording = useCallback(async () => {
+    // Every way out of here is the same file, and it still shows what the
+    // boxes are over until the burn has run.
+    if (pendingRedactions > 0) {
+      toast.warning(t("shareDialog.redactionsPendingTitle"), {
+        description: t("shareDialog.redactionsPendingBody", {
+          count: pendingRedactions,
+        }),
+      });
+      return;
+    }
     if (!recording?.videoUrl) return;
     setDownloading(true);
     const downloadToastId = toast.loading(t("sharePage.downloading"));
@@ -1315,7 +1378,17 @@ export default function RecordingPage() {
       setDownloading(false);
       toast.dismiss(downloadToastId);
     }
-  }, [recording?.title, recording?.videoFormat, recording?.videoUrl, t]);
+  }, [
+    // `pendingRedactions` is a dependency, not just a read: drawing a box in
+    // the editor changes editsJson and nothing else this callback depends on,
+    // so a memoized closure would still think there was nothing pending and
+    // hand over the unredacted file.
+    pendingRedactions,
+    recording?.title,
+    recording?.videoFormat,
+    recording?.videoUrl,
+    t,
+  ]);
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -1398,12 +1471,12 @@ export default function RecordingPage() {
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
   const beginAiRequest = (kind: ClipsAiRequestKind) => {
-    activeAiRequestKindRef.current = kind;
+    activeAiRequestRef.current = { kind, requestedAt: null };
     primeCompletionCue();
     startAiRequestToast(t(aiRequestProgressKey(kind)));
   };
   const handleBackgroundAiError = (err: Error) => {
-    activeAiRequestKindRef.current = null;
+    activeAiRequestRef.current = null;
     cancelCompletionCue();
     failAiRequestToast(t("recordingPage.aiRequestFailed"), {
       description: actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
@@ -1447,24 +1520,31 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "regenerate-title";
-        startAiRequestToast(t(aiRequestProgressKey("regenerate-title")));
+        const kind: ClipsAiRequestKind =
+          result?.kind === "generate-metadata"
+            ? "generate-metadata"
+            : "regenerate-title";
+        activeAiRequestRef.current = {
+          kind,
+          requestedAt: result?.requestedAt ?? null,
+        };
+        startAiRequestToast(t(aiRequestProgressKey(kind)));
         void aiRequestStatusQ.refetch();
       }
       setMetadataRefreshUntil(Date.now() + 60_000);
       void playerDataQ.refetch();
       if (result?.updated && result?.queued !== true) {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         completeAiRequestToast(t("recordingPage.titleUpdated"));
         playCompletionCue();
       } else if (result?.reason === "builder_credits_paused") {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         cancelCompletionCue();
         stopAiRequestToast(t("builderCredits.pausedTitle"), {
           description: t("builderCredits.titleDescription"),
         });
       } else if (result?.skipped) {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         cancelCompletionCue();
         stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
           description: t("recordingPage.tryAfterTranscription"),
@@ -1477,18 +1557,21 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "regenerate-summary";
+        activeAiRequestRef.current = {
+          kind: "regenerate-summary",
+          requestedAt: result?.requestedAt ?? null,
+        };
         startAiRequestToast(t(aiRequestProgressKey("regenerate-summary")));
         void aiRequestStatusQ.refetch();
       }
       setMetadataRefreshUntil(Date.now() + 60_000);
       void playerDataQ.refetch();
       if (result?.updated === true) {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         completeAiRequestToast(t("recordingPage.descriptionUpdated"));
         playCompletionCue();
       } else if (result?.skipped === true) {
-        activeAiRequestKindRef.current = null;
+        activeAiRequestRef.current = null;
         cancelCompletionCue();
         stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
           description: t("recordingPage.tryAfterTranscription"),
@@ -1501,7 +1584,10 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "regenerate-chapters";
+        activeAiRequestRef.current = {
+          kind: "regenerate-chapters",
+          requestedAt: result?.requestedAt ?? null,
+        };
         startAiRequestToast(t(aiRequestProgressKey("regenerate-chapters")));
         void aiRequestStatusQ.refetch();
       }
@@ -1512,7 +1598,10 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "remove-filler-words";
+        activeAiRequestRef.current = {
+          kind: "remove-filler-words",
+          requestedAt: result?.requestedAt ?? null,
+        };
         startAiRequestToast(t(aiRequestProgressKey("remove-filler-words")));
         void aiRequestStatusQ.refetch();
       }
@@ -1523,7 +1612,10 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
-        activeAiRequestKindRef.current = "remove-silences";
+        activeAiRequestRef.current = {
+          kind: "remove-silences",
+          requestedAt: result?.requestedAt ?? null,
+        };
         startAiRequestToast(t(aiRequestProgressKey("remove-silences")));
         void aiRequestStatusQ.refetch();
       }
@@ -1843,9 +1935,7 @@ export default function RecordingPage() {
                 <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
                   {t("recordingPage.sharedWithYou")}
                 </span>
-              ) : (
-                renderShareControl()
-              )}
+              ) : null}
             </div>
           </PageHeader>
 
@@ -1873,14 +1963,6 @@ export default function RecordingPage() {
                   />
                 </div>
               ) : null}
-              <ShareCopyRow
-                value={pendingShareUrl}
-                label={t("shareDialog.shareLink")}
-                copyLabel={t("shareUi.copy")}
-                copiedLabel={t("bugReportRoute.copied")}
-                onCopy={writeClipboardText}
-                className="rounded-lg border border-border bg-muted/30 p-2 ps-3"
-              />
             </div>
           </main>
         </div>
@@ -2310,7 +2392,7 @@ export default function RecordingPage() {
               <DropdownMenuSubTrigger>
                 {t("recordingPage.enhanceRecording")}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-56">
+              <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
                 <DropdownMenuItem
                   disabled={requestTranscript.isPending}
                   onSelect={() =>
@@ -2343,7 +2425,7 @@ export default function RecordingPage() {
               <DropdownMenuSubTrigger>
                 {t("recordingPage.createFromClip")}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-64">
+              <DropdownMenuSubContent className="w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
                 {WORKFLOW_MENU_ITEMS.map((item) => {
                   const menuItem = (
                     <DropdownMenuItem
@@ -2469,7 +2551,7 @@ export default function RecordingPage() {
                   {/* Let the viewer grow on wide displays without pushing the
                     discussion below the first scrollable viewport. The comments
                     list owns the desktop scroll so the player stays in context. */}
-                  <div className="relative aspect-video w-full overflow-hidden bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
+                  <div className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
                     <VideoPlayer
                       ref={playerRef}
                       onVideoElementChange={setTrackedVideoEl}

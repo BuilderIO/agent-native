@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "सभी",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -26,6 +27,12 @@ const messages = {
     },
     inbox: {
       syncing: "इनबॉक्स सिंक हो रहा है…",
+    },
+    sort: {
+      label: "इनबॉक्स क्रमित करें",
+      newest: "नवीनतम",
+      priority: "प्राथमिकता",
+      priorityFailed: "इनबॉक्स को क्रमित नहीं किया जा सका।",
     },
     toolbar: {
       toggleMenu: "मेनू टॉगल करें",
@@ -61,7 +68,8 @@ const messages = {
       renameTab: "टैब का नाम बदलें",
       savedFilters: "सहेजे गए फ़िल्टर",
       combinedInbox: "संयुक्त इनबॉक्स",
-      help: "चुने गए आइटम टैब के रूप में दिखते हैं। लेबल वाले ईमेल इनबॉक्स से अलग हो जाते हैं।",
+      allTab: "सभी टैब",
+      help: "सभी में इनबॉक्स के सभी थ्रेड शामिल हैं। चुने गए लेबल इनबॉक्स को विभाजित करते हैं।",
     },
     accounts: {
       remove: "हटाएं",
@@ -500,6 +508,10 @@ const messages = {
       instructionFailed: "AI फ़िल्टर निर्देश सहेजा नहीं जा सका।",
       spamMode: "स्पैम",
       tagMode: "टैग",
+      importantMode: "महत्वपूर्ण",
+      importantLabel: "AI महत्वपूर्ण",
+      reviewImportant: "महत्वपूर्ण देखें",
+      importantPlaceholder: "उदा. ऐसे संदेश जिनका जवाब देना है या जिनकी समय-सीमा है",
       ruleAdded: "AI नियम जोड़ा गया।",
       instructionHelp: "सामान्य भाषा का उपयोग करें",
       tagNamePlaceholder: "टैग का नाम",
@@ -514,6 +526,7 @@ const messages = {
       previewButton: "पूर्वावलोकन चलाएँ",
       previewRunning: "हाल के इनबॉक्स ईमेल जाँचे जा रहे हैं…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev मिलान की संभावना {{percent}}%",
       feedbackLabel: "जिन मिलानों को शामिल नहीं करना चाहिए उन्हें चुनें",
       notSpamShort: "स्पैम नहीं",
       notMatchShort: "मिलान नहीं",

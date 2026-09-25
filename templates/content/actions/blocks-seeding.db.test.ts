@@ -38,6 +38,7 @@ let propertyUtils: typeof import("./_property-utils.js");
 let identityUtils: typeof import("./_blocks-field-identity.js");
 let databaseUtils: typeof import("./_database-utils.js");
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
+let rollbackCreatedSlashDocumentAction: typeof import("./rollback-created-slash-document.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
 let editDocumentAction: typeof import("./edit-document.js").default;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
@@ -63,6 +64,9 @@ beforeAll(async () => {
   databaseUtils = await import("./_database-utils.js");
   createInlineContentDatabaseAction = (
     await import("./create-inline-content-database.js")
+  ).default;
+  rollbackCreatedSlashDocumentAction = (
+    await import("./rollback-created-slash-document.js")
   ).default;
   updateDocumentAction = (await import("./update-document.js")).default;
   editDocumentAction = (await import("./edit-document.js")).default;
@@ -408,6 +412,8 @@ describe("create-inline-content-database", () => {
     const db = getDb();
     const now = new Date().toISOString();
     const hostDocumentId = `host_inline_${++counter}`;
+    const newDocumentId = `inline_document_${counter}`;
+    const ownerBlockId = `inline-database-${counter}`;
     await db.insert(schema.documents).values({
       id: hostDocumentId,
       ownerEmail: OWNER,
@@ -421,13 +427,16 @@ describe("create-inline-content-database", () => {
       createInlineContentDatabaseAction.run({
         hostDocumentId,
         title: "Inline tasks",
+        newDocumentId,
+        ownerBlockId,
       }),
     );
 
     expect(result.database.title).toBe("Inline tasks");
     expect(result.block.databaseId).toBe(result.database.id);
     expect(result.block.databaseDocumentId).toBe(result.database.documentId);
-    expect(result.block.ownerBlockId).toMatch(/^inline-database-/);
+    expect(result.block.databaseDocumentId).toBe(newDocumentId);
+    expect(result.block.ownerBlockId).toBe(ownerBlockId);
 
     const [database] = await db
       .select()
@@ -441,6 +450,27 @@ describe("create-inline-content-database", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, result.database.documentId));
     expect(databaseDocument.parentId).toBe(hostDocumentId);
+
+    const rolledBack = await runWithRequestContext({ userEmail: OWNER }, () =>
+      rollbackCreatedSlashDocumentAction.run({
+        id: newDocumentId,
+        parentId: hostDocumentId,
+      }),
+    );
+    expect(rolledBack.disposition).toBe("trashed");
+    const [trashedDocument] = await db
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, newDocumentId));
+    expect(trashedDocument.trashedAt).not.toBeNull();
+
+    const absent = await runWithRequestContext({ userEmail: OWNER }, () =>
+      rollbackCreatedSlashDocumentAction.run({
+        id: `missing_inline_${counter}`,
+        parentId: hostDocumentId,
+      }),
+    );
+    expect(absent.disposition).toBe("absent");
   });
 });
 

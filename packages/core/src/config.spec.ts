@@ -4,10 +4,12 @@ import {
   agentNativeConfigEnvName,
   defineAgentNativeConfig,
   inferAgentNativeDeploymentEnvironment,
+  isFirstRunOnboardingModeActive,
   mergeAgentNativeConfigs,
   normalizeAgentNativeConfig,
   readAgentNativeConfigEnv,
   resolveAgentNativeConfig,
+  resolveEffectiveFirstRunOnboardingMode,
   type AgentNativeConfigContext,
 } from "./config.js";
 
@@ -100,22 +102,38 @@ describe("agent-native app config", () => {
     expect(
       normalizeAgentNativeConfig({
         deployment: {
-          workspace: { appsDirectory: ".", authMode: "isolated" },
+          workspace: {
+            appsDirectory: ".",
+            authMode: "isolated",
+            rootPage: "directory",
+          },
         },
       }),
     ).toEqual({
       deployment: {
-        workspace: { appsDirectory: ".", authMode: "isolated" },
+        workspace: {
+          appsDirectory: ".",
+          authMode: "isolated",
+          rootPage: "directory",
+        },
       },
     });
     expect(
       mergeAgentNativeConfigs(
         { deployment: { workspace: { appsDirectory: "apps" } } },
-        { deployment: { workspace: { authMode: "isolated" } } },
+        {
+          deployment: {
+            workspace: { authMode: "isolated", rootPage: "directory" },
+          },
+        },
       ),
     ).toEqual({
       deployment: {
-        workspace: { appsDirectory: "apps", authMode: "isolated" },
+        workspace: {
+          appsDirectory: "apps",
+          authMode: "isolated",
+          rootPage: "directory",
+        },
       },
     });
   });
@@ -199,6 +217,7 @@ describe("agent-native app config", () => {
     { translations: { locales: ["en-US", 42] } },
     { changelog: { enabled: "yes" } },
     { deployment: { environment: "staging" } },
+    { deployment: { workspace: { rootPage: "landing" } } },
     { harness: { runtimes: ["shell"] } },
     { harness: { enabled: true } },
     { harness: { ui: "desktop" } },
@@ -491,4 +510,59 @@ describe("agent-native config environment aliases", () => {
       "unsupported Agent-Native config path",
     );
   });
+});
+
+describe("isFirstRunOnboardingModeActive", () => {
+  it("is true only for the modes that actually show onboarding", () => {
+    expect(isFirstRunOnboardingModeActive("connect")).toBe(true);
+    expect(isFirstRunOnboardingModeActive("connect-and-integrations")).toBe(
+      true,
+    );
+    expect(isFirstRunOnboardingModeActive("off")).toBe(false);
+    expect(isFirstRunOnboardingModeActive(undefined)).toBe(false);
+  });
+});
+
+describe("resolveEffectiveFirstRunOnboardingMode", () => {
+  it("defaults to off with no override and no configured mode", () => {
+    expect(resolveEffectiveFirstRunOnboardingMode(undefined, undefined)).toBe(
+      "off",
+    );
+  });
+
+  it("uses the configured mode when it is active and there is no override", () => {
+    expect(resolveEffectiveFirstRunOnboardingMode(undefined, "connect")).toBe(
+      "connect",
+    );
+    expect(
+      resolveEffectiveFirstRunOnboardingMode(
+        undefined,
+        "connect-and-integrations",
+      ),
+    ).toBe("connect-and-integrations");
+  });
+
+  it("treats a configured 'off' the same as unconfigured", () => {
+    expect(resolveEffectiveFirstRunOnboardingMode(undefined, "off")).toBe(
+      "off",
+    );
+  });
+
+  it.each(["true", "TRUE", "1", true])(
+    "an env override of %s wins as 'connect' even over a configured 'off'",
+    (value) => {
+      expect(resolveEffectiveFirstRunOnboardingMode(value, "off")).toBe(
+        "connect",
+      );
+    },
+  );
+
+  it.each(["false", "0", "", false])(
+    "an env override of %s wins as 'off' even over an active configured mode",
+    (value) => {
+      expect(resolveEffectiveFirstRunOnboardingMode(value, "connect")).toBe(
+        "off",
+      );
+    },
+  );
 });

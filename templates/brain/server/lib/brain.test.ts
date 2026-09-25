@@ -194,6 +194,7 @@ const mocks = vi.hoisted(() => {
       "locatorHmac",
       "disposition",
       "categoriesJson",
+      "classifierFailureReason",
       "confidenceBand",
       "policyVersion",
       "upstreamProvider",
@@ -281,6 +282,7 @@ const mocks = vi.hoisted(() => {
       return { rowsAffected: 1 };
     }),
   };
+  const track = vi.fn();
 
   const tableRows = (tableRef: Row) => {
     if (tableRef === schema.brainSources) return rows.sources;
@@ -458,14 +460,24 @@ const mocks = vi.hoisted(() => {
       ) {
         throw new Error("unique active source");
       }
-      tableRows(tableRef).push({ ...row });
+      const existingSensitivityEvent =
+        tableRef === schema.brainSensitivityEvents
+          ? tableRows(tableRef).find(
+              (item) =>
+                item.locatorHmac === row.locatorHmac &&
+                item.policyVersion === row.policyVersion,
+            )
+          : undefined;
+      if (!existingSensitivityEvent) tableRows(tableRef).push({ ...row });
       return {
         onConflictDoUpdate: vi.fn(async ({ set }: { set: Row }) => {
-          const existing = tableRows(tableRef).find(
-            (item) =>
-              item.locatorHmac === row.locatorHmac &&
-              item.policyVersion === row.policyVersion,
-          );
+          const existing =
+            existingSensitivityEvent ??
+            tableRows(tableRef).find(
+              (item) =>
+                item.locatorHmac === row.locatorHmac &&
+                item.policyVersion === row.policyVersion,
+            );
           if (existing) Object.assign(existing, set);
           return { rowsAffected: 1 };
         }),
@@ -522,6 +534,7 @@ const mocks = vi.hoisted(() => {
     queueClaimRowsAffected,
     audienceHook,
     dbExec,
+    track,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
     settings: {
@@ -546,6 +559,8 @@ vi.mock("@agent-native/core/db", () => ({
   createGetDb: () => () => mocks.db,
   getDbExec: () => mocks.dbExec,
 }));
+
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 
 vi.mock("@agent-native/core/db/schema", () => ({
   boolean: (name: string) => ({
@@ -610,6 +625,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mocks.userEmail,
   getRequestOrgId: () => mocks.orgId,
+  getRequestContext: () => undefined,
   runWithRequestContext: async (_context: Row, fn: () => Promise<unknown>) =>
     fn(),
 }));
@@ -758,6 +774,7 @@ import {
   buildBrainAgentGuidance,
   createCapture,
   previewKnowledgeCanonicalResource,
+  recordBlockedCapture,
   retireUpstreamDeletedCapture,
   safeCitationUrl,
   serializeSource,
@@ -780,6 +797,7 @@ import { enqueueCaptureInvalidation } from "./ingest-queue.js";
 
 function resetMocks() {
   vi.clearAllMocks();
+  mocks.track.mockReset();
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.rows.audiences.push({
@@ -1369,6 +1387,49 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
+  it("persists and updates classifier failure reasons on blocked events", async () => {
+    const source = seedSource();
+    const input = {
+      id: "blocked-capture-example",
+      existing: null,
+      source: source as never,
+      values: {
+        sourceId: "source-1",
+        externalId: "blocked-external-example",
+        title: "Blocked capture example",
+        kind: "note" as const,
+        content: "Ambiguous company note for a persistence test.",
+      },
+      decision: {
+        disposition: "quarantined" as const,
+        categories: [],
+        confidenceBand: "uncertain" as const,
+        policyVersion: "test-policy-v1",
+        safeSegments: [],
+        safeContent: "",
+        classifier: "deterministic" as const,
+      },
+      retentionHours: 72,
+    };
+
+    await recordBlockedCapture({
+      ...input,
+      classifierFailureReason: "jev-unavailable",
+    });
+    expect(mocks.rows.sensitivityEvents[0]).toMatchObject({
+      classifierFailureReason: "jev-unavailable",
+    });
+
+    await recordBlockedCapture({
+      ...input,
+      classifierFailureReason: "jev-timeout",
+    });
+    expect(mocks.rows.sensitivityEvents).toHaveLength(1);
+    expect(mocks.rows.sensitivityEvents[0]).toMatchObject({
+      classifierFailureReason: "jev-timeout",
+    });
+  });
+
   it("prevents an in-flight refresh from recreating an upstream-deleted capture", async () => {
     seedSource({ provider: "slack" });
     const externalId = "slack:C123:1770919200.000100";
@@ -1770,6 +1831,31 @@ describe("Brain knowledge quality gates", () => {
       audienceId: "aud_org",
       audienceAclHash: "acl-hash",
     });
+  });
+
+  it("keeps saved knowledge successful when creation telemetry throws", async () => {
+    seedSource();
+    seedCapture();
+    mocks.track.mockImplementationOnce(() => {
+      throw new Error("tracking unavailable");
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 95,
+      proposalMode: "never",
+    });
+
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.knowledge).toHaveLength(1);
+    expect(mocks.track).toHaveBeenCalledOnce();
   });
 
   it("keeps auto-redacted knowledge unpublished when its evidence source opts out of review", async () => {

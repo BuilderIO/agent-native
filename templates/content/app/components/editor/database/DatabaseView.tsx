@@ -11,7 +11,7 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
-import { DataGrid, type DataGridColumn } from "@agent-native/toolkit/data-grid";
+import type { DataGridColumn } from "@agent-native/toolkit/data-grid";
 import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type BuilderCmsModelSummary,
@@ -45,6 +45,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "@shared/api";
+import { contentRecentHref } from "@shared/content-personal-navigation";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
 import { applyContentDatabaseTableQuery } from "@shared/database-query";
 import {
@@ -204,6 +205,8 @@ import {
   type ContentDatabaseViewSaveResponse,
   writeBuilderAttachPreviewToCache,
 } from "@/hooks/use-content-database";
+import { useUpdateContentPersonalNavigation } from "@/hooks/use-content-personal-navigation";
+import { useRecordContentVisit } from "@/hooks/use-content-recent";
 import {
   useContentSpaces,
   useDeleteContentSpace,
@@ -227,6 +230,7 @@ import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
+import { ContentIcon, contentIconValue } from "../../icons/ContentIcon";
 import {
   builderBodyHydrationDisplayHydratedCount,
   databaseItemBodyHydrationIsPending,
@@ -263,12 +267,24 @@ import {
   renamePropertyOption,
   updatePropertyOptionColor,
 } from "../DocumentProperties";
+import { EmojiPicker } from "../EmojiPicker";
 import {
   deferredPreviewDocumentSave,
   type PreviewDocumentPayload,
   type PreviewDocumentSaveDeferred,
   type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
+import {
+  ContentTableConstraintChip,
+  ContentTableConstraintBar,
+  ContentTableRowActionButton,
+  ContentTableSearch,
+  ContentTableSelectionBar,
+  ContentTableSelectionControl,
+  ContentTableSurface,
+  ContentTableToolbar,
+  ContentTableToolbarButton,
+} from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
 import {
   DatabaseColumnPresentation,
@@ -277,9 +293,9 @@ import {
 } from "./DatabaseColumnPresentation";
 import type { DatabaseExportContext } from "./DatabaseExportDialog";
 import {
+  DatabaseTableColumnOrder,
   DatabaseTableGrid,
   DatabaseTableLayout,
-  DatabaseTableColumnOrder,
 } from "./DatabaseTableGrid";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
@@ -304,6 +320,7 @@ export interface DatabaseViewProps {
   canEdit?: boolean;
   isActive?: boolean;
   viewId?: string | null;
+  foreground?: boolean;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }
 
@@ -770,8 +787,8 @@ function DatabaseDropIndicator({ side }: { side: DatabaseDropSide | null }) {
 export function databaseItemPageIconText(
   document: Pick<Document, "icon"> | null | undefined,
 ) {
-  const icon = document?.icon?.trim();
-  return icon ? icon : null;
+  const icon = contentIconValue(document?.icon);
+  return icon?.kind === "emoji" ? icon.emoji : null;
 }
 
 export function DatabaseItemPageIcon({
@@ -785,18 +802,14 @@ export function DatabaseItemPageIcon({
   fallbackClassName?: string;
   fallback?: "page" | "folder";
 }) {
-  const icon = databaseItemPageIconText(document);
+  const icon = contentIconValue(document.icon);
   if (icon) {
     return (
-      <span
-        aria-hidden="true"
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center leading-none",
-          className,
-        )}
-      >
-        {icon}
-      </span>
+      <ContentIcon
+        value={icon}
+        size={16}
+        className={cn("shrink-0", className)}
+      />
     );
   }
 
@@ -816,6 +829,7 @@ export function DatabaseView({
   canEdit = true,
   isActive,
   viewId,
+  foreground = false,
   onExportContextChange,
 }: DatabaseViewProps) {
   const { data: document } = useDocument(databaseDocumentId);
@@ -833,6 +847,7 @@ export function DatabaseView({
       canEdit={effectiveCanEdit}
       isActive={isActive ?? renderMode === "page"}
       viewId={viewId}
+      foreground={foreground}
       onExportContextChange={onExportContextChange}
     />
   );
@@ -846,7 +861,8 @@ function DatabaseTable({
   renderMode,
   canEdit,
   isActive,
-  viewId,
+  viewId: exactRequestedViewId,
+  foreground,
   onExportContextChange,
 }: {
   document: Document;
@@ -857,6 +873,7 @@ function DatabaseTable({
   canEdit: boolean;
   isActive: boolean;
   viewId?: string | null;
+  foreground: boolean;
   onExportContextChange?: (context: DatabaseExportContext | null) => void;
 }) {
   const t = useT();
@@ -869,6 +886,9 @@ function DatabaseTable({
     null,
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [hydratedDatabaseId, setHydratedDatabaseId] = useState<string | null>(
+    null,
+  );
   const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
     defaultDatabaseViewConfig(),
   );
@@ -904,7 +924,12 @@ function DatabaseTable({
     document.id,
     databaseRequestItemLimit,
     tableQuery,
-    { systemRole: document.database?.systemRole },
+    {
+      systemRole: document.database?.systemRole,
+      ...(foreground && renderMode === "page" && isActive
+        ? { refetchOnMount: "always" as const }
+        : {}),
+    },
   );
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
@@ -954,7 +979,7 @@ function DatabaseTable({
   );
   const serializedSearchParams = searchParams.toString();
   const requestedViewId = requestedDatabaseViewId(
-    viewId,
+    exactRequestedViewId,
     searchParams.get(viewSelectionSearchParam),
   );
   const personalViewDatabaseId = data?.database.id ?? null;
@@ -1874,7 +1899,8 @@ function DatabaseTable({
               { requestSource: "content-workspaces-database" },
             ),
           persistSelection: setStoredSpaceId,
-          openFiles: (documentId) => navigate(`/page/${documentId}`),
+          openSpace: (spaceId) =>
+            navigate(`/home?spaceId=${encodeURIComponent(spaceId)}`),
         });
       })
       .catch((error) => {
@@ -2073,7 +2099,7 @@ function DatabaseTable({
       (current) =>
         databaseSearchParamsWithSelectedView(
           current,
-          viewSelectionSearchParam,
+          exactRequestedViewId ? "viewId" : viewSelectionSearchParam,
           normalized.activeViewId,
         ),
       { replace: true },
@@ -2142,6 +2168,73 @@ function DatabaseTable({
     },
     [updateView.mutateAsync],
   );
+
+  const persistSharedDatabaseView = useCallback(
+    (
+      expectedDatabaseId: string,
+      sharedViewConfig: ContentDatabaseViewConfig,
+    ) => {
+      const nextKey = databaseViewStateKey(
+        expectedDatabaseId,
+        sharedViewConfig,
+      );
+      submittedViewRef.current = {
+        databaseId: expectedDatabaseId,
+        key: nextKey,
+      };
+      return viewSaveQueueRef.current(async () => {
+        try {
+          const response = await saveSharedDatabaseView(
+            expectedDatabaseId,
+            sharedViewConfig,
+          );
+          if (viewPersistenceRef.current.databaseId !== expectedDatabaseId)
+            return;
+          const nextViewConfig = normalizeClientDatabaseViewConfig(response);
+          viewPersistenceRef.current.savedViewConfig = nextViewConfig;
+          setSavedViewConfig(nextViewConfig);
+        } catch (error) {
+          if (viewPersistenceRef.current.databaseId === expectedDatabaseId) {
+            const latest = viewPersistenceRef.current;
+            setViewConfig((current) =>
+              rollbackFailedDatabaseViewSave({
+                databaseId: expectedDatabaseId,
+                current,
+                saved: latest.savedViewConfig,
+                failed: sharedViewConfig,
+                personalQueryDirty: latest.personalQueryDirty,
+              }),
+            );
+          }
+          throw error;
+        } finally {
+          if (
+            submittedViewRef.current?.databaseId === expectedDatabaseId &&
+            submittedViewRef.current.key === nextKey
+          ) {
+            submittedViewRef.current = null;
+          }
+        }
+      });
+    },
+    [saveSharedDatabaseView],
+  );
+
+  function handleViewIconChange(
+    viewId: string,
+    icon: ContentDatabaseView["icon"],
+  ) {
+    if (!databaseId)
+      return Promise.reject(new Error("Database is unavailable"));
+    const next = updateDatabaseViewIcon(viewConfig, viewId, icon);
+    const shared = personalQueryDirty
+      ? databaseViewConfigWithSavedQueryState(next, savedViewConfig)
+      : next;
+    if (saveViewTimerRef.current) clearTimeout(saveViewTimerRef.current);
+    const saved = persistSharedDatabaseView(databaseId, shared);
+    handleViewConfigChange(next);
+    return saved;
+  }
 
   async function savePersonalQueryForEveryone() {
     if (!databaseId) return;
@@ -2723,13 +2816,18 @@ function DatabaseTable({
     const nextSavedViewConfig = normalizeClientDatabaseViewConfig(
       data.database.viewConfig,
     );
-    const nextViewConfig = applyPersonalDatabaseViewOverrides(
+    const personalViewConfig = applyPersonalDatabaseViewOverrides(
       nextSavedViewConfig,
       normalizePersonalDatabaseViewOverrides(personalView.data?.overrides),
     );
+    if (
+      exactRequestedViewId &&
+      !resolveRequestedDatabaseView(personalViewConfig, exactRequestedViewId)
+    )
+      return;
     const reconciled = reconcileDatabaseViewSelection({
       savedViewConfig: nextSavedViewConfig,
-      viewConfig: nextViewConfig,
+      viewConfig: personalViewConfig,
       requestedViewId,
     });
     if (!reconciled.requestedViewExists) {
@@ -2747,6 +2845,7 @@ function DatabaseTable({
       data.database.id,
       reconciled.viewConfig,
     );
+    setHydratedDatabaseId(data.database.id);
     const mutationContract = data.mutationContract;
     if (mutationContract && data.configurationRevision) {
       const { authorityScope: _authorityScope, ...target } =
@@ -2782,6 +2881,7 @@ function DatabaseTable({
     personalView.data?.overrides,
     personalView.isLoading,
     requestedViewId,
+    exactRequestedViewId,
     renderMode,
     serializedSearchParams,
     setSearchParams,
@@ -2813,44 +2913,15 @@ function DatabaseTable({
       clearTimeout(saveViewTimerRef.current);
     }
     saveViewTimerRef.current = setTimeout(() => {
-      submittedViewRef.current = { databaseId, key: nextKey };
-      void viewSaveQueueRef.current(async () => {
-        return saveSharedDatabaseView(databaseId, sharedViewConfig).then(
-          (response) => {
-            if (viewPersistenceRef.current.databaseId !== databaseId) return;
-            const nextViewConfig = normalizeClientDatabaseViewConfig(response);
-            viewPersistenceRef.current.savedViewConfig = nextViewConfig;
-            setSavedViewConfig(nextViewConfig);
-            if (
-              submittedViewRef.current?.databaseId === databaseId &&
-              submittedViewRef.current.key === nextKey
-            ) {
-              submittedViewRef.current = null;
-            }
-          },
-          (err: unknown) => {
-            if (viewPersistenceRef.current.databaseId !== databaseId) return;
-            const latest = viewPersistenceRef.current;
-            setViewConfig((current) =>
-              rollbackFailedDatabaseViewSave({
-                databaseId,
-                current,
-                saved: latest.savedViewConfig,
-                failed: sharedViewConfig,
-                personalQueryDirty: latest.personalQueryDirty,
-              }),
-            );
-            if (submittedViewRef.current?.key === nextKey)
-              submittedViewRef.current = null;
-            toast.error(dbText("failedToSaveView"), {
-              description:
-                err instanceof Error
-                  ? err.message
-                  : dbText("somethingWentWrong"),
-            });
-          },
-        );
-      });
+      void persistSharedDatabaseView(databaseId, sharedViewConfig).catch(
+        (err: unknown) => {
+          if (viewPersistenceRef.current.databaseId !== databaseId) return;
+          toast.error(dbText("failedToSaveView"), {
+            description:
+              err instanceof Error ? err.message : dbText("somethingWentWrong"),
+          });
+        },
+      );
     }, 350);
     return () => {
       if (saveViewTimerRef.current) {
@@ -2862,10 +2933,67 @@ function DatabaseTable({
     databaseId,
     personalQueryDirty,
     personalView.data?.overrides,
-    saveSharedDatabaseView,
+    persistSharedDatabaseView,
     savedViewConfig,
     viewConfig,
   ]);
+
+  const exactViewUnavailable =
+    !!exactRequestedViewId &&
+    (database.isError ||
+      isContentDatabaseUnavailable(database.data) ||
+      (!!data &&
+        !resolveRequestedDatabaseView(
+          normalizeClientDatabaseViewConfig(data.database.viewConfig),
+          exactRequestedViewId,
+        )));
+  useRecordContentVisit(
+    { documentId: document.id, databaseId, viewId: activeView.id },
+    foreground &&
+      renderMode === "page" &&
+      isActive &&
+      database.isSuccess &&
+      database.isFetchedAfterMount &&
+      !attachPreviewActive &&
+      !personalView.isLoading &&
+      !personalView.isError &&
+      !!data &&
+      hydratedDatabaseId === databaseId &&
+      !exactViewUnavailable &&
+      (!requestedViewId || activeView.id === requestedViewId) &&
+      normalizeClientDatabaseViewConfig(data.database.viewConfig).views.some(
+        (view) => view.id === activeView.id,
+      ),
+  );
+
+  const updatePersonalNavigation =
+    useUpdateContentPersonalNavigation(databaseId);
+  function selectPersonalView(viewId: string) {
+    const next = selectDatabaseView(viewConfig, viewId);
+    setPersonalQueryDirty(
+      databaseViewHasPersonalQueryChanges(next, savedViewConfig),
+    );
+    setViewConfig(next);
+    updatePersonalNavigation.mutate(
+      { databaseId, navigation: { activeViewId: viewId } },
+      { onError: () => toast.error(dbText("failedToSaveView")) },
+    );
+    if (foreground && renderMode === "page" && isActive) {
+      navigate(
+        contentRecentHref({ documentId: document.id, databaseId, viewId }),
+      );
+    } else {
+      setSearchParams(
+        (current) =>
+          databaseSearchParamsWithSelectedView(
+            current,
+            viewSelectionSearchParam,
+            viewId,
+          ),
+        { replace: true },
+      );
+    }
+  }
 
   function resizeColumn(
     key: ColumnKey,
@@ -2900,6 +3028,14 @@ function DatabaseTable({
     globalThis.document.addEventListener("pointerup", handlePointerUp);
   }
 
+  if (exactViewUnavailable) {
+    return (
+      <div className="py-8 text-muted-foreground">
+        {t("empty.documentUnavailable")}
+      </div>
+    );
+  }
+
   return (
     <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
@@ -2907,52 +3043,19 @@ function DatabaseTable({
           viewConfig={viewConfig}
           canEdit={effectiveCanEdit}
           onViewConfigChange={handleViewConfigChange}
+          onViewIconChange={handleViewIconChange}
+          onViewSelect={selectPersonalView}
         />
-        <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
-          {searchOpen ? (
-            <div className="flex h-7 w-52 items-center gap-1 rounded border border-border bg-background px-2">
-              <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
-              <Input
-                autoFocus
-                value={searchQuery}
-                placeholder="Search"
-                onChange={(event) => setSearchQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    setSearchQuery("");
-                    setSearchOpen(false);
-                  }
-                }}
-                className="h-6 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
-              />
-              <button
-                type="button"
-                aria-label={dbText("closeSearch")}
-                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => {
-                  setSearchQuery("");
-                  setSearchOpen(false);
-                }}
-              >
-                <IconX className="size-3.5" />
-              </button>
-            </div>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label="Search"
-              title="Search"
-              className={cn(
-                databaseToolbarIconButtonClass(),
-                searchQuery && "bg-muted text-foreground",
-              )}
-              onClick={() => setSearchOpen(true)}
-            >
-              <IconSearch className="size-3.5" />
-            </Button>
-          )}
+        <ContentTableToolbar>
+          <ContentTableSearch
+            open={searchOpen}
+            value={searchQuery}
+            label="Search"
+            placeholder="Search"
+            closeLabel={dbText("closeSearch")}
+            onOpenChange={setSearchOpen}
+            onValueChange={setSearchQuery}
+          />
           <SortMenu
             properties={orderedProperties}
             sorts={sorts}
@@ -3097,7 +3200,7 @@ function DatabaseTable({
               New
             </Button>
           ) : null}
-        </div>
+        </ContentTableToolbar>
       </div>
 
       <DatabaseActiveConstraintsBar
@@ -5778,17 +5881,15 @@ function DatabaseTableView({
                 }}
               />
             ) : null}
-            {/* DataGrid preserves the table contract: data-database-scroll-surface="table", tabIndex={0}, and min-w-0 max-w-full overflow-x-auto. */}
-            <DataGrid
+            <ContentTableSurface
+              columnOrder={columnOrderIds}
+              frozenThroughColumnId={frozenThroughColumnId}
+              viewportWidth={viewportWidth}
               rows={items}
               columns={dataGridColumns}
               getRowId={(item) => item.id}
               columnWidths={columnWidths}
-              horizontalOverflowAffordance="edges"
-              contentClassName="min-w-[720px]"
               scrollContainerProps={{
-                "data-database-scroll-surface": "table",
-                tabIndex: 0,
                 className: "max-h-[70vh] overflow-auto",
               }}
               renderHeader={() => (
@@ -5805,7 +5906,7 @@ function DatabaseTableView({
                   )}
                   actionWidth={actionColumnWidth}
                   selectionCell={
-                    <DatabaseRowSelectionControl
+                    <ContentTableSelectionControl
                       checked={
                         selectableCount > 0 &&
                         selectedItems.length === selectableCount
@@ -6210,7 +6311,7 @@ function DatabaseActiveConstraintsBar({
   const hasSortFilterDivider = sorts.length > 0 && filterEntries.length > 0;
 
   return (
-    <div className="flex min-h-8 flex-wrap items-center gap-1 py-0.5 text-xs text-muted-foreground">
+    <ContentTableConstraintBar className="min-h-8 gap-1 py-0.5 text-muted-foreground">
       {sorts.map((sort, index) => (
         <DatabaseInlineSortControl
           key={`${sort.key}-${index}`}
@@ -6288,9 +6389,10 @@ function DatabaseActiveConstraintsBar({
         }}
       />
       {searchQuery.trim() ? (
-        <DatabaseConstraintChip
+        <ContentTableConstraintChip
           icon={<IconSearch className="size-3.5" />}
           label={`Search: ${searchQuery.trim()}`}
+          removeLabel={`Remove Search: ${searchQuery.trim()}`}
           onRemove={onClearSearch}
         />
       ) : null}
@@ -6357,7 +6459,7 @@ function DatabaseActiveConstraintsBar({
           </>
         ) : null}
       </div>
-    </div>
+    </ContentTableConstraintBar>
   );
 }
 
@@ -11877,31 +11979,6 @@ export function DatabaseNoMatchingPages({
   );
 }
 
-function DatabaseConstraintChip({
-  icon,
-  label,
-  onRemove,
-}: {
-  icon: ReactNode;
-  label: string;
-  onRemove: () => void;
-}) {
-  return (
-    <span className="inline-flex h-7 max-w-72 items-center gap-1.5 rounded border border-border bg-muted/40 px-2 text-foreground">
-      <span className="shrink-0 text-muted-foreground">{icon}</span>
-      <span className="truncate">{label}</span>
-      <button
-        type="button"
-        aria-label={`Remove ${label}`}
-        className="-mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-        onClick={onRemove}
-      >
-        <IconX className="size-3.5" />
-      </button>
-    </span>
-  );
-}
-
 export function DatabaseGroupHeader({
   group,
   collapsed,
@@ -13237,7 +13314,7 @@ function WorkspaceSourceMenuRow({
         nameCell={
           <span
             className={cn(
-              "flex min-w-0 items-center gap-2 border-r border-border/35",
+              "flex min-w-0 items-center gap-2",
               databaseTableCellDensityClass(rowDensity),
             )}
           >
@@ -13248,10 +13325,7 @@ function WorkspaceSourceMenuRow({
           </span>
         }
         propertyCells={properties.map((property) => (
-          <span
-            key={property.definition.id}
-            className="border-r border-border/35"
-          />
+          <span key={property.definition.id} />
         ))}
         actions={<span />}
       />
@@ -13304,7 +13378,7 @@ function NewDatabaseRow({
       nameCell={
         <span
           className={cn(
-            "flex min-w-0 items-center gap-2 border-r border-border/35",
+            "flex min-w-0 items-center gap-2",
             databaseTableCellDensityClass(rowDensity),
           )}
         >
@@ -13317,10 +13391,7 @@ function NewDatabaseRow({
         </span>
       }
       propertyCells={properties.map((property) => (
-        <span
-          key={property.definition.id}
-          className="border-r border-border/35"
-        />
+        <span key={property.definition.id} />
       ))}
       actions={<span />}
     />
@@ -13343,7 +13414,7 @@ function DatabaseBlankDefaultRows({
           propertyIds={[]}
           widths={{ name: DEFAULT_NAME_COLUMN_WIDTH }}
           actionWidth={actionColumnWidth}
-          nameCell={<span className="border-r border-border/35" />}
+          nameCell={<span />}
           propertyCells={[]}
           actions={<span className="border-r border-border/25" />}
         />
@@ -13410,6 +13481,7 @@ export function createDatabaseView(
     id,
     name: name.trim() || databaseViewDefaultName(type),
     type,
+    icon: values.icon,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeClientDatabaseFilterMode(values.filterMode),
@@ -13579,6 +13651,15 @@ export function reconcileDatabaseViewSelection({
   };
 }
 
+export function resolveRequestedDatabaseView(
+  config: ContentDatabaseViewConfig,
+  requestedViewId?: string | null,
+): ContentDatabaseViewConfig | null {
+  if (!requestedViewId) return config;
+  if (!config.views.some((view) => view.id === requestedViewId)) return null;
+  return selectDatabaseView(config, requestedViewId);
+}
+
 export function addDatabaseView(
   config: ContentDatabaseViewConfig,
   name: string,
@@ -13617,6 +13698,19 @@ export function renameDatabaseView(
   });
 }
 
+export function updateDatabaseViewIcon(
+  config: ContentDatabaseViewConfig,
+  viewId: string,
+  icon: ContentDatabaseView["icon"],
+) {
+  return normalizeClientDatabaseViewConfig({
+    ...config,
+    views: config.views.map((view) =>
+      view.id === viewId ? { ...view, icon } : view,
+    ),
+  });
+}
+
 export function updateDatabaseViewType(
   config: ContentDatabaseViewConfig,
   viewId: string,
@@ -13641,6 +13735,7 @@ export function duplicateDatabaseView(
     uniqueDatabaseViewName(normalized.views, `${view.name} copy`),
     createDatabaseViewId(),
     {
+      icon: view.icon,
       sorts: view.sorts,
       filters: view.filters,
       filterMode: view.filterMode,
@@ -13765,6 +13860,7 @@ function normalizeClientDatabaseView(
       : databaseViewDefaultName(type),
     value.id,
     {
+      icon: value.icon,
       sorts: Array.isArray(value.sorts)
         ? value.sorts.filter(isDatabaseSort)
         : [],
@@ -15065,15 +15161,25 @@ function DatabaseViewTabs({
   viewConfig,
   canEdit,
   onViewConfigChange,
+  onViewIconChange,
+  onViewSelect,
 }: {
   viewConfig: ContentDatabaseViewConfig;
   canEdit: boolean;
   onViewConfigChange: (viewConfig: ContentDatabaseViewConfig) => void;
+  onViewIconChange: (
+    viewId: string,
+    icon: ContentDatabaseView["icon"],
+  ) => Promise<void>;
+  onViewSelect: (viewId: string) => void;
 }) {
+  const t = useT();
   const normalized = normalizeClientDatabaseViewConfig(viewConfig);
   const [newViewName, setNewViewName] = useState("");
   const [addViewOpen, setAddViewOpen] = useState(false);
   const [openViewMenuId, setOpenViewMenuId] = useState<string | null>(null);
+  const [iconPickerViewId, setIconPickerViewId] = useState<string | null>(null);
+  const activeViewTabRef = useRef<HTMLButtonElement>(null);
   const [renameViewId, setRenameViewId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [draggedViewId, setDraggedViewId] = useState<string | null>(null);
@@ -15241,6 +15347,7 @@ function DatabaseViewTabs({
         const tabButton = (
           <button
             type="button"
+            ref={active && canEdit ? activeViewTabRef : undefined}
             data-database-view-id={view.id}
             aria-label={
               active && canEdit ? `${view.name} view menu` : view.name
@@ -15263,7 +15370,7 @@ function DatabaseViewTabs({
                 return;
               }
               if (!active) {
-                onViewConfigChange(selectDatabaseView(normalized, view.id));
+                onViewSelect(view.id);
               }
             }}
             onContextMenu={(event) => {
@@ -15274,12 +15381,16 @@ function DatabaseViewTabs({
             onPointerDown={(event) => startViewPointerDrag(view, event)}
           >
             <DatabaseDropIndicator side={dropSide} />
-            <ViewIcon
-              className={cn(
-                "size-4 shrink-0",
-                active ? "text-foreground" : "text-muted-foreground",
-              )}
-            />
+            {view.icon ? (
+              <ContentIcon value={view.icon} size={16} className="shrink-0" />
+            ) : (
+              <ViewIcon
+                className={cn(
+                  "size-4 shrink-0",
+                  active ? "text-foreground" : "text-muted-foreground",
+                )}
+              />
+            )}
             <span className="max-w-40 truncate">{view.name}</span>
           </button>
         );
@@ -15291,6 +15402,7 @@ function DatabaseViewTabs({
         return (
           <DropdownMenu
             key={view.id}
+            modal={false}
             open={openViewMenuId === view.id}
             onOpenChange={(open) => {
               setOpenViewMenuId(open ? view.id : null);
@@ -15302,8 +15414,23 @@ function DatabaseViewTabs({
           >
             <DropdownMenuTrigger asChild>{tabButton}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
-                {view.name}
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  aria-label={t("editor.emojiChangeIcon")}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
+                  onClick={() => {
+                    setOpenViewMenuId(null);
+                    setIconPickerViewId(view.id);
+                  }}
+                >
+                  {view.icon ? (
+                    <ContentIcon value={view.icon} size={16} />
+                  ) : (
+                    <ViewIcon className="size-4" />
+                  )}
+                </button>
+                <span className="truncate">{view.name}</span>
               </DropdownMenuLabel>
               {renameViewId === view.id ? (
                 <form
@@ -15398,6 +15525,17 @@ function DatabaseViewTabs({
                 </>
               )}
             </DropdownMenuContent>
+            <EmojiPicker
+              icon={view.icon ?? null}
+              open={iconPickerViewId === view.id}
+              onOpenChange={(open) =>
+                setIconPickerViewId(open ? view.id : null)
+              }
+              anchored
+              anchorElement={activeViewTabRef.current}
+              contentClassName="z-[310]"
+              onSelect={(icon) => onViewIconChange(view.id, icon)}
+            />
           </DropdownMenu>
         );
       })}
@@ -15501,7 +15639,7 @@ function DatabaseNameHeader({
     <div
       data-database-property-id="name"
       className={cn(
-        "group relative flex h-8 min-w-0 items-center border-r border-border/35 px-1",
+        "group relative flex h-8 min-w-0 items-center px-1",
         isDragging && "opacity-45",
         dropSide && "bg-accent/40",
       )}
@@ -15584,65 +15722,60 @@ export function DatabaseSelectionBar({
   onRemoveSelected: () => void;
 }) {
   return (
-    <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-y border-border/45 bg-muted/20 px-2 py-0.5 text-xs text-muted-foreground">
-      <span className="shrink-0 font-medium whitespace-nowrap text-foreground">
-        {selectedCount} selected
-      </span>
-      <div className="flex min-w-0 flex-wrap items-center gap-1">
-        {canEditSelected ? (
-          <DatabaseBulkEditPopover
-            properties={properties}
-            selectedCount={selectedCount}
-            selectedItems={selectedItems}
-            disabled={updateDisabled || properties.length === 0}
-            onSetPropertyValue={onSetPropertyValue}
-          />
-        ) : null}
-        {canDuplicateSelected ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1.5 px-2 text-xs"
-            disabled={duplicateDisabled}
-            onClick={onDuplicateSelected}
-          >
-            <IconCopy className="size-3.5" />
-            Duplicate
-          </Button>
-        ) : null}
-        {canRemoveSelected ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "h-7 gap-1.5 px-2 text-xs",
-              !removesFavoriteMembership &&
-                "text-destructive hover:bg-destructive/10 hover:text-destructive",
-            )}
-            disabled={removeDisabled}
-            onClick={onRemoveSelected}
-          >
-            {removesFavoriteMembership ? (
-              <IconStarOff className="size-3.5" />
-            ) : (
-              <IconTrash className="size-3.5" />
-            )}
-            Remove
-          </Button>
-        ) : null}
+    <ContentTableSelectionBar label={`${selectedCount} selected`}>
+      {canEditSelected ? (
+        <DatabaseBulkEditPopover
+          properties={properties}
+          selectedCount={selectedCount}
+          selectedItems={selectedItems}
+          disabled={updateDisabled || properties.length === 0}
+          onSetPropertyValue={onSetPropertyValue}
+        />
+      ) : null}
+      {canDuplicateSelected ? (
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="h-7 px-2 text-xs"
-          onClick={onClearSelection}
+          className="h-7 gap-1.5 px-2 text-xs"
+          disabled={duplicateDisabled}
+          onClick={onDuplicateSelected}
         >
-          Clear
+          <IconCopy className="size-3.5" />
+          Duplicate
         </Button>
-      </div>
-    </div>
+      ) : null}
+      {canRemoveSelected ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-7 gap-1.5 px-2 text-xs",
+            !removesFavoriteMembership &&
+              "text-destructive hover:bg-destructive/10 hover:text-destructive",
+          )}
+          disabled={removeDisabled}
+          onClick={onRemoveSelected}
+        >
+          {removesFavoriteMembership ? (
+            <IconStarOff className="size-3.5" />
+          ) : (
+            <IconTrash className="size-3.5" />
+          )}
+          Remove
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={onClearSelection}
+      >
+        Clear
+      </Button>
+    </ContentTableSelectionBar>
   );
 }
 
@@ -16242,60 +16375,6 @@ function DatabaseBulkOptionPill({
   );
 }
 
-function DatabaseRowSelectionControl({
-  checked,
-  indeterminate = false,
-  disabled = false,
-  quietUntilHover = false,
-  label,
-  onToggle,
-}: {
-  checked: boolean;
-  indeterminate?: boolean;
-  disabled?: boolean;
-  quietUntilHover?: boolean;
-  label: string;
-  onToggle: () => void;
-}) {
-  const quiet = quietUntilHover && !checked && !indeterminate;
-
-  return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={indeterminate ? "mixed" : checked}
-      aria-label={label}
-      disabled={disabled}
-      className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-all hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30",
-        (checked || indeterminate) && "text-foreground",
-        quiet &&
-          "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-hover/name:opacity-100 group-focus-within/name:opacity-100",
-      )}
-      onClick={(event) => {
-        event.stopPropagation();
-        onToggle();
-      }}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "inline-flex size-4 items-center justify-center rounded border",
-          checked || indeterminate
-            ? "border-foreground bg-foreground text-background"
-            : "border-muted-foreground/40 bg-background text-transparent",
-        )}
-      >
-        {indeterminate ? (
-          <IconMinus className="size-3" />
-        ) : checked ? (
-          <IconCheck className="size-3" />
-        ) : null}
-      </span>
-    </button>
-  );
-}
-
 function DatabasePropertyHeader({
   property,
   documentId,
@@ -16342,14 +16421,22 @@ function DatabasePropertyHeader({
     <div
       data-database-property-id={property.definition.id}
       className={cn(
-        "group relative flex h-8 min-w-0 items-center border-r border-border/35 px-1 transition-colors",
+        "group relative flex h-8 min-w-0 items-center px-1 transition-colors",
         canReorder && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-45",
         dropSide && "bg-accent/40",
       )}
-      onPointerDown={canReorder ? onPointerDown : undefined}
     >
       <DatabaseDropIndicator side={dropSide} />
+      {canReorder && (
+        <span
+          aria-hidden="true"
+          className="flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/50 active:cursor-grabbing"
+          onPointerDown={onPointerDown}
+        >
+          <IconGripVertical className="size-3.5" />
+        </span>
+      )}
       {canEdit && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}
@@ -16359,11 +16446,6 @@ function DatabasePropertyHeader({
           databaseId={property.definition.databaseId!}
           icon={Icon}
           triggerClassName="h-full min-w-0 flex-1 rounded-none text-xs text-muted-foreground"
-          onTriggerPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onPointerDown(event);
-          }}
           triggerTrailing={
             <DatabaseColumnStateIndicators state={columnState} />
           }
@@ -17111,26 +17193,16 @@ function SortMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
+        <ContentTableToolbarButton
+          label="Sort"
+          active={sorts.length > 0}
+          count={sorts.length || undefined}
           aria-label={
             sorts.length > 0 ? `${sorts.length} active sorts` : "Sort"
           }
-          title="Sort"
-          className={cn(
-            databaseToolbarIconButtonClass(sorts.length > 0),
-            "relative",
-          )}
         >
           <IconArrowsSort className="size-3.5" />
-          {sorts.length > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
-              {formatCompactCountBadge(sorts.length)}
-            </span>
-          ) : null}
-        </Button>
+        </ContentTableToolbarButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
@@ -17296,20 +17368,18 @@ function FilterMenu({
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
+        <ContentTableToolbarButton
+          label="Filter"
+          active={active || open}
+          count={activeFilters.length || undefined}
           aria-label={
             activeFilters.length > 0
               ? `${activeFilters.length} active filters`
               : "Filter"
           }
-          title="Filter"
-          className={databaseToolbarIconButtonClass(active || open)}
         >
           <IconFilter className="size-3.5" />
-        </Button>
+        </ContentTableToolbarButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         <div onKeyDown={(event) => event.stopPropagation()}>
@@ -18268,7 +18338,7 @@ function DatabaseTableRow({
       actionWidth={ACTION_COLUMN_WIDTH}
       selectionCell={
         <>
-          <DatabaseRowSelectionControl
+          <ContentTableSelectionControl
             checked={selected}
             quietUntilHover
             label={`${selected ? "Deselect" : "Select"} ${item.document.title || "Untitled"}`}
@@ -18332,7 +18402,7 @@ function DatabaseTableRow({
           <div
             key={property.definition.id}
             className={cn(
-              "flex min-w-0 border-r border-border/35 hover:bg-muted/25",
+              "flex min-w-0 hover:bg-muted/25",
               databaseTableCellDensityClass(rowDensity),
               wrapCells ? "items-start" : "items-center",
             )}
@@ -18499,13 +18569,7 @@ export function RowActionsCell({
     <div className="flex items-center justify-center">
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Row actions for ${title}`}
-            className="flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
-          >
-            <IconDots className="size-4" />
-          </button>
+          <ContentTableRowActionButton label={`Row actions for ${title}`} />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem
@@ -18685,7 +18749,7 @@ function RowNameCell({
   return (
     <div
       className={cn(
-        "group group/name flex min-w-0 gap-1 border-r border-border/35 hover:bg-muted/25",
+        "group group/name flex min-w-0 gap-1 hover:bg-muted/25",
         databaseRowNameCellDensityClass(rowDensity),
         wrapCells ? "items-start" : "items-center",
       )}

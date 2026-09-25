@@ -26,7 +26,6 @@ import {
   assertSafeDecodedFigDocument,
   decodeFig,
   decodeKiwiContainer,
-  sanitizeDecodedFigDocument,
 } from "./fig-file-decoder.js";
 import {
   convertDecodedFigToEditableHtml,
@@ -146,7 +145,7 @@ describe("bounded .fig decoding", () => {
     expect(decoded.document).toEqual({ hello: "world" });
   });
 
-  it("allows the hex expansion of bounded binary fields during the safety re-check", () => {
+  it("keeps bounded binary fields as bytes while direct strings stay bounded", () => {
     const fieldNames = ["blob"];
     const schema = parseSchema(
       `message Message { ${fieldNames.map((name, index) => `byte[] ${name} = ${index + 1};`).join(" ")} }`,
@@ -165,20 +164,15 @@ describe("bounded .fig decoding", () => {
       ]),
     );
 
+    expect((decoded.document as { blob: unknown }).blob).toBeInstanceOf(
+      Uint8Array,
+    );
     expect(() => assertSafeDecodedFigDocument(decoded.document)).not.toThrow();
     expect(() =>
       assertSafeDecodedFigDocument({
         blobs: [{ bytes: "00".repeat(3 * 1024 * 1024) }],
       }),
     ).toThrow(/too much string data/i);
-  });
-
-  it("preserves safety metadata for a root binary value", () => {
-    const sanitized = sanitizeDecodedFigDocument(
-      new Uint8Array(3 * 1024 * 1024),
-    );
-
-    expect(() => assertSafeDecodedFigDocument(sanitized)).not.toThrow();
   });
 
   it("counts bigint serialization against the decoded string budget", () => {

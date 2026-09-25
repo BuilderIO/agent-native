@@ -1,10 +1,12 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevOverlay } from "@agent-native/core/client/dev-overlay";
-import { getBrowserTabId, useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
+  useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import {
   getLocaleInitScript,
@@ -24,6 +26,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  Link,
   useLoaderData,
   useLocation,
   useRouteLoaderData,
@@ -32,6 +35,7 @@ import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 
 import { BugReportDialog } from "@/components/bug-report/bug-report-dialog";
 import { ClipsCommandMenu } from "@/components/clips-command-menu";
+import { LibraryLayout } from "@/components/library/library-layout";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -45,7 +49,11 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { buildClipsExtensionBaseUrl } from "@/lib/extension-auth";
-import { isStandalonePublicPath } from "@/lib/public-ssr-paths";
+import {
+  isLegacyRecordingPath,
+  isRecordingSharePath,
+  isStandalonePublicPath,
+} from "@/lib/public-ssr-paths";
 
 import { i18nCatalog, loadI18nMessages } from "./i18n";
 
@@ -118,6 +126,47 @@ const DEFAULT_LOADER_DATA: RootLoaderData = {
   dir: "ltr",
   messages: i18nCatalog.messages,
 };
+
+const PRIVATE_SHELL_NAVIGATION = [
+  ["/library", "library"],
+  ["/shared", "sharedWithMe"],
+  ["/spaces", "spaces"],
+  ["/meetings", "meetings"],
+  ["/dictate", "dictate"],
+  ["/archive", "archive"],
+  ["/trash", "trash"],
+] as const;
+
+function ClipsPrivateShellFallback({ messages }: { messages: LocaleMessages }) {
+  const navigation = messages.navigation as Record<string, string> | undefined;
+  const brand = navigation?.brand ?? "Clips";
+
+  return (
+    <div className="flex min-h-screen bg-background text-foreground">
+      <aside className="w-64 shrink-0 border-e border-border bg-sidebar p-4">
+        <Link
+          to="/library"
+          className="text-sm font-semibold text-primary"
+          aria-label={brand}
+        >
+          {brand}
+        </Link>
+        <nav aria-label={brand} className="mt-6 flex flex-col gap-1">
+          {PRIVATE_SHELL_NAVIGATION.map(([to, key]) => (
+            <Link
+              key={to}
+              to={to}
+              className="rounded px-2 py-1.5 text-sm text-primary hover:bg-accent"
+            >
+              {navigation?.[key] ?? key}
+            </Link>
+          ))}
+        </nav>
+      </aside>
+      <main className="min-w-0 flex-1" aria-busy="true" />
+    </div>
+  );
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const loaderData =
@@ -341,7 +390,13 @@ function AppContent() {
 
 function PrivateAppContent() {
   const location = useLocation();
-  const standalonePublic = isStandalonePublicPath(location.pathname);
+  const { status: sessionStatus } = useSession();
+  const authenticatedShare =
+    typeof window !== "undefined" &&
+    isRecordingSharePath(location.pathname) &&
+    sessionStatus === "authenticated";
+  const standalonePublic =
+    isStandalonePublicPath(location.pathname) && !authenticatedShare;
   const [cmdkOpen, setCmdkOpen] = useState(false);
 
   return (
@@ -353,7 +408,13 @@ function PrivateAppContent() {
       )}
       {standalonePublic ? null : <BugReportDialog />}
       {standalonePublic ? null : <DevOverlay />}
-      <Outlet />
+      {authenticatedShare ? (
+        <LibraryLayout>
+          <Outlet />
+        </LibraryLayout>
+      ) : (
+        <Outlet />
+      )}
     </>
   );
 }
@@ -371,12 +432,17 @@ export default function Root() {
   const isMarketingHome = location.pathname === "/";
   const isPublicPath =
     isMarketingHome || isStandalonePublicPath(location.pathname);
+  const legacyRecordingPath = isLegacyRecordingPath(location.pathname);
   const publicSharePath = location.pathname.startsWith("/share/");
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        clientOnlyFallback={
+          <ClipsPrivateShellFallback messages={loaderData.messages} />
+        }
         isPublicPath={isPublicPath}
+        sessionBypass={legacyRecordingPath}
         showEnvironmentBadge={isPublicPath && !publicSharePath}
         toaster={
           <Toaster

@@ -19,7 +19,7 @@ import {
 } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
-import { inboxTabHref } from "@shared/inbox-threads";
+import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
   IconArrowUpRight,
@@ -44,14 +44,19 @@ import {
   IconFilter,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+} from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import {
-  ComposeModal,
-  type ComposePaletteCommands,
-} from "@/components/email/ComposeModal";
+import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -120,6 +125,12 @@ import { CommandPalette } from "./CommandPalette";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
 import { useCommandPaletteFocus } from "./use-command-palette-focus";
+
+const ComposeModal = lazy(() =>
+  import("@/components/email/ComposeModal").then(({ ComposeModal }) => ({
+    default: ComposeModal,
+  })),
+);
 
 const BARE_ROUTES = new Set(["/email"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
@@ -536,6 +547,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // actually turn Important off.
   const userPinnedLabels = settings?.pinnedLabels;
   const combineInbox = settings?.combineInbox === true;
+  const showAllTab = settings?.showAllTab !== false;
   const pinnedLabels = useMemo(
     () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
@@ -557,6 +569,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     limit: INBOX_PAGE_SIZE,
     offset: 0,
   });
+  const activeInboxTabId = inboxThreads.isPlaceholderData
+    ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id)
+    : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);
   const inboxIsFetching = inboxThreads.isFetching;
   const inboxSyncing = inboxThreads.data?.syncing === true;
   const needsReauthAccount = inboxThreads.data?.accounts.find(
@@ -717,10 +732,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         id: tab.id,
         pinnedId: tab.kind === "label" ? tab.id : undefined,
         filterId: tab.kind === "filter" ? tab.id : undefined,
-        label: tab.name,
+        label: tab.kind === "all" ? t("mail.views.all") : tab.name,
         fullLabel: label?.name,
         href: inboxTabHref(tab.id),
-        isActive: view === "inbox" && inboxThreads.data?.activeTabId === tab.id,
+        isActive: view === "inbox" && activeInboxTabId === tab.id,
         color: label?.color,
         tooltip: tab.query,
         total: tab.total,
@@ -728,7 +743,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isSystemView: false,
       };
     });
-  }, [inboxThreads.data?.tabs, inboxThreads.data?.activeTabId, labels, view]);
+  }, [inboxThreads.data?.tabs, activeInboxTabId, labels, t, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
     () => [...systemViewTabs, ...dataTabs],
@@ -897,6 +912,41 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     [pinnedLabels, updateSettings],
   );
 
+  const handleAllTabChange = useCallback(
+    (next: boolean) => {
+      updateSettings.mutate({ showAllTab: next });
+      if (
+        next ||
+        view !== "inbox" ||
+        threadId ||
+        activeInboxTab !== ALL_TAB_PARAM
+      ) {
+        return;
+      }
+      void navigate(
+        resolveDefaultMailHref({
+          combineInbox,
+          showAllTab: false,
+          pinnedLabels,
+          savedFilters,
+          isGoogleConnected,
+        }),
+        { replace: true },
+      );
+    },
+    [
+      activeInboxTab,
+      combineInbox,
+      isGoogleConnected,
+      navigate,
+      pinnedLabels,
+      savedFilters,
+      threadId,
+      updateSettings,
+      view,
+    ],
+  );
+
   const handleCombinedInboxChange = useCallback(
     (next: boolean) => {
       updateSettings.mutate({ combineInbox: next });
@@ -904,7 +954,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         if (
           view !== "inbox" ||
           (!isInboxScopedAppLabel(activeLabel) &&
-            activeInboxTab !== OTHER_INBOX_TAB_PARAM)
+            activeInboxTab !== OTHER_INBOX_TAB_PARAM &&
+            activeInboxTab !== ALL_TAB_PARAM)
         ) {
           return;
         }
@@ -930,6 +981,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
       const splitRoute = resolveDefaultMailHref({
         combineInbox: false,
+        showAllTab,
         pinnedLabels,
         savedFilters,
         isGoogleConnected,
@@ -948,6 +1000,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       navigate,
       pinnedLabels,
       savedFilters,
+      showAllTab,
       threadId,
       updateSettings,
       view,
@@ -1399,10 +1452,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
             {/* Tab settings cog */}
             <div
-              className={cn(
-                "relative hidden sm:block",
-                tabsLoading && "invisible",
-              )}
+              className={cn("relative shrink-0", tabsLoading && "invisible")}
             >
               <Popover
                 open={tabSettingsOpen}
@@ -1452,11 +1502,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
                     combinedInbox={combineInbox}
+                    allTabVisible={showAllTab}
                     savedFilters={savedFilters}
                     labelAliases={labelAliases}
                     search={labelSearch}
                     onSearchChange={setLabelSearch}
                     onToggle={togglePinned}
+                    onAllTabChange={handleAllTabChange}
                     onCombinedInboxChange={handleCombinedInboxChange}
                     onRemoveFilter={removeSavedFilter}
                     onRename={(id, alias) => {
@@ -2068,138 +2120,140 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         const popoutActiveDraft =
           popoutDrafts.find((d) => d.id === popoutActiveId) ?? null;
         return (
-          <ComposeModal
-            drafts={popoutDrafts}
-            activeId={popoutActiveId}
-            activeDraft={popoutActiveDraft}
-            initialExpanded={composeInitialExpanded}
-            onSetActiveId={compose.setActiveId}
-            onUpdate={compose.update}
-            onClose={(id) => {
-              const draft = popoutDrafts.find((d) => d.id === id);
-              const hasContent = !!(
-                draft?.to?.trim() ||
-                draft?.cc?.trim() ||
-                draft?.bcc?.trim() ||
-                draft?.subject?.trim() ||
-                draft?.body?.trim()
-              );
-              const snapshot = draft ? { ...draft } : null;
-              const savePromise = compose.close(id);
-              if (hasContent && snapshot) {
-                toast(t("mail.toasts.draftClosed"), {
-                  action: {
-                    label: t("mail.compose.reopenDraft"),
-                    onClick: async () => {
-                      const savedSnapshot = applyDraftSaveResult(
-                        snapshot,
-                        await savePromise,
-                      );
-                      const { id: _id, ...reopenData } = savedSnapshot;
-                      compose.open(reopenData);
-                    },
-                  },
-                  cancel: {
-                    label: t("mail.compose.deleteDraft"),
-                    onClick: async () => {
-                      const savedSnapshot = applyDraftSaveResult(
-                        snapshot,
-                        await savePromise,
-                      );
-                      if (savedSnapshot.savedDraftId) {
-                        await compose.deleteSavedDraft(savedSnapshot);
-                      }
-                    },
-                  },
-                });
-              }
-            }}
-            onCloseAll={() => {
-              const draftsWithContent = popoutDrafts.filter(
-                (d) =>
-                  !!(
-                    d.to?.trim() ||
-                    d.cc?.trim() ||
-                    d.bcc?.trim() ||
-                    d.subject?.trim() ||
-                    d.body?.trim()
-                  ),
-              );
-              const snapshots = draftsWithContent.map((d) => ({ ...d }));
-              const savePromises = compose.closeAll(
-                popoutDrafts.map((draft) => draft.id),
-              );
-              if (snapshots.length > 0) {
-                toast(
-                  t("mail.toasts.draftsClosed", { count: snapshots.length }),
-                  {
+          <Suspense fallback={null}>
+            <ComposeModal
+              drafts={popoutDrafts}
+              activeId={popoutActiveId}
+              activeDraft={popoutActiveDraft}
+              initialExpanded={composeInitialExpanded}
+              onSetActiveId={compose.setActiveId}
+              onUpdate={compose.update}
+              onClose={(id) => {
+                const draft = popoutDrafts.find((d) => d.id === id);
+                const hasContent = !!(
+                  draft?.to?.trim() ||
+                  draft?.cc?.trim() ||
+                  draft?.bcc?.trim() ||
+                  draft?.subject?.trim() ||
+                  draft?.body?.trim()
+                );
+                const snapshot = draft ? { ...draft } : null;
+                const savePromise = compose.close(id);
+                if (hasContent && snapshot) {
+                  toast(t("mail.toasts.draftClosed"), {
                     action: {
                       label: t("mail.compose.reopenDraft"),
                       onClick: async () => {
-                        const saveResults = await Promise.all(
-                          snapshots.map(async (snapshot) => ({
-                            snapshot,
-                            result: await savePromises.get(snapshot.id),
-                          })),
+                        const savedSnapshot = applyDraftSaveResult(
+                          snapshot,
+                          await savePromise,
                         );
-                        for (const { snapshot, result } of saveResults) {
-                          if (
-                            result?.status === "failed" ||
-                            result?.status === "unavailable" ||
-                            result?.status === "cancelled"
-                          ) {
-                            compose.setActiveId(snapshot.id);
-                            continue;
-                          }
-                          const savedSnapshot = applyDraftSaveResult(
-                            snapshot,
-                            result,
-                          );
-                          const { id: _id, ...reopenData } = savedSnapshot;
-                          compose.open(reopenData);
-                        }
+                        const { id: _id, ...reopenData } = savedSnapshot;
+                        compose.open(reopenData);
                       },
                     },
                     cancel: {
-                      label: t("mail.compose.deleteDrafts"),
+                      label: t("mail.compose.deleteDraft"),
                       onClick: async () => {
-                        const saveResults = await Promise.all(
-                          snapshots.map(async (snapshot) => ({
-                            snapshot,
-                            result: await savePromises.get(snapshot.id),
-                          })),
+                        const savedSnapshot = applyDraftSaveResult(
+                          snapshot,
+                          await savePromise,
                         );
-                        for (const { snapshot, result } of saveResults) {
-                          if (
-                            result?.status === "failed" ||
-                            result?.status === "unavailable" ||
-                            result?.status === "cancelled"
-                          ) {
-                            compose.discard(snapshot.id);
-                            continue;
-                          }
-                          const savedSnapshot = applyDraftSaveResult(
-                            snapshot,
-                            result,
-                          );
-                          if (savedSnapshot.savedDraftId) {
-                            await compose.deleteSavedDraft(savedSnapshot);
-                          }
+                        if (savedSnapshot.savedDraftId) {
+                          await compose.deleteSavedDraft(savedSnapshot);
                         }
                       },
                     },
-                  },
+                  });
+                }
+              }}
+              onCloseAll={() => {
+                const draftsWithContent = popoutDrafts.filter(
+                  (d) =>
+                    !!(
+                      d.to?.trim() ||
+                      d.cc?.trim() ||
+                      d.bcc?.trim() ||
+                      d.subject?.trim() ||
+                      d.body?.trim()
+                    ),
                 );
-              }
-            }}
-            onDiscard={compose.discard}
-            onStageForSend={compose.stageForSend}
-            onRestoreAfterSend={compose.restoreAfterSend}
-            onNewDraft={handleCompose}
-            onFlush={compose.flush}
-            onInitialExpandedConsumed={clearComposeInitialExpanded}
-            onRegisterComposeCommands={registerComposePaletteCommands}
-          />
+                const snapshots = draftsWithContent.map((d) => ({ ...d }));
+                const savePromises = compose.closeAll(
+                  popoutDrafts.map((draft) => draft.id),
+                );
+                if (snapshots.length > 0) {
+                  toast(
+                    t("mail.toasts.draftsClosed", { count: snapshots.length }),
+                    {
+                      action: {
+                        label: t("mail.compose.reopenDraft"),
+                        onClick: async () => {
+                          const saveResults = await Promise.all(
+                            snapshots.map(async (snapshot) => ({
+                              snapshot,
+                              result: await savePromises.get(snapshot.id),
+                            })),
+                          );
+                          for (const { snapshot, result } of saveResults) {
+                            if (
+                              result?.status === "failed" ||
+                              result?.status === "unavailable" ||
+                              result?.status === "cancelled"
+                            ) {
+                              compose.setActiveId(snapshot.id);
+                              continue;
+                            }
+                            const savedSnapshot = applyDraftSaveResult(
+                              snapshot,
+                              result,
+                            );
+                            const { id: _id, ...reopenData } = savedSnapshot;
+                            compose.open(reopenData);
+                          }
+                        },
+                      },
+                      cancel: {
+                        label: t("mail.compose.deleteDrafts"),
+                        onClick: async () => {
+                          const saveResults = await Promise.all(
+                            snapshots.map(async (snapshot) => ({
+                              snapshot,
+                              result: await savePromises.get(snapshot.id),
+                            })),
+                          );
+                          for (const { snapshot, result } of saveResults) {
+                            if (
+                              result?.status === "failed" ||
+                              result?.status === "unavailable" ||
+                              result?.status === "cancelled"
+                            ) {
+                              compose.discard(snapshot.id);
+                              continue;
+                            }
+                            const savedSnapshot = applyDraftSaveResult(
+                              snapshot,
+                              result,
+                            );
+                            if (savedSnapshot.savedDraftId) {
+                              await compose.deleteSavedDraft(savedSnapshot);
+                            }
+                          }
+                        },
+                      },
+                    },
+                  );
+                }
+              }}
+              onDiscard={compose.discard}
+              onStageForSend={compose.stageForSend}
+              onRestoreAfterSend={compose.restoreAfterSend}
+              onNewDraft={handleCompose}
+              onFlush={compose.flush}
+              onInitialExpandedConsumed={clearComposeInitialExpanded}
+              onRegisterComposeCommands={registerComposePaletteCommands}
+            />
+          </Suspense>
         );
       })()}
       <CommandPalette
@@ -2569,11 +2623,13 @@ function TabSettingsPopover({
   labelDisplayNames,
   pinnedLabels,
   combinedInbox,
+  allTabVisible,
   savedFilters,
   labelAliases,
   search,
   onSearchChange,
   onToggle,
+  onAllTabChange,
   onCombinedInboxChange,
   onRemoveFilter,
   onRename,
@@ -2583,11 +2639,13 @@ function TabSettingsPopover({
   labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
   combinedInbox: boolean;
+  allTabVisible: boolean;
   savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
   search: string;
   onSearchChange: (v: string) => void;
   onToggle: (id: string) => void;
+  onAllTabChange: (checked: boolean) => void;
   onCombinedInboxChange: (checked: boolean) => void;
   onRemoveFilter: (id: string) => void;
   onRename: (id: string, alias: string) => void;
@@ -2681,6 +2739,20 @@ function TabSettingsPopover({
           id="combined-inbox-toggle"
           checked={combinedInbox}
           onCheckedChange={onCombinedInboxChange}
+        />
+      </div>
+
+      <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
+        <label
+          htmlFor="all-inbox-tab-toggle"
+          className="text-[13px] text-foreground"
+        >
+          {t("mail.tabSettings.allTab")}
+        </label>
+        <Switch
+          id="all-inbox-tab-toggle"
+          checked={allTabVisible}
+          onCheckedChange={onAllTabChange}
         />
       </div>
 

@@ -555,7 +555,9 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         "screen-bridge-insert",
       ],
       // Board → live where the subject is itself a runtime node is a move
-      // between two running apps, not new markup.
+      // copied from the canvas back into the running DOM. The board is still
+      // the source surface, even though the copied node retains runtime-only
+      // provenance from the live screen it came from.
       [
         {
           subjectRuntimeOnly: true,
@@ -565,7 +567,7 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
           sourceScreenIsBoard: true,
           targetScreenIsLive: true,
         },
-        "semantic-handoff",
+        "screen-bridge-insert",
       ],
       // Stored → live: the destination has no editable stored document, so it
       // may never fall back to the source-edit path.

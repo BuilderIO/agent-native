@@ -90,12 +90,17 @@ export async function newDesign(
   });
   const id = created?.id ?? created?.data?.id;
   if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content,
-    fileType: "html",
-  });
+  try {
+    await postAction(page, "create-file", {
+      designId: id,
+      filename: "index.html",
+      content,
+      fileType: "html",
+    });
+  } catch (error) {
+    await postAction(page, "delete-design", { id });
+    throw error;
+  }
   return id;
 }
 
@@ -152,11 +157,16 @@ export function layerRow(page: Page, name: string): Locator {
 }
 
 export function node(page: Page, id: string): Locator {
-  return page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .contentFrame()
-    .locator(`[data-agent-native-node-id="${id}"]`);
+  return (
+    page
+      // A live board surface is mounted ahead of screen iframes during a
+      // cross-screen drag. Keep this helper bound to authored screen content;
+      // board documents intentionally omit data-screen-iframe-id.
+      .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
+      .first()
+      .contentFrame()
+      .locator(`[data-agent-native-node-id="${id}"]`)
+  );
 }
 
 export async function openEditor(page: Page, designId: string): Promise<void> {

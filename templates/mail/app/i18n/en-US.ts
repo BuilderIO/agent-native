@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "All",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -26,6 +27,12 @@ const messages = {
     },
     inbox: {
       syncing: "Syncing inbox…",
+    },
+    sort: {
+      label: "Sort inbox",
+      newest: "Newest",
+      priority: "Priority",
+      priorityFailed: "Couldn’t rank this inbox.",
     },
     toolbar: {
       toggleMenu: "Toggle menu",
@@ -61,7 +68,8 @@ const messages = {
       renameTab: "Rename tab",
       savedFilters: "Saved filters",
       combinedInbox: "Combined inbox",
-      help: "Checked items show as tabs. Label emails split from inbox.",
+      allTab: "All tab",
+      help: "All includes every inbox thread. Checked labels split the inbox.",
     },
     accounts: {
       remove: "Remove",
@@ -500,12 +508,17 @@ const messages = {
       instructionFailed: "Could not save AI filter instruction.",
       spamMode: "Spam",
       tagMode: "Tag",
+      importantMode: "Important",
+      importantLabel: "AI Important",
+      reviewImportant: "View important",
       ruleAdded: "AI rule added.",
       instructionHelp: "Use plain language",
       tagNamePlaceholder: "Tag name",
       spamLabelHint: "Matches are labeled and moved out of Inbox.",
       spamPlaceholder: "e.g. Messages that are clearly promotional or unwanted",
       tagPlaceholder: "e.g. Receipts and order confirmations from online shops",
+      importantPlaceholder:
+        "e.g. Messages that need a reply or have a deadline",
       addShortcut: "Press ⌘ Enter to add",
       previewTitle: "Preview recent mail",
       previewDescription:
@@ -514,6 +527,7 @@ const messages = {
       previewButton: "Run preview",
       previewRunning: "Checking recent Inbox mail…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev match probability {{percent}}%",
       feedbackLabel: "Check matches that should not be included",
       notSpamShort: "Not spam",
       notMatchShort: "Not a match",

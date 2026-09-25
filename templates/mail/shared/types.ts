@@ -139,6 +139,8 @@ export type UserSettings = {
   sendAndArchive: boolean;
   /** Show the whole inbox instead of splitting it into pinned triage tabs. */
   combineInbox: boolean;
+  /** Show the All tab before the split inbox tabs. */
+  showAllTab?: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
   savedFilters?: SavedMailFilter[];

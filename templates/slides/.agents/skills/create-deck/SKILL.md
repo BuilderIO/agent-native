@@ -192,20 +192,38 @@ pnpm action add-slide --deckId=<id> --layout content --content "..."
 
 ## Slide Wrapper
 
-Every slide's `content` must use this exact outer div:
+Every slide's `content` must use the semantic `--deck-*` contract on its outer
+div. Which of the two forms you use depends on whether a design system is
+linked.
+
+**A design system is linked.** Inherit the renderer's hydrated variables
+(`--ds-bg`, `--ds-text`, `--ds-text-muted`, `--ds-accent`, `--ds-surface`,
+`--ds-heading-font`, `--ds-body-font`, `--ds-radius`) through the contract
+rather than copying values into individual elements:
 
 ```html
-<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg); --deck-ink: var(--ds-text); --deck-muted: var(--ds-text-muted); --deck-accent: var(--ds-accent); --deck-surface: var(--ds-surface); --deck-heading-font: var(--ds-heading-font); --deck-body-font: var(--ds-body-font); --deck-radius: var(--ds-radius); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
   <!-- slide content here -->
 </div>
 ```
 
-When a system is linked, use its hydrated values or the renderer variables
-(`--ds-accent`, `--ds-bg`, `--ds-text`, `--ds-text-muted`, `--ds-heading-font`,
-`--ds-body-font`, `--ds-radius`) through the semantic `--deck-*` contract
-instead of copying values into individual elements. With no linked system,
-choose the contract once from the subject and repeat it exactly; do not import
-a stock presentation palette, font, or component language.
+**No design system is linked.** There is no house style to fall back to, and
+the renderer publishes no `--ds-*` tokens beyond the slide's own background.
+Derive a contract from the deck's subject and write it as literal values:
+
+```html
+<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6; --deck-muted: #A8B8AC; --deck-accent: #7FB069; --deck-surface: rgba(255,255,255,0.05); --deck-heading-font: 'Fraunces', Georgia, serif; --deck-body-font: 'Inter', sans-serif; --deck-radius: 4px; background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
+  <!-- slide content here -->
+</div>
+```
+
+That example is a nature-related deck, so colors match the topic of deck. Pick the values once, before the first slide, and repeat the identical contract on every wrapper.
+
+Inheriting when nothing is linked is the failure mode to avoid: a
+`var(--ds-accent, currentColor)` reference on an unlinked deck silently
+resolves to a browser default, so the deck reads as unstyled rather than as the
+direction you chose. Never import a stock presentation palette, font, or
+component language as a substitute for choosing.
 
 ## Fit budget
 
@@ -219,13 +237,9 @@ stack. Keep body text at or above 16px. Never hide overflow with zoom,
 may reduce the slide's explicit padding, and that padding must remain intact
 when the saved HTML is rendered.
 
-When no reference deck or hydrated design system is available, derive the
-fallback direction from the subject instead of using a fixed palette. Lock one
-background family, readable text/surface roles, type pairing, spacing scale,
-radius, and accent treatment as semantic `--deck-*` values, then repeat them on
-every wrapper. Build an intentional composition beyond a text dump: use a title
-block, two-column split, metric treatment, rule, callout, visual placeholder,
-or simple diagram where it fits the message. Keep the canvas stable across the
+Build an intentional composition beyond a text dump: use a title block,
+two-column split, metric treatment, rule, callout, visual placeholder, or
+simple diagram where it fits the message. Keep the canvas stable across the
 deck, use accents only for hierarchy or meaning, and do not add decorative
 cards, gradients, fake logos, or shapes without a semantic role.
 
@@ -241,33 +255,34 @@ was rendered and compared.
 
 ## Ready-to-Use Templates
 
-Copy and fill in the bracketed values. Each example includes the complete
-semantic wrapper contract. If no design system is linked, replace the
-`--ds-*` fallbacks with the one subject-appropriate contract chosen for this
-deck before copying the wrapper to another slide.
+Copy and fill in the bracketed values. `[WRAPPER STYLE]` stands for the deck
+contract chosen in "Slide Wrapper" - the inherited `var(--ds-*)` form when a
+system is linked, the literal form when none is. It is identical on every
+slide. Inside the slide, read the contract directly (`var(--deck-accent)`), not
+through another layer of fallbacks; the wrapper has already defined every role.
 
 ### Title Slide
 
 ```html
-<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; font-family: var(--deck-body-font);">
-  <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--deck-accent, var(--ds-accent, currentColor));">[LABEL OR DATE]</div>
-  <h1 style="font-size: 56px; font-weight: 750; color: var(--deck-ink, var(--ds-text, currentColor)); font-family: var(--deck-heading-font, var(--ds-heading-font, var(--deck-body-font, sans-serif))); line-height: 1.05; letter-spacing: -0.04em; margin: 0; max-width: 760px;">[TITLE]</h1>
-  <p style="font-size: 20px; color: var(--deck-muted, var(--ds-text-muted, currentColor)); margin: 4px 0 0;">[SUBTITLE OR PRESENTER]</p>
+<div class="fmd-slide" style="[WRAPPER STYLE] justify-content: center; align-items: flex-start; gap: 18px;">
+  <div style="font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--deck-accent);">[LABEL OR DATE]</div>
+  <h1 style="font-size: 56px; font-weight: 750; color: var(--deck-ink); font-family: var(--deck-heading-font); line-height: 1.05; letter-spacing: -0.04em; margin: 0; max-width: 760px;">[TITLE]</h1>
+  <p style="font-size: 20px; color: var(--deck-muted); margin: 4px 0 0;">[SUBTITLE OR PRESENTER]</p>
 </div>
 ```
 
 ### Content or Two-Column Slide
 
 ```html
-<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; gap: 18px; font-family: var(--deck-body-font);">
-  <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--deck-accent, var(--ds-accent, currentColor));">[SECTION LABEL]</div>
-  <h2 style="font-size: 34px; font-weight: 750; color: var(--deck-ink, var(--ds-text, currentColor)); font-family: var(--deck-heading-font, var(--ds-heading-font, var(--deck-body-font, sans-serif))); line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 18px;">[SLIDE HEADING]</h2>
+<div class="fmd-slide" style="[WRAPPER STYLE] justify-content: flex-start; gap: 18px;">
+  <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--deck-accent);">[SECTION LABEL]</div>
+  <h2 style="font-size: 34px; font-weight: 750; color: var(--deck-ink); font-family: var(--deck-heading-font); line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 18px;">[SLIDE HEADING]</h2>
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
     <div style="display: flex; flex-direction: column; gap: 14px;">
-      <div style="border-left: 3px solid var(--deck-accent, var(--ds-accent, currentColor)); padding: 12px 16px; background: var(--deck-surface, var(--ds-surface, transparent)); border-radius: var(--deck-radius, var(--ds-radius, 0px)); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
-      <div style="border-left: 3px solid var(--deck-accent, var(--ds-accent, currentColor)); padding: 12px 16px; background: var(--deck-surface, var(--ds-surface, transparent)); border-radius: var(--deck-radius, var(--ds-radius, 0px)); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
+      <div style="border-left: 3px solid var(--deck-accent); padding: 12px 16px; background: var(--deck-surface); border-radius: var(--deck-radius); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
+      <div style="border-left: 3px solid var(--deck-accent); padding: 12px 16px; background: var(--deck-surface); border-radius: var(--deck-radius); font-size: 18px; line-height: 1.4;">[KEY POINT]</div>
     </div>
-    <div class="fmd-img-placeholder" style="min-height: 220px; border-radius: var(--deck-radius, var(--ds-radius, 0px));">[VISUAL OR IMAGE DESCRIPTION]</div>
+    <div class="fmd-img-placeholder" style="min-height: 220px; border-radius: var(--deck-radius);">[VISUAL OR IMAGE DESCRIPTION]</div>
   </div>
 </div>
 ```
@@ -282,7 +297,7 @@ When a slide needs a visual, use this div. It renders as a styled placeholder
 and can later be replaced with a generated image:
 
 ```html
-<div class="fmd-img-placeholder" style="width: 100%; min-height: 220px; border-radius: var(--deck-radius, var(--ds-radius, 0px));">[Description of what image should show]</div>
+<div class="fmd-img-placeholder" style="width: 100%; min-height: 220px; border-radius: var(--deck-radius);">[Description of what image should show]</div>
 ```
 
 ## Bulk Replacement Only

@@ -5,8 +5,6 @@ import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,7 +15,6 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
-import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -43,6 +40,7 @@ import {
   cloudflareWorkerStubAliasArgs,
   configureCloudflareModuleWorkerOutput,
   copyInstalledBrowserRuntimePackages,
+  copyInstalledExternalSsrPackages,
   copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
@@ -57,9 +55,11 @@ import {
   isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
+  patchCloudflareModuleServerOutput,
   generateProvidedPluginsNitroPluginSource,
   generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
+  shimCloudflarePagesModuleTimers,
   isAwsAmplifyPreset,
   configureAwsLambdaRuntimeOutput,
   isCloudflareModulePreset,
@@ -317,6 +317,94 @@ describe("AWS Lambda streaming runtime output", () => {
 });
 
 describe("AWS Amplify runtime output", () => {
+  it("keeps workspace app-scoped database URLs in the runtime env", () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-workspace-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "index.mjs"), "");
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_NAME: "",
+      AGENT_NATIVE_WORKSPACE_APP_ID: "account-expert",
+      ACCOUNT_EXPERT_DATABASE_URL: "postgres://account-expert.example/db",
+      ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED:
+        "postgres://account-expert-direct.example/db",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_WORKSPACE_APP_ID="account-expert"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL="postgres://account-expert.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED="postgres://account-expert-direct.example/db"',
+    );
+  });
+
+  it("uses the VITE workspace app ID for app-scoped database URLs", () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-vite-workspace-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "index.mjs"), "");
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_NAME: "",
+      VITE_AGENT_NATIVE_WORKSPACE_APP_ID: "account-expert",
+      ACCOUNT_EXPERT_DATABASE_URL: "postgres://account-expert.example/db",
+      ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED:
+        "postgres://account-expert-direct.example/db",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain(
+      'VITE_AGENT_NATIVE_WORKSPACE_APP_ID="account-expert"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL="postgres://account-expert.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED="postgres://account-expert-direct.example/db"',
+    );
+  });
+
+  it.each([
+    ["trims a padded primary workspace ID", " account-expert ", "ignored"],
+    ["skips a blank primary ID", "   ", "account-expert"],
+  ])("%s", (_name, workspaceAppId, viteWorkspaceAppId) => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-normalized-workspace-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "index.mjs"), "");
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_NAME: "",
+      AGENT_NATIVE_WORKSPACE_APP_ID: workspaceAppId,
+      VITE_AGENT_NATIVE_WORKSPACE_APP_ID: viteWorkspaceAppId,
+      ACCOUNT_EXPERT_DATABASE_URL: "postgres://account-expert.example/db",
+      ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED:
+        "postgres://account-expert-direct.example/db",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL="postgres://account-expert.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED="postgres://account-expert-direct.example/db"',
+    );
+  });
+
   it("loads declared env keys before Nitro's compute entry", () => {
     const appDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "agent-native-amplify-test-"),
@@ -584,6 +672,34 @@ describe("resolveNitroBuildReplacements", () => {
       fs.rmSync(projectCwd, { recursive: true, force: true });
     }
   });
+
+  it("embeds the first-run onboarding mode resolved from the app config", () => {
+    expect(
+      resolveNitroBuildReplacements({}, undefined, undefined, "off")[
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"
+      ],
+    ).toBe(JSON.stringify("off"));
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"
+      ],
+    ).toBe(JSON.stringify(""));
+  });
+
+  it("embeds the hosted harness setting resolved from the app config", () => {
+    expect(
+      resolveNitroBuildReplacements({}, undefined, undefined, "", "true")[
+        "process.env.AGENT_NATIVE_BUILD_HARNESS"
+      ],
+    ).toBe(JSON.stringify("true"));
+    // The default "" means no build recorded a value (older core) — distinct
+    // from a positively resolved "null" (configured "not configured").
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_HARNESS"
+      ],
+    ).toBe(JSON.stringify(""));
+  });
 });
 
 describe("isCloudflareModulePreset", () => {
@@ -614,19 +730,72 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain("function initializeBindings(env)");
-    expect(entry).toContain('export * from "./index.mjs";');
+    expect(entry).not.toContain("export * from");
+    // Restore must run AFTER loadHandler() resolves, not before: on a cold
+    // isolate nothing has captured the real setInterval yet until
+    // loadHandler()'s dynamic import actually evaluates the shimmed
+    // dependency graph. Restoring first is a no-op, then the shim re-neuters
+    // setInterval during that import with nothing left to restore it again —
+    // real request-time setInterval calls silently get the no-op stub.
     expect(entry).toContain(
-      "initializeBindings(env);\n    return (await loadHandler())",
+      "const h = await loadHandler();\n    __cfRestoreModuleTimers();\n    return h.fetch",
     );
     expect(entry).toContain('await import("./index.mjs")');
-    expect(entry).toContain(
-      "return (await loadHandler()).fetch(request, env, ctx);",
-    );
     expect(entry).toContain("async scheduled(controller, env, ctx)");
     expect(entry).toContain("async queue(batch, env, ctx)");
     expect(entry).toContain("async email(message, env, ctx)");
     expect(entry).toContain("async tail(traces, env, ctx)");
     expect(entry).toContain("async trace(traces, env, ctx)");
+  });
+
+  // Regression for the Builder review finding: restoring before loadHandler()
+  // is a no-op on a cold isolate (nothing has captured the real setInterval
+  // yet), so the shim's neutering during that later import wins and never
+  // gets undone. Proven behaviorally, not just by string-matching the source.
+  it("restores the real setInterval before the loaded handler runs, even on a cold isolate", async () => {
+    const dir = makeTempDir();
+    const marker = "__test_captured_set_interval__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+// A module-scope timer, the same shape patchCloudflareModuleServerOutput
+// shims in a real Nitro dependency chunk.
+setInterval(() => {}, 60_000).unref?.();
+
+export default {
+  async fetch() {
+    globalThis.${marker} = setInterval;
+    return new Response("ok");
+  },
+};
+`,
+    );
+    // Applies the real build-time patch, exactly as buildWithNitro's
+    // post-build step does to server output before worker.mjs ever runs.
+    patchCloudflareModuleServerOutput(dir);
+
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const realSetIntervalBefore = globalThis.setInterval;
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+
+      await worker.fetch(new Request("https://app.test/"), {}, {});
+
+      expect((globalThis as Record<string, unknown>)[marker]).toBe(
+        realSetIntervalBefore,
+      );
+    } finally {
+      globalThis.setInterval = realSetIntervalBefore;
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      Reflect.deleteProperty(
+        globalThis as Record<string, unknown>,
+        "__cfModuleOrigSetInterval",
+      );
+    }
   });
 
   it("points Wrangler at the lazy entry while retaining the Nitro server", () => {
@@ -656,6 +825,70 @@ describe("Cloudflare module Worker entry", () => {
     expect(
       fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
     ).toContain("t??=Ei();");
+  });
+});
+
+describe("patchCloudflareModuleServerOutput", () => {
+  it("recurses into nested dependency paths a flat scan would miss", () => {
+    const serverDir = makeTempDir();
+    const nestedDir = path.join(serverDir, "_libs", "@agent-native");
+    fs.mkdirSync(nestedDir, { recursive: true });
+    const nestedFile = path.join(nestedDir, "core.mjs");
+    fs.writeFileSync(
+      nestedFile,
+      "setInterval(() => cleanup(), 60_000).unref?.();\nexport const cleanup = () => {};",
+    );
+
+    patchCloudflareModuleServerOutput(serverDir);
+
+    const patched = fs.readFileSync(nestedFile, "utf8");
+    expect(patched).toContain("__cf_module_timer_shim__");
+    expect(patched).toContain("globalThis.setInterval=function()");
+    expect(patched.indexOf("globalThis.setInterval=function()")).toBeLessThan(
+      patched.indexOf("setInterval(() => cleanup()"),
+    );
+    // Module chunks never restore themselves — only worker.mjs does, from
+    // inside its handlers — so nothing gets appended after the file's
+    // original tail.
+    expect(patched.trimEnd().endsWith("export const cleanup = () => {};")).toBe(
+      true,
+    );
+  });
+
+  it("is idempotent across repeated patch passes", () => {
+    const serverDir = makeTempDir();
+    const file = path.join(serverDir, "index.mjs");
+    fs.writeFileSync(file, "setInterval(() => {}, 1000);");
+
+    patchCloudflareModuleServerOutput(serverDir);
+    const once = fs.readFileSync(file, "utf8");
+    patchCloudflareModuleServerOutput(serverDir);
+    const twice = fs.readFileSync(file, "utf8");
+
+    expect(twice).toBe(once);
+    expect(once.match(/__cf_module_timer_shim__/g)).toHaveLength(1);
+  });
+
+  it("shares its globalThis capture key with the worker entry's restore helper", () => {
+    const serverDir = makeTempDir();
+    fs.mkdirSync(path.join(serverDir, "_libs"), { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "_libs", "core.mjs"),
+      "setInterval(() => {}, 1000);",
+    );
+
+    patchCloudflareModuleServerOutput(serverDir);
+    const shimmed = fs.readFileSync(
+      path.join(serverDir, "_libs", "core.mjs"),
+      "utf8",
+    );
+    const captureKeyMatch = shimmed.match(
+      /globalThis\.(\w+)===["']undefined["']/,
+    );
+    expect(captureKeyMatch).not.toBeNull();
+
+    const entry = generateCloudflareModuleWorkerEntry();
+    expect(entry).toContain(`globalThis.${captureKeyMatch![1]}`);
   });
 });
 
@@ -903,7 +1136,10 @@ describe("Netlify static root shell", () => {
 
 async function importGeneratedWorker(
   entrySource: string,
-  options: { responseHeaders?: Record<string, string> } = {},
+  options: {
+    responseHeaders?: Record<string, string>;
+    rootDataLocation?: string;
+  } = {},
 ) {
   const dir = makeTempDir();
   const nodeModules = path.join(dir, "node_modules", "react-router");
@@ -919,6 +1155,18 @@ export function createRequestHandler() {
   return async (request) => {
     const url = new URL(request.url);
     if (url.pathname.endsWith(".data")) {
+      if (url.pathname === "/.data") {
+        const rootDataLocation = ${JSON.stringify(options.rootDataLocation ?? null)};
+        if (rootDataLocation) {
+          return new Response(null, {
+            status: 302,
+            headers: { location: rootDataLocation },
+          });
+        }
+        return new Response(url.pathname, {
+          headers: { "content-type": "text/x-script" },
+        });
+      }
       if (url.pathname === "/custom.data") {
         return new Response('{"ok":true}', {
           headers: {
@@ -1008,6 +1256,92 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
     expect(source).toContain(
       "runWithRequestContext(anonymousContext, () => rrHandler(request))",
     );
+  });
+
+  // Pages' worker used to copy bindings into process.env without ever setting
+  // `globalThis.__env__` — the framework's canonical Cloudflare invocation
+  // signal (hasCloudflareRuntime() in db/client.ts). That silently defeated
+  // every runtime check keyed off it, including the hosted-database guard,
+  // on every real Cloudflare Pages deploy.
+  describe("Cloudflare Pages worker entry", () => {
+    afterEach(() => {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    });
+
+    it("sets globalThis.__env__ from the same shared helper as the Module entry", () => {
+      const source = generateWorkerEntry([], []);
+
+      expect(source).toContain("function initializeBindings(env)");
+      expect(source).toContain("globalThis.__env__ = env;");
+      expect(source).toContain("initializeBindings(env);");
+    });
+
+    it("actually sets globalThis.__env__ when the worker handles a real request", async () => {
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+      const bindings = { DATABASE_URL: "postgres://example.test/db" };
+
+      await worker.fetch(new Request("https://app.test/"), bindings, {});
+
+      expect((globalThis as Record<string, unknown>).__env__).toBe(bindings);
+    });
+
+    // Regression: the Pages entry's __cfRestoreModuleTimers() call used to be
+    // dead code. buildCloudflarePages()'s own post-build patch shimmed every
+    // file with a separate, per-file `var __origSetInterval`, never the
+    // globalThis.__cfModuleOrigSetInterval key the Pages entry's restore
+    // function actually reads — so the restore never did anything. Proven
+    // with shimCloudflarePagesModuleTimers(), the exact function
+    // buildCloudflarePages()'s per-file loop now calls instead of its own
+    // disconnected shim — not a stand-in for it.
+    it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "keep-alive-action.mjs");
+      const rawAction = `
+// A module-scope timer, the same shape a real Pages dependency chunk gets
+// shimmed into by buildCloudflarePages()'s post-build patch loop.
+setInterval(() => {}, 60_000).unref?.();
+
+export default { run: async () => ({ ok: true }) };
+`;
+      // Applies the exact function buildCloudflarePages()'s per-file loop now
+      // calls (unified onto cloudflareModuleTimerShimPrefix() /
+      // CF_MODULE_ORIG_SET_INTERVAL_KEY), not a stand-in for it.
+      fs.writeFileSync(actionPath, shimCloudflarePagesModuleTimers(rawAction));
+
+      const entrySource = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "keep-alive", absPath: actionPath, method: "post" }],
+        null,
+        [],
+        "",
+        { includeReactRouterSsr: false },
+      );
+      const entryPath = path.join(dir, "entry.mjs");
+      fs.writeFileSync(entryPath, entrySource);
+
+      const realSetIntervalBefore = globalThis.setInterval;
+      try {
+        const worker = (
+          await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+        ).default;
+
+        // Statically importing the entry above also imported the action
+        // fixture, which ran the shared shim before any fetch() call.
+        expect(globalThis.setInterval).not.toBe(realSetIntervalBefore);
+
+        await worker.fetch(new Request("https://app.test/"), {}, {});
+
+        expect(globalThis.setInterval).toBe(realSetIntervalBefore);
+      } finally {
+        globalThis.setInterval = realSetIntervalBefore;
+        Reflect.deleteProperty(
+          globalThis as Record<string, unknown>,
+          "__cfModuleOrigSetInterval",
+        );
+      }
+    });
   });
 
   it("guards UI-only actions in generated workers", () => {
@@ -1400,6 +1734,37 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expectDefaultWorkerSsrCacheHeaders(response);
   });
 
+  it("strips the mount from React Router's root data URL", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs.data"),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("/.data");
+  });
+
+  it.each(["/docs.data?_routes=root", "/docs.data#root"])(
+    "does not re-prefix mounted root data redirects with %s",
+    async (location) => {
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+        rootDataLocation: location,
+      });
+
+      const response = await worker.fetch(
+        new Request("https://app.test/docs.data"),
+        { APP_BASE_PATH: "/docs" },
+        {},
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(location);
+    },
+  );
+
   it("hard-caches .data responses for authenticated Cloudflare worker requests", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -1730,17 +2095,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
-    expect(html).toContain("__agentNativeLoadingLabelIndex");
-    expect(html).toContain("Math.random()");
-    expect(html).toContain("setInterval");
-    expect(html).toContain("__agentNativeLoadingLabelHydrated");
-    expect(html).toContain("__agentNativeLoadingLabelInterval");
-    expect(html).toContain("__agentNativeLoadingLabelCleanup");
-    expect(html).toContain("clearInterval");
-    expect(html).toContain("MutationObserver");
-    expect(html).toContain("loader.isConnected");
-    expect(html).toContain("an-cube-pulse");
-    expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
+    expect(html).toContain('data-agent-native-app-skeleton="true"');
+    expect(html).not.toContain("data-agent-native-session-bootstrap");
+    expect(html).not.toContain("data-agent-native-cube-loader");
+    expect(html).not.toContain("an-cube-pulse");
     expect(html).not.toContain("an-spin");
     expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
@@ -2595,6 +2953,438 @@ describe("copyInstalledBrowserRuntimePackages", () => {
     );
     const runtime = await import(pathToFileURL(entrypoint).href);
     expect(typeof runtime.chromium.connectOverCDP).toBe("function");
+  });
+});
+
+describe("copyInstalledExternalSsrPackages", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const directory of dirs.splice(0)) {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("ships externally required SSR packages with the generated function manifest", () => {
+    const root = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-external-ssr-test-"),
+    );
+    dirs.push(root);
+    const nodeModules = path.join(root, "node_modules");
+    const reactDir = path.join(nodeModules, "react");
+    const looseEnvifyDir = path.join(nodeModules, "loose-envify");
+    const reactRouterDir = path.join(nodeModules, "react-router");
+    const cookieEsDir = path.join(nodeModules, "cookie-es");
+    const reactQueryDir = path.join(nodeModules, "@tanstack", "react-query");
+    const queryCoreDir = path.join(nodeModules, "@tanstack", "query-core");
+    const queryCodemodsDir = path.join(
+      reactQueryDir,
+      "build",
+      "query-codemods",
+    );
+    const queryCodemodsBuildDir = path.join(reactQueryDir, "build", "codemods");
+    const queryModernDir = path.join(reactQueryDir, "build", "modern");
+    fs.mkdirSync(reactDir, { recursive: true });
+    fs.mkdirSync(looseEnvifyDir, { recursive: true });
+    fs.mkdirSync(reactRouterDir, { recursive: true });
+    fs.mkdirSync(cookieEsDir, { recursive: true });
+    fs.mkdirSync(reactQueryDir, { recursive: true });
+    fs.mkdirSync(queryCoreDir, { recursive: true });
+    fs.mkdirSync(queryCodemodsDir, { recursive: true });
+    fs.mkdirSync(queryCodemodsBuildDir, { recursive: true });
+    fs.mkdirSync(queryModernDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactDir, "package.json"),
+      JSON.stringify({
+        name: "react",
+        version: "19.2.7",
+        dependencies: { "loose-envify": "1.4.0" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(looseEnvifyDir, "package.json"),
+      JSON.stringify({ name: "loose-envify", version: "1.4.0" }),
+    );
+    fs.writeFileSync(
+      path.join(reactRouterDir, "package.json"),
+      JSON.stringify({
+        name: "react-router",
+        version: "8.1.0",
+        dependencies: { "cookie-es": "3.1.1" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(cookieEsDir, "package.json"),
+      JSON.stringify({ name: "cookie-es", version: "3.1.1" }),
+    );
+    fs.writeFileSync(
+      path.join(reactQueryDir, "package.json"),
+      JSON.stringify({
+        name: "@tanstack/react-query",
+        version: "5.101.2",
+        dependencies: { "@tanstack/query-core": "5.101.2" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(queryCoreDir, "package.json"),
+      JSON.stringify({ name: "@tanstack/query-core", version: "5.101.2" }),
+    );
+    fs.writeFileSync(
+      path.join(queryCodemodsDir, "root.eslint.config.js"),
+      'import "@vitest/runner";\n',
+    );
+    fs.writeFileSync(
+      path.join(queryCodemodsBuildDir, "transform.cjs"),
+      'require("@vitest/runner");\n',
+    );
+    fs.writeFileSync(path.join(queryModernDir, "index.js.map"), "source map");
+
+    const serverDir = path.join(root, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "package.json"),
+      JSON.stringify({ name: "traced-node-modules", dependencies: {} }),
+    );
+
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(0);
+    expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      "throw Error(`Did you accidentally import `RouterProvider` from `react-router`?`);",
+    );
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(0);
+    expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      'const react = require(`react`);\nexport { Link } from "react-router";\nexport * from "@tanstack/react-query";\nexport { react };',
+    );
+
+    expect(
+      copyInstalledExternalSsrPackages(serverDir, root),
+    ).toBeGreaterThanOrEqual(6);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "loose-envify", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-router", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "cookie-es", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "query-codemods",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "codemods",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.js.map",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "query-core",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(serverDir, "package.json"), "utf8"))
+        .dependencies,
+    ).toEqual({
+      react: "19.2.7",
+      "react-router": "8.1.0",
+      "@tanstack/react-query": "5.101.2",
+    });
+  });
+
+  it("also ships react-router and react-query so the SSR provider and consumer share one instance", () => {
+    const root = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-external-ssr-test-"),
+    );
+    dirs.push(root);
+    const nodeModules = path.join(root, "node_modules");
+    for (const [name, version] of [
+      ["react-dom", "19.2.7"],
+      ["react-router", "8.1.0"],
+      ["@tanstack/react-query", "5.101.2"],
+    ] as const) {
+      const dir = path.join(nodeModules, ...name.split("/"));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name, version }),
+      );
+    }
+    const reactDomCjsDir = path.join(nodeModules, "react-dom", "cjs");
+    fs.mkdirSync(reactDomCjsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(nodeModules, "react-dom", "server.browser.js"),
+      "module.exports = {};\n",
+    );
+    for (const fileName of [
+      "react-dom-profiling.profiling.js",
+      "react-dom-server-legacy.browser.production.js",
+      "react-dom-server.browser.production.js",
+      "react-dom-server.edge.production.js",
+      "react-dom-server.node.production.js",
+    ]) {
+      fs.writeFileSync(
+        path.join(reactDomCjsDir, fileName),
+        "module.exports = {};\n",
+      );
+    }
+    const reactQueryModernDir = path.join(
+      nodeModules,
+      "@tanstack",
+      "react-query",
+      "build",
+      "modern",
+    );
+    fs.mkdirSync(reactQueryModernDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.cjs"),
+      "module.exports = {};\n",
+    );
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.d.cts"),
+      "export {};\n",
+    );
+    fs.writeFileSync(
+      path.join(reactQueryModernDir, "index.js"),
+      "export {};\n",
+    );
+    const reactQueryLegacyDir = path.join(
+      nodeModules,
+      "@tanstack",
+      "react-query",
+      "build",
+      "legacy",
+    );
+    fs.mkdirSync(reactQueryLegacyDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reactQueryLegacyDir, "index.cjs"),
+      "module.exports = {};\n",
+    );
+    fs.mkdirSync(
+      path.join(
+        nodeModules,
+        "@tanstack",
+        "react-query",
+        "build",
+        "query-codemods",
+      ),
+      { recursive: true },
+    );
+    fs.writeFileSync(
+      path.join(
+        nodeModules,
+        "@tanstack",
+        "react-query",
+        "build",
+        "query-codemods",
+        "root.eslint.config.js",
+      ),
+      'import "@vitest/runner";\n',
+    );
+
+    const serverDir = path.join(root, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "package.json"),
+      JSON.stringify({ name: "traced-node-modules", dependencies: {} }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "chunk.mjs"),
+      [
+        'import { useLocation } from "react-router";',
+        'import "react-dom/server";',
+        'import { useQuery } from "@tanstack/react-query";',
+        "export { useLocation, useQuery };",
+      ].join("\n"),
+    );
+
+    expect(copyInstalledExternalSsrPackages(serverDir, root)).toBe(3);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.node.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server-legacy.browser.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-dom", "server.browser.js"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.browser.production.js",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-server.edge.production.js",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "legacy",
+          "index.cjs",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "react-dom",
+          "cjs",
+          "react-dom-profiling.profiling.js",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "react-router", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "package.json",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "query-codemods",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.cjs",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@tanstack",
+          "react-query",
+          "build",
+          "modern",
+          "index.js",
+        ),
+      ),
+    ).toBe(true);
   });
 });
 

@@ -19,10 +19,9 @@ describe("createDrizzleConfig", () => {
   });
 
   it("passes memory PGlite URLs through as memory data dirs", async () => {
-    vi.stubEnv("DATABASE_URL", "pglite:memory");
-
     const { createDrizzleConfig } = await import("./drizzle-config.js");
 
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
     expect(createDrizzleConfig()).toMatchObject({
       dialect: "postgresql",
       driver: "pglite",
@@ -56,6 +55,22 @@ describe("createDrizzleConfig", () => {
       createDrizzleConfig({ url: "postgres://direct.neon.tech/app" }),
     ).toMatchObject({
       dbCredentials: { url: "postgres://direct.neon.tech/app" },
+    });
+  });
+
+  it("uses the workspace app ID for app-scoped migration URLs", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    vi.stubEnv(
+      "ACCOUNT_EXPERT_DATABASE_URL",
+      "postgres://account-expert.example/db",
+    );
+    vi.stubEnv("DATABASE_URL", "postgres://workspace.example/db");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(createDrizzleConfig()).toMatchObject({
+      dbCredentials: { url: "postgres://account-expert.example/db" },
     });
   });
 

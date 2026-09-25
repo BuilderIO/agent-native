@@ -133,7 +133,8 @@ export function lockedLayerSnapshots(html: string): LockedLayerSnapshot[] {
 }
 
 export function countLockedLayers(html: string): number {
-  return lockedLayerSnapshots(html).length;
+  if (!html.includes(LOCKED_ATTRIBUTE)) return 0;
+  return lockedNodes(buildCodeLayerProjection(html)).length;
 }
 
 export function countLockedLayersAcrossFiles(

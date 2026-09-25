@@ -3,6 +3,12 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-23
+
+### Fixed
+
+- Stale image candidates stop showing as generating when their generation run is missing.
+
 ## 2026-09-01
 
 ### Improved

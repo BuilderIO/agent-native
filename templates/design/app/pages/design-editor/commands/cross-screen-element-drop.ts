@@ -15,6 +15,7 @@ import { dndHostLog } from "@/components/design/dnd-debug";
 import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import { validateCrossScreenSourceHtmlSnapshot } from "@/components/design/multi-screen/cross-screen-drop";
 import { getPrimaryIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import { sendLinkedScreenPreviewPendingDelete } from "@/components/design/multi-screen/linked-screen-preview";
 import type {
   ElementInfo,
   PortableStyleSnapshot,
@@ -122,6 +123,7 @@ export interface CrossScreenElementDropArgs {
   boardFileId: string | undefined;
   canEditDesign: boolean;
   canEditLiveScreen?: (screenId: string) => boolean;
+  canEditLiveBoard?: boolean;
   clearPendingOverviewLayerSelectionTimer: () => void;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
@@ -149,6 +151,7 @@ export interface CrossScreenElementDropArgs {
   clearPendingHistory?: () => void;
   syncUndoRedoState?: () => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
+  runtimeStructurePendingTransactionRef?: RefObject<string | null>;
   sendRuntimeLayerMoveSemanticHandoff: (
     subjectLayerId: string,
     targetLayerId: string,
@@ -181,6 +184,7 @@ export function runCrossScreenElementDrop(
     boardFileId,
     canEditDesign,
     canEditLiveScreen,
+    canEditLiveBoard = false,
     clearPendingOverviewLayerSelectionTimer,
     codeLayerOwnerByNodeIdRef,
     designSourceType,
@@ -199,6 +203,7 @@ export function runCrossScreenElementDrop(
     clearPendingHistory,
     syncUndoRedoState,
     runtimeStructureInsertRevisionRef,
+    runtimeStructurePendingTransactionRef,
     sendRuntimeLayerMoveSemanticHandoff,
     setActiveFileId,
     setCreatedOverviewLayerSelection,
@@ -213,6 +218,7 @@ export function runCrossScreenElementDrop(
   {
     sourceSelector,
     sourceNodeId,
+    sourceDeleteRequestId,
     sourceScreenId,
     targetScreenId,
     targetAnchorNodeId,
@@ -223,6 +229,7 @@ export function runCrossScreenElementDrop(
     targetAnchorRect,
     targetLocalPoint,
     sourcePointerOffset,
+    sourceComputedSize,
     sourceHtmlSnapshot,
     sourceProvenance,
     targetAnchorProvenance,
@@ -233,6 +240,7 @@ export function runCrossScreenElementDrop(
   }: {
     sourceSelector: string;
     sourceNodeId?: string;
+    sourceDeleteRequestId?: string;
     sourceScreenId: string;
     targetScreenId: string;
     targetAnchorNodeId?: string;
@@ -249,6 +257,7 @@ export function runCrossScreenElementDrop(
     targetCanvasPoint?: { x: number; y: number };
     targetLocalPoint?: { x: number; y: number };
     sourcePointerOffset?: { x: number; y: number };
+    sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;
     sourceProvenance?: unknown;
     targetAnchorProvenance?: unknown;
@@ -384,6 +393,10 @@ export function runCrossScreenElementDrop(
     isRunningAppSourceType(
       resolveOverviewScreenSourceType(targetScreen, designSourceType),
     );
+  const targetScreenIsBoard =
+    Boolean(boardFileId) && targetScreenId === boardFileId;
+  const sourceScreenIsBoard =
+    Boolean(boardFileId) && sourceScreenId === boardFileId;
   const sourceScreenIsLive =
     Boolean(sourceScreen) &&
     isRunningAppSourceType(
@@ -394,22 +407,46 @@ export function runCrossScreenElementDrop(
     targetScreenIsLive &&
     Boolean(canEditLiveScreen?.(sourceScreenId)) &&
     Boolean(canEditLiveScreen?.(targetScreenId));
-  if (!canEditDesign && !canEditLiveCrossScreen) return;
+  const canEditLiveBoardDrop =
+    canEditLiveBoard &&
+    ((sourceScreenIsLive &&
+      targetScreenIsBoard &&
+      Boolean(canEditLiveScreen?.(sourceScreenId))) ||
+      (sourceScreenIsBoard &&
+        targetScreenIsLive &&
+        Boolean(canEditLiveScreen?.(targetScreenId))));
+  const canEditLiveBoardMove =
+    canEditLiveBoard &&
+    sourceScreenIsLive &&
+    targetScreenIsBoard &&
+    Boolean(canEditLiveScreen?.(sourceScreenId));
+  if (!canEditDesign && !canEditLiveCrossScreen && !canEditLiveBoardDrop)
+    return;
+
+  const beginRuntimeStructureTransaction = () => {
+    if (runtimeStructurePendingTransactionRef?.current) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      return null;
+    }
+    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (runtimeStructurePendingTransactionRef) {
+      runtimeStructurePendingTransactionRef.current = transactionId;
+    }
+    return transactionId;
+  };
 
   // Duplicate intent must be resolved before live/semantic move routing. A
   // fresh clone cannot resolve to a source owner, so those paths would reject
   // the copy or treat it as a move without consuming sourceCloneHtml.
-  if (canEditLiveCrossScreen && !duplicate) {
+  if ((canEditLiveCrossScreen || canEditLiveBoardMove) && !duplicate) {
     const subjectNodeId =
       sourceNodeId ??
       (sourceProvenance as { uniqueNodeId?: string } | undefined)?.uniqueNodeId;
     const sourceOwner = sourceOwnerEntry?.[1];
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
     const validatedSourceHtmlSnapshot =
-      subjectNodeId && sourceHtmlSnapshot
-        ? validateCrossScreenSourceHtmlSnapshot(
-            sourceHtmlSnapshot,
-            subjectNodeId,
-          )
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
         : undefined;
     if (!sourceOwner || !subjectNodeId || !validatedSourceHtmlSnapshot) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
@@ -432,9 +469,12 @@ export function runCrossScreenElementDrop(
           })
         : undefined;
     const prepared = prepareClonedHtmlLayersForLiveInsert(
-      getScreenContent(targetScreenId),
+      targetScreenIsBoard
+        ? "http://agent-native-board.local/"
+        : getScreenContent(targetScreenId),
       [validatedSourceHtmlSnapshot],
       {
+        preserveIncomingNodeIds: true,
         positions: absolutePosition
           ? [
               {
@@ -464,12 +504,27 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
-    const transactionId = `cross-screen-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
+    const deleteRequestId = sourceDeleteRequestId ?? `${transactionId}:source`;
+    const deleteSelectorCandidates = Array.from(
+      new Set([sourceSelector, ...codeLayerSelectorAliases(sourceOwner.node)]),
+    ).filter(Boolean);
+    // Conceal the source in the current DOM before the destination insert is
+    // posted. The React prop path below replays it after source-frame reloads.
+    sendLinkedScreenPreviewPendingDelete(sourceScreenId, {
+      selector: sourceSelector,
+      selectorCandidates: deleteSelectorCandidates,
+      requestId: deleteRequestId,
+      transactionId,
+    });
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
       transactionId,
       screenId: targetScreenId,
+      sourceScreenId,
+      remintCollidingNodeIds: true,
       html: insertedHtml,
       anchor: {
         selector: targetAnchorSelector ?? "",
@@ -479,18 +534,13 @@ export function runCrossScreenElementDrop(
       placement: targetAnchorPlacement ?? "inside",
     });
     setRuntimeStructureDeleteRequest({
-      requestId: `${transactionId}:source`,
+      requestId: deleteRequestId,
       transactionId,
       screenId: sourceScreenId,
       selector: sourceSelector,
       waitForInsertTransaction: true,
       rollbackScreenId: targetScreenId,
-      selectorCandidates: Array.from(
-        new Set([
-          sourceSelector,
-          ...codeLayerSelectorAliases(sourceOwner.node),
-        ]),
-      ).filter(Boolean),
+      selectorCandidates: deleteSelectorCandidates,
     });
     return;
   }
@@ -500,7 +550,7 @@ export function runCrossScreenElementDrop(
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
       return;
     }
-    if (targetScreenIsLive) {
+    if (targetScreenIsLive || (targetScreenIsBoard && canEditLiveBoardDrop)) {
       const liveDestinationContent = getScreenContent(targetScreenId);
       const hasAnchor = Boolean(
         targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
@@ -517,7 +567,9 @@ export function runCrossScreenElementDrop(
             })
           : undefined;
       const prepared = prepareClonedHtmlLayersForLiveInsert(
-        liveDestinationContent,
+        targetScreenIsBoard
+          ? "http://agent-native-board.local/"
+          : liveDestinationContent,
         [sourceCloneHtml],
         {
           positions: absolutePosition
@@ -543,10 +595,15 @@ export function runCrossScreenElementDrop(
         });
         return;
       }
+      const transactionId = beginRuntimeStructureTransaction();
+      if (!transactionId) return;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
+        transactionId,
         screenId: targetScreenId,
+        sourceScreenId,
+        remintCollidingNodeIds: true,
         html: insertedHtml,
         anchor: {
           selector: targetAnchorSelector ?? "",
@@ -745,12 +802,13 @@ export function runCrossScreenElementDrop(
     // Only a board primitive may be reinterpreted as an insert; a real
     // screen's element dropped into a live app is a move, and inserting it
     // would leave a duplicate behind in its own screen.
-    sourceScreenIsBoard: Boolean(boardFileId) && sourceScreenId === boardFileId,
+    sourceScreenIsBoard,
     targetScreenIsLive,
   });
   if (crossScreenExecutionMode === "screen-bridge-insert") {
     const boardContent = getScreenContent(sourceScreenId);
-    if (!boardContent) return;
+    const sourceHtml = sourceHtmlSnapshot ?? sourceCloneHtml;
+    if (!boardContent && !sourceHtml) return;
     const boardProjection = buildCodeLayerProjection(boardContent, {
       source: { kind: "design-file", fileId: sourceScreenId },
     });
@@ -759,16 +817,18 @@ export function runCrossScreenElementDrop(
       sourceSelector,
       sourceNodeId,
     );
+    // A live layer dragged onto the canvas is present in the board iframe's
+    // transient DOM, but it is intentionally not persisted into the board
+    // document. Prefer the id and outerHTML captured from that iframe. The
+    // stored board projection remains the fallback for ordinary board
+    // primitives that were already in the document.
     const subjectNodeId =
-      subjectNode?.dataAttributes["data-agent-native-node-id"];
+      sourceNodeId ?? subjectNode?.dataAttributes["data-agent-native-node-id"];
     const validatedSourceHtmlSnapshot =
-      subjectNodeId && sourceHtmlSnapshot
-        ? validateCrossScreenSourceHtmlSnapshot(
-            sourceHtmlSnapshot,
-            subjectNodeId,
-          )
+      subjectNodeId && sourceHtml
+        ? validateCrossScreenSourceHtmlSnapshot(sourceHtml, subjectNodeId)
         : undefined;
-    if (sourceHtmlSnapshot && !validatedSourceHtmlSnapshot) {
+    if (sourceHtml && !validatedSourceHtmlSnapshot) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
         duration: 4000,
       });
@@ -804,6 +864,7 @@ export function runCrossScreenElementDrop(
                     targetLocalPoint,
                   }),
                   sourcePointerOffset,
+                  sourceComputedSize,
                 )
               : removeAbsolutePositioningFromNodeInHtml(styled, subjectNodeId);
           return new DOMParser()
@@ -819,10 +880,15 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
+    const transactionId = beginRuntimeStructureTransaction();
+    if (!transactionId) return;
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
+      transactionId,
       screenId: targetScreenId,
+      sourceScreenId,
+      remintCollidingNodeIds: true,
       html: insertedHtml,
       anchor: {
         selector: targetAnchorSelector ?? "",
@@ -1074,6 +1140,7 @@ export function runCrossScreenElementDrop(
         destNodeAttrId,
         point,
         sourcePointerOffset,
+        sourceComputedSize,
       ),
       branch,
     });

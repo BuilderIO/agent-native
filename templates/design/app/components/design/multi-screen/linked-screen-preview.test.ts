@@ -19,6 +19,8 @@ import {
   linkedScreenPreviewFrameIds,
   registerLinkedScreenPreviewHandlers,
   replaceLinkedScreenPreviewContent,
+  sendLinkedScreenPreviewCancelPendingDelete,
+  sendLinkedScreenPreviewPendingDelete,
   sendLinkedScreenPreviewInteractionStateStyle,
   sendLinkedScreenPreviewStyleChange,
 } from "./linked-screen-preview";
@@ -124,6 +126,89 @@ describe("BUG-UNDO-LINKED-BREAKPOINT — fan-out replace/style", () => {
     ).toBe(true);
     expect(paddingByFrame["screen-a"]).toBe("24px");
     expect(paddingByFrame["screen-a::bp-390"]).toBe("24px");
+  });
+
+  it("targets the selected screen when inspector selection switches frames", () => {
+    const opacityByFrame = { library: "1", settings: "1" };
+    for (const screenId of Object.keys(opacityByFrame) as Array<
+      keyof typeof opacityByFrame
+    >) {
+      registerLinkedScreenPreviewHandlers(screenId, {
+        replaceContent: () => false,
+        sendStyleChange: (_selector, property, value) => {
+          if (property === "opacity") opacityByFrame[screenId] = value;
+          return true;
+        },
+      });
+    }
+
+    sendLinkedScreenPreviewStyleChange(
+      "library",
+      "#library-title",
+      "opacity",
+      "0.5",
+    );
+    expect(opacityByFrame).toEqual({ library: "0.5", settings: "1" });
+
+    sendLinkedScreenPreviewStyleChange(
+      "settings",
+      "#settings-title",
+      "opacity",
+      "0.25",
+    );
+    expect(opacityByFrame).toEqual({ library: "0.5", settings: "0.25" });
+  });
+
+  it("conceals every linked source frame before a cross-screen insert", () => {
+    const concealed: string[] = [];
+    for (const frameId of ["library", "library::bp-390", "settings"]) {
+      registerLinkedScreenPreviewHandlers(frameId, {
+        replaceContent: () => false,
+        sendStyleChange: () => false,
+        pendingDelete: ({ requestId }) => {
+          concealed.push(`${frameId}:${requestId}`);
+          return true;
+        },
+      });
+    }
+
+    expect(
+      sendLinkedScreenPreviewPendingDelete("library", {
+        selector: "#source",
+        selectorCandidates: ["#source"],
+        requestId: "move-1:source",
+        transactionId: "move-1",
+      }),
+    ).toBe(true);
+    expect(concealed).toEqual([
+      "library:move-1:source",
+      "library::bp-390:move-1:source",
+    ]);
+  });
+
+  it("cancels pending delete only in the requested screen's linked frames", () => {
+    const cancelPrimary = vi.fn(() => true);
+    const cancelBreakpoint = vi.fn(() => true);
+    const cancelOtherScreen = vi.fn(() => true);
+    for (const [frameId, cancelPendingDelete] of [
+      ["library", cancelPrimary],
+      ["library::bp-390", cancelBreakpoint],
+      ["settings", cancelOtherScreen],
+    ] as const) {
+      registerLinkedScreenPreviewHandlers(frameId, {
+        replaceContent: () => false,
+        sendStyleChange: () => false,
+        cancelPendingDelete,
+      });
+    }
+
+    const args = { requestId: "move-1:source", transactionId: "move-1" };
+    expect(sendLinkedScreenPreviewCancelPendingDelete("library", args)).toBe(
+      true,
+    );
+    expect(cancelPrimary).toHaveBeenCalledExactlyOnceWith(args);
+    expect(cancelBreakpoint).toHaveBeenCalledExactlyOnceWith(args);
+    expect(cancelOtherScreen).not.toHaveBeenCalled();
   });
 
   it("routes interaction-state previews to the linked screen only", () => {

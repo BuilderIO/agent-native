@@ -9,6 +9,46 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
+const EMPTY_BOARD_SURFACE_HTML =
+  "<!DOCTYPE html><html><head></head><body></body></html>";
+
+export function getBoardSurfaceHtml(html: string | undefined) {
+  if (html === undefined) return undefined;
+  return hasBoardSurfaceContent(html) ? html : EMPTY_BOARD_SURFACE_HTML;
+}
+
+export function shouldMountBoardSurface(args: {
+  hasAuthoredContent: boolean;
+  crossScreenDragActive: boolean;
+  hasPendingRuntimeInsert: boolean;
+  hasPendingRuntimeRollback?: boolean;
+  hasRuntimeContent?: boolean;
+  runtimeContentBoardId?: string | null;
+  boardFileId?: string;
+}): boolean {
+  return (
+    args.hasAuthoredContent ||
+    args.crossScreenDragActive ||
+    args.hasPendingRuntimeInsert ||
+    Boolean(args.hasPendingRuntimeRollback) ||
+    Boolean(args.hasRuntimeContent) ||
+    (args.runtimeContentBoardId != null &&
+      args.runtimeContentBoardId === args.boardFileId)
+  );
+}
+
+export function hasBoardRuntimeSurfaceContent(args: {
+  boardFileId?: string;
+  runtimeBoardFileId: string | null;
+  runtimeRequestKeys: readonly string[];
+}): boolean {
+  return (
+    args.boardFileId !== undefined &&
+    args.runtimeBoardFileId === args.boardFileId &&
+    args.runtimeRequestKeys.length > 0
+  );
+}
+
 export function shouldRenderEmptyBoardReviewCanvas(args: {
   hasSurfaceContent: boolean;
   reviewPinMode: boolean;
@@ -36,7 +76,12 @@ export function shouldRenderOverviewReviewCanvas(args: {
  * white in a dark editor. Matching the editor is what keeps the frame see-through.
  */
 function boardSurfaceRenderStyle(darkScheme: boolean) {
-  const scheme = darkScheme ? "html{color-scheme:dark!important;}" : "";
+  // The dark scheme also turns the default text colour white; design content
+  // must render as it does in a light editor and in exports.
+  const scheme = darkScheme
+    ? // guard:allow-raw-color — the UA light-scheme text default, written into the render copy only
+      "html{color-scheme:dark!important;color:#000}"
+    : "";
   return `<style data-agent-native-board-surface-render>${scheme}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"],body>[data-layer-name="body"],body>[data-layer-name="Body"],body>[data-layer-name="<body>"],body>[layer-name="body"],body>[layer-name="Body"],body>[layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
 }
 

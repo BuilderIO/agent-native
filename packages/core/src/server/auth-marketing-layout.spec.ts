@@ -1,9 +1,6 @@
-// Contract: the marketing panel's "New to <app>? Learn more" link, its
-// top-right placement, and the shared two-panel auth treatment
-// were deleted as dead code twice in one day. This spec renders the real
-// onboarding HTML for every entry in BUILT_IN_AUTH_MARKETING and asserts the
-// structural contract directly, so a future deletion fails a test instead of
-// flipping a unit expectation.
+// Contract: every built-in auth page keeps its marketing links and shared
+// two-panel treatment. Render the real onboarding HTML so accidental deletion
+// fails here instead of becoming a visual regression.
 import { afterEach, describe, expect, it } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
@@ -50,15 +47,26 @@ describe("built-in auth marketing layout contract", () => {
       expect(html).toContain('<body class="has-marketing">');
       expect(html).toContain('class="split');
       expect(html).toContain('class="form-panel');
+      expect(html.indexOf('class="form-panel')).toBeLessThan(
+        html.indexOf('class="marketing-panel"'),
+      );
 
-      // (b) the learn-more link renders with a non-empty href and text
+      // (b) Learn more follows the description and precedes the GitHub badge
       const linkMatch = html.match(
-        /<a class="auth-marketing-learn-more"[^>]*href="([^"]+)"/,
+        /<a class="auth-marketing-description-link"[^>]*href="([^"]+)"/,
       );
       expect(linkMatch?.[1]).toBeTruthy();
-      const shortName = marketing.appName.replace(/^Agent-Native\s+/i, "");
-      expect(html).toContain(`New to ${shortName}?`);
+      expect(html.indexOf('class="auth-marketing-description"')).toBeLessThan(
+        html.indexOf('class="auth-marketing-description-link"'),
+      );
+      expect(
+        html.indexOf('class="auth-marketing-description-link"'),
+      ).toBeLessThan(html.indexOf('class="oss-badge"'));
+      expect(html).not.toContain("New to ");
       expect(html).toContain(">Learn more<");
+      expect(html).toContain(
+        '<a class="oss-badge" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">',
+      );
     },
   );
 
@@ -67,12 +75,20 @@ describe("built-in auth marketing layout contract", () => {
       requestHost: "slides.agent-native.com",
     });
 
-    // top-right placement of the learn-more link
     expect(html).toMatch(
-      /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*top:/,
+      /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*min-height:\s*100vh;[^}]*display:\s*flex;/,
+    );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.auth-marketing-description-link\s*{[^}]*text-decoration:\s*underline;/,
     );
     expect(html).toMatch(
       /\.auth-marketing-home \.form-panel\s*{[^}]*flex:\s*1 1 50%;[^}]*max-width:\s*none;/,
+    );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*1;/,
+    );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*2;/,
     );
     const mobileStart = html.lastIndexOf("@media (max-width: 900px) {");
     const mobileEnd = html.indexOf("\n  }\n</style>", mobileStart);
@@ -80,25 +96,16 @@ describe("built-in auth marketing layout contract", () => {
     expect(mobileEnd).toBeGreaterThan(mobileStart);
     const mobileCss = html.slice(mobileStart, mobileEnd);
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.auth-marketing-top-right\s*{[^}]*position:\s*sticky;[^}]*margin-block:/,
-    );
-    expect(mobileCss).toMatch(
       /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*flex-direction:\s*column;/,
     );
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*-1;/,
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*1;[^}]*padding:\s*3rem 1rem 5rem;/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*2;/,
     );
     expect(html).toContain("overflow-x: clip;");
     expect(html).toContain("overflow: clip;");
-    expect(html).toContain(
-      "inset-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));",
-    );
-    expect(mobileCss).toContain(
-      ':root[dir="rtl"] .auth-marketing-home .auth-marketing-top-right',
-    );
-    expect(mobileCss).toContain(
-      "inset-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));",
-    );
     expect(html).toContain("--b-hero-ocean-opacity: 0.32;");
     expect(html).toContain("--b-hero-shader-opacity: 0.15;");
     expect(html).toContain("--b-hero-ocean-opacity: 0.3;");

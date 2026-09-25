@@ -3247,7 +3247,7 @@ fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), St
         let expired = ended_at.map(|value| value < cutoff).unwrap_or(false);
         kept_bytes = kept_bytes.saturating_add(segment.bytes);
         if (expired || kept_bytes > config.max_bytes) && !segment_is_pinned(app, &segment.id) {
-            let _ = delete_segment(app, &segment.id);
+            delete_segment(app, &segment.id)?;
         }
     }
     prune_events(app, cutoff)?;

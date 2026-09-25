@@ -894,6 +894,46 @@ describe("morph edge cases", () => {
   );
 
   it(
+    "continues seeding the head after replacing its first managed node",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        const pageErrors: string[] = [];
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.setContent(
+          `<!doctype html><html><head><style data-agent-native-board-surface-render>old</style></head><body>${BASE_BODY}</body></html>`,
+        );
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        await replaceDocument(
+          page,
+          `<!doctype html><html><head><style data-agent-native-board-surface-render>new</style><style data-agent-native-breakpoints>@media (max-width:640px){.card{display:none}}</style></head><body>${BASE_BODY}</body></html>`,
+        );
+
+        expect(pageErrors).toEqual([]);
+        expect(
+          await page.evaluate(() =>
+            Array.from(
+              document.head.querySelectorAll(
+                "style[data-agent-native-board-surface-render], style[data-agent-native-breakpoints]",
+              ),
+            ).map((node) => node.outerHTML),
+          ),
+        ).toEqual([
+          '<style data-agent-native-board-surface-render="">new</style>',
+          '<style data-agent-native-breakpoints="">@media (max-width:640px){.card{display:none}}</style>',
+        ]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "does not duplicate a head node the document already carries",
     { timeout: 30_000 },
     async () => {

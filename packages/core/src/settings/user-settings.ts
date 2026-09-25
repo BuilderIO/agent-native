@@ -10,6 +10,7 @@
 
 import {
   getSetting,
+  getSettings,
   mutateSetting,
   putSetting,
   deleteSettingIfValue,
@@ -38,6 +39,53 @@ export async function getUserSetting(
   if (normalized !== null) return normalized;
   const legacy = legacyUserKey(email, key);
   return legacy === userKey(email, key) ? null : getSetting(legacy);
+}
+
+/**
+ * Read one user-scoped key for many emails in as few round trips as
+ * possible: one batched read for the normalized keys, then a second batched
+ * read only for the emails whose legacy key differs from their normalized
+ * key AND whose normalized key missed. Mirrors {@link getUserSetting}'s
+ * precedence exactly (normalized wins; legacy is a fallback for
+ * pre-normalization spellings), so this is a drop-in replacement for calling
+ * `getUserSetting` once per email.
+ */
+export async function getUserSettings(
+  emails: readonly string[],
+  key: string,
+): Promise<Map<string, Record<string, unknown> | null>> {
+  const uniqueEmails = [...new Set(emails)];
+  const result = new Map<string, Record<string, unknown> | null>();
+  if (uniqueEmails.length === 0) return result;
+
+  const normalized = await getSettings(
+    uniqueEmails.map((email) => userKey(email, key)),
+  );
+
+  const legacyKeyByEmail = new Map<string, string>();
+  for (const email of uniqueEmails) {
+    const normalizedKey = userKey(email, key);
+    const normalizedValue = normalized.get(normalizedKey) ?? null;
+    if (normalizedValue !== null) {
+      result.set(email, normalizedValue);
+      continue;
+    }
+    const legacy = legacyUserKey(email, key);
+    if (legacy === normalizedKey) {
+      result.set(email, null);
+    } else {
+      legacyKeyByEmail.set(email, legacy);
+    }
+  }
+
+  if (legacyKeyByEmail.size > 0) {
+    const legacy = await getSettings([...legacyKeyByEmail.values()]);
+    for (const [email, legacyKey] of legacyKeyByEmail) {
+      result.set(email, legacy.get(legacyKey) ?? null);
+    }
+  }
+
+  return result;
 }
 
 /** Write a user-scoped setting. Always writes to the prefixed key. */

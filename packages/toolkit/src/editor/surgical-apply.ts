@@ -59,6 +59,11 @@ export type BaseAwareReconcilePlan =
   | Exclude<BaseAwareReconcileResult, { status: "applied" }>
   | { status: "applied"; mergedDoc: ProseMirrorNode; steps: readonly Step[] };
 
+export interface BaseAwareReconcileOptions {
+  /** Keep live hunks when both live and server changed the same base range. */
+  overlapPolicy?: "conflict" | "prefer-live";
+}
+
 function nodesEqual(left: ProseMirrorNode, right: ProseMirrorNode): boolean {
   return left.eq(right);
 }
@@ -225,6 +230,7 @@ export function planDocReconcile(
   liveDoc: ProseMirrorNode,
   baseDoc: ProseMirrorNode,
   serverDoc: ProseMirrorNode,
+  options: BaseAwareReconcileOptions = {},
 ): BaseAwareReconcilePlan {
   if (
     baseDoc.type.schema !== liveDoc.type.schema ||
@@ -271,12 +277,17 @@ export function planDocReconcile(
     );
   }
   if (serverHunks.length === 0) return { status: "noop" };
+  const overlapsLocal = (server: TopLevelHunk) =>
+    localHunks.some((local) => hunksOverlap(local, server));
   if (
-    localHunks.some((local) =>
-      serverHunks.some((server) => hunksOverlap(local, server)),
-    )
+    options.overlapPolicy !== "prefer-live" &&
+    serverHunks.some(overlapsLocal)
   ) {
     return { status: "conflict", localDraft: liveDoc };
+  }
+  if (options.overlapPolicy === "prefer-live") {
+    serverHunks = serverHunks.filter((server) => !overlapsLocal(server));
+    if (serverHunks.length === 0) return { status: "noop" };
   }
 
   try {
@@ -304,8 +315,9 @@ export function reconcileDocAgainstBase(
   editor: Editor,
   baseDoc: ProseMirrorNode,
   serverDoc: ProseMirrorNode,
+  options: BaseAwareReconcileOptions = {},
 ): BaseAwareReconcileResult {
-  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc);
+  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, options);
   if (plan.status !== "applied") return plan;
   try {
     const tr = editor.state.tr;

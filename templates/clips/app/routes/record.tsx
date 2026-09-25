@@ -6,7 +6,11 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  getBrowserTabId,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
@@ -80,7 +84,7 @@ import {
   loadRecorderPreferences,
   saveRecorderPreferences,
 } from "@/lib/recorder-preferences";
-import { copyRecordingShareLink } from "@/lib/recording-link";
+import { copyFreshRecordingShareLink } from "@/lib/recording-link";
 import {
   buildCaptureTitle,
   defaultRecordingTitle,
@@ -93,6 +97,7 @@ import {
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import { cn } from "@/lib/utils";
+import { probeVideoMetadata, resolveVideoMimeType } from "@/lib/video-metadata";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -909,6 +914,9 @@ export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  // Named distinctly from the local `session` upload-attempt counters used
+  // inside uploadFile/startFlow below — this is the signed-in visitor.
+  const { session: authSession } = useSession();
   const {
     dismiss: dismissUploadToast,
     error: failUploadToast,
@@ -932,14 +940,17 @@ export default function RecordRoute() {
         action: {
           label: t("recordRoute.copyLinkAction"),
           onClick: () => {
-            void copyRecordingShareLink(recordingId);
+            void copyFreshRecordingShareLink(recordingId, authSession);
           },
         },
       });
     },
-    [completeUploadToast, t],
+    [authSession, completeUploadToast, t],
   );
   const [uiState, setUiState] = useState<UiState>("idle");
+  const [savingKind, setSavingKind] = useState<"recording" | "upload" | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
@@ -1193,6 +1204,7 @@ export default function RecordRoute() {
       countdownAudioCueRef.current?.cleanup();
       countdownAudioCueRef.current = createCountdownAudioCue();
       setError(null);
+      setSavingKind(null);
       setRecordingMode(opts.mode);
       pendingStartOptsRef.current = opts;
       // Clear any surface resolved by a previous capture; the engine reports the
@@ -1518,48 +1530,6 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   const UPLOAD_PARALLELISM = 4;
 
-  const probeVideoMetadata = useCallback(
-    (
-      file: File,
-    ): Promise<{ durationMs: number; width: number; height: number }> => {
-      return new Promise((resolve) => {
-        const url = URL.createObjectURL(file);
-        const video = document.createElement("video");
-        video.preload = "metadata";
-        video.muted = true;
-        const cleanup = () => {
-          URL.revokeObjectURL(url);
-        };
-        video.onloadedmetadata = () => {
-          const durationMs =
-            Number.isFinite(video.duration) && video.duration > 0
-              ? Math.round(video.duration * 1000)
-              : 0;
-          const width =
-            Number.isFinite(video.videoWidth) && video.videoWidth > 0
-              ? Math.round(video.videoWidth)
-              : 0;
-          const height =
-            Number.isFinite(video.videoHeight) && video.videoHeight > 0
-              ? Math.round(video.videoHeight)
-              : 0;
-          resolve({
-            durationMs,
-            width,
-            height,
-          });
-          cleanup();
-        };
-        video.onerror = () => {
-          resolve({ durationMs: 0, width: 0, height: 0 });
-          cleanup();
-        };
-        video.src = url;
-      });
-    },
-    [],
-  );
-
   const uploadFile = useCallback(
     async (file: File) => {
       const session = startSessionRef.current + 1;
@@ -1570,26 +1540,13 @@ export default function RecordRoute() {
       fileUploadAbortRef.current = abort;
 
       setError(null);
+      setSavingKind("upload");
       setUiState("uploading");
       setCompressionProgress(null);
       setUploadProgress(null);
       startUploadToast(t("recordRoute.savingRecording"));
 
-      const acceptedMime = new Set([
-        "video/mp4",
-        "video/webm",
-        "video/quicktime",
-      ]);
-      const baseType = (file.type || "").split(";")[0]?.trim().toLowerCase();
-      let mimeType = baseType && acceptedMime.has(baseType) ? baseType : null;
-      // Fallback by extension when the browser doesn't provide a type
-      // (rare on macOS .mov files dragged from Finder).
-      if (!mimeType) {
-        const lower = file.name.toLowerCase();
-        if (lower.endsWith(".mp4")) mimeType = "video/mp4";
-        else if (lower.endsWith(".webm")) mimeType = "video/webm";
-        else if (lower.endsWith(".mov")) mimeType = "video/quicktime";
-      }
+      const mimeType = resolveVideoMimeType(file);
       if (!mimeType) {
         const message =
           "That file type isn't supported. Try MP4, WebM, or MOV.";
@@ -1986,7 +1943,7 @@ export default function RecordRoute() {
         } else if (createdId && !reportContext) {
           showSavedToast(
             t("recordRoute.videoUploaded"),
-            await copyRecordingShareLink(createdId),
+            await copyFreshRecordingShareLink(createdId, authSession),
             createdId,
           );
         } else {
@@ -2067,12 +2024,12 @@ export default function RecordRoute() {
       }
     },
     [
+      authSession,
       completeUploadToast,
       failUploadToast,
       infoUploadToast,
       markStorageConfigured,
       navigate,
-      probeVideoMetadata,
       showSavedToast,
       startUploadToast,
       t,
@@ -2163,6 +2120,7 @@ export default function RecordRoute() {
         app_name: "clips",
         template_name: "clips",
         output_id: pendingRef.current?.id,
+        recording_attempt_id: pendingRef.current?.id,
         capture_type:
           recordingMode === "camera"
             ? "camera"
@@ -2234,6 +2192,7 @@ export default function RecordRoute() {
       setPreviewStream(null);
       setCompressionProgress(null);
       setUploadProgress(null);
+      setSavingKind(null);
       setUiState("complete");
       const reportContext = bugReportContextRef.current;
       if (result.waitingForStorage) {
@@ -2246,7 +2205,8 @@ export default function RecordRoute() {
       } else {
         showSavedToast(
           t("recordRoute.recordingSaved"),
-          await (pendingCopy ?? copyRecordingShareLink(recordingId)),
+          await (pendingCopy ??
+            copyFreshRecordingShareLink(recordingId, authSession)),
           recordingId,
         );
       }
@@ -2276,7 +2236,14 @@ export default function RecordRoute() {
         void navigate(`/r/${recordingId}`);
       }, 50);
     },
-    [completeUploadToast, infoUploadToast, navigate, showSavedToast, t],
+    [
+      authSession,
+      completeUploadToast,
+      infoUploadToast,
+      navigate,
+      showSavedToast,
+      t,
+    ],
   );
 
   const doStop = useCallback(async () => {
@@ -2293,6 +2260,7 @@ export default function RecordRoute() {
     ) {
       return;
     }
+    setSavingKind("recording");
     setUiState("uploading");
     startUploadToast(t("recordRoute.savingRecording"));
     // End diagnostics at the stop gesture. Transcript writes and media
@@ -2365,7 +2333,9 @@ export default function RecordRoute() {
       const pendingCopy =
         stopResult.waitingForStorage || bugReportContextRef.current
           ? undefined
-          : copyRecordingShareLink(pending.id).catch(() => false);
+          : copyFreshRecordingShareLink(pending.id, authSession).catch(
+              () => false,
+            );
       await diagnosticsSave;
       await finishSavedRecording(pending.id, stopResult, pendingCopy);
     } catch (err) {
@@ -2410,6 +2380,7 @@ export default function RecordRoute() {
       });
     }
   }, [
+    authSession,
     failUploadToast,
     finishSavedRecording,
     liveTranscription,
@@ -2429,6 +2400,7 @@ export default function RecordRoute() {
     setError(null);
     setCompressionProgress(null);
     setUploadProgress(null);
+    setSavingKind("recording");
     setUiState("uploading");
     startUploadToast(t("recordRoute.savingRecording"));
     try {
@@ -2556,6 +2528,7 @@ export default function RecordRoute() {
     setCameraStream(null);
     setPreviewStream(null);
     setIsPaused(false);
+    setSavingKind(null);
     setUiState("idle");
     setUploadProgress(null);
   }, [dismissUploadToast, extensionCapture, liveTranscription]);
@@ -2915,6 +2888,12 @@ export default function RecordRoute() {
   // Render.
   // -------------------------------------------------------------------------
   const showRecordingUi = uiState === "recording";
+  const showSavingUi =
+    (uiState === "uploading" || uiState === "complete") &&
+    savingKind === "recording";
+  const showUploadOverlay =
+    (uiState === "uploading" || uiState === "complete") &&
+    savingKind !== "recording";
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
   const rememberedRecorderOptions = pendingStartOptsRef.current;
@@ -2937,8 +2916,7 @@ export default function RecordRoute() {
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
   // sidebar back-affordance. Source picking gets its own explicit Cancel
   // action; in-flight recording and saving states use their dedicated controls.
-  const showBackButton =
-    uiState === "idle" || uiState === "error" || uiState === "complete";
+  const showBackButton = uiState === "idle" || uiState === "error";
 
   return (
     <div className="relative min-h-[100dvh] overflow-x-clip bg-background text-foreground">
@@ -3109,9 +3087,10 @@ export default function RecordRoute() {
       <ConfettiCanvas ref={confettiRef} />
 
       {/* Floating toolbar */}
-      {showRecordingUi && (
+      {(showRecordingUi || showSavingUi) && (
         <RecordingToolbar
           active={uiState === "recording"}
+          saving={showSavingUi}
           getElapsedMs={() => engineRef.current?.getElapsedMs() ?? 0}
           getMicrophoneTrack={() =>
             engineRef.current?.getMicrophoneTrack() ?? null
@@ -3191,7 +3170,8 @@ export default function RecordRoute() {
       {/* Uploading overlay (also covers the compressing pass which can run
           for several minutes on long recordings — without a distinct copy
           users wonder if the app froze). */}
-      {(uiState === "uploading" || uiState === "compressing") && (
+      {(uiState === "compressing" ||
+        (showUploadOverlay && uiState === "uploading")) && (
         <div className="fixed inset-0 z-[120] overflow-y-auto bg-background/90 backdrop-blur-sm">
           <div className="flex min-h-full items-center justify-center p-3 sm:p-6">
             <RecorderRouteStatus
@@ -3219,7 +3199,7 @@ export default function RecordRoute() {
         </div>
       )}
 
-      {uiState === "complete" && (
+      {showUploadOverlay && uiState === "complete" && (
         <RecorderRouteViewport>
           <RecorderRouteStatus
             icon={<IconCircleCheck className="size-4 text-primary" />}

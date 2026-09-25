@@ -2,7 +2,8 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { ContentDatabaseItem, ContentDatabaseResponse } from "@shared/api";
-import { act } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
@@ -21,6 +22,26 @@ import {
   databaseSidebarRows,
 } from "./sidebar";
 import type { DatabaseBoardGroup } from "./types";
+
+function WithSidebarLabels({ children }: { children: ReactNode }) {
+  return (
+    <AgentNativeI18nProvider
+      initialLocale="en-US"
+      persistPreference={false}
+      catalog={{
+        sourceLocale: "en-US",
+        messages: {
+          sidebar: {
+            expandItem: "Expand {{title}}",
+            collapseItem: "Collapse {{title}}",
+          },
+        },
+      }}
+    >
+      {children}
+    </AgentNativeI18nProvider>
+  );
+}
 
 const item = (id: string, title: string, parentId: string | null = null) =>
   ({
@@ -119,7 +140,7 @@ describe("DatabaseSidebarView", () => {
     ).toEqual(["canonical-parent-a", "canonical-parent-b"]);
   });
 
-  it("disables manual reorder while the active saved view has sorts", () => {
+  it("disables legacy manual reorder without a personal order while the active saved view has sorts", () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <TooltipProvider>
@@ -154,7 +175,6 @@ describe("DatabaseSidebarView", () => {
             }
             overrides={null}
             isLoading={false}
-            sidebarOrder={{ mode: "custom", itemIds: ["item-first"] }}
             manualReorder={{
               onReorder: () => {},
               labels: {
@@ -177,7 +197,81 @@ describe("DatabaseSidebarView", () => {
     );
 
     expect(markup).not.toContain("Drag First");
+    expect(markup).not.toContain('aria-roledescription="sortable"');
     expect(markup).toContain('role="link"');
+  });
+
+  it("allows personal custom reordering while retaining inherited filters and overriding inherited sorts", () => {
+    const data = {
+      database: {
+        viewConfig: {
+          version: 1,
+          activeViewId: "default",
+          views: [
+            {
+              id: "default",
+              name: "Table",
+              type: "table",
+              filters: [
+                {
+                  key: "name",
+                  label: "Name",
+                  operator: "contains",
+                  value: "Keep",
+                },
+              ],
+              sorts: [{ key: "name", label: "Name", direction: "asc" }],
+              filterMode: "and",
+            },
+          ],
+        },
+      },
+      items: [
+        item("alpha", "Keep Alpha"),
+        item("beta", "Keep Beta"),
+        item("hidden", "Excluded"),
+      ],
+      properties: [],
+    } as unknown as ContentDatabaseResponse;
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={data}
+            overrides={null}
+            isLoading={false}
+            sidebarOrder={{
+              mode: "custom",
+              itemIds: ["item-beta", "item-hidden", "item-alpha"],
+            }}
+            manualReorder={{
+              onReorder: vi.fn(),
+              labels: {
+                drag: (label) => `Drag ${label}`,
+                moveUp: "Move up",
+                moveDown: "Move down",
+                moveTo: "Move to",
+                moveToPosition: (position) => `Position ${position}`,
+              },
+            }}
+            labels={{
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+    expect(markup.match(/aria-roledescription="sortable"/g)).toHaveLength(2);
+    expect(markup).toContain('data-sidebar-reorder-item-id="item-beta"');
+    expect(markup).toContain('data-sidebar-reorder-item-id="item-alpha"');
+    expect(markup.indexOf('href="/page/beta"')).toBeLessThan(
+      markup.indexOf('href="/page/alpha"'),
+    );
+    expect(markup).not.toContain("Excluded");
+    expect(markup).not.toContain("/page/hidden");
   });
 
   it("leaves the compact order control to the workspace header", () => {
@@ -311,7 +405,9 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain('href="/page/page"');
     expect(markup).toContain("Project");
     expect(markup).toContain('aria-current="page"');
-    expect(markup).toContain("font-semibold");
+    // The active row is filled, not only bolder, so it outranks hover.
+    expect(markup).toContain("bg-sidebar-accent font-medium");
+    expect(markup).not.toContain("font-semibold");
   });
 
   it("starts with only hierarchy roots visible", () => {
@@ -337,33 +433,35 @@ describe("DatabaseSidebarView", () => {
     ]);
 
     const markup = renderToStaticMarkup(
-      <MemoryRouter>
-        <TooltipProvider>
-          <DatabaseSidebarView
-            groups={[
-              {
-                id: "all",
-                label: "All pages",
-                items: [rootItem],
-                property: null,
-                value: "all",
-              },
-            ]}
-            hierarchyItems={[rootItem, childItem, grandchildItem]}
-            grouped={false}
-            isLoading={false}
-            hasActiveConstraints
-            openPagesIn="full_page"
-            noMatchesLabel="No rows match this view"
-            clearLabel="Clear"
-            navigationLabel="Database pages"
-            untitledLabel="Untitled"
-            onClearResultConstraints={() => {}}
-            onPreview={() => {}}
-            activeDocumentId="parent"
-          />
-        </TooltipProvider>
-      </MemoryRouter>,
+      <WithSidebarLabels>
+        <MemoryRouter>
+          <TooltipProvider>
+            <DatabaseSidebarView
+              groups={[
+                {
+                  id: "all",
+                  label: "All pages",
+                  items: [rootItem],
+                  property: null,
+                  value: "all",
+                },
+              ]}
+              hierarchyItems={[rootItem, childItem, grandchildItem]}
+              grouped={false}
+              isLoading={false}
+              hasActiveConstraints
+              openPagesIn="full_page"
+              noMatchesLabel="No rows match this view"
+              clearLabel="Clear"
+              navigationLabel="Database pages"
+              untitledLabel="Untitled"
+              onClearResultConstraints={() => {}}
+              onPreview={() => {}}
+              activeDocumentId="parent"
+            />
+          </TooltipProvider>
+        </MemoryRouter>
+      </WithSidebarLabels>,
     );
 
     expect(markup).toContain('aria-label="Expand Page one"');
@@ -435,32 +533,34 @@ describe("DatabaseSidebarView", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter>
-          <TooltipProvider>
-            <DatabaseSidebarView
-              groups={[
-                {
-                  id: "all",
-                  label: "All pages",
-                  items: [rootItem],
-                  property: null,
-                  value: "all",
-                },
-              ]}
-              hierarchyItems={[rootItem, childItem]}
-              grouped={false}
-              isLoading={false}
-              hasActiveConstraints={false}
-              openPagesIn="full_page"
-              noMatchesLabel="No rows match this view"
-              clearLabel="Clear"
-              navigationLabel="Database pages"
-              untitledLabel="Untitled"
-              onClearResultConstraints={() => {}}
-              onPreview={() => {}}
-            />
-          </TooltipProvider>
-        </MemoryRouter>,
+        <WithSidebarLabels>
+          <MemoryRouter>
+            <TooltipProvider>
+              <DatabaseSidebarView
+                groups={[
+                  {
+                    id: "all",
+                    label: "All pages",
+                    items: [rootItem],
+                    property: null,
+                    value: "all",
+                  },
+                ]}
+                hierarchyItems={[rootItem, childItem]}
+                grouped={false}
+                isLoading={false}
+                hasActiveConstraints={false}
+                openPagesIn="full_page"
+                noMatchesLabel="No rows match this view"
+                clearLabel="Clear"
+                navigationLabel="Database pages"
+                untitledLabel="Untitled"
+                onClearResultConstraints={() => {}}
+                onPreview={() => {}}
+              />
+            </TooltipProvider>
+          </MemoryRouter>
+        </WithSidebarLabels>,
       );
     });
 
@@ -851,45 +951,51 @@ describe("DatabaseSidebarView", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter>
-          <TooltipProvider>
-            <DatabaseSidebarView
-              groups={[
-                {
-                  id: "all",
-                  label: "All pages",
-                  items: [
-                    {
-                      ...item("shared", "Shared page"),
-                      document: {
-                        ...item("shared", "Shared page").document,
-                        accessRole: "viewer",
-                        canEdit: false,
-                        canManage: false,
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
+          <MemoryRouter>
+            <TooltipProvider>
+              <DatabaseSidebarView
+                groups={[
+                  {
+                    id: "all",
+                    label: "All pages",
+                    items: [
+                      {
+                        ...item("shared", "Shared page"),
+                        document: {
+                          ...item("shared", "Shared page").document,
+                          accessRole: "viewer",
+                          canEdit: false,
+                          canManage: false,
+                        },
                       },
-                    },
-                  ],
-                  property: null,
-                  value: "all",
-                },
-              ]}
-              grouped={false}
-              isLoading={false}
-              hasActiveConstraints={false}
-              openPagesIn="full_page"
-              noMatchesLabel="No rows match this view"
-              clearLabel="Clear"
-              navigationLabel="Database pages"
-              untitledLabel="Untitled"
-              onClearResultConstraints={() => {}}
-              onPreview={() => {}}
-              onCreateChildPage={onCreateChildPage}
-              onCreateChildDatabase={onCreateChildDatabase}
-              onDeleteItem={() => {}}
-              onToggleFavorite={onToggleFavorite}
-            />
-          </TooltipProvider>
-        </MemoryRouter>,
+                    ],
+                    property: null,
+                    value: "all",
+                  },
+                ]}
+                grouped={false}
+                isLoading={false}
+                hasActiveConstraints={false}
+                openPagesIn="full_page"
+                noMatchesLabel="No rows match this view"
+                clearLabel="Clear"
+                navigationLabel="Database pages"
+                untitledLabel="Untitled"
+                onClearResultConstraints={() => {}}
+                onPreview={() => {}}
+                onCreateChildPage={onCreateChildPage}
+                onCreateChildDatabase={onCreateChildDatabase}
+                onDeleteItem={() => {}}
+                onToggleFavorite={onToggleFavorite}
+              />
+            </TooltipProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
       );
     });
 
@@ -939,8 +1045,12 @@ describe("DatabaseSidebarView", () => {
     const menuItems = Array.from(
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     );
+    // A viewer gets the personal and read-only items only: no rename,
+    // duplicate, move, or trash without edit/manage access.
     expect(menuItems.map((menuItem) => menuItem.textContent?.trim())).toEqual([
       "Pin to sidebar",
+      "Copy link",
+      "Open in new tab",
     ]);
 
     await act(async () => {

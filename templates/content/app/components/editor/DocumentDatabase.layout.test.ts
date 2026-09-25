@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 function readDatabaseSource() {
   return [
     "./database/DatabaseView.tsx",
+    "./database/ContentTable.tsx",
     "./database/settings.tsx",
     "./database/shared.tsx",
     "./database/view-config.ts",
@@ -29,7 +30,7 @@ describe("document database layout", () => {
       "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1",
     );
     expect(source).toContain(
-      "flex max-w-full flex-wrap items-center justify-end gap-1",
+      "flex min-h-8 max-w-full flex-wrap items-center justify-end gap-1",
     );
     expect(source).toContain(
       "group/viewtabs relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
@@ -126,7 +127,7 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("function databaseToolbarIconButtonClass");
-    expect(source).toContain('aria-label="Search"');
+    expect(source).toContain('label="Search"');
     expect(source).toContain(': "Collection settings"');
     expect(source).toContain("Property visibility");
     expect(source).toContain("bg-foreground px-2.5 text-xs font-medium");
@@ -347,8 +348,9 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain('data-database-scroll-surface="table"');
-    expect(source).toContain('horizontalOverflowAffordance="edges"');
-    expect(source).toContain("min-w-0 max-w-full overflow-x-auto");
+    expect(source).toContain('horizontalOverflowAffordance = "edges"');
+    expect(source).toContain("min-h-0 min-w-0 max-w-full flex-1");
+    expect(source).toContain("overflow-auto");
     expect(source).toContain("group/footer grid border-b border-border/30");
     expect(source).toContain(
       "aria-label={`Calculate ${property.definition.name}`}",
@@ -360,7 +362,10 @@ describe("document database layout", () => {
   it("keeps selection controls visible and hides mutations without permission", () => {
     const source = readDatabaseSource();
     const selectionBarIndex = source.indexOf("<DatabaseSelectionBar");
-    const scrollSurfaceIndex = source.indexOf("<DataGrid", selectionBarIndex);
+    const scrollSurfaceIndex = source.indexOf(
+      "<ContentTableSurface",
+      selectionBarIndex,
+    );
 
     expect(selectionBarIndex).toBeGreaterThan(-1);
     expect(scrollSurfaceIndex).toBeGreaterThan(selectionBarIndex);

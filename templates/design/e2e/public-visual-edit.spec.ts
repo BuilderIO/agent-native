@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import http, { type Server } from "node:http";
 import path from "node:path";
 
@@ -20,6 +21,7 @@ import {
   appPath,
   bridgeMessages,
   designFrame,
+  enterDirectMode,
   installBridge,
   readSeedDesignId,
   selectByText,
@@ -37,6 +39,9 @@ const REDO_SHORTCUT =
 
 let designId: string;
 let linkedScreenId: string;
+let collaborationDesignId: string;
+let collaborationScreenId: string;
+let collaborationSecondScreenId: string;
 let visualEditTargetServer: Server | null = null;
 let visualEditBridge: DesignConnectBridge | null = null;
 let visualEditTargetUrl = "";
@@ -64,10 +69,33 @@ function ownScreenFrame(page: Page) {
 
 test.describe.serial("public visual edit", () => {
   test.beforeAll(async ({ browser }) => {
-    visualEditTargetServer = http.createServer((_request, response) => {
+    visualEditTargetServer = http.createServer((request, response) => {
+      const requestUrl = new URL(request.url ?? "/", "http://localhost");
+      const pathname = requestUrl.pathname;
+      if (pathname === "/slow") {
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+        });
+        response.end(
+          `<!doctype html><html><body><main><h1>Delayed image frame</h1><img id="delayed-image" src="${visualEditTargetUrl}/slow-image.svg" /></main></body></html>`,
+        );
+        return;
+      }
+      if (pathname === "/slow-image.svg") {
+        response.writeHead(200, {
+          "cache-control": "no-store",
+          "content-type": "image/svg+xml",
+        });
+        setTimeout(() => {
+          response.end(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><circle cx="40" cy="40" r="36" fill="#7c3aed"/></svg>',
+          );
+        }, 5_000);
+        return;
+      }
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(
-        "<!doctype html><html><body><main><h1>Local visual edit</h1></main></body></html>",
+        `<!doctype html><html><body><main><h1>${requestUrl.searchParams.has("e2eRoute") ? "Owner updated canvas" : "Local visual edit"}</h1></main></body></html>`,
       );
     });
     const address = await listen(visualEditTargetServer);
@@ -87,12 +115,20 @@ test.describe.serial("public visual edit", () => {
     designId = await readSeedDesignId();
     linkedScreenId = await createLinkedScreen(browser, designId);
     await setDesignVisibility(browser, designId, "public");
+    const collaborationDesign = await createOwnedVisualEditDesign(browser);
+    collaborationDesignId = collaborationDesign.designId;
+    collaborationScreenId = collaborationDesign.screenIds[0]!;
+    collaborationSecondScreenId = collaborationDesign.screenIds[1]!;
+    await setDesignVisibility(browser, collaborationDesignId, "public");
   });
 
   test.afterAll(async ({ browser }) => {
     if (designId) {
       if (linkedScreenId) await deleteLinkedScreen(browser, linkedScreenId);
       await setDesignVisibility(browser, designId, "private");
+    }
+    if (collaborationDesignId) {
+      await deleteDesign(browser, collaborationDesignId);
     }
     await closeServer(visualEditBridge?.server ?? null);
     visualEditBridge = null;
@@ -134,6 +170,185 @@ test.describe.serial("public visual edit", () => {
       await assertNoRuntimeErrors(signedOut);
     } finally {
       await signedOut.close();
+    }
+  });
+
+  test("reveals the local frame as soon as its editor bridge is ready", async ({
+    page,
+  }) => {
+    let createdDesignId: string | undefined;
+    await page.addInitScript(() => {
+      if (window.top !== window) return;
+      const timing = {
+        mountedAt: null as number | null,
+        readyAt: null as number | null,
+        loadAt: null as number | null,
+      };
+      Object.defineProperty(window, "__visualEditFrameTiming", {
+        configurable: false,
+        value: timing,
+      });
+      const mountTimes = new WeakMap<HTMLIFrameElement, number>();
+      const watchedFrames = new WeakSet<HTMLIFrameElement>();
+      const watchFrame = (element: Element) => {
+        if (
+          !(element instanceof HTMLIFrameElement) ||
+          !element.matches("iframe[data-design-preview-iframe]") ||
+          watchedFrames.has(element)
+        ) {
+          return;
+        }
+        watchedFrames.add(element);
+        mountTimes.set(element, performance.now());
+        element.addEventListener("load", () => {
+          if (element.src.includes("slow")) timing.loadAt ??= performance.now();
+        });
+      };
+      const scan = (node: Node) => {
+        if (!(node instanceof Element)) return;
+        watchFrame(node);
+        node
+          .querySelectorAll("iframe[data-design-preview-iframe]")
+          .forEach(watchFrame);
+      };
+      new MutationObserver((records) => {
+        for (const record of records) {
+          record.addedNodes.forEach(scan);
+          if (
+            record.type === "attributes" &&
+            record.target instanceof HTMLIFrameElement
+          ) {
+            watchFrame(record.target);
+          }
+        }
+      }).observe(document, {
+        attributes: true,
+        attributeFilter: ["src"],
+        childList: true,
+        subtree: true,
+      });
+      window.addEventListener("message", (event) => {
+        if (
+          event.data?.type !== "agent-native:editor-chrome-ready" ||
+          timing.readyAt !== null
+        ) {
+          return;
+        }
+        const frame = [
+          ...document.querySelectorAll<HTMLIFrameElement>(
+            'iframe[data-design-preview-iframe][src*="slow"]',
+          ),
+        ].find((candidate) => candidate.contentWindow === event.source);
+        if (!frame) return;
+        timing.mountedAt = mountTimes.get(frame) ?? performance.now();
+        timing.readyAt = performance.now();
+      });
+    });
+
+    const openedResponse = await page.request.post(
+      appPath("/_agent-native/actions/open-visual-edit"),
+      {
+        data: {
+          title: "Iframe load timing",
+          devServerUrl: visualEditTargetUrl,
+          bridgeUrl: visualEditBridge!.manifest.bridgeUrl,
+          bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
+          rootPath: visualEditBridge!.manifest.rootPath,
+          paths: ["/slow"],
+          navigate: false,
+        },
+      },
+    );
+    expect(openedResponse.ok()).toBe(true);
+    const opened = (await openedResponse.json()) as {
+      designId?: string;
+      urlPath?: string;
+    };
+    createdDesignId = opened.designId;
+    if (!createdDesignId) throw new Error("open-visual-edit returned no ID");
+    if (!opened.urlPath) throw new Error("open-visual-edit returned no URL");
+
+    try {
+      await page.goto(
+        `${BASE_URL}${opened.urlPath}&editorView=overview&zoom=50`,
+        { waitUntil: "domcontentloaded" },
+      );
+      const editorFrame = page.locator(
+        'iframe[data-design-preview-iframe][src*="live-edit"][src*="slow"]',
+      );
+      await expect(editorFrame).toBeAttached({ timeout: 30_000 });
+      await page.waitForFunction(
+        () => {
+          const timing = (
+            window as Window & {
+              __visualEditFrameTiming?: { readyAt: number | null };
+            }
+          ).__visualEditFrameTiming;
+          return typeof timing?.readyAt === "number";
+        },
+        undefined,
+        { timeout: 30_000 },
+      );
+
+      const localScreen = editorFrame.contentFrame();
+      await expect(
+        localScreen.getByRole("heading", { name: "Delayed image frame" }),
+      ).toBeVisible();
+      expect(
+        await localScreen
+          .locator("#delayed-image")
+          .evaluate((image) => !(image as HTMLImageElement).complete),
+      ).toBe(true);
+      await expect(page.getByText(/prepar.*live editor/i)).toBeHidden();
+
+      const screenshotPath = path.resolve(
+        import.meta.dirname,
+        "../../../.tmp/visual-edit-iframe-ready.png",
+      );
+      await mkdir(path.dirname(screenshotPath), { recursive: true });
+      await page.screenshot({ path: screenshotPath });
+      await page.waitForFunction(
+        () => {
+          const timing = (
+            window as Window & {
+              __visualEditFrameTiming?: { loadAt: number | null };
+            }
+          ).__visualEditFrameTiming;
+          return typeof timing?.loadAt === "number";
+        },
+        undefined,
+        { timeout: 15_000 },
+      );
+      const timing = await page.evaluate(() => {
+        const timing = (
+          window as Window & {
+            __visualEditFrameTiming?: {
+              mountedAt: number | null;
+              readyAt: number | null;
+              loadAt: number | null;
+            };
+          }
+        ).__visualEditFrameTiming;
+        if (
+          !timing ||
+          timing.mountedAt === null ||
+          timing.readyAt === null ||
+          timing.loadAt === null
+        ) {
+          throw new Error("iframe timing events were not all observed");
+        }
+        return {
+          bridgeReadyMs: Math.round(timing.readyAt - timing.mountedAt),
+          fullLoadAfterReadyMs: Math.round(timing.loadAt - timing.readyAt),
+        };
+      });
+      console.info(
+        `[visual-edit-iframe-timing] bridge-ready=${timing.bridgeReadyMs}ms full-load-after-ready=${timing.fullLoadAfterReadyMs}ms`,
+      );
+    } finally {
+      await page.request.post(appPath("/_agent-native/actions/delete-design"), {
+        data: { id: createdDesignId },
+      });
     }
   });
 
@@ -818,6 +1033,296 @@ test.describe.serial("public visual edit", () => {
       appReturnPath(`/design/${designId}?intent=share`),
     );
   });
+
+  test("shares an inert live snapshot and hands guest edits back to the owner", async ({
+    browser,
+    page,
+  }) => {
+    const ownerSnapshotStatuses: number[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/publish-visual-edit-snapshot")) {
+        ownerSnapshotStatuses.push(response.status());
+      }
+    });
+    await page.goto(
+      appUrl(`/design/${collaborationDesignId}?editorView=overview`),
+      { waitUntil: "domcontentloaded" },
+    );
+    const ownerFrame = designFrame(page, collaborationScreenId);
+    await expect(
+      ownerFrame.getByRole("heading", { name: "Local visual edit" }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(() => ownerSnapshotStatuses.some((status) => status === 200))
+      .toBe(true);
+
+    await page.getByRole("button", { name: /^share$/i }).click();
+    await expect(
+      page.getByText("Live canvas link", { exact: true }),
+    ).toBeVisible();
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
+      });
+    await page.getByRole("button", { name: "Copy", exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toContain(`/visual-edit/${collaborationDesignId}?share=1`);
+    await page.keyboard.press("Escape");
+
+    const signedOutOwner = await openSignedOutPage(
+      browser,
+      `/design/${collaborationDesignId}`,
+    );
+    try {
+      await expect(
+        signedOutOwner.page.getByRole("link", {
+          name: /^sign up to share a live canvas$/i,
+        }),
+      ).toBeVisible();
+    } finally {
+      await signedOutOwner.close();
+    }
+
+    const guestSnapshotReads: string[] = [];
+    const guestSnapshotRequestCounts = new Map<string, number>();
+    const guest = await openSignedOutPage(
+      browser,
+      `/visual-edit/${collaborationDesignId}?share=1&editorView=overview`,
+      (guestPage) => {
+        guestPage.on("request", (request) => {
+          const url = new URL(request.url());
+          if (!url.pathname.endsWith("/get-visual-edit-snapshot")) return;
+          const fileId = url.searchParams.get("fileId");
+          if (fileId) {
+            guestSnapshotRequestCounts.set(
+              fileId,
+              (guestSnapshotRequestCounts.get(fileId) ?? 0) + 1,
+            );
+          }
+        });
+        guestPage.on("response", async (response) => {
+          if (response.url().includes("/get-visual-edit-snapshot")) {
+            guestSnapshotReads.push(
+              `${response.status()}: ${await response.text()}`,
+            );
+          }
+        });
+      },
+    );
+    try {
+      const guestFrame = designFrame(guest.page, collaborationScreenId);
+      await expect
+        .poll(() => guestSnapshotReads, { timeout: 15_000 })
+        .toEqual(
+          expect.arrayContaining([
+            expect.stringContaining("Local visual edit"),
+          ]),
+        );
+      await expect(
+        guestFrame.getByRole("heading", { name: "Local visual edit" }),
+      ).toBeVisible({ timeout: 30_000 });
+      const secondGuestFrame = designFrame(
+        guest.page,
+        collaborationSecondScreenId,
+      );
+      await expect(
+        secondGuestFrame.getByRole("heading", { name: "Local visual edit" }),
+      ).toBeVisible({ timeout: 30_000 });
+      const guestIframe = guest.page.locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${collaborationScreenId}"]`,
+      );
+      await expect(guestIframe).not.toHaveAttribute(
+        "src",
+        new RegExp(escapeRegExp(visualEditTargetUrl)),
+      );
+      await expect(guestIframe).toHaveAttribute("srcdoc", /Local visual edit/);
+
+      const firstScreenInitialReads =
+        guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
+      await selectByText(guest.page, "Local visual edit", {
+        screenId: collaborationScreenId,
+      });
+      await expect
+        .poll(
+          () => guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0,
+          { timeout: 5_000 },
+        )
+        .toBeGreaterThan(firstScreenInitialReads);
+      const firstScreenReads =
+        guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
+      const secondScreenReads =
+        guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0;
+      await expect
+        .poll(
+          () => guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0,
+          { timeout: 5_000 },
+        )
+        .toBeGreaterThan(firstScreenReads);
+      expect(
+        guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0,
+      ).toBe(secondScreenReads);
+
+      await selectByText(guest.page, "Local visual edit", {
+        screenId: collaborationSecondScreenId,
+      });
+      await expect
+        .poll(
+          () =>
+            (guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0) >
+            secondScreenReads,
+        )
+        .toBe(true);
+      const firstScreenReadsAfterSwitch =
+        guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
+      const secondScreenReadsAfterSwitch =
+        guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0;
+      await expect
+        .poll(
+          () =>
+            guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0,
+          { timeout: 5_000 },
+        )
+        .toBeGreaterThan(secondScreenReadsAfterSwitch);
+      expect(guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0).toBe(
+        firstScreenReadsAfterSwitch,
+      );
+
+      const firstScreenReadsBeforeRefocus =
+        guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
+      await selectByText(guest.page, "Local visual edit", {
+        screenId: collaborationScreenId,
+      });
+      await expect
+        .poll(
+          () => guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0,
+          { timeout: 5_000 },
+        )
+        .toBeGreaterThan(firstScreenReadsBeforeRefocus);
+
+      const ownerPublicationsBeforeEdit = ownerSnapshotStatuses.filter(
+        (status) => status === 200,
+      ).length;
+      await page.evaluate(() => {
+        const state = { messages: [] as string[] };
+        Object.defineProperty(window, "__visualEditCollabMessages", {
+          configurable: true,
+          value: state,
+        });
+        window.addEventListener("message", (event) => {
+          if (typeof event.data?.type === "string") {
+            state.messages.push(event.data.type);
+          }
+        });
+      });
+      await ownerFrame.locator("h1").evaluate(() => {
+        const route = new URL(window.location.href);
+        route.searchParams.set("e2eRoute", "account");
+        window.history.pushState({}, "", route);
+      });
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (
+                window as Window & {
+                  __visualEditCollabMessages?: { messages: string[] };
+                }
+              ).__visualEditCollabMessages?.messages ?? [],
+          ),
+        )
+        .toContain("agent-native:live-route-path");
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (
+                window as Window & {
+                  __visualEditCollabMessages?: { messages: string[] };
+                }
+              ).__visualEditCollabMessages?.messages ?? [],
+          ),
+        )
+        .toContain("agent-native:runtime-layer-snapshot");
+      await expect
+        .poll(
+          () => ownerSnapshotStatuses.filter((status) => status === 200).length,
+        )
+        .toBeGreaterThan(ownerPublicationsBeforeEdit);
+      await expect(
+        guestFrame.getByRole("heading", { name: "Owner updated canvas" }),
+      ).toBeVisible({ timeout: 20_000 });
+
+      const publicationStatuses: number[] = [];
+      guest.page.on("response", (response) => {
+        if (response.url().includes("/publish-visual-edit-pending")) {
+          publicationStatuses.push(response.status());
+        }
+      });
+      await enterDirectMode(guest.page, { screenId: collaborationScreenId });
+      await installBridge(guest.page);
+      const heading = guestFrame.getByRole("heading", {
+        name: "Owner updated canvas",
+      });
+      const headingBox = await heading.boundingBox();
+      expect(headingBox).toBeTruthy();
+      await guest.page.evaluate(() => ((window as any).__bridge = []));
+      const modifier = process.platform === "darwin" ? "Meta" : "Control";
+      await guest.page.keyboard.down(modifier);
+      try {
+        await guest.page.mouse.click(
+          (headingBox?.x ?? 0) + (headingBox?.width ?? 0) / 2,
+          (headingBox?.y ?? 0) + (headingBox?.height ?? 0) / 2,
+        );
+      } finally {
+        await guest.page.keyboard.up(modifier);
+      }
+      const selection = await waitForBridge(guest.page, "element-select");
+      const selected = selection?.payload ?? selection;
+      expect(selected.textContent).toContain("Owner updated canvas");
+      const before = await heading.boundingBox();
+      expect(before).toBeTruthy();
+      const handle = guestFrame.locator('[data-agent-native-edge-handle="s"]');
+      await expect(handle).toBeVisible({ timeout: 15_000 });
+      const handleBox = await handle.boundingBox();
+      expect(handleBox).toBeTruthy();
+      await guest.page.mouse.move(
+        (handleBox?.x ?? 0) + (handleBox?.width ?? 0) / 2,
+        (handleBox?.y ?? 0) + (handleBox?.height ?? 0) / 2,
+      );
+      await guest.page.mouse.down();
+      await guest.page.mouse.move(
+        (handleBox?.x ?? 0) + (handleBox?.width ?? 0) / 2,
+        (handleBox?.y ?? 0) + (handleBox?.height ?? 0) / 2 + 16,
+        { steps: 8 },
+      );
+      await guest.page.mouse.up();
+      await waitForBridge(guest.page, "visual-style-change");
+      await expect
+        .poll(() => publicationStatuses.some((status) => status === 200))
+        .toBe(true);
+      await expect(
+        page.getByRole("button", { name: "Apply edits", exact: true }),
+      ).toBeVisible({ timeout: 20_000 });
+
+      await page.screenshot({
+        path: path.resolve(
+          import.meta.dirname,
+          "../../../.tmp/visual-edit-collaboration-owner.png",
+        ),
+      });
+      await guest.page.screenshot({
+        path: path.resolve(
+          import.meta.dirname,
+          "../../../.tmp/visual-edit-collaboration-guest.png",
+        ),
+      });
+      await assertNoRuntimeErrors(guest);
+    } finally {
+      await guest.close();
+    }
+  });
 });
 
 async function listen(server: Server): Promise<{ host: string; port: number }> {
@@ -899,6 +1404,67 @@ async function createLinkedScreen(browser: Browser, designId: string) {
   }
 }
 
+async function createOwnedVisualEditDesign(
+  browser: Browser,
+): Promise<{ designId: string; screenIds: string[] }> {
+  if (!visualEditBridge) throw new Error("visual-edit bridge is not running");
+  const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+  try {
+    const response = await context.request.post(
+      appUrl("/_agent-native/actions/open-visual-edit"),
+      {
+        data: {
+          title: "E2E live canvas collaboration",
+          devServerUrl: visualEditTargetUrl,
+          bridgeUrl: visualEditBridge.manifest.bridgeUrl,
+          rootPath: visualEditBridge.manifest.rootPath,
+          routeManifest: visualEditBridge.manifest,
+          bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
+          paths: ["/", "/settings"],
+          navigate: false,
+          publicReadOnly: false,
+        },
+      },
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `open-visual-edit failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    const result = (await response.json()) as {
+      designId?: string;
+      screens?: Array<{ id?: string }>;
+    };
+    const designId = result.designId;
+    const screenIds = result.screens?.flatMap((screen) =>
+      screen.id ? [screen.id] : [],
+    );
+    if (!designId || !screenIds || screenIds.length < 2) {
+      throw new Error("open-visual-edit returned no design or screen");
+    }
+    return { designId, screenIds };
+  } finally {
+    await context.close();
+  }
+}
+
+async function deleteDesign(browser: Browser, id: string): Promise<void> {
+  const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+  try {
+    const response = await context.request.post(
+      appUrl("/_agent-native/actions/delete-design"),
+      { data: { id } },
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `delete-design failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+  } finally {
+    await context.close();
+  }
+}
+
 async function deleteLinkedScreen(browser: Browser, fileId: string) {
   const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
   try {
@@ -919,6 +1485,7 @@ async function deleteLinkedScreen(browser: Browser, fileId: string) {
 async function openSignedOutPage(
   browser: Browser,
   pathname: string,
+  beforeLoad?: (page: Page) => void,
 ): Promise<SignedOutPage> {
   const context = await browser.newContext({
     storageState: { cookies: [], origins: [] },
@@ -942,6 +1509,7 @@ async function openSignedOutPage(
       mutationRequests.push(url);
     }
   });
+  beforeLoad?.(page);
 
   await page.goto(appUrl(pathname), {
     waitUntil: "domcontentloaded",

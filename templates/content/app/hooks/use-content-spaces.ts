@@ -12,12 +12,15 @@ export type ContentSpaceSummary = {
   filesDocumentId: string;
   orgId: string | null;
   role: "owner" | "editor" | "viewer";
+  /** Whether the viewer may add pages here (owner, admin, or member). */
+  canCreateDatabase?: boolean;
   catalogItemId: string;
   catalogDocumentId: string;
   catalogPosition: number;
 };
 
 export type ListContentSpacesResponse = {
+  sourceMode: "database" | "local-files";
   catalogDatabaseId: string;
   catalogDocumentId: string;
   favoritesDatabaseId: string | null;

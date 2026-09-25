@@ -59,8 +59,15 @@ describe("table column DOM projection", () => {
         host.querySelector("[data-table-selection-gutter]")?.className,
       ).toContain("justify-start");
       expect(
+        host.querySelector("[data-table-selection-gutter]")?.className,
+      ).toContain("border-r");
+      for (const cell of host.querySelectorAll("[data-table-column]")) {
+        expect(cell.className).toContain("items-center");
+        expect(cell.className).toContain("border-r");
+      }
+      expect(
         host.querySelector<HTMLElement>('[data-table-column="number"]')?.style
-          .left,
+          .insetInlineStart,
       ).toBe("56px");
       expect(
         host.querySelector('[data-table-column="name"]')?.className,
@@ -107,7 +114,7 @@ describe("table column DOM projection", () => {
       await render("text");
       expect(
         [...host.querySelectorAll<HTMLElement>("[data-table-frozen]")].map(
-          (cell) => [cell.dataset.tableColumn, cell.style.left],
+          (cell) => [cell.dataset.tableColumn, cell.style.insetInlineStart],
         ),
       ).toEqual([
         ["number", "56px"],

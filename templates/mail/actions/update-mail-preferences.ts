@@ -41,6 +41,7 @@ const patchSchema = z.object({
   previewPane: z.enum(["right", "bottom", "off"]).optional(),
   sendAndArchive: z.boolean().optional(),
   combineInbox: z.boolean().optional(),
+  showAllTab: z.boolean().optional(),
   undoSendDelay: z.coerce.number().optional(),
   pinnedLabels: z.array(z.string()).optional(),
   pinnedLabelsBase: z.array(z.string()).optional(),

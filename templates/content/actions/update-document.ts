@@ -2,7 +2,16 @@ import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  iconValueSchema,
+  parseIconValue,
+  serializeIconValue,
+  type IconValue,
+} from "@agent-native/core/icons";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -16,6 +25,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "../server/lib/canonical-document-body-mutation.js";
+import {
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -24,6 +37,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
+import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
@@ -32,7 +46,12 @@ import {
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
 import {
+  migratePersonalDatabaseViewOverrides,
+  personalDatabaseViewSettingKey,
+} from "./_content-database-personal-view.js";
+import {
   favoriteDocumentIds,
+  favoritesSystemIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
@@ -46,6 +65,8 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { settlePreviewDocumentDraft } from "./_preview-document-draft-settlement.js";
+import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
 // shared/api.ts, which another workstream owns concurrently. Structural
@@ -74,7 +95,7 @@ function isFavoriteOnlyUpdate(args: {
   title?: string;
   content?: string;
   description?: string;
-  icon?: string | null;
+  icon?: IconValue | string | null;
 }) {
   return (
     args.isFavorite !== undefined &&
@@ -188,6 +209,51 @@ function canCommentRole(role: string) {
     role === "admin" ||
     role === "editor" ||
     role === "commenter"
+  );
+}
+
+async function setFavoriteAndOrder(args: {
+  db: ReturnType<typeof getDb>;
+  userEmail: string;
+  documentId: string;
+  favorite: boolean;
+  now: string;
+}) {
+  const favoritesDatabaseId = favoritesSystemIds(args.userEmail).databaseId;
+  const settingName = personalDatabaseViewSettingKey(favoritesDatabaseId);
+  return mutateContentUserSettingTransaction(
+    (callback) => args.db.transaction(callback),
+    args.userEmail,
+    settingName,
+    async (tx, current) => {
+      const migrated = migratePersonalDatabaseViewOverrides(
+        current,
+        favoritesDatabaseId,
+        "favorites",
+      );
+      const activeViewId = migrated?.activeViewId ?? "default";
+      const membership = await setFavoriteMembership({
+        db: tx as unknown as ReturnType<typeof getDb>,
+        userEmail: args.userEmail,
+        documentId: args.documentId,
+        favorite: args.favorite,
+        now: args.now,
+      });
+      return {
+        value: applyContentPersonalNavigationPatch(
+          migrated,
+          {
+            sidebarOrder: {
+              operation: args.favorite ? "prepend" : "remove",
+              viewId: activeViewId,
+              itemId: membership.membershipId,
+            },
+          },
+          [{ id: activeViewId, sorts: [], filters: [], filterMode: "and" }],
+        ) as unknown as Record<string, unknown>,
+        result: membership,
+      };
+    },
   );
 }
 
@@ -311,7 +377,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("Stable page guidance; this does not alter page content"),
-    icon: z.string().nullable().optional().describe("New emoji icon"),
+    icon: z
+      .union([z.string(), iconValueSchema])
+      .nullable()
+      .optional()
+      .describe("New emoji, Tabler icon, or uploaded image icon"),
     isFavorite: z.coerce
       .boolean()
       .optional()
@@ -358,6 +428,22 @@ export default defineAction({
       .describe(
         "Browser editor session ID used to group related title and body saves",
       ),
+    editorSessionId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Stable browser-tab identity for recovery-draft ordering"),
+    editorEditGeneration: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Browser-local edit generation acknowledged by this save; paired with editorSessionId",
+      ),
+    editorSnapshotTitle: z.string().max(10_000).optional(),
+    editorSnapshotContent: z.string().max(500_000).optional(),
     preserveLeadingTitleHeading: z
       .boolean()
       .optional()
@@ -411,6 +497,33 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
     if (
+      (args.editorSessionId === undefined) !==
+      (args.editorEditGeneration === undefined)
+    ) {
+      throw new ActionContractError(
+        "editorSessionId and editorEditGeneration must be provided together.",
+        { errorCode: "INVALID_EDITOR_EDIT_IDENTITY", statusCode: 400 },
+      );
+    }
+    if (
+      (args.editorSnapshotTitle === undefined) !==
+      (args.editorSnapshotContent === undefined)
+    ) {
+      throw new ActionContractError(
+        "editorSnapshotTitle and editorSnapshotContent must be provided together.",
+        { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
+      );
+    }
+    if (args.isFavorite !== undefined && !isFavoriteOnlyUpdate(args)) {
+      throw new ActionContractError(
+        "Favorite changes must be submitted separately from document field changes.",
+        {
+          errorCode: "FAVORITE_UPDATE_MUST_BE_SEPARATE",
+          statusCode: 400,
+        },
+      );
+    }
+    if (
       args.title !== undefined &&
       args.content !== undefined &&
       args.baseRevision !== undefined &&
@@ -453,6 +566,8 @@ export default defineAction({
 
     const db = getDb();
     const requestUserEmail = getRequestUserEmail();
+    const requestOrgId = getRequestOrgId() ?? "";
+    const actor = requireDocumentRequestActor(ctx);
     if (args.isFavorite !== undefined && !requestUserEmail) {
       throw new Error("no authenticated user");
     }
@@ -545,7 +660,8 @@ export default defineAction({
       contentChanged ||
       iconChanged ||
       favoriteChanged ||
-      descriptionChanged;
+      descriptionChanged ||
+      args.isFavorite === false;
 
     let softDeletedDatabaseIds: string[] = [];
     let creativeContext:
@@ -566,11 +682,20 @@ export default defineAction({
       args.baseRevision === undefined &&
       args.baseUpdatedAt !== undefined;
 
-    if (anyChange) {
+    const settlesPreviewDraft =
+      ctx?.caller === "frontend" &&
+      !!requestUserEmail &&
+      !!args.editorSessionId &&
+      args.editorEditGeneration !== undefined &&
+      (args.title !== undefined || args.content !== undefined);
+
+    if (anyChange || settlesPreviewDraft) {
       let contentCasConflict = false;
       let committedContentChanged = false;
       let committedContentBefore = existing.content;
-      await db.transaction(async (tx) => {
+      let committedEditorSnapshot: { title: string; content: string } | null =
+        null;
+      const mutate = async (tx: any) => {
         await tx
           .select({ id: schema.documents.id })
           .from(schema.documents)
@@ -640,7 +765,14 @@ export default defineAction({
           updates.content = content;
           updates.bodyRevision = historyBefore.bodyRevision + 1;
         }
-        if (lockedIconChanged) updates.icon = args.icon;
+        if (lockedIconChanged)
+          updates.icon =
+            args.icon === null
+              ? null
+              : serializeIconValue(parseIconValue(args.icon));
+        if (lockedTitleChanged || lockedContentChanged) {
+          Object.assign(updates, documentEditAttribution(actor));
+        }
         const primaryBlocksFields = lockedContentChanged
           ? await lockPrimaryBlocksFields(
               tx as unknown as ReturnType<typeof getDb>,
@@ -708,16 +840,6 @@ export default defineAction({
         committedContentChanged = lockedContentChanged;
         committedContentBefore = historyBefore.content;
 
-        if (favoriteChanged) {
-          await setFavoriteMembership({
-            db: tx,
-            userEmail: requestUserEmail as string,
-            documentId: id,
-            favorite: args.isFavorite as boolean,
-            now: updatedAt,
-          });
-        }
-
         if (lockedTitleChanged && args.title !== undefined) {
           await propagateDocumentTitle({
             db: tx as unknown as ReturnType<typeof getDb>,
@@ -735,6 +857,7 @@ export default defineAction({
             .from(schema.documents)
             .where(eq(schema.documents.id, id))
             .limit(1);
+          committedEditorSnapshot = after;
           await recordDocumentHistoryTransition({
             db: tx as unknown as ReturnType<typeof getDb>,
             ownerEmail,
@@ -749,7 +872,49 @@ export default defineAction({
             now: updatedAt,
           });
         }
-      });
+        if (settlesPreviewDraft && committedEditorSnapshot === null) {
+          const [snapshot] = await tx
+            .select({
+              title: schema.documents.title,
+              content: schema.documents.content,
+            })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id))
+            .limit(1);
+          committedEditorSnapshot = snapshot ?? null;
+        }
+        if (
+          settlesPreviewDraft &&
+          args.editorSnapshotTitle !== undefined &&
+          args.editorSnapshotContent !== undefined &&
+          committedEditorSnapshot?.title === args.editorSnapshotTitle &&
+          committedEditorSnapshot.content === args.editorSnapshotContent
+        ) {
+          await settlePreviewDocumentDraft({
+            db: tx,
+            ownerEmail: requestUserEmail as string,
+            orgId: requestOrgId,
+            documentId: id,
+            editorSessionId: args.editorSessionId as string,
+            editGeneration: args.editorEditGeneration as number,
+            now: updatedAt,
+          });
+        }
+      };
+      if (
+        (favoriteChanged || args.isFavorite === false) &&
+        !settlesPreviewDraft
+      ) {
+        await setFavoriteAndOrder({
+          db,
+          userEmail: requestUserEmail as string,
+          documentId: id,
+          favorite: args.isFavorite as boolean,
+          now: nextDocumentUpdatedAt(existing.updatedAt),
+        });
+      } else {
+        await db.transaction(mutate);
+      }
 
       if (contentCasConflict) {
         // Someone else's write landed after the caller's snapshot. Don't

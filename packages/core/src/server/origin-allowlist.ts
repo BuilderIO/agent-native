@@ -99,3 +99,27 @@ export function getConfiguredOriginAllowlist(): Set<string> {
   }
   return out;
 }
+
+/**
+ * The origin this request was served at, from proxy headers or `Host` — never
+ * the browser-supplied `Origin`, which is the value being checked against it.
+ */
+export function requestForwardedOrigin(
+  request: Request | undefined,
+): string | undefined {
+  if (!request) return undefined;
+  const url = URL.canParse(request.url) ? new URL(request.url) : undefined;
+  const host =
+    firstHeaderValue(request.headers.get("x-forwarded-host")) ||
+    request.headers.get("host") ||
+    url?.host;
+  const scheme =
+    firstHeaderValue(request.headers.get("x-forwarded-proto")) ||
+    url?.protocol.replace(":", "");
+  if (!host || !scheme) return undefined;
+  return normalizeOrigin(`${scheme}://${host}`);
+}
+
+function firstHeaderValue(value: string | null): string | undefined {
+  return value?.split(",")[0]?.trim() || undefined;
+}

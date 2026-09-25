@@ -46,6 +46,7 @@ import {
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec } from "../db/client.js";
 import {
+  assertHostedRuntimeDatabase,
   getRuntimeDatabaseUrl,
   getPgliteClient,
   isPgliteUrl,
@@ -134,7 +135,10 @@ import {
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
 import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
-import { getConfiguredOriginAllowlist } from "./origin-allowlist.js";
+import {
+  getConfiguredOriginAllowlist,
+  requestForwardedOrigin,
+} from "./origin-allowlist.js";
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
@@ -397,7 +401,11 @@ export async function trackSignupEvent({
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
-    { userId: email, ...(anonymousId ? { anonymousId } : {}) },
+    {
+      userId: email,
+      authUserId,
+      ...(anonymousId ? { anonymousId } : {}),
+    },
   );
   await flushSignupTracking();
 }
@@ -2221,6 +2229,7 @@ async function createBetterAuthInstance(
   const secret = resolveAuthSecret();
 
   const appUrl = getAppProductionUrl();
+  const configuredOrigins = [...getConfiguredOriginAllowlist()];
   const cookieNamespace = resolveAuthCookieNamespace();
   const emailReadiness = getDeploymentEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
@@ -2355,7 +2364,12 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
-    trustedOrigins: [...getConfiguredOriginAllowlist()],
+    // With no https public URL configured (a cloud dev container behind an
+    // https proxy), the proxied host's own same-origin POSTs would fail Better
+    // Auth's origin check. Configured deployments keep the static allowlist.
+    trustedOrigins: appUrl.startsWith("https://")
+      ? configuredOrigins
+      : (request) => [...configuredOrigins, requestForwardedOrigin(request)],
     secret,
     emailAndPassword: {
       enabled: true,
@@ -2766,6 +2780,13 @@ async function createBetterAuthInstance(
 export async function buildDatabaseConfig(): Promise<
   BetterAuthOptions["database"]
 > {
+  // getDbExec() (client.ts's initClient) and createGetDb()'s Drizzle opener
+  // both refuse a hosted invocation with no database URL before resolving
+  // it. This adapter resolves the same runtime URL but used to skip the
+  // refusal entirely, so signup/login reaching this opener first silently
+  // opened the ephemeral per-instance PGlite file instead of failing loudly.
+  assertHostedRuntimeDatabase();
+
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
   const { buildResilientNeonPool, buildResilientPostgresJsClient, isNeonUrl } =
     await import("../db/create-get-db.js");

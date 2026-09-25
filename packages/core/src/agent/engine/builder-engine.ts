@@ -38,7 +38,6 @@ import {
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
   allowsSamplingParams,
-  isGPTReasoningModel,
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
@@ -364,8 +363,6 @@ class BuilderEngine implements AgentEngine {
       thinkingEnabled: Boolean(reasoningEffort) && /claude/i.test(model),
     });
 
-    const gptToolsRequireExplicitNoReasoning =
-      cachedTools.length > 0 && isGPTReasoningModel(model);
     const body: Record<string, unknown> = {
       model,
       messages: cachedMessages,
@@ -379,21 +376,7 @@ class BuilderEngine implements AgentEngine {
       ...(samplingAllowed && typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
         : {}),
-      // OpenAI rejects `reasoning_effort` alongside function tools on Chat
-      // Completions ("Function tools with reasoning_effort are not supported
-      // for <model> in /v1/chat/completions … or set reasoning_effort to
-      // 'none'"), and the gateway routes GPT models there. Every chat on a
-      // gpt-5.x model failed deterministically because of this. Omitting the
-      // field does NOT help — OpenAI then applies the model's own default
-      // effort and rejects identically; only the explicit "none" clears it.
-      // Same guard as the ai-sdk engine's forced-Chat-Completions path.
-      ...(reasoningEffort || gptToolsRequireExplicitNoReasoning
-        ? {
-            reasoning_effort: gptToolsRequireExplicitNoReasoning
-              ? "none"
-              : reasoningEffort,
-          }
-        : {}),
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 
     // Measured once, from the exact string that goes on the wire, and carried
@@ -419,7 +402,7 @@ class BuilderEngine implements AgentEngine {
     const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
     console.log(
-      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} org=${orgLabel}`,
+      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} effort=${reasoningEffort ?? "unset"} org=${orgLabel}`,
     );
 
     const gatewayTimeoutMs = getBuilderGatewayTimeoutMs();
@@ -1004,6 +987,20 @@ async function* parseJsonlStream(
         case "usage": {
           const cacheWrite =
             (event.cacheCreatedTokens ?? 0) + (event.cacheCreated1hTokens ?? 0);
+          if (
+            event.creditsUsed !== undefined &&
+            (!Number.isFinite(event.creditsUsed) || event.creditsUsed < 0)
+          ) {
+            yield gatewayErrorStop(
+              {
+                error: "Builder gateway returned invalid credit usage",
+                errorCode: "builder_gateway_error",
+              },
+              captureContext.creditsLane,
+              captureContext.requestShape,
+            );
+            return;
+          }
           yield {
             type: "usage",
             inputTokens: event.inputTokens ?? 0,
@@ -1012,6 +1009,9 @@ async function* parseJsonlStream(
               ? { cacheReadTokens: event.cacheInputTokens }
               : {}),
             ...(cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}),
+            ...(event.creditsUsed !== undefined
+              ? { builderCreditsUsed: event.creditsUsed }
+              : {}),
           };
           break;
         }

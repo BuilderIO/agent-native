@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Todo",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -26,6 +27,12 @@ const messages = {
     },
     inbox: {
       syncing: "Sincronizando bandeja...",
+    },
+    sort: {
+      label: "Ordenar bandeja",
+      newest: "Más recientes",
+      priority: "Prioridad",
+      priorityFailed: "No se pudo ordenar la bandeja.",
     },
     toolbar: {
       toggleMenu: "Alternar menú",
@@ -61,7 +68,8 @@ const messages = {
       renameTab: "Renombrar pestaña",
       savedFilters: "Filtros guardados",
       combinedInbox: "Bandeja de entrada combinada",
-      help: "Los elementos marcados se muestran como pestañas. Los emails con etiquetas se separan de la bandeja de entrada.",
+      allTab: "Pestaña Todo",
+      help: "Todo incluye todos los hilos de la bandeja de entrada. Las etiquetas marcadas dividen la bandeja.",
     },
     accounts: {
       remove: "Eliminar",
@@ -506,6 +514,11 @@ const messages = {
       instructionFailed: "No se pudo guardar la instrucción del filtro de IA.",
       spamMode: "Spam",
       tagMode: "Etiqueta",
+      importantMode: "Importante",
+      importantLabel: "Importante con IA",
+      reviewImportant: "Ver importantes",
+      importantPlaceholder:
+        "p. ej., mensajes que necesitan respuesta o tienen una fecha límite",
       ruleAdded: "Regla de IA añadida.",
       instructionHelp: "Usa lenguaje natural",
       tagNamePlaceholder: "Nombre de etiqueta",
@@ -523,6 +536,7 @@ const messages = {
       previewButton: "Ejecutar vista previa",
       previewRunning: "Comprobando el correo reciente de Recibidos…",
       jevBadge: "Jev",
+      jevMatchProbability: "Probabilidad de coincidencia de Jev: {{percent}}%",
       feedbackLabel: "Marca las coincidencias que no deberían incluirse",
       notSpamShort: "No es spam",
       notMatchShort: "No coincide",

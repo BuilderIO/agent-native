@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Alle",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -26,6 +27,12 @@ const messages = {
     },
     inbox: {
       syncing: "Posteingang wird synchronisiert…",
+    },
+    sort: {
+      label: "Posteingang sortieren",
+      newest: "Neueste",
+      priority: "Priorität",
+      priorityFailed: "Der Posteingang konnte nicht sortiert werden.",
     },
     toolbar: {
       toggleMenu: "Menü umschalten",
@@ -62,7 +69,8 @@ const messages = {
       renameTab: "Tab umbenennen",
       savedFilters: "Gespeicherte Filter",
       combinedInbox: "Kombinierter Posteingang",
-      help: "Markierte Elemente werden als Tabs angezeigt. Label-E-Mails werden vom Posteingang getrennt.",
+      allTab: "Alle-Tab",
+      help: "Alle enthält alle Threads im Posteingang. Markierte Labels teilen den Posteingang auf.",
     },
     accounts: {
       remove: "Entfernen",
@@ -511,6 +519,11 @@ const messages = {
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
       spamMode: "Unerwünscht",
       tagMode: "Tag",
+      importantMode: "Wichtig",
+      importantLabel: "KI-Wichtig",
+      reviewImportant: "Wichtige anzeigen",
+      importantPlaceholder:
+        "z. B. Nachrichten, die eine Antwort oder einen Termin erfordern",
       ruleAdded: "KI-Regel hinzugefügt.",
       instructionHelp: "Klare Sprache verwenden",
       tagNamePlaceholder: "Tag-Name",
@@ -527,6 +540,7 @@ const messages = {
       previewButton: "Vorschau starten",
       previewRunning: "Letzte Posteingang-E-Mails werden geprüft…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev-Trefferwahrscheinlichkeit: {{percent}}%",
       feedbackLabel: "Treffer auswählen, die nicht enthalten sein sollen",
       notSpamShort: "Kein Spam",
       notMatchShort: "Kein Treffer",

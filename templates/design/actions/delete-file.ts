@@ -9,7 +9,7 @@ import {
   assertAccess,
   currentAccess,
 } from "@agent-native/core/sharing";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -17,6 +17,10 @@ import {
   snapshotDesignBeforeAgentEditInVersionLock,
   withDesignVersionLock,
 } from "../server/lib/design-versions.js";
+import {
+  deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction,
+} from "../server/lib/visual-edit-snapshot-blobs.js";
 import {
   affectedRowCount,
   designSourceMutationLockKey,
@@ -109,7 +113,7 @@ function pruneDesignVariantSets(
   return next;
 }
 
-function pruneDeletedFileMetadata(
+export function pruneDeletedFileMetadata(
   data: Record<string, unknown>,
   fileId: string,
 ): Record<string, unknown> {
@@ -247,6 +251,53 @@ function snapshotDeletedFile(
   };
 }
 
+/**
+ * Delete every file saved under one operation-source prefix (an aborted
+ * browser import) and its canvas metadata in one transaction. Idempotent.
+ */
+export async function deleteDesignFilesByOperationSourcePrefix(
+  designId: string,
+  prefix: string,
+): Promise<string[]> {
+  await assertAccess("design", designId, "editor");
+  return getDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+    );
+    const deleted = await tx
+      .delete(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, designId),
+          like(
+            schema.designFiles.contentOperationSource,
+            `${prefix.replace(/[\\%_]/g, "\\$&")}%`,
+          ),
+        ),
+      )
+      .returning({ id: schema.designFiles.id });
+    if (deleted.length === 0) return [];
+    const [design] = await tx
+      .select({
+        data: schema.designs.data,
+        updatedAt: schema.designs.updatedAt,
+      })
+      .from(schema.designs)
+      .where(eq(schema.designs.id, designId))
+      .for("update");
+    if (!design) throw new Error("Design " + designId + " not found.");
+    let data = parseDesignData(designId, design.data);
+    for (const { id } of deleted) data = pruneDeletedFileMetadata(data, id);
+    const updatedAt = nextUpdatedAt(design.updatedAt, new Date());
+    data.updatedAt = updatedAt;
+    await tx
+      .update(schema.designs)
+      .set({ data: JSON.stringify(data), updatedAt })
+      .where(eq(schema.designs.id, designId));
+    return deleted.map(({ id }) => id);
+  });
+}
+
 export default defineAction({
   description:
     "Delete one or more files from a design project. Idempotent: if a file is already gone, returns deleted=false so cleanup retries can continue. Validates ownership via the parent design's access when the file exists.",
@@ -369,7 +420,11 @@ export default defineAction({
     // Restore locks the same design and updates file rows before designs.data.
     // Keep the checkpoint and mutation under the same table/version boundary so
     // history cannot capture a state that interleaves with the delete.
-    const deletion = await withDesignVersionLock(file.designId, async () => {
+    const deletion: {
+      deletedIds: string[];
+      deletedFiles: DeletedFileSnapshot[];
+      snapshotBlobHandles: (string | null)[];
+    } = await withDesignVersionLock(file.designId, async () => {
       return db.transaction(async (tx) => {
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(file.designId)}, 0::bigint))`,
@@ -392,14 +447,22 @@ export default defineAction({
         );
         if (currentTargetFiles.length !== requestedIds.length) {
           if (requestedIds.length === 1) {
-            return { deletedIds: [], deletedFiles: [] };
+            return {
+              deletedIds: [],
+              deletedFiles: [],
+              snapshotBlobHandles: [],
+            };
           }
           throw new Error(
             "A selected screen changed while it was being deleted. Refresh and try again.",
           );
         }
         if (!currentTargetFiles.length) {
-          return { deletedIds: [], deletedFiles: [] };
+          return {
+            deletedIds: [],
+            deletedFiles: [],
+            snapshotBlobHandles: [],
+          };
         }
         const [design] = await tx
           .select({
@@ -494,6 +557,22 @@ export default defineAction({
         );
 
         const targetIds = currentTargetFiles.map((candidate) => candidate.id);
+        const snapshotRows = await tx
+          .select({
+            blobHandle: schema.designVisualEditSnapshots.blobHandle,
+          })
+          .from(schema.designVisualEditSnapshots)
+          .where(
+            and(
+              eq(schema.designVisualEditSnapshots.designId, file.designId),
+              inArray(schema.designVisualEditSnapshots.fileId, targetIds),
+            ),
+          )
+          .for("update");
+        await queueVisualEditSnapshotBlobCleanupInTransaction(
+          tx,
+          snapshotRows.map((row) => row.blobHandle),
+        );
         const deleteResult = await tx
           .delete(schema.designFiles)
           .where(
@@ -507,7 +586,11 @@ export default defineAction({
         const affected = affectedRowCount(deleteResult);
         if (affected === 0) {
           if (requestedIds.length === 1) {
-            return { deletedIds: [], deletedFiles: [] };
+            return {
+              deletedIds: [],
+              deletedFiles: [],
+              snapshotBlobHandles: [],
+            };
           }
           throw new Error(
             "A selected screen changed while it was being deleted. Refresh and try again.",
@@ -536,9 +619,17 @@ export default defineAction({
         if (designAffected !== 1) {
           throw new Error("Unexpected design metadata update result.");
         }
-        return { deletedIds: targetIds, deletedFiles };
+        return {
+          deletedIds: targetIds,
+          deletedFiles,
+          snapshotBlobHandles: snapshotRows.map((row) => row.blobHandle),
+        };
       });
     });
+
+    if (deletion.deletedIds.length > 0) {
+      await deleteVisualEditSnapshotBlobs(deletion.snapshotBlobHandles);
+    }
 
     if (requestedIds.length === 1) {
       return deletion.deletedIds.includes(id)

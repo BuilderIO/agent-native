@@ -2,14 +2,10 @@ import {
   sendToAgentChat,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
-import {
-  callAction,
-  useChangeVersions,
-  useSession,
-} from "@agent-native/core/client/hooks";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useEffect, useRef } from "react";
 
-export const TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS = 60_000;
+export const TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS = 3 * 60_000;
 
 export type TransactionalEmailContextPacket = {
   recordingId: string;
@@ -122,7 +118,6 @@ export async function dispatchClaimedTransactionalEmailAiRequests(
 }
 
 export function useTransactionalEmailBridge(): void {
-  const actionVersion = useChangeVersions(["action"]);
   const { status } = useSession();
   const dispatched = useRef(new Set<string>());
 
@@ -146,12 +141,14 @@ export function useTransactionalEmailBridge(): void {
     };
 
     tick();
-    // The transactional email queue is file-backed, so background worker writes
-    // do not emit SQL/action change events that this browser can observe.
+    // clips_transactional_email_jobs is SQL, but the transactional-emails
+    // cron job enqueues awaiting_ai rows directly without bumping a change
+    // version, so no SQL/action change event reaches this browser — only
+    // this timer notices a claimable job.
     const timer = setInterval(tick, TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS);
     return () => {
       controller.abort();
       clearInterval(timer);
     };
-  }, [actionVersion, status]);
+  }, [status]);
 }

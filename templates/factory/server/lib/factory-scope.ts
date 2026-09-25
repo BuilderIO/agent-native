@@ -468,6 +468,7 @@ export function patchAutomationResource(
     enabled?: boolean;
     schedule?: string;
     model?: string | null;
+    reasoningEffort?: string | null;
     displayName?: string;
   },
 ): string {
@@ -492,6 +493,13 @@ export function patchAutomationResource(
       patch.model?.trim() ?? "",
     );
   }
+  if (patch.reasoningEffort !== undefined) {
+    next = setAutomationFrontmatterField(
+      next,
+      "reasoningEffort",
+      patch.reasoningEffort?.trim() ?? "",
+    );
+  }
   if (patch.displayName !== undefined) {
     next = setAutomationFrontmatterField(
       next,
@@ -513,4 +521,8 @@ export function readAutomationSchedule(content: string): string | null {
 
 export function readAutomationModel(content: string): string | null {
   return readFrontmatterField(content, "model")?.trim() || null;
+}
+
+export function readAutomationReasoningEffort(content: string): string | null {
+  return readFrontmatterField(content, "reasoningEffort")?.trim() || null;
 }

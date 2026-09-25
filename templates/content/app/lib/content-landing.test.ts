@@ -22,7 +22,7 @@ describe("rememberContentLandingDocument", () => {
   it("stores the successfully loaded page separately from agent navigation", async () => {
     writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
 
-    await rememberContentLandingDocument("doc-1");
+    await rememberContentLandingDocument({ documentId: "doc-1" });
 
     expect(writeClientAppState).toHaveBeenCalledWith(
       "content-last-location-v1",
@@ -66,8 +66,8 @@ describe("rememberContentLandingDocument", () => {
       )
       .mockResolvedValueOnce({ documentId: "doc-2" });
 
-    const first = rememberContentLandingDocument("doc-1");
-    const second = rememberContentLandingDocument("doc-2");
+    const first = rememberContentLandingDocument({ documentId: "doc-1" });
+    const second = rememberContentLandingDocument({ documentId: "doc-2" });
     await vi.waitFor(() =>
       expect(writeClientAppState).toHaveBeenCalledTimes(1),
     );
@@ -84,8 +84,23 @@ describe("rememberContentLandingDocument", () => {
   it("leaves write failures observable to the caller", async () => {
     writeClientAppState.mockRejectedValue(new Error("state unavailable"));
 
-    await expect(rememberContentLandingDocument("doc-1")).rejects.toThrow(
-      "state unavailable",
+    await expect(
+      rememberContentLandingDocument({ documentId: "doc-1" }),
+    ).rejects.toThrow("state unavailable");
+  });
+
+  it("stores exact destinations separately for each Content space", async () => {
+    writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
+
+    await rememberContentLandingDocument(
+      { documentId: "doc-1", databaseId: "db-1", viewId: "view-1" },
+      "space-1",
+    );
+
+    expect(writeClientAppState).toHaveBeenCalledWith(
+      "content-last-location-v2:space-1",
+      { documentId: "doc-1", databaseId: "db-1", viewId: "view-1" },
+      { requestSource: "content-landing" },
     );
   });
 });

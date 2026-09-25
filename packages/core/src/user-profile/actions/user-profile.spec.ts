@@ -157,14 +157,22 @@ describe("user profile actions", () => {
     );
   });
 
-  it("rejects an onboarding role outside the shared vocabulary", async () => {
+  it("passes a custom onboarding role through to the shared profile write", async () => {
     await expect(
       updateProfile.run(
-        { name: "Alice Smith", onboardingRole: "pirate" as never },
+        { name: "Alice Smith", onboardingRole: "Content strategist" },
         { caller: "frontend", userEmail: "alice@example.com" },
       ),
-    ).rejects.toThrow();
-    expect(updateUserProfileMock).not.toHaveBeenCalled();
+    ).resolves.toEqual({
+      email: "alice@example.com",
+      name: "Alice Smith",
+      onboardingRole: null,
+    });
+    expect(updateUserProfileMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "Alice Smith",
+      "Content strategist",
+    );
   });
 
   it("records privacy requests only from Account settings", async () => {

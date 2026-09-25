@@ -1225,6 +1225,11 @@ describe("Chromium reparent matrix", () => {
       expect(inserted.parent).toBe("host");
       expect(inserted.order).toEqual(["existing", "board-rect"]);
       expect(inserted.structures).toHaveLength(1);
+      // The host's runtime-insert request id must survive the bridge hop so a
+      // later Cmd+Z ack can find and remove the optimistic clone. Generating a
+      // fresh move id here leaves the pending ledger clear while the DOM copy
+      // remains in the running app.
+      expect(String(inserted.structures[0]!.requestId)).toBe("41");
       // insertedHtml is what tells the host (and then the coding agent) this is
       // new markup to add, not an existing element to relocate.
       expect(inserted.structures[0]!.insertedHtml).toContain(
@@ -1240,7 +1245,7 @@ describe("Chromium reparent matrix", () => {
             data: { type: "visual-structure-ack", requestId, applied: false },
           }),
         );
-      }, inserted.structures[0]!.requestId);
+      }, 41);
       await expect
         .poll(() =>
           page.evaluate(
@@ -1251,6 +1256,94 @@ describe("Chromium reparent matrix", () => {
           ),
         )
         .toBe(0);
+      await page.close();
+    },
+  );
+
+  it(
+    "rolls back an unacknowledged cross-screen insert by transaction identity after reminting a colliding node id",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+        <div id="host"><div data-agent-native-node-id="shared-id">Existing</div></div>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 46,
+              transactionId: "move-timeout-1",
+              remintCollidingNodeIds: true,
+              html: '<div data-agent-native-node-id="shared-id">Moved</div>',
+              anchorSelector: "#host",
+              anchorSourceId: "",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+      await page.waitForFunction(() =>
+        Array.from(document.querySelectorAll("#host > div")).some(
+          (element) => element.textContent === "Moved",
+        ),
+      );
+      const ids = await page.locator("#host > div").evaluateAll((elements) =>
+        elements.map((element) => ({
+          text: element.textContent,
+          nodeId: element.getAttribute("data-agent-native-node-id"),
+        })),
+      );
+      expect(ids.find((element) => element.text === "Existing")?.nodeId).toBe(
+        "shared-id",
+      );
+      expect(ids.find((element) => element.text === "Moved")?.nodeId).not.toBe(
+        "shared-id",
+      );
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-rollback-insert",
+              requestId: "move-timeout-1:rollback",
+              transactionId: "move-timeout-1",
+              selector: "",
+            },
+          }),
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          Array.from(document.querySelectorAll("#host > div")).some(
+            (element) => element.textContent === "Existing",
+          ) &&
+          !Array.from(document.querySelectorAll("#host > div")).some(
+            (element) => element.textContent === "Moved",
+          ),
+      );
+      const results = await page.evaluate(() =>
+        (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!.filter(
+          (message) => message.type === "runtime-structure-rollback-result",
+        ),
+      );
+      expect(results).toContainEqual(
+        expect.objectContaining({
+          requestId: "move-timeout-1:rollback",
+          transactionId: "move-timeout-1",
+          applied: true,
+        }),
+      );
       await page.close();
     },
   );
@@ -1490,13 +1583,13 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenId: "screen-a",
       }),
     ).toBe("screen-bridge");
-    // A board primitive dropped into a live localhost screen: neither endpoint
-    // is runtimeOnly (the live anchor has no stored layer owner), so without
-    // targetScreenIsLive this resolves to "source-edit" and the move is written
-    // as an HTML document over the destination screen's bridge URL.
+    // A board primitive dropped into a live localhost screen: the live anchor
+    // has no stored layer owner, so without targetScreenIsLive this resolves to
+    // "source-edit" and the move is written as an HTML document over the
+    // destination screen's bridge URL.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
-        subjectRuntimeOnly: false,
+        subjectRuntimeOnly: true,
         targetRuntimeOnly: false,
         sourceScreenId: "board",
         targetScreenId: "live",
@@ -1504,8 +1597,9 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenIsLive: true,
       }),
     ).toBe("screen-bridge-insert");
-    // Only the board may be reinterpreted as an insert — a stored screen's
-    // element moved into a live app would otherwise be silently duplicated.
+    // Only the board may be reinterpreted as an insert. This also covers a
+    // runtime-only node copied from a live screen onto the board: the board is
+    // the source surface, and the destination live DOM must receive the copy.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
         subjectRuntimeOnly: false,

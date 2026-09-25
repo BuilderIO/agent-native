@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "전체",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -26,6 +27,12 @@ const messages = {
     },
     inbox: {
       syncing: "받은편지함 동기화 중…",
+    },
+    sort: {
+      label: "받은편지함 정렬",
+      newest: "최신순",
+      priority: "우선순위",
+      priorityFailed: "받은편지함을 정렬하지 못했습니다.",
     },
     toolbar: {
       toggleMenu: "메뉴 전환",
@@ -61,7 +68,8 @@ const messages = {
       renameTab: "탭 이름 변경",
       savedFilters: "저장된 필터",
       combinedInbox: "통합 받은편지함",
-      help: "체크한 항목은 탭으로 표시됩니다. 라벨 이메일은 받은편지함에서 분리됩니다.",
+      allTab: "전체 탭",
+      help: "전체에는 받은편지함의 모든 스레드가 포함됩니다. 선택한 라벨에 따라 받은편지함이 나뉩니다.",
     },
     accounts: {
       remove: "제거",
@@ -502,6 +510,10 @@ const messages = {
       instructionFailed: "AI 필터 지침을 저장하지 못했습니다.",
       spamMode: "스팸",
       tagMode: "태그",
+      importantMode: "중요",
+      importantLabel: "AI 중요",
+      reviewImportant: "중요 메일 보기",
+      importantPlaceholder: "예: 답장이 필요하거나 기한이 있는 메시지",
       ruleAdded: "AI 규칙을 추가했습니다.",
       instructionHelp: "자연어로 입력하세요",
       tagNamePlaceholder: "태그 이름",
@@ -517,6 +529,7 @@ const messages = {
       previewButton: "미리보기 실행",
       previewRunning: "최근 받은편지함 메일 확인 중…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev 일치 확률 {{percent}}%",
       feedbackLabel: "포함하지 않을 일치 항목을 선택하세요",
       notSpamShort: "스팸 아님",
       notMatchShort: "일치하지 않음",

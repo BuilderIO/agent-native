@@ -1,3 +1,27 @@
+## 0.164.4
+
+### Patch Changes
+
+- c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
+
+## 0.164.3
+
+### Patch Changes
+
+- f790010: Keep the current-main merge tree formatter-clean for shared agent runtime sources.
+
+## 0.164.2
+
+### Patch Changes
+
+- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
+
+## 0.164.1
+
+### Patch Changes
+
+- 5a05b04: Connect signed-in users to Builder's managed AI gateway with least-privilege OAuth, encrypted per-user token custody, refresh, and revocation while preserving legacy Builder credentials for uncovered integrations.
+
 ## 0.164.0
 
 ### Minor Changes

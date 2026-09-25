@@ -32,24 +32,33 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar arquivos, agentes ou recursos",
   "commands.new": "O mesmo que /clear",
   "commands.plan": "Mudar para o planejamento somente leitura",
+  "observability.viewDetails": "Ver detalhes",
+  "observability.hideDetails": "Ocultar detalhes",
+  "observability.input": "Entrada",
+  "observability.output": "Saída",
+  "observability.error": "Erro",
+  "observability.metadata": "Metadados",
+  "observability.notCaptured": "Não capturado",
+  "observability.openFullConversation": "Abrir conversa completa",
+  "observability.learnAboutTab": "Saiba mais sobre esta guia",
   "onboarding.back": "Voltar",
   "onboarding.chooseRole": "Escolha sua função",
   "onboarding.customizeRole": "Vamos personalizar isso para você.",
   "onboarding.roleQuestion": "O que melhor descreve sua função?",
-  "onboarding.roleProduct": "Produto",
-  "onboarding.roleDesign": "Design",
+  "onboarding.roleHelperText": "Isso nos ajuda a personalizar sua experiência",
+  "onboarding.roleProduct": "Gerente de produto",
+  "onboarding.roleDesign": "Designer",
   "onboarding.roleDeveloper": "Desenvolvimento",
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Vendas",
   "onboarding.roleOps": "Operações",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Outro",
+  "onboarding.roleOtherInputLabel": "Descreva sua função",
   "onboarding.skipForNow": "Pular por enquanto",
   "onboarding.saveRoleError": "Não foi possível salvar sua função.",
-  "onboarding.builderActivateCredits":
-    "Ativar créditos gratuitos do Builder.io",
-  "onboarding.builderConnectCredits":
-    "Conectar créditos gratuitos do Builder.io",
+  "onboarding.builderCreateAccount": "Criar conta do Builder.io",
+  "onboarding.builderSignInWithAccount": "Entrar com uma conta do Builder.io",
   "onboarding.builderActivateDescription":
     "Crie ou reutilize sua conta do Builder.io e ative os créditos gratuitos com um clique.",
   "onboarding.builderActiveCredits":
@@ -61,9 +70,10 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "Criaremos automaticamente sua conta do Builder.io com um clique.",
   "onboarding.builderCreateAndActivate": "Criar e ativar",
-  "onboarding.builderConsentPrefix": "Ao continuar, você concorda com os",
-  "onboarding.builderTerms": "Termos",
-  "onboarding.builderPrivacy": "Privacidade",
+  "onboarding.builderConsentPrefix":
+    "Ao criar uma conta Builder.io, você concorda com nossos",
+  "onboarding.builderTerms": "Termos de Serviço",
+  "onboarding.builderPrivacy": "Política de Privacidade",
   "onboarding.builderConsentAnd": "e",
   "onboarding.builderExistingAccount": "Tenho uma conta do Builder.io",
   "onboarding.builderActivating":
@@ -80,10 +90,9 @@ const messages: AgentChatTranslation = {
     "Os créditos de IA estão prontos para uso. As edições de código na nuvem exigem um projeto Builder nas configurações do agente em segundo plano.",
   "onboarding.openBackgroundAgentSettings":
     "Abrir configurações do agente em segundo plano",
-  "onboarding.capability.llm.keySummary":
-    "Conecte um provedor de IA ou modelo local",
+  "onboarding.capability.llm.keySummary": "Conecte seu próprio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
-    "Armazenamento Builder ou bucket compatível com S3",
+    "Upload e armazenamento de arquivos",
   "onboarding.fileStorage.title": "Escolha o armazenamento de arquivos",
   "onboarding.fileStorage.description":
     "Escolha o armazenamento gerenciado do Builder ou suas próprias chaves para um bucket compatível com S3.",
@@ -92,13 +101,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "Configure um bucket compatível com S3 com uma URL pública estável.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
-  "onboarding.capability.voiceInput.keySummary":
-    "Reconhecimento de voz do navegador ou conversão de fala em texto",
+  "onboarding.capability.voiceInput.keySummary": "Entrada de voz",
   "onboarding.capability.voiceInput.why":
     "A entrada de voz transforma solicitações faladas em texto; digitar sempre funciona.",
   "onboarding.capability.embeddings.label": "Vetores semânticos",
-  "onboarding.capability.embeddings.keySummary":
-    "Chave do Gemini, Cohere ou Voyage",
+  "onboarding.capability.embeddings.keySummary": "Vetores semânticos",
   "onboarding.capability.embeddings.why":
     "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
   "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
@@ -139,6 +146,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.useOrganizationKey": "Usar chave da organização",
   "agentPanel.keyStatusUnavailable":
     "Não foi possível consultar o status da chave.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Permita pop-ups para este site e tente novamente.",
+  "agentPanel.chatgptSubscriptionTitle": "Assinatura do ChatGPT",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Acesso experimental ao Codex por meio da sua assinatura do ChatGPT.",
+  "agentPanel.chatgptSubscriptionInUse": "Em uso",
+  "agentPanel.chatgptSubscriptionConnected": "Conectado",
+  "agentPanel.chatgptSubscriptionConnecting": "Conectando…",
+  "agentPanel.chatgptSubscriptionReconnect": "Reconectar",
+  "agentPanel.chatgptSubscriptionConnect": "Conectar ao ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "Usar no chat",
+  "agentPanel.chatgptSubscriptionDisconnect": "Desconectar",
   "agentHostNudge.sidebarTitle": "Usar o chat do {{agent}}",
   "agentHostNudge.sidebarDescription":
     "Você já está conversando com {{agent}}. Peça para ele trabalhar diretamente com este app.",
@@ -160,6 +179,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "Carregando...",
   "common.no": "Não",
   "common.retry": "Tentar novamente",
+  "common.chunkLoadFailed": "Não foi possível carregar. Tente novamente.",
   "common.save": "Salvar",
   "agents.hostedAgent": "Agente hospedado",
   "agents.provider": "Provedor",
@@ -477,6 +497,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "Descreva a habilidade que você deseja criar...",
   "composer.documentTooLarge":
     '"{{name}}" tem {{size}} MB. {{label}} são limitados a {{maxSize}} MB para não ultrapassar o tamanho máximo da mensagem. Reduza o arquivo ou divida-o em partes menores.',
+  "composer.requestTooLarge":
+    "Esta mensagem e seus anexos são grandes demais para enviar. Remova um anexo ou encurte a mensagem.",
   "composer.file": "arquivo",
   "composer.imageModel": "Modelo de imagem",
   "composer.imagePreview": "Visualização da imagem",
@@ -708,7 +730,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "O provedor de IA recusou temporariamente esta solicitação. Isso costuma se resolver em menos de um minuto — tente novamente.",
   "errorMessages.startNewChat": "Iniciar novo chat",
-  "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
+  "errorMessages.addCreditsInBuilder": "Adicionar créditos no Builder",
   "feedback.inaccurate": "Impreciso",
   "feedback.keyboardHint": "{{shortcut}} Enter para enviar",
   "feedback.notHelpful": "Pouco útil",
@@ -847,6 +869,24 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "Não foi possível enviar a confirmação.",
   "settings.emailNewLabel": "Novo e-mail",
   "settings.emailNewPlaceholder": "Digite o novo e-mail",
+  "usage.builderCredits": "Créditos do Builder",
+  "usage.creditBalance": "Saldo do workspace",
+  "usage.monthlyPlan": "Plano mensal",
+  "usage.dailyFreeLimit": "Limite diário gratuito",
+  "usage.creditUsedOfLimit": "{{used}} de {{limit}} usados",
+  "usage.creditRemaining": "{{amount}} restantes",
+  "usage.creditUsageUnavailable":
+    "Não foi possível carregar o uso de créditos do Builder.",
+  "usage.estimatedBuilderCredits": "~{{amount}} créditos estimados",
+  "usage.otherUsdSpend": "{{amount}} USD adicional",
+  "usage.noBuilderCredits": "0 créditos do Builder",
+  "usage.otherUnclassifiedSpend":
+    "Gastos em USD adicionais ou não classificados",
+  "usage.providerSpendDetail":
+    "Uso do provedor ou chamadas antigas fora da cobrança do Builder",
+  "usage.providerSpendToday":
+    "Uso adicional ou não classificado hoje: {{amount}}",
+  "usage.driverCreditsAndUsd": "Créditos do Builder / USD",
 };
 
 export default messages;

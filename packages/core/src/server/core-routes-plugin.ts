@@ -51,6 +51,8 @@ import {
   deleteComposeDraft,
   deleteAllComposeDrafts,
   getStateMany,
+  APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
+  type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
@@ -68,11 +70,17 @@ import {
 } from "../db/runtime-diagnostics.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
+  BUILDER_CREDIT_USAGE_REPORTING_FLAG,
+  registerFeatureFlags,
+} from "../feature-flags/registry.js";
+import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
 } from "../file-upload/index.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
+import { registerLabs } from "../labs/registry.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -87,6 +95,7 @@ import {
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { getOrgContext } from "../org/context.js";
 import { createProgressHandler } from "../progress/routes.js";
+import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
 import {
   parseRemoteAgentAuth,
   parseRemoteAgentKind,
@@ -135,6 +144,7 @@ import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
 import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
@@ -205,6 +215,10 @@ import {
   type BuilderOAuthPendingFlow,
 } from "./builder-oauth.js";
 import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
+import {
+  createChatGPTSubscriptionOAuthCallbackHandler,
+  createChatGPTSubscriptionOAuthStartHandler,
+} from "./chatgpt-subscription-oauth.js";
 import {
   resolveCoreRoutesMcpOptions,
   type CoreRoutesMcpOptions,
@@ -1601,10 +1615,12 @@ export interface CoreRoutesPluginOptions {
   disableSSE?: boolean;
   /**
    * Close an SSE stream after this many milliseconds instead of holding it
-   * open indefinitely. On a serverless host, set it below the platform's
-   * function ceiling (e.g. 280_000 under Vercel's 300s limit): the stream then
-   * ends at 200 and the client reconnects, instead of the platform killing the
-   * invocation and recording a runtime timeout. Default: unset (no cap).
+   * open indefinitely, so the stream ends at 200 and the client reconnects
+   * instead of the platform killing the invocation and recording a runtime
+   * timeout. Only applies on a long-lived host, or a production serverless
+   * request from a bundle old enough to still stream (see the SSE mount) —
+   * a request that opts into the 204 short-circuit never reaches the stream,
+   * so this value is unused for it. Default: unset (no cap).
    * `createCoreRoutesPlugin` throws on a zero, negative, or non-finite value.
    */
   sseMaxDurationMs?: number;
@@ -1628,6 +1644,14 @@ export interface CoreRoutesPluginOptions {
   googleOAuthManagedConnection?: "required" | "not_applicable";
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
+  /**
+   * Let anonymous visitors keep application state under the owner that
+   * `anonymousOwner` resolves, instead of answering them 401. For apps whose
+   * chat or pages run for visitors without a session (a guest chat): the
+   * client's navigation, URL and composer preference sync then works for them
+   * too. Off by default, since every anonymous visitor then gets state rows.
+   */
+  anonymousApplicationState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
   disableOpenRoute?: boolean;
   /** Disable the /_agent-native/embed/start iframe session launcher. */
@@ -1995,9 +2019,10 @@ export function createOAuthPopupWaitingHandler() {
       "default-src 'none'; frame-ancestors 'none'",
     );
     setResponseHeader(event, "X-Frame-Options", "DENY");
-    // Match the opener's policy so the client can navigate this inert page
-    // before the provider navigation creates a new browsing-context group.
-    setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
+    // Keep the opener alive until the client replaces this inert page with the
+    // provider URL. The response has no script or user data, so it does not
+    // need the default same-origin opener isolation.
+    setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
     return OAUTH_POPUP_WAITING_HTML;
   });
 }
@@ -2006,10 +2031,20 @@ export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
   app: H3AppShim = getH3App(nitroApp),
+  options: { anonymousOwner?: AppStateAnonymousOwnerResolver } = {},
 ): void {
+  // Hand the handlers the app's anonymous owner resolver; they consult it only
+  // when the request has no session.
+  const withAnonymousOwner = (event: H3Event) => {
+    if (options.anonymousOwner && event.context) {
+      event.context[APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY] =
+        options.anonymousOwner;
+    }
+  };
   app.use(
     `${routePrefix}/application-state/compose`,
     defineEventHandler(async (event: H3Event) => {
+      withAnonymousOwner(event);
       const id =
         (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
       if (event.context) {
@@ -2035,6 +2070,7 @@ export function mountApplicationStateRoutes(
       const key =
         (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
       if (key === "compose") return;
+      withAnonymousOwner(event);
       if (key === "") {
         if (getMethod(event) === "GET") return getStateMany(event);
         return;
@@ -2069,6 +2105,8 @@ export function createCoreRoutesPlugin(
     options.googleOAuthManagedConnection ?? "unknown";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
+    registerFeatureFlags([BUILDER_CREDIT_USAGE_REPORTING_FLAG]);
+    registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
     let resolveInit: () => void = () => {};
@@ -2115,12 +2153,24 @@ export function createCoreRoutesPlugin(
         `${P}/oauth/popup`,
         createOAuthPopupWaitingHandler(),
       );
+      getH3App(nitroApp).use(
+        `${P}/agent-engine/chatgpt-subscription/start`,
+        createChatGPTSubscriptionOAuthStartHandler(),
+      );
+      getH3App(nitroApp).use(
+        `${P}/agent-engine/chatgpt-subscription/callback`,
+        createChatGPTSubscriptionOAuthCallbackHandler(),
+      );
 
       if (!options.disableAppState) {
         // Application state is part of the client bootstrap contract. Register
         // it before optional plugin/bootstrap work so the first localization
         // write cannot fall through to the template router on a cold start.
-        mountApplicationStateRoutes(nitroApp, P);
+        mountApplicationStateRoutes(nitroApp, P, undefined, {
+          anonymousOwner: options.anonymousApplicationState
+            ? options.anonymousOwner
+            : undefined,
+        });
       }
 
       // This response is a side-effect-free static contract used by the SSR
@@ -2819,13 +2869,45 @@ export function createCoreRoutesPlugin(
 
       // SSE
       if (!options.disableSSE) {
+        // A serverless invocation holding this stream never ends on its own:
+        // the platform kills it at its own ceiling, which recycles that
+        // execution environment, and EventSource reconnects immediately — one
+        // open tab becomes a steady stream of fresh cold containers. Refusing
+        // up front with a bare 204 (EventSource treats any non-200 status as
+        // terminal and does not auto-reconnect; 204 is the conventional "stop"
+        // signal) costs nothing per invocation and lets the client's own
+        // local-reconnect path (use-db-sync.ts) fall back to /poll instead,
+        // reporting poll-live so subscribers keep their normal cadence.
+        // Long-lived Node hosts and local dev are unaffected.
+        //
+        // Gated on the request itself, not only the runtime: `isServerlessRuntime()`
+        // is a pool-sizing check that is also true under `netlify dev`
+        // (NETLIFY_LOCAL, a long-lived local server) and on Cloudflare (one
+        // isolate serving many concurrent requests, where in-process events
+        // can still reach some streams) — a false positive there would
+        // silently drop local SSE. `isProductionServerlessFunctionRuntime()`
+        // excludes both. The `poll_live` param further limits the 204 to
+        // requests from a client new enough to fall back to poll-live; an
+        // older bundle's stream (already open, or opened before its next
+        // reload) keeps streaming.
+        const streamHandler = createPollEventsHandler(undefined, {
+          maxDurationMs: sseMaxDurationMs,
+        });
+        const sseHandler = isProductionServerlessFunctionRuntime()
+          ? defineEventHandler((event) => {
+              if (
+                getRequestURL(event).searchParams.get(
+                  REALTIME_POLL_LIVE_QUERY_PARAM,
+                ) === "1"
+              ) {
+                setResponseStatus(event, 204);
+                return "";
+              }
+              return streamHandler(event);
+            })
+          : streamHandler;
         for (const route of resolveFrameworkSseRoutes(options.sseRoute)) {
-          getH3App(nitroApp).use(
-            route,
-            createPollEventsHandler(undefined, {
-              maxDurationMs: sseMaxDurationMs,
-            }),
-          );
+          getH3App(nitroApp).use(route, sseHandler);
         }
       }
 
@@ -4756,6 +4838,14 @@ export function createCoreRoutesPlugin(
         createAgentEngineApiKeyHandler(),
       );
 
+      // GET /_agent-native/agent-engine/ollama-models — lists the models an
+      // Ollama server actually has installed, so the provider setup form can
+      // show real options instead of only the static suggestion list.
+      getH3App(nitroApp).use(
+        `${P}/agent-engine/ollama-models`,
+        createAgentEngineOllamaModelsHandler(),
+      );
+
       // GET /_agent-native/agent-engine/status — reports whether an engine
       // is configured (settings row, settings+env, or auto-detected from env).
       // The agent-chat UI uses this to skip the onboarding gate for providers
@@ -4842,6 +4932,7 @@ export function createCoreRoutesPlugin(
           try {
             track(validation.name as string, properties, {
               userId: userEmail,
+              authUserId: session.authUserId,
               sessionId: readBrowserSessionIdHeader(event),
               telemetryOrigin: "client",
             });

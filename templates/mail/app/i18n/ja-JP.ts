@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "すべて",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -26,6 +27,12 @@ const messages = {
     },
     inbox: {
       syncing: "受信トレイを同期中…",
+    },
+    sort: {
+      label: "受信トレイを並べ替え",
+      newest: "新着順",
+      priority: "優先度",
+      priorityFailed: "受信トレイを並べ替えられませんでした。",
     },
     toolbar: {
       toggleMenu: "メニューを切り替え",
@@ -62,7 +69,8 @@ const messages = {
       renameTab: "タブ名を変更",
       savedFilters: "保存したフィルター",
       combinedInbox: "統合受信トレイ",
-      help: "チェックした項目はタブとして表示されます。ラベル付きメールは受信トレイから分離されます。",
+      allTab: "すべてタブ",
+      help: "すべてには受信トレイの全スレッドが含まれます。選択したラベルで受信トレイが分割されます。",
     },
     accounts: {
       remove: "削除",
@@ -504,6 +512,10 @@ const messages = {
       instructionFailed: "AI フィルターの指示を保存できませんでした。",
       spamMode: "スパム",
       tagMode: "タグ",
+      importantMode: "重要",
+      importantLabel: "AI重要",
+      reviewImportant: "重要を見る",
+      importantPlaceholder: "例：返信が必要なメールや期限のあるメール",
       ruleAdded: "AI ルールを追加しました。",
       instructionHelp: "自然な言葉で入力",
       tagNamePlaceholder: "タグ名",
@@ -518,6 +530,7 @@ const messages = {
       previewButton: "プレビューを実行",
       previewRunning: "最近の受信トレイを確認中…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev の一致確率 {{percent}}%",
       feedbackLabel: "含めない一致を選択",
       notSpamShort: "スパムではない",
       notMatchShort: "一致しない",

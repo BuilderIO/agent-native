@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Tout",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -26,6 +27,12 @@ const messages = {
     },
     inbox: {
       syncing: "Synchronisation de la boîte...",
+    },
+    sort: {
+      label: "Trier la boîte de réception",
+      newest: "Plus récents",
+      priority: "Priorité",
+      priorityFailed: "Impossible de trier la boîte de réception.",
     },
     toolbar: {
       toggleMenu: "Basculer le menu",
@@ -61,7 +68,8 @@ const messages = {
       renameTab: "Renommer l’onglet",
       savedFilters: "Filtres enregistrés",
       combinedInbox: "Boîte de réception combinée",
-      help: "Les éléments cochés s’affichent comme onglets. Les emails libellés sont séparés de la boîte de réception.",
+      allTab: "Onglet Tout",
+      help: "Tout inclut tous les fils de la boîte de réception. Les libellés cochés répartissent la boîte.",
     },
     accounts: {
       remove: "Retirer",
@@ -509,6 +517,11 @@ const messages = {
       instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
       spamMode: "Indésirable",
       tagMode: "Tag",
+      importantMode: "Important",
+      importantLabel: "Important par IA",
+      reviewImportant: "Voir les importants",
+      importantPlaceholder:
+        "ex. Messages nécessitant une réponse ou comportant une échéance",
       ruleAdded: "Règle IA ajoutée.",
       instructionHelp: "Utilisez le langage naturel",
       tagNamePlaceholder: "Nom du tag",
@@ -525,6 +538,7 @@ const messages = {
       previewButton: "Lancer la prévisualisation",
       previewRunning: "Vérification des emails récents…",
       jevBadge: "Jev",
+      jevMatchProbability: "Probabilité de correspondance Jev : {{percent}}%",
       feedbackLabel: "Cochez les correspondances à exclure",
       notSpamShort: "Pas indésirable",
       notMatchShort: "Pas une correspondance",

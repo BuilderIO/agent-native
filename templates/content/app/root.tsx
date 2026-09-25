@@ -67,6 +67,7 @@ import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
+import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
 
 import stylesheet from "./global.css?url";
 import katexStylesheet from "katex/dist/katex.min.css?url";
@@ -117,7 +118,8 @@ export function shouldRevalidate({
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
 const LazyAgentSidebar = lazy(async () => {
-  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  const { AgentSidebar } =
+    await import("@agent-native/core/client/AgentSidebar");
   return { default: AgentSidebar };
 });
 
@@ -323,9 +325,11 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
 function ContentCommandMenu({
   open,
   onOpenChange,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus: (event: Event) => void;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -333,6 +337,7 @@ function ContentCommandMenu({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
       placeholder={t("root.commandSearchPlaceholder")}
       inputLabel={t("root.commandSearchDocuments")}
       className="!top-1/2 h-[min(760px,calc(100vh-2rem))] w-[calc(100vw-1rem)] max-w-5xl !-translate-y-1/2 [&_[cmdk-list]]:min-h-0 [&_[cmdk-list]]:max-h-none [&_[cmdk-list]]:flex-1 [&_[cmdk-root]]:h-full"
@@ -388,14 +393,26 @@ export default function Root() {
     },
   );
   useEffect(() => {
-    if (cmdkOpen || !commandTrigger.current) return;
-    const trigger = commandTrigger.current;
+    const handleOpen = (event: Event) => {
+      commandTrigger.current =
+        (event as CustomEvent<{ returnFocusTo?: HTMLElement }>).detail
+          ?.returnFocusTo ??
+        (document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null);
+      setCmdkOpen(true);
+    };
+    window.addEventListener(CONTENT_COMMAND_MENU_OPEN_EVENT, handleOpen);
+    return () =>
+      window.removeEventListener(CONTENT_COMMAND_MENU_OPEN_EVENT, handleOpen);
+  }, []);
+  const handleCommandMenuCloseAutoFocus = useCallback((event: Event) => {
+    const target = commandTrigger.current;
+    if (!target?.isConnected) return;
+    event.preventDefault();
     commandTrigger.current = null;
-    const frame = window.requestAnimationFrame(() => {
-      if (trigger.isConnected) trigger.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [cmdkOpen]);
+    target.focus();
+  }, []);
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.
@@ -454,7 +471,11 @@ export default function Root() {
         <AppSetup />
         <Toaster />
         <RouteTransitionIndicator />
-        <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <ContentCommandMenu
+          open={cmdkOpen}
+          onOpenChange={setCmdkOpen}
+          onCloseAutoFocus={handleCommandMenuCloseAutoFocus}
+        />
         <Outlet />
       </AppProviders>
     </AppToolkitProvider>

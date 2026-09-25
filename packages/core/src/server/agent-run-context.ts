@@ -29,6 +29,8 @@ const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
 export type AgentRunOwnerContext = {
   owner: string;
   anonymous: boolean;
+  /** Present only when this owner was resolved from a Better Auth session. */
+  authUserId?: string;
   name?: string;
   /**
    * Trusted org binding for a cookieless durable worker. Presence matters:
@@ -197,6 +199,7 @@ export async function resolveAgentRunOwnerContext(
     return seedAgentRunOwnerContext(event, {
       owner: session.email,
       anonymous: false,
+      ...(session.authUserId ? { authUserId: session.authUserId } : {}),
       name: session.name,
     });
   }
@@ -283,6 +286,9 @@ export async function resolveAgentRunRequestContext(options: {
   };
   return {
     userEmail: options.ownerContext.owner,
+    ...(options.ownerContext.authUserId
+      ? { authUserId: options.ownerContext.authUserId }
+      : {}),
     userName: options.ownerContext.name,
     orgId,
     timezone,

@@ -35,7 +35,7 @@ import { useOrg } from "../org/hooks.js";
 import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialogDeferred } from "../resources/McpIntegrationDialogDeferred.js";
 import { useCreateMcpServer } from "../resources/use-mcp-servers.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { useVoiceProviderStatus } from "../voice-provider-status.js";
 import { coreComposerModelAdapters } from "./model-runtime-adapters.js";
@@ -74,7 +74,7 @@ export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
   },
   builder: {
     useConnectFlow: useBuilderConnectFlow,
-    BuilderConnectPopover,
+    BuilderConnectPopover: DeferredBuilderConnectPopover,
     tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
     isTrustedBuilderMessage,
     isTrustedFrameMessage,
@@ -105,7 +105,14 @@ export function CoreComposerRuntimeProvider({
 }) {
   const translate = useT();
   const formatters = useFormatters();
-  const formatNumber = formatters.formatNumber.bind(formatters);
+  // Bind once per formatters instance (memoized per locale). A bind on every
+  // render minted a new function, which rebuilt `adapters` and re-ran every
+  // consumer effect keyed on it (VoiceButton re-read `voice-input-preference`
+  // on each render).
+  const formatNumber = useMemo(
+    () => formatters.formatNumber.bind(formatters),
+    [formatters],
+  );
   const adapters = useMemo(
     () => ({ ...coreComposerAdapters, formatNumber, translate }),
     [formatNumber, translate],

@@ -17,7 +17,10 @@ const activeFile: DesignFile = {
 };
 const targetFile: DesignFile = { ...activeFile, id: "settings" };
 
-function makeArgs() {
+function makeArgs(
+  viewMode: "single" | "overview" = "overview",
+  overviewInteractScreenId: string | null = null,
+) {
   return {
     activeFile,
     canEditDesign: true,
@@ -35,8 +38,10 @@ function makeArgs() {
     setMode: vi.fn(),
     setPinMode: vi.fn(),
     setSelectedElement: vi.fn(),
+    overviewInteractScreenId,
+    setOverviewInteractScreenId: vi.fn(),
     t: (key: string) => key,
-    viewModeRef: { current: "overview" as const },
+    viewModeRef: { current: viewMode },
   } as unknown as Parameters<typeof runModeChange>[0];
 }
 
@@ -60,5 +65,45 @@ describe("runModeChange Interact navigation", () => {
     runModeChange(args, "interact", { targetFileId: targetFile.id });
 
     expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
+    expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(
+      targetFile.id,
+    );
+  });
+
+  it("re-enters the requested screen when switching in focused Interact", () => {
+    const args = makeArgs("single", activeFile.id);
+
+    runModeChange(args, "interact", { targetFileId: targetFile.id });
+
+    expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
+    expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(
+      targetFile.id,
+    );
+  });
+
+  it("allows leaving the focused view with pending live edits", () => {
+    vi.mocked(toast.error).mockClear();
+    const args = makeArgs("single", activeFile.id);
+    args.pendingLiveNonStyleEdits = [{}] as never;
+
+    runModeChange(args, "edit");
+
+    expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(null);
+    expect(args.enterOverviewFromZoom).toHaveBeenCalledWith("edit");
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("blocks Interact while a shared visual edit is waiting for source apply", () => {
+    const args = {
+      ...makeArgs(),
+      blockInteraction: true,
+    } as unknown as Parameters<typeof runModeChange>[0];
+
+    runModeChange(args, "interact", { targetFileId: targetFile.id });
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "designEditor.pendingVisualStyles.interactBlocked",
+    );
+    expect(args.enterSingleScreen).not.toHaveBeenCalled();
   });
 });
