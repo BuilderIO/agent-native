@@ -1057,13 +1057,11 @@ export default function DeckEditor() {
     waitingOnNewDeckQuestions,
   ]);
 
-  const generationRunRecheckRef = useRef<Promise<void> | null>(null);
   useEffect(() => {
     const submitMessageId = searchParams.get("generationSubmitId");
     if (
       !id ||
       !submitMessageId ||
-      generationRunRecheckRef.current ||
       !shouldClearNewDeckGenerationRun({
         generating: newDeckGenerationGenerating,
         waitingOnQuestions: waitingOnNewDeckQuestions,
@@ -1079,25 +1077,18 @@ export default function DeckEditor() {
     // this hook's own reactive read picks it up. Force one fresh check
     // before dropping the run's tab correlation, so an answer that arrives
     // moments later still routes back to the original tab.
-    const recheck = refetchPendingQuestion()
-      .then((stillWaiting) => {
-        if (cancelled || stillWaiting) return;
-        clearNewDeckGenerationRun(id, submitMessageId);
-        setSearchParams(
-          (prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("generationSubmitId");
-            return next;
-          },
-          { replace: true },
-        );
-      })
-      .finally(() => {
-        if (generationRunRecheckRef.current === recheck) {
-          generationRunRecheckRef.current = null;
-        }
-      });
-    generationRunRecheckRef.current = recheck;
+    void refetchPendingQuestion().then((stillWaiting) => {
+      if (cancelled || stillWaiting) return;
+      clearNewDeckGenerationRun(id, submitMessageId);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("generationSubmitId");
+          return next;
+        },
+        { replace: true },
+      );
+    });
     return () => {
       cancelled = true;
     };

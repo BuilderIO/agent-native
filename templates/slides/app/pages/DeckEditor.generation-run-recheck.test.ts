@@ -12,18 +12,13 @@ const deckEditorSource = readFileSync(
 describe("DeckEditor new-deck generation run cleanup", () => {
   it("forces a fresh guided-question check before dropping run correlation", () => {
     const effectStart = deckEditorSource.indexOf(
-      "const generationRunRecheckRef = useRef<Promise<void> | null>(null);",
-    );
-    const effectEnd = deckEditorSource.indexOf(
-      "const sensors = useSensors(",
-      effectStart,
+      'const submitMessageId = searchParams.get("generationSubmitId");',
     );
     expect(effectStart).toBeGreaterThanOrEqual(0);
-
-    const effectBody =
-      effectEnd > effectStart
-        ? deckEditorSource.slice(effectStart, effectEnd)
-        : deckEditorSource.slice(effectStart, effectStart + 2000);
+    const effectBody = deckEditorSource.slice(
+      effectStart,
+      deckEditorSource.indexOf("}, [", effectStart),
+    );
 
     // The stopped run's chatRunning event can beat the guided-question
     // app-state read; clearing on the stale reactive `waitingOnNewDeckQuestions`

@@ -20,7 +20,6 @@ import {
 
 import { CHAT_STOP_DEBOUNCE_MS } from "./use-agent-generating";
 import {
-  RUN_TAB_MAPPING_MAX_AGE_MS,
   useNewDeckGeneration,
   useNewDeckGenerationRun,
 } from "./use-new-deck-generation";
@@ -494,9 +493,7 @@ describe("useNewDeckGeneration", () => {
         }),
       );
     });
-    expect(JSON.parse(sessionStorage.getItem(storageKey) ?? "{}").tabId).toBe(
-      "route-chat-tab",
-    );
+    expect(sessionStorage.getItem(storageKey)).toBe("route-chat-tab");
 
     rerender({
       deckId: "another-deck",
@@ -573,9 +570,7 @@ describe("useNewDeckGeneration", () => {
     const { getByRole } = render(createElement(Harness));
     fireEvent.click(getByRole("button", { name: "Create deck" }));
 
-    expect(
-      JSON.parse(window.sessionStorage.getItem(storageKey) ?? "{}").tabId,
-    ).toBe("reused-empty-tab");
+    expect(window.sessionStorage.getItem(storageKey)).toBe("reused-empty-tab");
   });
 
   it("retains the run mapping across a route unmount so browser-back can recover it", async () => {
@@ -599,9 +594,7 @@ describe("useNewDeckGeneration", () => {
     // The route unmounted (e.g. the user navigated to the deck list) before
     // the run reached a terminal state, so the tab mapping must survive for a
     // browser-back navigation to recover it.
-    expect(JSON.parse(sessionStorage.getItem(storageKey) ?? "{}").tabId).toBe(
-      "still-running-tab",
-    );
+    expect(sessionStorage.getItem(storageKey)).toBe("still-running-tab");
 
     vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({
       tabId: "still-running-tab",
@@ -618,35 +611,5 @@ describe("useNewDeckGeneration", () => {
     });
     const [request] = vi.mocked(sendToAgentChatAndConfirm).mock.calls.at(-1)!;
     expect(request).toMatchObject({ targetTabId: "still-running-tab" });
-  });
-
-  it("ages out a stale run-tab mapping instead of recovering it forever", () => {
-    const submitMessageId = "submit-stale-mapping";
-    const deckId = "deck-stale-mapping";
-    const storageKey = `slides:new-deck-generation:${deckId}:${submitMessageId}`;
-    sessionStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        tabId: "long-gone-tab",
-        storedAt: Date.now() - RUN_TAB_MAPPING_MAX_AGE_MS - 1,
-      }),
-    );
-
-    vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({
-      tabId: "whatever-is-focused",
-      delivered: true,
-    });
-    const { result } = renderHook(() =>
-      useNewDeckGenerationRun(deckId, true, submitMessageId),
-    );
-    act(() => {
-      result.current.submitQuestionContinuation({
-        message: "Here are my answers.",
-        context: "Continue the original run.",
-      });
-    });
-    const [request] = vi.mocked(sendToAgentChatAndConfirm).mock.calls.at(-1)!;
-    expect(request.targetTabId).toBeUndefined();
-    expect(sessionStorage.getItem(storageKey)).toBeNull();
   });
 });
