@@ -4,11 +4,47 @@ import {
   createVisualEditSnapshotPublicationState,
   runClearVisualEditSnapshotPublications,
   runInvalidateVisualEditSnapshotPublication,
+  runReserveVisualEditSnapshotInOrder,
   runScheduleVisualEditSnapshotPublication,
 } from "./publish-visual-edit-snapshot";
 
 describe("visual edit snapshot publication", () => {
   afterEach(() => vi.useRealTimers());
+
+  it("reserves captures in arrival order even when requests overlap", async () => {
+    const state = createVisualEditSnapshotPublicationState();
+    let releaseFirst!: () => void;
+    const firstRequest = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const calls: string[] = [];
+
+    const first = runReserveVisualEditSnapshotInOrder(
+      state,
+      "design-1",
+      "screen-1",
+      async () => {
+        calls.push("first");
+        await firstRequest;
+        return "1";
+      },
+    );
+    const second = runReserveVisualEditSnapshotInOrder(
+      state,
+      "design-1",
+      "screen-1",
+      async () => {
+        calls.push("second");
+        return "2";
+      },
+    );
+
+    await Promise.resolve();
+    expect(calls).toEqual(["first"]);
+    releaseFirst();
+    await expect(Promise.all([first, second])).resolves.toEqual(["1", "2"]);
+    expect(calls).toEqual(["first", "second"]);
+  });
 
   it("debounces changes and publishes only the latest HTML with a reservation", async () => {
     vi.useFakeTimers();
@@ -118,6 +154,67 @@ describe("visual edit snapshot publication", () => {
     expect(publish).not.toHaveBeenCalled();
     expect(setFailed).toHaveBeenCalledWith(true);
     expect(showError).toHaveBeenCalledOnce();
+  });
+
+  it("does not schedule reservation-backed publication when collaboration is off", async () => {
+    vi.useFakeTimers();
+    const state = createVisualEditSnapshotPublicationState();
+    const publish = vi.fn(async () => ({ published: true }));
+    runScheduleVisualEditSnapshotPublication({
+      canPublish: false,
+      designId: "design-1",
+      fileId: "screen-1",
+      html: "<html>local only</html>",
+      reservationToken: "14",
+      publish,
+      setFailed: vi.fn(),
+      showError: vi.fn(),
+      state,
+    });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(state.timers.size).toBe(0);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("throttles uploads per screen and skips unchanged HTML", async () => {
+    vi.useFakeTimers();
+    const state = createVisualEditSnapshotPublicationState();
+    const publish = vi.fn(async () => ({ published: true }));
+    const args = {
+      canPublish: true,
+      designId: "design-1",
+      fileId: "screen-1",
+      html: "<html>first</html>",
+      reservationToken: "15",
+      publish,
+      setFailed: vi.fn(),
+      showError: vi.fn(),
+      state,
+    };
+
+    runScheduleVisualEditSnapshotPublication(args);
+    await vi.advanceTimersByTimeAsync(250);
+    await state.queue;
+    runScheduleVisualEditSnapshotPublication({
+      ...args,
+      html: "<html>second</html>",
+      reservationToken: "16",
+    });
+    await vi.advanceTimersByTimeAsync(1_999);
+    await state.queue;
+    expect(publish).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await state.queue;
+    expect(publish).toHaveBeenCalledTimes(2);
+
+    runScheduleVisualEditSnapshotPublication({
+      ...args,
+      html: "<html>second</html>",
+      reservationToken: "17",
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await state.queue;
+    expect(publish).toHaveBeenCalledTimes(2);
   });
 
   it("clears pending timers and caches when the editor unmounts", () => {

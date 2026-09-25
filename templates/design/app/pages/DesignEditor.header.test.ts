@@ -44,4 +44,15 @@ describe("Design editor header", () => {
       "{!sessionResolved || isSignedIn ? publishWaitlistControl : null}",
     );
   });
+
+  it("offers signed-out Localhost owners the account-gated live-canvas path", () => {
+    expect(editorSource).toContain(
+      "...(hasLocalhostScreens &&\n      sessionResolved &&\n      (!isSignedIn || canEditDesign)",
+    );
+    expect(editorSource).toContain("content: isSignedIn ? (");
+    expect(editorSource).toContain("href={signInToShareHref}");
+    expect(editorSource).toContain(
+      '{t("designEditor.signUpToShareLiveCanvas")}',
+    );
+  });
 });
