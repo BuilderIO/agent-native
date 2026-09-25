@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AI_PRIORITY_MAX_EMAILS } from "@shared/ai-priority";
 import {
   act,
   cleanup,
@@ -179,7 +180,7 @@ vi.mock("@/lib/thread-cache", () => ({
   warmThreads: vi.fn(),
 }));
 
-import { EmailList } from "./EmailList";
+import { EmailList, rememberPriorityScore } from "./EmailList";
 
 const messages = ["first", "middle", "last"].map((id, index) => ({
   id,
@@ -291,9 +292,14 @@ describe("EmailList keyboard navigation interactions", () => {
   it("reuses priority scores when the visible inbox emails change", async () => {
     mocks.view = "inbox";
     mocks.priorityRequest.mockImplementation(
-      async ({ emails }: { emails: Array<{ id: string }> }) => ({
-        scores: emails.map(({ id }) => ({
+      async ({
+        emails,
+      }: {
+        emails: Array<{ id: string; accountEmail: string }>;
+      }) => ({
+        scores: emails.map(({ id, accountEmail }) => ({
           emailId: id,
+          accountEmail,
           score: id === "middle" ? 0.9 : id === "last" ? 0.8 : 0.1,
         })),
       }),
@@ -334,7 +340,11 @@ describe("EmailList keyboard navigation interactions", () => {
       }),
     );
     let resolvePriority!: (result: {
-      scores: Array<{ emailId: string; score: number }>;
+      scores: Array<{
+        emailId: string;
+        accountEmail: string;
+        score: number;
+      }>;
     }) => void;
     mocks.priorityRequest.mockReturnValue(
       new Promise((resolve) => {
@@ -349,9 +359,21 @@ describe("EmailList keyboard navigation interactions", () => {
     await act(async () => {
       resolvePriority({
         scores: [
-          { emailId: "first", score: 0.1 },
-          { emailId: "middle", score: 0.9 },
-          { emailId: "last", score: 0.8 },
+          {
+            emailId: "first",
+            accountEmail: "synthetic@example.test",
+            score: 0.1,
+          },
+          {
+            emailId: "middle",
+            accountEmail: "synthetic@example.test",
+            score: 0.9,
+          },
+          {
+            emailId: "last",
+            accountEmail: "synthetic@example.test",
+            score: 0.8,
+          },
         ],
       });
     });
@@ -364,6 +386,71 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(rows()[0].textContent).toContain("Subject middle");
     expect(mocks.priorityRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps duplicate message IDs separate across accounts", async () => {
+    mocks.view = "inbox";
+    const inboxEmails = [
+      {
+        ...messages[0],
+        id: "shared-message-id",
+        threadId: "first-account-thread",
+        accountEmail: "first@example.test",
+        subject: "First account",
+        labelIds: ["inbox"],
+      },
+      {
+        ...messages[1],
+        id: "shared-message-id",
+        threadId: "second-account-thread",
+        accountEmail: "second@example.test",
+        subject: "Second account",
+        labelIds: ["inbox"],
+      },
+    ];
+    mocks.priorityRequest.mockResolvedValue({
+      scores: [
+        {
+          emailId: "shared-message-id",
+          accountEmail: "first@example.test",
+          score: 0.1,
+        },
+        {
+          emailId: "shared-message-id",
+          accountEmail: "second@example.test",
+          score: 0.9,
+        },
+      ],
+    });
+
+    const firstMount = render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Second account"),
+    );
+    firstMount.unmount();
+
+    render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+
+    expect(rows()[0].textContent).toContain("Second account");
+    expect(mocks.priorityRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds cached priority scores to the supported priority window", () => {
+    const cache = new Map<string, { inputKey: string; score: number }>();
+    for (let index = 0; index <= AI_PRIORITY_MAX_EMAILS; index += 1) {
+      rememberPriorityScore(cache, String(index), {
+        inputKey: String(index),
+        score: index,
+      });
+    }
+
+    expect(cache.size).toBe(AI_PRIORITY_MAX_EMAILS);
+    expect(cache.has("0")).toBe(false);
+    expect(cache.has(String(AI_PRIORITY_MAX_EMAILS))).toBe(true);
   });
 
   it("keeps partial refresh warnings out of a populated cached list", () => {
