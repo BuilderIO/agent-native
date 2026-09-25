@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 
 import { applyVisualEdit } from "@shared/code-layer";
-import { createCornerNode, type PenPath } from "@shared/pen-path";
+import {
+  closePenPath,
+  createCornerNode,
+  serializePenPath,
+  type PenPath,
+} from "@shared/pen-path";
 import {
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
@@ -660,12 +665,47 @@ describe("pen path paint defaults", () => {
     expect(path.getAttribute("fill")).toBe("none");
     expect(path.getAttribute("stroke")).toBe("#000000");
     // A fill added later must not paint the chord (Figma).
-    expect(path.getAttribute("fill-opacity")).toBe("0");
+    expect(path.getAttribute("fill-opacity")).toBeNull();
+    expect(path.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(path.style.getPropertyPriority("fill-opacity")).toBe("important");
     expect(
       committedPath(penPath("M 10 10 L 90 10 L 50 70 Z")).getAttribute(
         "fill-opacity",
       ),
     ).toBeNull();
+  });
+
+  it("restores fresh open-path opacity on its first close", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 10, y: 10 }),
+        createCornerNode({ x: 90, y: 10 }),
+        createCornerNode({ x: 50, y: 70 }),
+      ],
+    };
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      ...penPath(serializePenPath(openPath)),
+    });
+    if (!html) throw new Error("open pen path did not commit");
+    const openElement = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector("path")!;
+    expect(openElement.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openElement.hasAttribute("data-an-open-fill-opacity")).toBe(true);
+
+    const closed = writeBackVectorEditedPenPath(
+      html,
+      "pen-1",
+      closePenPath(openPath),
+    );
+    if (!closed) throw new Error("first close did not commit");
+    const closedElement = new DOMParser()
+      .parseFromString(closed, "text/html")
+      .querySelector("path")!;
+    expect(closedElement.getAttribute("fill-opacity")).toBeNull();
+    expect(closedElement.style.getPropertyValue("fill-opacity")).toBe("");
+    expect(closedElement.hasAttribute("data-an-open-fill-opacity")).toBe(false);
   });
 
   it("still honours an explicitly chosen fill and stroke", () => {
@@ -754,12 +794,14 @@ describe("reopening and reclosing a pen path", () => {
       fill: "rgb(218 218 218)",
       stroke: "#000000",
     });
-    expect(
-      new DOMParser()
-        .parseFromString(reopened, "text/html")
-        .querySelector("path")
-        ?.getAttribute("fill-opacity"),
-    ).toBe("0");
+    const reopenedPath = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("path")!;
+    expect(reopenedPath.getAttribute("fill-opacity")).toBeNull();
+    expect(reopenedPath.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(reopenedPath.style.getPropertyPriority("fill-opacity")).toBe(
+      "important",
+    );
 
     const reclosed = writeBackVectorEditedPenPath(
       reopened,
@@ -786,7 +828,9 @@ describe("reopening and reclosing a pen path", () => {
     const openEl = new DOMParser()
       .parseFromString(reopened, "text/html")
       .querySelector("path")!;
-    expect(openEl.getAttribute("fill-opacity")).toBe("0");
+    expect(openEl.getAttribute("fill-opacity")).toBeNull();
+    expect(openEl.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openEl.style.getPropertyPriority("fill-opacity")).toBe("important");
     expect(openEl.style.fill).toBe("#ff0000");
     const reclosed = writeBackVectorEditedPenPath(
       reopened,

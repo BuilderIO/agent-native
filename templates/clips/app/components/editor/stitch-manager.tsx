@@ -1,6 +1,7 @@
 import {
   useActionMutation,
   useActionQuery,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -22,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { exportConcat } from "@/lib/ffmpeg-export";
-import { copyRecordingShareLink } from "@/lib/recording-link";
+import { copyFreshRecordingShareLink } from "@/lib/recording-link";
 import { formatMs } from "@/lib/timestamp-mapping";
 import { uploadFileClient } from "@/lib/upload-file-client";
 import { cn } from "@/lib/utils";
@@ -51,6 +52,7 @@ export function StitchManager({
   seedRecordingId,
 }: StitchManagerProps) {
   const t = useT();
+  const { session } = useSession();
   const [queue, setQueue] = useState<RecordingLite[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -152,7 +154,10 @@ export function StitchManager({
       });
       const newRecordingId = (result as { id?: string } | null)?.id;
       if (newRecordingId) {
-        const copied = await copyRecordingShareLink(newRecordingId);
+        const copied = await copyFreshRecordingShareLink(
+          newRecordingId,
+          session,
+        );
         if (copied) {
           toast.success(t("stitchManager.created"), {
             description: t("recordRoute.linkCopied"),
@@ -162,7 +167,7 @@ export function StitchManager({
             action: {
               label: t("recordRoute.copyLinkAction"),
               onClick: () => {
-                void copyRecordingShareLink(newRecordingId);
+                void copyFreshRecordingShareLink(newRecordingId, session);
               },
             },
           });

@@ -263,6 +263,12 @@ export default {
       opacity: "Opacidad",
       padding: "Relleno",
       margin: "Margen",
+      marginTop: "Margen superior",
+      marginRight: "Margen derecho",
+      marginBottom: "Margen inferior",
+      marginLeft: "Margen izquierdo",
+      linkMarginSides: "Vincular lados del margen",
+      unlinkMarginSides: "Desvincular lados del margen",
       radius: "Radio",
       flexGrow: "Crecer",
       flexShrink: "Encoger",
@@ -957,6 +963,10 @@ export default {
     signUpToSaveDescription:
       "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
     signUpToShare: "Registrarse para compartir",
+    signUpToShareLiveCanvas: "Regístrate para compartir un lienzo en vivo",
+    liveCanvasLink: "Enlace al lienzo en vivo",
+    liveCanvasWaitingForOwner:
+      "Esperando la instantánea del lienzo en vivo de su propietario.",
     shareEditorLink: "Enlace del editor de diseño",
     shareEditorLinkDescription:
       "Cualquier persona con acceso puede abrir este diseño en el editor.",
@@ -1231,6 +1241,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "Aplicar ediciones visuales de estilo pendientes",
       applyButton: "Aplicar estilos",
+      applySharedEdits: "Aplicar ediciones",
       previewLabel: "Vista previa visual pendiente",
       applyDesignUpdates: "Aplicar actualizaciones de diseño",
       applying: "Aplicando…",
@@ -1313,6 +1324,8 @@ export default {
       annotationSendError:
         "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
       codingHandoffError: "No se pudo crear la entrega para código",
+      visualEditPendingConflict:
+        "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",
       clipboardBlocked: "Portapapeles bloqueado",
       htmlCreateError: "No se pudo crear la descarga HTML",

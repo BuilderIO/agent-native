@@ -286,7 +286,7 @@ fn build_menu_with_meetings(
     meetings: Vec<MeetingItem>,
 ) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let meetings_submenu = build_meetings_section(app, meetings)?;
-    let show_item = MenuItem::with_id(app, "show", "Show popover", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "show", "New recording…", true, None::<&str>)?;
     let recording_active = is_recording_active(app);
     let meeting_active = is_meeting_active(app);
     let stop_item = MenuItem::with_id(
@@ -342,9 +342,9 @@ fn build_menu_with_meetings(
     let menu = Menu::with_items(
         app,
         &[
+            &show_item,
             &meetings_submenu,
             &separator,
-            &show_item,
             &stop_item,
             &paste_last_dictation_item,
             &region_guides_item,

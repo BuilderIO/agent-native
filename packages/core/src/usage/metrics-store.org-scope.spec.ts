@@ -29,8 +29,9 @@ vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
 }));
 
-const { recordUsage } = await import("./store.js");
-const { listAppUsageMetrics } = await import("./metrics-store.js");
+const { builderCreditsFromCostCents, recordUsage } = await import("./store.js");
+const { canViewWorkspaceUsage, listAppUsageMetrics } =
+  await import("./metrics-store.js");
 
 const TABLE_SQL = `CREATE TABLE IF NOT EXISTS token_usage (
   id BIGINT PRIMARY KEY,
@@ -40,6 +41,8 @@ const TABLE_SQL = `CREATE TABLE IF NOT EXISTS token_usage (
   cache_read_tokens BIGINT NOT NULL DEFAULT 0,
   cache_write_tokens BIGINT NOT NULL DEFAULT 0,
   cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+  builder_credits_used NUMERIC,
+  engine_name TEXT,
   cost_source TEXT NOT NULL DEFAULT 'estimated',
   model TEXT NOT NULL DEFAULT '',
   label TEXT NOT NULL DEFAULT 'chat',
@@ -76,6 +79,7 @@ beforeEach(async () => {
   await pglite.exec(ORG_MEMBERS_SQL);
   for (const [orgId, email, role] of [
     ["org-1", "a@example.com", "owner"],
+    ["org-1", "admin@example.com", "admin"],
     ["org-1", "peer@example.com", "member"],
     // `peer@example.com` also belongs to org-2, so their unattributed rows
     // cannot be shown to belong to org-1.
@@ -90,6 +94,7 @@ beforeEach(async () => {
     "APP_ID",
     "AGENT_APP",
     "APP_NAME",
+    "AGENT_ENGINE",
   ]) {
     delete process.env[key];
   }
@@ -98,6 +103,26 @@ beforeEach(async () => {
 afterEach(async () => {
   await pglite.close();
   vi.restoreAllMocks();
+});
+
+describe("workspace credit usage access", () => {
+  it("allows only organization owners and admins", async () => {
+    await expect(
+      canViewWorkspaceUsage({ ownerEmail: "A@EXAMPLE.COM", orgId: "org-1" }),
+    ).resolves.toBe(true);
+    await expect(
+      canViewWorkspaceUsage({
+        ownerEmail: "admin@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      canViewWorkspaceUsage({ ownerEmail: "peer@example.com", orgId: "org-1" }),
+    ).resolves.toBe(false);
+    await expect(
+      canViewWorkspaceUsage({ ownerEmail: "peer@example.com", orgId: null }),
+    ).resolves.toBe(false);
+  });
 });
 
 function recordInOrg(orgId: string, inputTokens: number) {
@@ -112,6 +137,32 @@ function recordInOrg(orgId: string, inputTokens: number) {
 }
 
 describe("listAppUsageMetrics organization scoping", () => {
+  it("keeps estimated Builder credits visible while exact reporting is disabled", async () => {
+    process.env.AGENT_ENGINE = "builder";
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-1" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 10_000,
+          outputTokens: 1_000,
+          engineName: "builder",
+          model: "claude-sonnet-4-5",
+        }),
+    );
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me", builderCreditsEnabled: false },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.billing.unit).toBe("builder-credits");
+    expect(metrics.currentDay.credits).toBe(
+      builderCreditsFromCostCents(metrics.currentDay.costCents),
+    );
+    expect(metrics.currentDay.credits).toBeGreaterThan(0);
+  });
+
   it("counts usage recorded with no request organization context", async () => {
     // recordUsage fills org_id from the active request context, so recurring
     // jobs, automations, and every row written before that column started

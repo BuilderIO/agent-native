@@ -263,6 +263,12 @@ export default {
       opacity: "Opazität",
       padding: "Polsterung",
       margin: "Marge",
+      marginTop: "Oberer Außenabstand",
+      marginRight: "Rechter Außenabstand",
+      marginBottom: "Unterer Außenabstand",
+      marginLeft: "Linker Außenabstand",
+      linkMarginSides: "Außenabstände verknüpfen",
+      unlinkMarginSides: "Außenabstände lösen",
       radius: "Radius",
       flexGrow: "Wachsen",
       flexShrink: "Schrumpfen",
@@ -961,6 +967,11 @@ export default {
     signUpToSaveDescription:
       "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
     signUpToShare: "Zum Teilen registrieren",
+    signUpToShareLiveCanvas:
+      "Registriere dich, um eine Live-Arbeitsfläche zu teilen",
+    liveCanvasLink: "Link zur Live-Arbeitsfläche",
+    liveCanvasWaitingForOwner:
+      "Warte auf den Live-Snapshot der Arbeitsfläche des Besitzers.",
     shareEditorLink: "Design-Editor-Link",
     shareEditorLinkDescription:
       "Alle mit Zugriff koennen dieses Design im Editor oeffnen.",
@@ -1236,6 +1247,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "Ausstehende visuelle Stiländerungen anwenden",
       applyButton: "Stile anwenden",
+      applySharedEdits: "Änderungen anwenden",
       previewLabel: "Ausstehende visuelle Vorschau",
       applyDesignUpdates: "Design-Updates anwenden",
       applying: "Wird angewendet…",
@@ -1318,6 +1330,8 @@ export default {
       annotationSendError:
         "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
       codingHandoffError: "Code-Übergabe konnte nicht erstellt werden",
+      visualEditPendingConflict:
+        "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",
       clipboardBlocked: "Zwischenablage blockiert",
       htmlCreateError: "HTML-Download konnte nicht erstellt werden",

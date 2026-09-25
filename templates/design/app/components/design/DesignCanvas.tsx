@@ -1,4 +1,8 @@
-import { callAction, usePinchZoom } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useActionQuery,
+  usePinchZoom,
+} from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
@@ -44,6 +48,7 @@ import {
 } from "@shared/preview-source-provenance";
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
+import { sanitizeVisualEditSnapshotHtml } from "@shared/visual-edit-snapshot";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
@@ -610,12 +615,18 @@ interface DesignCanvasProps {
   connectionId?: string;
   /** Only the active focused/overview screen may own the desktop native backend. */
   nativePreviewActive?: boolean;
+  /** Only the focused shared screen polls for new owner snapshots. */
+  sharedSnapshotPollActive?: boolean;
   /**
    * HTML snapshot for a URL-backed localhost screen. When present, DesignCanvas
    * renders this as editable srcdoc while the persisted design file can remain
    * the original URL.
    */
   externalSnapshotHtml?: string;
+  /** Render the shared snapshot without ever navigating to a viewer's localhost. */
+  snapshotOnly?: boolean;
+  /** Prevent an Interact frame from taking input while shared edits are pending. */
+  blockPreviewInteraction?: boolean;
   onExternalContentSnapshot?: (snapshot: {
     url: string;
     html: string;
@@ -626,7 +637,11 @@ interface DesignCanvasProps {
     html: string;
     nodeCount: number;
     documentId?: string;
+    reservationToken?: string;
   }) => void;
+  onReserveVisualEditSnapshot?: (screenId?: string) => Promise<{
+    reservationToken: string;
+  }>;
   /** Called once when this document has a usable runtime bridge. */
   onBridgeReady?: () => void;
   /** Publishes a refreshed localhost preview credential to the host editor. */
@@ -1505,6 +1520,69 @@ function readIframeScrollOffset(iframe: HTMLIFrameElement | null | undefined): {
 const INSPECTOR_POPUP_SELECTOR =
   '[role="menu"], [role="listbox"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]';
 
+type VisualEditSharedSnapshot = {
+  designId: string;
+  fileId: string;
+  html: string | null;
+  updatedAt: string | null;
+  publishedRevision: string;
+};
+
+function SharedSnapshotPoller({
+  designId,
+  fileId,
+  knownPublishedRevision,
+  active,
+  onSnapshot,
+}: {
+  designId: string;
+  fileId: string;
+  knownPublishedRevision: string | null;
+  active: boolean;
+  onSnapshot: (snapshot: VisualEditSharedSnapshot) => void;
+}) {
+  const { data, refetch } = useActionQuery<{
+    designId: string;
+    fileId: string;
+    html: string | null;
+    updatedAt: string | null;
+    publishedRevision: string | null;
+    unchanged: boolean;
+  }>(
+    "get-visual-edit-snapshot",
+    { designId, fileId, knownPublishedRevision },
+    {
+      // request-storm-allow: Anonymous viewers cannot receive owner sync events; only the focused shared canvas polls, and inactive screens refetch when focused.
+      refetchInterval: active ? 2_000 : false,
+    },
+  );
+  const wasActiveRef = useRef(active);
+
+  useEffect(() => {
+    if (active && !wasActiveRef.current) void refetch();
+    wasActiveRef.current = active;
+  }, [active, refetch]);
+
+  useEffect(() => {
+    if (
+      data?.publishedRevision &&
+      !data.unchanged &&
+      data.designId === designId &&
+      data.fileId === fileId
+    ) {
+      onSnapshot({
+        designId,
+        fileId,
+        html: data.html,
+        updatedAt: data.updatedAt,
+        publishedRevision: data.publishedRevision,
+      });
+    }
+  }, [data, designId, fileId, onSnapshot]);
+
+  return null;
+}
+
 export function DesignCanvas({
   content,
   contentKey,
@@ -1513,9 +1591,13 @@ export function DesignCanvas({
   previewUrlOverride,
   connectionId,
   nativePreviewActive = true,
+  sharedSnapshotPollActive = true,
   externalSnapshotHtml,
+  snapshotOnly = false,
+  blockPreviewInteraction = false,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
+  onReserveVisualEditSnapshot,
   onBridgeReady,
   onPreviewTokenChange,
   onRoutePathChange,
@@ -1897,6 +1979,28 @@ export function DesignCanvas({
     },
     [probeBridgeReadinessUntilDrained],
   );
+  const requestRuntimeLayerSnapshot = useCallback(() => {
+    postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
+  }, [postOneShotBridgeMessage]);
+  const sharedSnapshotRequestTimerRef = useRef<number | undefined>(undefined);
+  const requestSharedSnapshotAfterEdit = useCallback(() => {
+    if (sourceType !== "localhost" || snapshotOnly) return;
+    if (sharedSnapshotRequestTimerRef.current !== undefined) {
+      window.clearTimeout(sharedSnapshotRequestTimerRef.current);
+    }
+    sharedSnapshotRequestTimerRef.current = window.setTimeout(() => {
+      sharedSnapshotRequestTimerRef.current = undefined;
+      requestRuntimeLayerSnapshot();
+    }, 100);
+  }, [requestRuntimeLayerSnapshot, snapshotOnly, sourceType]);
+  useEffect(
+    () => () => {
+      if (sharedSnapshotRequestTimerRef.current !== undefined) {
+        window.clearTimeout(sharedSnapshotRequestTimerRef.current);
+      }
+    },
+    [],
+  );
   useEffect(() => {
     if (interactMode) return;
     const isInspectorTarget = (target: EventTarget | null): boolean =>
@@ -2275,10 +2379,27 @@ export function DesignCanvas({
   );
   const onExternalContentSnapshotRef = useRef(onExternalContentSnapshot);
   const isEmbeddedFrame = Boolean(embeddedFrame);
+  const [cachedSharedSnapshot, setCachedSharedSnapshot] = useState<{
+    designId: string;
+    fileId: string;
+    html: string | null;
+    updatedAt: string | null;
+    publishedRevision: string;
+  } | null>(null);
+  const matchingSharedSnapshot =
+    cachedSharedSnapshot?.designId === designId &&
+    cachedSharedSnapshot?.fileId === screenId
+      ? cachedSharedSnapshot
+      : null;
+  const handleSharedSnapshot = useCallback(
+    (snapshot: VisualEditSharedSnapshot) => setCachedSharedSnapshot(snapshot),
+    [],
+  );
   // The screen's own URL wins: it carries the route path and may address the
   // container through a same-origin proxy. `fusionUrl` only covers fusion
   // screens whose content is still the original inline HTML.
   const rawExternalPreviewUrl = useMemo(() => {
+    if (snapshotOnly && sourceType === "localhost") return null;
     const overrideUrl = getExternalPreviewUrl(previewUrlOverride ?? "");
     if (overrideUrl) return overrideUrl;
     const contentUrl = getExternalPreviewUrl(
@@ -2297,7 +2418,14 @@ export function DesignCanvas({
       }
     }
     return null;
-  }, [content, fusionUrl, previewUrlOverride, renderedContent, sourceType]);
+  }, [
+    content,
+    fusionUrl,
+    previewUrlOverride,
+    renderedContent,
+    snapshotOnly,
+    sourceType,
+  ]);
   const runtimeLayerSnapshotEnabled =
     (sourceType === "localhost" || sourceType === "fusion") &&
     Boolean(rawExternalPreviewUrl) &&
@@ -2369,21 +2497,25 @@ export function DesignCanvas({
   // srcdoc is rebuilt per document, so unlike the keyed live-edit bundle above
   // it can carry the real first-paint value: forwarding that arrives only by
   // postMessage stays dead until the handshake, and is stranded by a swap.
+  const initialInteractModeRef = useRef(interactMode);
   const embeddedGestureBridgeForSrcdoc = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
         "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
-        isEmbeddedFrame && !interactMode ? "true" : "false",
+        isEmbeddedFrame && !initialInteractModeRef.current ? "true" : "false",
       )
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
-        .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
-    [interactMode, isEmbeddedFrame],
+        .replace(
+          "__EDITING_SAFETY_ENABLED__",
+          initialInteractModeRef.current ? "false" : "true",
+        ),
+    [isEmbeddedFrame],
   );
   const includeLiveEditEditorChrome = !readOnly;
   const liveEditBridgeScript = useMemo(() => {
     if (!urlBackedFrame) return "";
     return (
-      (includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +
+      LIVE_ROUTE_BRIDGE_SCRIPT +
       (includeLiveEditEditorChrome
         ? MOTION_PREVIEW_BRIDGE_SCRIPT +
           SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
@@ -2472,13 +2604,8 @@ export function DesignCanvas({
   // or native hover/focus/pressed behavior would run against the stale HTML
   // from before the inspector edits.
   //
-  // A localhost screen NEVER renders `activeExternalSnapshotHtml`. The snapshot
-  // is the editable source model only. Rendering it produced a frame that looked
-  // exactly like the running app but was a corpse: no live DOM to manipulate,
-  // layers parsed from frozen HTML, and every edit applied to markup the app had
-  // already moved past — a failure indistinguishable from success. A viewer with
-  // no bridge entitlement gets the real dev-server URL instead (see
-  // externalPreviewUrl below), which is live even without editor chrome.
+  // The owner uses the running localhost app. A shared Visual Edit viewer gets
+  // the last published snapshot and never attempts to load its own localhost.
   // A source-mode transition is also an authoritative content boundary. A
   // URL cached by the edit-mode bridge must not keep a URL-backed iframe alive
   // after URL -> static, or the canvas shows the old live app behind a
@@ -2490,9 +2617,26 @@ export function DesignCanvas({
     interactMode ||
     (sourceType !== "localhost" &&
       Boolean(getExternalPreviewUrl(renderedContent)));
-  const iframeRenderContent = useCurrentIframeContent
-    ? content
-    : renderedContent;
+  const snapshotSourceContent = snapshotOnly
+    ? matchingSharedSnapshot
+      ? (matchingSharedSnapshot.html ?? "")
+      : (externalSnapshotHtml ?? "")
+    : (externalSnapshotHtml ?? renderedContent);
+  const iframeRenderContent = useMemo(() => {
+    if (snapshotOnly) {
+      return !snapshotSourceContent.trim() ||
+        getExternalPreviewUrl(snapshotSourceContent)
+        ? ""
+        : sanitizeVisualEditSnapshotHtml(snapshotSourceContent);
+    }
+    return useCurrentIframeContent ? content : renderedContent;
+  }, [
+    content,
+    renderedContent,
+    snapshotOnly,
+    snapshotSourceContent,
+    useCurrentIframeContent,
+  ]);
   const iframeSourceContent = useCurrentIframeContent
     ? (authoredSourceContent ?? content)
     : renderedDocument.sourceContent;
@@ -3571,15 +3715,13 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
-  // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
-  // outside Edit mode. The editor chrome bridge is omitted for Interact mode
-  // so preview/app users can interact with the app normally.
+  // Build the srcdoc. Both mode bridges stay installed; live postMessages
+  // switch pointer ownership without replacing the iframe document.
   //
-  // readOnly and editMode are intentionally NOT deps here: the bridge is
-  // injected whenever !interactMode and the initial __READ_ONLY__ /
-  // __TEXT_EDITING_ENABLED__ placeholders are baked from the *first* render
-  // only (so first paint never flashes the wrong mode). After that, live
-  // readOnly / editMode changes flow through the set-read-only and
+  // readOnly and editMode are intentionally NOT deps here: the initial
+  // __READ_ONLY__ / __TEXT_EDITING_ENABLED__ placeholders are baked from the
+  // first render only (so first paint never flashes the wrong mode). After
+  // that, live readOnly / editMode changes flow through set-read-only and
   // set-text-editing-enabled postMessages (see the useEffects below) so
   // switching the active surface (board ↔ screen) or toggling Edit ⇄ Preview
   // never rebuilds srcdoc / reloads every screen iframe.
@@ -3589,50 +3731,49 @@ export function DesignCanvas({
     // mounting an iframe, then mounts the real `src` exactly once.
     if (rawExternalPreviewUrl) return undefined;
     const localizedContent = withLocalRuntimes(iframeRenderContent);
-    const editorChromeBridge = interactMode
-      ? ""
-      : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-          "__READ_ONLY__",
-          readOnly ? "true" : "false",
+    const editorChromeBridge =
+      createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
+      EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+        "__READ_ONLY__",
+        readOnly ? "true" : "false",
+      )
+        .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+        .replace(
+          "__EDITOR_CHROME_SCALE_X__",
+          String(effectiveEditorChromeScaleX),
         )
-          .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
-          .replace(
-            "__EDITOR_CHROME_SCALE_X__",
-            String(effectiveEditorChromeScaleX),
-          )
-          .replace(
-            "__EDITOR_CHROME_SCALE_Y__",
-            String(effectiveEditorChromeScaleY),
-          )
-          .replace(
-            "__DESIGN_CANVAS_SCREEN_ID__",
-            JSON.stringify(screenId ?? contentKey ?? ""),
-          )
-          .replace(
-            "__DESIGN_CANVAS_BOARD_SURFACE__",
-            boardSurface ? "true" : "false",
-          )
-          .replace(
-            "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
-            String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
-          )
-          .replace(
-            "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
-            String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
-          )
-          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-          .replace(
-            "__LIVE_REFLOW_ENABLED__",
-            LIVE_REFLOW_ENABLED ? "true" : "false",
-          )
-          .replace(
-            "__SELECTED_LAYER_DRAG_PRIORITY__",
-            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
-          )
-          .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
-            inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
-          );
+        .replace(
+          "__EDITOR_CHROME_SCALE_Y__",
+          String(effectiveEditorChromeScaleY),
+        )
+        .replace(
+          "__DESIGN_CANVAS_SCREEN_ID__",
+          JSON.stringify(screenId ?? contentKey ?? ""),
+        )
+        .replace(
+          "__DESIGN_CANVAS_BOARD_SURFACE__",
+          boardSurface ? "true" : "false",
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
+          String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
+          String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
+        )
+        .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+        .replace(
+          "__LIVE_REFLOW_ENABLED__",
+          LIVE_REFLOW_ENABLED ? "true" : "false",
+        )
+        .replace(
+          "__SELECTED_LAYER_DRAG_PRIORITY__",
+          SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+        )
+        .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+          inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
+        );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
     // (agent-native:hit-test / agent-native:hit-test-result) resolves an
@@ -3696,7 +3837,6 @@ export function DesignCanvas({
     boardSurface,
     fitRootBodyToFrame,
     rawExternalPreviewUrl,
-    interactMode,
     isEmbeddedFrame,
     embeddedFrameBackground,
     embeddedGestureBridgeForSrcdoc,
@@ -3978,10 +4118,31 @@ export function DesignCanvas({
         markPreviewFrameReady();
       }
       if (!e.data || !e.data.type) return;
+      if (
+        e.data.type ===
+        "agent-native:runtime-layer-snapshot-reservation-request"
+      ) {
+        if (!Number.isSafeInteger(e.data.requestId)) return;
+        const grantSnapshot = (reservationToken?: string) =>
+          postOneShotBridgeMessage({
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId: e.data.requestId,
+            ...(reservationToken ? { reservationToken } : {}),
+          });
+        if (!onReserveVisualEditSnapshot || sourceType !== "localhost") {
+          grantSnapshot();
+        } else {
+          void onReserveVisualEditSnapshot(screenId)
+            .then(({ reservationToken }) => grantSnapshot(reservationToken))
+            .catch(() => grantSnapshot());
+        }
+        return;
+      }
       if (e.data.type === "agent-native:live-route-path") {
         if (typeof e.data.routePath === "string" && e.data.routePath) {
           liveRoutePathRef.current = e.data.routePath;
           onRoutePathChange?.(screenId, e.data.routePath);
+          requestSharedSnapshotAfterEdit();
         }
         return;
       }
@@ -4046,6 +4207,10 @@ export function DesignCanvas({
               typeof payload.documentId === "string"
                 ? payload.documentId
                 : undefined,
+            reservationToken:
+              typeof payload.reservationToken === "string"
+                ? payload.reservationToken
+                : undefined,
           });
         }
         return;
@@ -4102,6 +4267,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "clear-selection") {
+        iframeClearedSelectorRef.current = selectedSelectorRef.current ?? null;
         onClearSelection?.();
         return;
       }
@@ -4213,6 +4379,9 @@ export function DesignCanvas({
                   : (liveRoutePathRef.current ?? undefined),
             },
           );
+          if (e.data.phase !== "preview") {
+            requestSharedSnapshotAfterEdit();
+          }
         }
         return;
       }
@@ -4224,6 +4393,7 @@ export function DesignCanvas({
         }
         const accepted = onVisualStyleBatchChange(changes);
         if (accepted !== true) restoreKScalePreviewRef.current?.();
+        else requestSharedSnapshotAfterEdit();
         return;
       }
       if (e.data.type === "gradient-edit-change") {
@@ -4258,6 +4428,7 @@ export function DesignCanvas({
                 ? e.data.routePath
                 : (liveRoutePathRef.current ?? undefined),
           });
+          requestSharedSnapshotAfterEdit();
         }
         return;
       }
@@ -4405,6 +4576,7 @@ export function DesignCanvas({
         const applied = valid
           ? onVisualGridGroupChange?.(rawMoves as GridGroupStructureMove[])
           : false;
+        if (applied !== false) requestSharedSnapshotAfterEdit();
         if (applied !== "pending" && Array.isArray(rawMoves)) {
           for (const move of rawMoves) {
             if (typeof move?.requestId !== "string") continue;
@@ -4587,6 +4759,7 @@ export function DesignCanvas({
                     : {}),
                 },
               );
+          if (applied !== false) requestSharedSnapshotAfterEdit();
           dndHostLog("persist:result", {
             applied,
             requestId,
@@ -4693,6 +4866,7 @@ export function DesignCanvas({
                 })
               : false;
           applied = result === "pending" ? "pending" : result !== false;
+          if (applied !== false) requestSharedSnapshotAfterEdit();
         }
         if (requestId && applied !== "pending") {
           iframeRef.current?.contentWindow?.postMessage(
@@ -5133,6 +5307,7 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onRuntimeLayerSnapshot,
+    onReserveVisualEditSnapshot,
     onBridgeReady,
     onBootReady,
     markPreviewFrameReady,
@@ -5166,6 +5341,7 @@ export function DesignCanvas({
     onVisualDuplicateChange,
     onZoomChange,
     scheduleZoomCommit,
+    requestSharedSnapshotAfterEdit,
     centerInteractPreview,
     deviceFrame,
     onPrototypeNavigate,
@@ -5188,6 +5364,9 @@ export function DesignCanvas({
   // Selectors from the iframe's own click; skip mirroring them back once to
   // avoid the fast-click bounce.
   const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
+  // The iframe cleared this selection itself. A ready handshake can land
+  // before the parent renders the clear, and replaying then re-selects it.
+  const iframeClearedSelectorRef = useRef<string | null>(null);
   // Latest replayIframeEditorState, synced during render (below) so the message
   // handler can force a corrective resync without a stale closure.
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
@@ -5256,7 +5435,13 @@ export function DesignCanvas({
       !forceSelectionMirrorResyncRef.current &&
       !!selectedSelector &&
       (suppressMirrorSelectorsRef.current?.includes(selectedSelector) ?? false);
-    if (isIframeOriginatedEcho) {
+    const staleIframeClear =
+      !!selectedSelector &&
+      iframeClearedSelectorRef.current === selectedSelector;
+    if (!staleIframeClear) iframeClearedSelectorRef.current = null;
+    if (staleIframeClear) {
+      // Wait for the parent's clear to render; it mirrors down on its own.
+    } else if (isIframeOriginatedEcho) {
       lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
       suppressMirrorSelectorsRef.current = null;
     } else if (
@@ -6371,8 +6556,8 @@ export function DesignCanvas({
       return;
     }
     lastRuntimeLayerSnapshotRequestIdRef.current = runtimeLayerSnapshotRequest;
-    postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
-  }, [postOneShotBridgeMessage, runtimeLayerSnapshotRequest]);
+    requestRuntimeLayerSnapshot();
+  }, [requestRuntimeLayerSnapshot, runtimeLayerSnapshotRequest]);
 
   /**
    * Send a motion-preview scrub tick to the iframe.  `t` is the normalised
@@ -7194,6 +7379,17 @@ export function DesignCanvas({
           : null),
       }}
     >
+      {snapshotOnly && designId && screenId ? (
+        <SharedSnapshotPoller
+          designId={designId}
+          fileId={screenId}
+          knownPublishedRevision={
+            matchingSharedSnapshot?.publishedRevision ?? null
+          }
+          active={sharedSnapshotPollActive}
+          onSnapshot={handleSharedSnapshot}
+        />
+      ) : null}
       {desktopNativeSnapshot && desktopNativeSnapshotLayer !== "none" ? (
         <img
           data-desktop-native-preview-snapshot
@@ -7211,8 +7407,16 @@ export function DesignCanvas({
           )}
         />
       ) : null}
-      {rawExternalPreviewUrl &&
-      !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
+      {snapshotOnly && !iframeRenderContent.trim() ? (
+        <div
+          data-design-live-canvas-waiting
+          role="status"
+          className="absolute inset-0 z-10 flex items-center justify-center bg-background/90 px-4 text-center text-sm text-muted-foreground"
+        >
+          {t("designEditor.liveCanvasWaitingForOwner")}
+        </div>
+      ) : rawExternalPreviewUrl &&
+        !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
         <iframe
           key={iframeElementIdentity}
           ref={iframeRef}
@@ -7220,7 +7424,8 @@ export function DesignCanvas({
           srcDoc={externalPreviewUrl ? undefined : srcdoc}
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: Boolean(externalPreviewUrl),
-            readOnly,
+            readOnly: readOnly || snapshotOnly,
+            snapshotOnly,
             previewUrl: externalPreviewUrl,
             parentOrigin: browserOrigin ?? undefined,
           })}
@@ -7266,7 +7471,10 @@ export function DesignCanvas({
             // editor's scheme makes Chrome paint an opaque white base under a no-fill frame.
             colorScheme:
               boardSurface || externalPreviewUrl ? undefined : "light",
-            pointerEvents: liveEditInteractionBlocked ? "none" : undefined,
+            pointerEvents:
+              liveEditInteractionBlocked || blockPreviewInteraction
+                ? "none"
+                : undefined,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             ...getIframePaintRetentionStyle({
               viewportWidth:

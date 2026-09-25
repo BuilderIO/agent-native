@@ -709,7 +709,7 @@ describe("update-slide", () => {
         {
           id: "slide-1",
           content:
-            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue; padding: 20px;"><h1>Headline</h1></div></div>',
+            '<div class="fmd-slide" style="padding: 80px;"><div style="border-width: 1px; border-style: solid; border-color: blue; padding: 20px;"><h1>Headline</h1></div></div>',
         },
       ],
     });
@@ -734,7 +734,7 @@ describe("update-slide", () => {
         {
           id: "slide-1",
           content:
-            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue; padding: 20px;"><h1>Headline</h1></div></div>',
+            '<div class="fmd-slide" style="padding: 80px;"><div style="border-width: 1px; border-style: solid; border-color: blue; padding: 20px;"><h1>Headline</h1></div></div>',
         },
       ],
     });
@@ -745,8 +745,8 @@ describe("update-slide", () => {
       styleOnly: true,
       edits: [
         {
-          find: "border: 1px solid blue",
-          replace: "border: 0",
+          find: "border-color: blue",
+          replace: "border-color: red",
           expectedMatches: 1,
         },
       ],
@@ -754,8 +754,39 @@ describe("update-slide", () => {
 
     expect(result).toMatchObject({ ok: true, applied: true });
     expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
-      '<div class="fmd-slide" style="padding: 80px;"><div style="border: 0; padding: 20px;"><h1>Headline</h1></div></div>',
+      '<div class="fmd-slide" style="padding: 80px;"><div style="border-width: 1px; border-style: solid; border-color: red; padding: 20px;"><h1>Headline</h1></div></div>',
     );
+  });
+
+  it("validates formatted style-only edits against the formatted source", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<style>.fmd-slide { background: #000; }</style><div class="fmd-slide"><p>Headline</p><div style="white-space: pre-wrap">  keep  these\n    spaces   </div><pre>  alpha\n    beta   \ngamma  </pre></div>',
+        },
+      ],
+    });
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      format: true,
+      edits: [{ find: "background: #000", replace: "background: #fff" }],
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    const savedContent = JSON.parse(lastUpdateSet!.data as string).slides[0]
+      .content as string;
+    expect(savedContent).toContain("background: #fff");
+    expect(savedContent).toContain("Headline");
+    expect(savedContent).toContain(
+      '<div style="white-space: pre-wrap">  keep  these\n    spaces   </div>',
+    );
+    expect(savedContent).toContain("<pre>  alpha\n    beta   \ngamma  </pre>");
   });
 
   it("does not add default slide padding during a style-only edit", async () => {
@@ -765,7 +796,7 @@ describe("update-slide", () => {
         {
           id: "slide-1",
           content:
-            '<div class="fmd-slide"><div style="border: 1px solid blue;"><h1>Headline</h1></div></div>',
+            '<div class="fmd-slide"><div style="border-width: 1px; border-style: solid; border-color: blue;"><h1>Headline</h1></div></div>',
         },
       ],
     });
@@ -776,15 +807,15 @@ describe("update-slide", () => {
       styleOnly: true,
       edits: [
         {
-          find: "border: 1px solid blue",
-          replace: "border: 0",
+          find: "border-color: blue",
+          replace: "border-color: red",
           expectedMatches: 1,
         },
       ],
     });
 
     expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
-      '<div class="fmd-slide"><div style="border: 0;"><h1>Headline</h1></div></div>',
+      '<div class="fmd-slide"><div style="border-width: 1px; border-style: solid; border-color: red;"><h1>Headline</h1></div></div>',
     );
   });
 
@@ -886,7 +917,7 @@ describe("update-slide", () => {
         {
           id: "slide-1",
           content:
-            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue;"><h1>Headline</h1></div></div>',
+            '<div class="fmd-slide" style="padding: 80px;"><div style="border-width: 1px; border-style: solid; border-color: blue;"><h1>Headline</h1></div></div>',
           animations: [{ id: "reveal-1", elementPath: [0], type: "fade" }],
         },
       ],
@@ -898,8 +929,8 @@ describe("update-slide", () => {
       styleOnly: true,
       edits: [
         {
-          find: "border: 1px solid blue",
-          replace: "border: 0",
+          find: "border-color: blue",
+          replace: "border-color: red",
           expectedMatches: 1,
         },
       ],
@@ -1090,6 +1121,29 @@ describe("update-slide", () => {
         slideId: "slide-1",
         baseContentHash: "fnv1a-stale",
         edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toThrow("changed since it was read");
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("rejects a stale write even when the old 32-bit hashes collided", async () => {
+    expect(hashSlideContent("abc")).toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
+    expect(hashSlideContent("costarring")).not.toBe(hashSlideContent("liquid"));
+
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "liquid" }],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        baseContentHash: hashSlideContent("costarring"),
+        edits: [{ find: "liquid", replace: "stale write" }],
       }),
     ).rejects.toThrow("changed since it was read");
     expect(lastUpdateSet).toBeUndefined();

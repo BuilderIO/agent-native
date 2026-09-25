@@ -1,3 +1,4 @@
+import { parseIconValue } from "@agent-native/core/icons";
 import {
   accessFilter,
   assertAccess,
@@ -337,6 +338,7 @@ function defaultDatabaseView(
                   ? "Form"
                   : "Table",
     type: type === "sidebar" ? "table" : type,
+    icon: values.icon ?? null,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeDatabaseFilterMode(values.filterMode),
@@ -386,6 +388,10 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
           : view.name.trim()
         : defaultDatabaseView({}, type).name,
     type,
+    icon:
+      view.icon === undefined || view.icon === null
+        ? null
+        : parseIconValue(view.icon),
     sorts: Array.isArray(view.sorts) ? view.sorts.filter(isDatabaseSort) : [],
     filters: Array.isArray(view.filters)
       ? view.filters.filter(isDatabaseFilter)
@@ -738,6 +744,7 @@ export async function listPropertiesForDatabase(
         name: definition.name,
         type,
         description: definition.description,
+        icon: definition.icon ? parseIconValue(definition.icon) : null,
         visibility: normalizePropertyVisibility(definition.visibility),
         options,
         position: definition.position,

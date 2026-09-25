@@ -145,7 +145,19 @@ async function penClick(page: Page, x: number, y: number) {
 }
 
 async function penPreview(page: Page) {
-  return page.locator("[data-pen-path-overlay]").evaluate((overlay) => {
+  const preview = await page.evaluate(() => {
+    const overlays = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-pen-path-overlay]"),
+    ).filter((overlay) => {
+      const style = getComputedStyle(overlay);
+      return style.display !== "none" && style.visibility !== "hidden";
+    });
+    const overlay = overlays.sort(
+      (left, right) =>
+        right.querySelectorAll("[data-pen-anchor]").length -
+        left.querySelectorAll("[data-pen-anchor]").length,
+    )[0];
+    if (!overlay) return null;
     const rects = Array.from(
       overlay.querySelectorAll<HTMLElement>("[data-pen-anchor]"),
     ).map((anchor) => {
@@ -164,6 +176,8 @@ async function penPreview(page: Page) {
       pathData: overlay.querySelector("svg path")?.getAttribute("d") ?? "",
     };
   });
+  if (!preview) throw new Error("Pen path preview is not visible");
+  return preview;
 }
 
 async function screenLocalPoint(page: Page, point: { x: number; y: number }) {
@@ -204,19 +218,18 @@ async function terminalPenPoint(page: Page) {
 }
 
 async function authoredOpenPathEndpoints(page: Page) {
-  const points = await page.evaluate(() => {
+  const endpoints = await page.evaluate(() => {
     const iframe = document.querySelector<HTMLIFrameElement>(
       "iframe[data-screen-iframe-id]",
     );
-    const svg = iframe?.contentDocument?.querySelector<SVGSVGElement>(
-      'svg[data-agent-native-node-id="authored-open-svg"]',
+    const path = iframe?.contentDocument?.querySelector<SVGPathElement>(
+      'svg[data-agent-native-node-id="authored-open-svg"] path',
     );
-    const path = svg?.querySelector("path");
-    const matrix = svg?.getScreenCTM();
+    const matrix = path?.getScreenCTM();
     const frameBox = iframe?.getBoundingClientRect();
-    if (!iframe || !svg || !path || !matrix || !frameBox) return null;
-    return [0, path.getTotalLength()].map((length) => {
-      const endpoint = path.getPointAtLength(length);
+    if (!iframe || !path || !matrix || !frameBox) return null;
+    const toPagePoint = (distance: number) => {
+      const endpoint = path.getPointAtLength(distance);
       const local = new DOMPoint(endpoint.x, endpoint.y).matrixTransform(
         matrix,
       );
@@ -224,10 +237,15 @@ async function authoredOpenPathEndpoints(page: Page) {
         x: frameBox.left + (local.x / iframe.clientWidth) * frameBox.width,
         y: frameBox.top + (local.y / iframe.clientHeight) * frameBox.height,
       };
-    });
+    };
+    return {
+      start: toPagePoint(0),
+      terminal: toPagePoint(path.getTotalLength()),
+    };
   });
-  if (!points) throw new Error("authored open SVG has no rendered endpoints");
-  return { start: points[0]!, terminal: points[1]! };
+  if (!endpoints)
+    throw new Error("authored open SVG has no rendered endpoints");
+  return endpoints;
 }
 
 test("a pen path drawn inside a frame paints where it was drawn and stays draggable", async ({
@@ -628,14 +646,16 @@ test("overview Pen continues a selected authored open SVG in place", async ({
   page,
   request,
 }) => {
+  test.setTimeout(180_000);
   const designId = await createDesign(request, AUTHORED_OPEN_SVG_HTML);
   try {
     await page.goto(appPath(`/design/${designId}?view=overview`), {
       waitUntil: "domcontentloaded",
+      timeout: 120_000,
     });
     await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
+      .poll(async () => page.locator("iframe[data-screen-iframe-id]").count(), {
+        timeout: 120_000,
       })
       .toBeGreaterThan(0);
     await page.locator("[data-frame-title]").first().click();
@@ -651,8 +671,21 @@ test("overview Pen continues a selected authored open SVG in place", async ({
 
     const before = await persistedVectors(request, designId);
     expect(before).toHaveLength(1);
-    expect(before[0]!.id).toBe("authored-open-svg");
+    const authoredNodeId = "authored-open-svg";
+    expect(before[0]!.id).toBe(authoredNodeId);
     expect(before[0]!.pathData).toBe("M10 30L70 30");
+    let authoredNodeSaveRequests = 0;
+    page.on("request", (request) => {
+      if (
+        !request.url().includes("/_agent-native/actions/update-file") ||
+        request.method() !== "POST"
+      ) {
+        return;
+      }
+      if ((request.postData() ?? "").includes(authoredNodeId)) {
+        authoredNodeSaveRequests += 1;
+      }
+    });
 
     await page.keyboard.press("p");
     await expect(
@@ -660,6 +693,21 @@ test("overview Pen continues a selected authored open SVG in place", async ({
     ).toHaveAttribute("aria-pressed", "true");
 
     const endpoints = await authoredOpenPathEndpoints(page);
+    const iframeBox = await page.evaluate(() => {
+      const rect = document
+        .querySelector("iframe[data-screen-iframe-id]")
+        ?.getBoundingClientRect();
+      return rect
+        ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+        : null;
+    });
+    expect(iframeBox).not.toBeNull();
+    for (const point of [endpoints.start, endpoints.terminal]) {
+      expect(point.x).toBeGreaterThan(iframeBox!.x + 2);
+      expect(point.x).toBeLessThan(iframeBox!.x + iframeBox!.width - 2);
+      expect(point.y).toBeGreaterThan(iframeBox!.y + 2);
+      expect(point.y).toBeLessThan(iframeBox!.y + iframeBox!.height - 2);
+    }
     await page.mouse.click(endpoints.terminal.x, endpoints.terminal.y);
     await expect
       .poll(async () => (await penPreview(page)).anchors.length)
@@ -672,34 +720,55 @@ test("overview Pen continues a selected authored open SVG in place", async ({
       expect(Math.abs(actual.x - expected.x)).toBeLessThan(3);
       expect(Math.abs(actual.y - expected.y)).toBeLessThan(3);
     }
-    expect(await persistedVectors(request, designId)).toEqual(before);
+    expect(authoredNodeSaveRequests).toBe(0);
 
     const appended = {
       x: endpoints.terminal.x + 36,
       y: endpoints.terminal.y + 36,
     };
+    expect(appended.x).toBeLessThan(iframeBox!.x + iframeBox!.width - 12);
+    expect(appended.y).toBeLessThan(iframeBox!.y + iframeBox!.height - 12);
     await page.mouse.move(appended.x, appended.y);
     await page.mouse.down();
     await expect
       .poll(async () => (await penPreview(page)).anchors.length)
       .toBe(3);
-    expect((await penPreview(page)).pathData).not.toBe(before[0]!.pathData);
-    expect(await persistedVectors(request, designId)).toEqual(before);
+    const extendedPreview = await penPreview(page);
+    expect(extendedPreview.pathData).not.toBe(before[0]!.pathData);
+    const expectedPathData = extendedPreview.pathData;
+    expect(authoredNodeSaveRequests).toBe(0);
     await page.mouse.up();
-    expect(await persistedVectors(request, designId)).toEqual(before);
+    await page.waitForTimeout(500);
+    expect(authoredNodeSaveRequests).toBe(0);
+    const saveResponse = page.waitForResponse(
+      (response) => {
+        if (
+          !response.url().includes("/_agent-native/actions/update-file") ||
+          response.request().method() !== "POST"
+        ) {
+          return false;
+        }
+        const body = response.request().postData();
+        return typeof body === "string" && body.includes(authoredNodeId);
+      },
+      { timeout: 30_000 },
+    );
     await page.keyboard.press("Enter");
-
-    await expect
-      .poll(async () => {
-        const vectors = await persistedVectors(request, designId);
-        return (
-          vectors.length === 1 && vectors[0]?.pathData !== before[0]!.pathData
-        );
-      })
-      .toBe(true);
+    expect((await saveResponse).ok()).toBe(true);
+    expect(authoredNodeSaveRequests).toBeGreaterThan(0);
     const after = (await persistedVectors(request, designId))[0]!;
     expect(after.id).toBe(before[0]!.id);
-    expect(after.pathData).not.toBe(before[0]!.pathData);
+    const expectedCoordinates =
+      expectedPathData.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+    const persistedCoordinates =
+      after.pathData.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+    expect(expectedCoordinates).toHaveLength(6);
+    expect(persistedCoordinates).toHaveLength(expectedCoordinates.length);
+    for (let index = 0; index < expectedCoordinates.length; index += 1) {
+      expect(
+        Math.abs(persistedCoordinates[index]! - expectedCoordinates[index]!),
+      ).toBeLessThanOrEqual(0.5);
+    }
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

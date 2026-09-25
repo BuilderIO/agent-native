@@ -260,6 +260,12 @@ export default {
       opacity: "अस्पष्टता",
       padding: "पैडिंग",
       margin: "अंतर",
+      marginTop: "ऊपरी मार्जिन",
+      marginRight: "दायाँ मार्जिन",
+      marginBottom: "निचला मार्जिन",
+      marginLeft: "बायाँ मार्जिन",
+      linkMarginSides: "मार्जिन के किनारे लिंक करें",
+      unlinkMarginSides: "मार्जिन के किनारे अनलिंक करें",
       radius: "RADIUS",
       flexGrow: "बढ़ना",
       flexShrink: "सिकुड़ना",
@@ -942,6 +948,10 @@ export default {
     signUpToSaveDescription:
       "designs, screen layouts सहेजने और नए options generate करने के लिए free account बनाएं।",
     signUpToShare: "साझा करने के लिए sign up करें",
+    signUpToShareLiveCanvas: "लाइव कैनवास साझा करने के लिए साइन अप करें",
+    liveCanvasLink: "लाइव कैनवास लिंक",
+    liveCanvasWaitingForOwner:
+      "मालिक के लाइव कैनवास स्नैपशॉट की प्रतीक्षा की जा रही है।",
     shareEditorLink: "design editor link",
     shareEditorLinkDescription:
       "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
@@ -1212,6 +1222,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "लंबित visual style edits लागू करें",
       applyButton: "Styles लागू करें",
+      applySharedEdits: "संपादन लागू करें",
       previewLabel: "लंबित visual preview",
       applyDesignUpdates: "डिज़ाइन अपडेट लागू करें",
       applying: "लागू किया जा रहा है…",
@@ -1291,6 +1302,8 @@ export default {
       annotationSendError:
         "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
       codingHandoffError: "कोडिंग हैंडऑफ़ नहीं बनाया जा सका",
+      visualEditPendingConflict:
+        "किसी अन्य सहयोगी के बदलाव लागू होने की प्रतीक्षा में हैं। नए बदलाव भेजने से पहले उन्हें लागू करें या हटाएँ।",
       codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी हुआ",
       clipboardBlocked: "क्लिपबोर्ड अवरुद्ध है",
       htmlCreateError: "HTML डाउनलोड नहीं बनाया जा सका",

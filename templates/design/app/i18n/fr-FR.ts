@@ -264,6 +264,12 @@ export default {
       opacity: "Opacité",
       padding: "Rembourrage",
       margin: "Marge",
+      marginTop: "Marge supérieure",
+      marginRight: "Marge droite",
+      marginBottom: "Marge inférieure",
+      marginLeft: "Marge gauche",
+      linkMarginSides: "Lier les côtés de la marge",
+      unlinkMarginSides: "Délier les côtés de la marge",
       radius: "Rayon",
       flexGrow: "Grandir",
       flexShrink: "Réduire",
@@ -964,6 +970,11 @@ export default {
     signUpToSaveDescription:
       "Creez un compte gratuit pour enregistrer des designs, des mises en page et generer de nouvelles directions.",
     signUpToShare: "S'inscrire pour partager",
+    signUpToShareLiveCanvas:
+      "Inscrivez-vous pour partager un canevas en direct",
+    liveCanvasLink: "Lien du canevas en direct",
+    liveCanvasWaitingForOwner:
+      "En attente de l’instantané du canevas en direct de son propriétaire.",
     shareEditorLink: "Lien de l'editeur de design",
     shareEditorLinkDescription:
       "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
@@ -1238,6 +1249,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "Appliquer les modifications visuelles de style en attente",
       applyButton: "Appliquer les styles",
+      applySharedEdits: "Appliquer les modifications",
       previewLabel: "Aperçu visuel en attente",
       applyDesignUpdates: "Appliquer les mises à jour du design",
       applying: "Application…",
@@ -1320,6 +1332,8 @@ export default {
       annotationSendError:
         "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
       codingHandoffError: "Impossible de créer le transfert de code",
+      visualEditPendingConflict:
+        "Un autre collaborateur a des modifications en attente. Appliquez-les ou effacez-les avant d’en envoyer de nouvelles.",
       codingHandoffCopied: "Transfert de code copié",
       clipboardBlocked: "Presse-papiers bloqué",
       htmlCreateError: "Impossible de créer le téléchargement HTML",

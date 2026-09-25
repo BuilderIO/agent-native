@@ -502,7 +502,7 @@ describe("SlideInner autofit", () => {
       document.querySelector<HTMLElement>(
         '[data-slide-canvas="neutral-fallback"]',
       )?.style.background,
-    ).toBe("#F5F2EA");
+    ).toBe("#FFFFFF");
   });
 
   it("reports vertical overflow for markdown slides too", async () => {

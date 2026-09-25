@@ -259,7 +259,13 @@ export default {
       height: "키",
       opacity: "불투명",
       padding: "심",
-      margin: "여유",
+      margin: "여백",
+      marginTop: "위쪽 여백",
+      marginRight: "오른쪽 여백",
+      marginBottom: "아래쪽 여백",
+      marginLeft: "왼쪽 여백",
+      linkMarginSides: "여백 연결",
+      unlinkMarginSides: "여백 연결 해제",
       radius: "반지름",
       flexGrow: "확장",
       flexShrink: "축소",
@@ -944,6 +950,10 @@ export default {
     signUpToSaveDescription:
       "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
     signUpToShare: "가입하고 공유",
+    signUpToShareLiveCanvas: "실시간 캔버스를 공유하려면 가입하세요",
+    liveCanvasLink: "실시간 캔버스 링크",
+    liveCanvasWaitingForOwner:
+      "소유자의 실시간 캔버스 스냅샷을 기다리는 중입니다.",
     shareEditorLink: "디자인 편집기 링크",
     shareEditorLinkDescription:
       "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
@@ -1214,6 +1224,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "보류 중인 시각 스타일 편집 적용",
       applyButton: "스타일 적용",
+      applySharedEdits: "편집 내용 적용",
       previewLabel: "보류 중인 시각 미리보기",
       applyDesignUpdates: "디자인 업데이트 적용",
       applying: "적용 중…",
@@ -1294,6 +1305,8 @@ export default {
       annotationSendError:
         "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
       codingHandoffError: "코딩 인계를 만들 수 없음",
+      visualEditPendingConflict:
+        "다른 공동 작업자의 변경 사항이 적용 대기 중입니다. 새 변경 사항을 보내기 전에 적용하거나 지워 주세요.",
       codingHandoffCopied: "코딩 인계가 복사됨",
       clipboardBlocked: "클립보드가 차단됨",
       htmlCreateError: "HTML 다운로드를 만들 수 없음",

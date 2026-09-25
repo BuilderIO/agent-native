@@ -655,7 +655,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(editor).toContain("handleOverviewFrameAction(screenId)");
   });
 
-  it("enters Interact in place for an overview screen", () => {
+  it("restores the focused responsive view while keeping the overview iframe mounted", () => {
     const modeHandler = commandSource("mode-change.ts");
     expect(modeHandler).toContain("resolveModeChangeView({");
     expect(modeHandler).toContain('if (routing === "enter-single-interact")');
@@ -665,9 +665,15 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // leaves viewMode "single" (the forbidden single-screen editing state).
     expect(modeHandler).toContain('if (routing === "enter-overview")');
     expect(modeHandler).toContain("enterOverviewFromZoom(next)");
-    expect(source).toContain('interactMode={mode === "interact"}');
-    expect(source).toContain("setOverviewInteractScreenId(screenId)");
-    expect(source).toContain("interactScreenId={overviewInteractScreenId}");
+    expect(source).toContain(
+      'mode === "interact" && !overviewInteractScreenId',
+    );
+    expect(modeHandler).toContain(
+      "setOverviewInteractScreenId(nextActiveFile!.id)",
+    );
+    expect(source).toContain("focusedInteractViewport={");
+    expect(source).toContain("overviewInteractScreenId === activeFileId) ? (");
+    expect(canvasSource).toContain("focusedInteractViewport");
     // Two-view model: the infinite canvas is the editing view. Per-screen
     // Interact is an in-place bridge mode, so the iframe stays mounted.
     expect(source).toContain(
@@ -681,15 +687,11 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       frameActionStart,
       source.indexOf("  useEffect(() => {", frameActionStart),
     );
-    // Toggling the per-frame Interact target still lives here, gated the
-    // same way runModeChange gates the toolbar path (see the pending live
-    // edits describe block below) so re-clicking the active frame always
-    // leaves Interact and only entering it can be blocked.
+    // Enter through the established mode transition so pending edits and the
+    // responsive device defaults retain their existing behavior.
     expect(frameAction).toContain(
-      "overviewInteractScreenIdRef.current === screenId",
+      'handleModeChange("interact", { targetFileId: screenId })',
     );
-    expect(frameAction).toContain("setOverviewInteractScreenId(null)");
-    expect(frameAction).toContain("setOverviewInteractScreenId(screenId)");
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {
