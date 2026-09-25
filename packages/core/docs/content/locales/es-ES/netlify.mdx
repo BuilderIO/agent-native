@@ -5,7 +5,7 @@ description: "Implementa una aplicación nativa del agente en Netlify con el aju
 
 # Netlify
 
-El ajuste preestablecido `netlify` de Nitro funciona bien y, en la práctica, nos ha dado arranques en frío mucho más rápidos que Cloudflare Pages (~200 ms de TTFB frente a ~9 s) para plantillas que se comunican con Postgres externo (Neon). Establece el ajuste preestablecido en `vite.config.ts`:
+El ajuste preestablecido `netlify` de Nitro funciona bien y, en la práctica, nos ha dado arranques en frío mucho más rápidos que Cloudflare Pages (~200 ms de TTFB frente a ~9 s) para plantillas que se comunican con Postgres externo (Neon). Para una configuración mínima fuera del scaffold generado, establece el ajuste preestablecido en `vite.config.ts`:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({

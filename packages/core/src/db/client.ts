@@ -9,11 +9,13 @@ import path from "path";
  */
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
+import { isEmbeddedRuntimeAuthorized } from "./embedded-runtime.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
   recordDatabaseRetry,
 } from "./request-telemetry.js";
+import { isServerRuntimeStarted } from "./server-runtime.js";
 
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
@@ -107,17 +109,16 @@ function hasCloudflareRuntime(): boolean {
 /**
  * Resolve the PostgreSQL URL for the current app.
  *
- * Checks for `<APP_NAME>_DATABASE_URL` first (e.g. `MAIL_DATABASE_URL`),
- * then falls back to `DATABASE_URL`, then Netlify's managed database env. This
- * allows multiple apps to run in the same process group (e.g. eager repo dev or
- * builder.io) with separate databases while still using the persistent Netlify
- * runtime database when `DATABASE_URL` was only exported for the build command.
+ * Checks the current app's prefixed database URL first (e.g.
+ * `MAIL_DATABASE_URL`), then falls back to `DATABASE_URL` and Netlify's managed
+ * database env. Workspace runtimes use their app ID as the prefix, allowing
+ * sibling apps to keep separate databases.
  *
- * Set `APP_NAME=mail` in the child process env and
- * `MAIL_DATABASE_URL=postgres://...` in the shared env.
+ * Standalone processes can set `APP_NAME=mail`; workspace deploys provide the
+ * app ID automatically.
  */
 export function getDatabaseUrl(fallback = ""): string {
-  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  const appName = getAppEnvPrefix();
   if (appName) {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
     if (prefixed) return prefixed;
@@ -256,7 +257,9 @@ export function getRuntimeDatabaseSource(fallback = ""): string {
 }
 
 function getAppEnvPrefix(): string | undefined {
-  return process.env.APP_NAME?.toUpperCase().replace(/-/g, "_") || undefined;
+  const appConfig = getAppConfig().app;
+  const appName = appConfig.workspaceId || appConfig.name;
+  return appName?.toUpperCase().replace(/-/g, "_") || undefined;
 }
 
 /**
@@ -1169,10 +1172,22 @@ export function isProductionServerlessFunctionRuntime(
  * by the AWS Lambda execution environment itself only once a function actually
  * invokes; `NETLIFY_FUNCTION_NAME` and the Vercel function markers are the
  * same kind of invocation-only signal on their platforms.
+ *
+ * Cloudflare is checked first and outside the `NODE_ENV` gate below:
+ * `hasCloudflareRuntime()` (`__cf_env` / `__env__` on `globalThis`) is only
+ * ever set by the generated Worker `fetch` handler on an actual request (see
+ * `generateCloudflareModuleWorkerEntry()` in deploy/build.ts) — it is never
+ * present in the Node process that runs the build, including the Cloudflare
+ * Pages static-shell prerender, which spawns a plain Node subprocess with no
+ * Workers globals. Unlike Netlify/Lambda/Vercel, Cloudflare's own runtime does
+ * not reliably set `NODE_ENV=production`, so gating it on that check the same
+ * way the other three are would make this branch silently never fire.
  */
 export function isHostedFunctionInvocationRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  if (hasCloudflareRuntime()) return true;
+
   if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
     return false;
   }
@@ -1201,6 +1216,51 @@ export class HostedRuntimeLocalDatabaseError extends Error {
         "requests off an ephemeral per-instance file instead of the shared database.",
     );
     this.name = "HostedRuntimeLocalDatabaseError";
+  }
+}
+
+/**
+ * Shared refusal for every database opener. `getDbExec()` (via `initClient`)
+ * and `createGetDb()`'s Drizzle opener resolve the same runtime URL and must
+ * refuse the same way — a request that reaches Drizzle first used to skip
+ * this check entirely and open PGlite silently.
+ *
+ * `isMigrationAuthorizedRuntime()` is checked first: release scripts and
+ * durable background workers can be a real hosted function invocation (a
+ * Netlify background function still gets `NETLIFY_FUNCTION_NAME`) and are
+ * still allowed to touch PGlite under `withMigrationRuntime()` — that path is
+ * guarded separately by `assertReleaseMigrationTargetsRemoteDatabase()`.
+ *
+ * A real hosted function invocation (`isHostedFunctionInvocationRuntime()`)
+ * always refuses next, before `isEmbeddedRuntimeAuthorized()` is even
+ * consulted: Netlify/Vercel/Lambda/Cloudflare are never a legitimate context
+ * for "this is an intentionally embedded desktop app," regardless of
+ * whether the local database was deliberately configured — an embedded host
+ * that ends up actually running as one of those ephemeral, multi-instance
+ * platforms hits the exact per-instance-PGlite failure the guard exists to
+ * prevent either way. `isEmbeddedRuntimeAuthorized()` only exempts the
+ * bare Node/Docker branch below: `createAgentNativeEmbeddedPlugin()` hosts
+ * (packaged/desktop installs) deliberately pass a `pglite:` `databaseUrl`,
+ * and — unlike the `NODE_ENV=test` integration-suite case
+ * `isServerRuntimeStarted()`'s own gate assumed — a real packaged install
+ * runs with `NODE_ENV=production`, so that gate alone does not exempt it.
+ * `configureAgentNativeEmbeddedEnvironment()` claims this duty whenever the
+ * embedding host supplies an explicit `databaseUrl`.
+ *
+ * `isServerRuntimeStarted()` is additionally gated on `NODE_ENV === "production"`
+ * here, unlike `isHostedFunctionInvocationRuntime()`'s Cloudflare branch:
+ * `getH3App()`'s bootstrap — where the flag is set — also runs for `pnpm dev`
+ * and any `NODE_ENV=test` suite that boots a real H3 app.
+ */
+export function assertHostedRuntimeDatabase(): void {
+  if (isMigrationAuthorizedRuntime()) return;
+  if (!isLocalDatabase()) return;
+  if (isHostedFunctionInvocationRuntime()) {
+    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
+  }
+  if (isEmbeddedRuntimeAuthorized()) return;
+  if (process.env.NODE_ENV === "production" && isServerRuntimeStarted()) {
+    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
   }
 }
 
@@ -1263,10 +1323,13 @@ function poolApplicationName(): string {
 
 export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
+  const max =
+    getAppConfig().runtime.databasePoolMax ??
+    (serverless ? serverlessPoolMax() : 20);
   return {
     onnotice: () => {},
     connection: { application_name: poolApplicationName() },
-    max: serverless ? serverlessPoolMax() : 20,
+    max,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -1316,8 +1379,10 @@ export function neonPoolOptions(): {
  * Keep pools shared if you raise this.
  */
 export function neonPoolMax(): number {
-  if (!isServerlessRuntime()) return 20;
-  return serverlessPoolMax();
+  return (
+    getAppConfig().runtime.databasePoolMax ??
+    (isServerlessRuntime() ? serverlessPoolMax() : 20)
+  );
 }
 
 function serverlessPoolMax(): number {
@@ -2262,9 +2327,7 @@ function guardSchemaMutations(exec: DbExec): DbExec {
 async function initClient(): Promise<void> {
   if (_exec) return;
 
-  if (isHostedFunctionInvocationRuntime() && isLocalDatabase()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
+  assertHostedRuntimeDatabase();
 
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
   _exec = await createDbExecInternal({ url }, true);

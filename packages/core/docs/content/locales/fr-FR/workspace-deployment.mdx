@@ -142,7 +142,7 @@ Les builds de workspace hébergés nécessitent `A2A_SECRET` dans l'environnemen
 
 Vous configurez une commande de build de fournisseur au lieu de déployer manuellement ? Ajoutez `--build-only` à la même commande, par exemple `npx @agent-native/core@latest deploy --preset vercel --build-only`. Cela écrit directement la sortie, donc aucun `vercel.json` n'est requis pour le routage du workspace.
 
-Vous préférez un domaine séparé par application plutôt qu'une origine partagée ? Chaque application du workspace reste déployable indépendamment. Exécutez `cd apps/<name> && npx @agent-native/core@latest build` comme un scaffold autonome.
+Vous préférez un domaine séparé par application plutôt qu'une origine partagée ? Chaque application du workspace reste déployable indépendamment. Exécutez `cd apps/<name> && pnpm build` comme un scaffold autonome.
 
 </Callout>
 
@@ -221,7 +221,7 @@ Un **reverse proxy** est ce point d'entrée unique dans le schéma ci-dessus : i
 Le chemin de base est une entrée au moment du build pour le bundle client et une entrée d'exécution pour le serveur. Construisez chaque application avec le même chemin vers lequel le proxy l'acheminera :
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

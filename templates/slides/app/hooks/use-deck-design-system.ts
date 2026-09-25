@@ -79,27 +79,24 @@ export function mergeDesignSystemData(value: unknown): DesignSystemData {
 }
 
 export interface DeckDesignSystemResult {
-  designSystem: DesignSystemData;
+  designSystem: DesignSystemData | undefined;
   designSystemTitle: string | null;
   imageStyleReferenceUrls: string[];
   isLoading: boolean;
 }
 
-export function useDeckDesignSystem(designSystemId?: string | null) {
-  const { data, isLoading } = useActionQuery<{
-    id: string;
-    title: string;
-    data: string;
-  }>("get-design-system", designSystemId ? { id: designSystemId } : undefined, {
-    enabled: Boolean(designSystemId),
-  });
-
+// Returning a stock palette for an unlinked deck publishes `--ds-*` values the
+// slide's own `var(--ds-*, ...)` fallbacks can never override, so "no design
+// system" renders as one nobody picked.
+export function resolveDeckDesignSystem(
+  designSystemId: string | null | undefined,
+  data: { title?: string | null; data?: string } | undefined,
+): Omit<DeckDesignSystemResult, "isLoading"> {
   if (!designSystemId || !data?.data) {
     return {
-      designSystem: DEFAULT_DESIGN_SYSTEM,
+      designSystem: undefined,
       designSystemTitle: null,
       imageStyleReferenceUrls: [],
-      isLoading: false,
     };
   }
 
@@ -109,16 +106,31 @@ export function useDeckDesignSystem(designSystemId?: string | null) {
       designSystem: parsed,
       designSystemTitle: data.title ?? null,
       imageStyleReferenceUrls: getDesignSystemImageStyleReferenceUrls(parsed),
-      isLoading,
     };
   } catch {
     return {
-      designSystem: DEFAULT_DESIGN_SYSTEM,
+      designSystem: undefined,
       designSystemTitle: data.title ?? null,
       imageStyleReferenceUrls: [],
-      isLoading,
     };
   }
+}
+
+export function useDeckDesignSystem(
+  designSystemId?: string | null,
+): DeckDesignSystemResult {
+  const { data, isLoading } = useActionQuery<{
+    id: string;
+    title: string;
+    data: string;
+  }>("get-design-system", designSystemId ? { id: designSystemId } : undefined, {
+    enabled: Boolean(designSystemId),
+  });
+
+  return {
+    ...resolveDeckDesignSystem(designSystemId, data),
+    isLoading: designSystemId ? isLoading : false,
+  };
 }
 
 export { DEFAULT_DESIGN_SYSTEM };

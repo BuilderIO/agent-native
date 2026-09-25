@@ -105,10 +105,13 @@ export async function apiFetch<T>(
       "Content-Type": "application/json",
       "X-Request-Source": TAB_ID,
     },
+    cache: "no-store",
     ...init,
   });
+  throwIfApiFetchAborted(init.signal);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
+    throwIfApiFetchAborted(init.signal);
     const error: ApiError = new Error(
       body?.error || `Request failed (${res.status})`,
     );
@@ -126,7 +129,16 @@ export async function apiFetch<T>(
     throw error;
   }
   onHeaders?.(res.headers);
-  return res.json();
+  const data = await res.json();
+  throwIfApiFetchAborted(init.signal);
+  return data;
+}
+
+function throwIfApiFetchAborted(signal?: AbortSignal | null): void {
+  if (!signal?.aborted) return;
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  throw error;
 }
 
 export type AccountError = { email: string; error: string };
@@ -1167,7 +1179,7 @@ function replaceEmailInInfiniteList(
 
 // ─── Emails ──────────────────────────────────────────────────────────────────
 
-interface EmailsPage {
+export interface EmailsPage {
   emails: EmailMessage[];
   nextPageToken?: string;
   totalEstimate?: number;
@@ -1177,6 +1189,16 @@ interface EmailsPage {
   providerSnapshotId?: number;
   /** Highest suppression claim id that existed when the request started. */
   suppressionFence?: number;
+}
+
+export function keepLatestEmailPage(
+  current: EmailsPage | undefined,
+  incoming: EmailsPage,
+): EmailsPage {
+  return current &&
+    (current.providerSnapshotId ?? 0) > (incoming.providerSnapshotId ?? 0)
+    ? current
+    : incoming;
 }
 
 // Retryable: transient upstream trouble (gateway) and network errors with no
@@ -1192,13 +1214,21 @@ function isRetryableEmailsError(error: unknown): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
+type EmailQueryKey = readonly [
+  "emails" | "email-prefetch",
+  string,
+  string | undefined,
+  string | undefined,
+];
+
 function emailQueryOptions(
+  queryClient: QueryClient,
   view: string,
   search?: string,
   label?: string,
   prefetchTimeoutMs?: number,
+  queryKey: EmailQueryKey = ["emails", view, search, label],
 ) {
-  const queryKey = ["emails", view, search, label] as const;
   return {
     queryKey,
     queryFn: async ({
@@ -1235,11 +1265,20 @@ function emailQueryOptions(
           );
         },
       });
-      return {
+      const incoming = {
         ...(accountErrors ? { ...page, accountErrors } : page),
         providerSnapshotId,
         suppressionFence,
       };
+      const cached = queryClient.getQueryData<InfiniteEmails>(queryKey);
+      const pageIndex = cached?.pageParams.findIndex(
+        (value) => value === pageParam,
+      );
+      const current =
+        pageIndex !== undefined && pageIndex >= 0
+          ? cached?.pages[pageIndex]
+          : undefined;
+      return keepLatestEmailPage(current, incoming);
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
@@ -1265,8 +1304,14 @@ export function prefetchEmails(
   // key so a tab opened mid-prefetch always uses the normal query function.
   return queryClient
     .prefetchInfiniteQuery({
-      ...emailQueryOptions(view, search, label, EMAIL_PREFETCH_TIMEOUT_MS),
-      queryKey: prefetchKey,
+      ...emailQueryOptions(
+        queryClient,
+        view,
+        search,
+        label,
+        EMAIL_PREFETCH_TIMEOUT_MS,
+        prefetchKey,
+      ),
     })
     .then(() => {
       const data = queryClient.getQueryData(prefetchKey);
@@ -1285,8 +1330,9 @@ export function useEmails(
   label?: string,
   options?: { enabled?: boolean },
 ) {
+  const qc = useQueryClient();
   const q = useInfiniteQuery({
-    ...emailQueryOptions(view, search, label),
+    ...emailQueryOptions(qc, view, search, label),
     // Keep the current list rendered while a search or tab query loads. Mail
     // navigation is client-side, so a new query must not look like a reload.
     placeholderData: keepPreviousData,
@@ -3363,7 +3409,11 @@ export function useUpdateSettings() {
       if ("savedFilters" in variables) {
         savedFiltersBaseByPatch.delete(variables);
       }
-      return qc.invalidateQueries({ queryKey: ["settings"] });
+      const invalidations = [qc.invalidateQueries({ queryKey: ["settings"] })];
+      if ("showAllTab" in variables) {
+        invalidations.push(invalidateInboxThreads(qc));
+      }
+      return Promise.all(invalidations);
     },
   });
 }

@@ -42,6 +42,7 @@ import {
   IconUsersGroup,
   IconTool,
   IconAlertCircle,
+  IconSearch,
 } from "@tabler/icons-react";
 import React, {
   Suspense,
@@ -65,6 +66,7 @@ import {
 } from "../../navigation/index.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import {
+  fetchOllamaModels,
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
 } from "../agent-engine-key.js";
@@ -128,6 +130,8 @@ import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { UsageSection } from "./UsageSection.js";
 import {
+  isPopupClosed,
+  POPUP_CLOSED_CONFIRMATION_GRACE_MS,
   type BuilderConnectFlow,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -827,6 +831,8 @@ function ChatGPTSubscriptionCard({
   const [status, setStatus] = useState<ChatGPTSubscriptionStatus | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const popupRef = useRef<Window | null>(null);
+  const popupClosedAtRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -853,6 +859,8 @@ function ChatGPTSubscriptionCard({
         event.origin === window.location.origin &&
         event.data?.type === "agent-native-chatgpt-subscription-connected"
       ) {
+        popupRef.current = null;
+        popupClosedAtRef.current = null;
         setConnecting(false);
         void refresh().then((next) => {
           if (next?.connected) onConfigured();
@@ -862,6 +870,28 @@ function ChatGPTSubscriptionCard({
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [onConfigured, refresh]);
+
+  useEffect(() => {
+    if (!connecting || !popupRef.current) return;
+    const timer = window.setInterval(() => {
+      if (!isPopupClosed(popupRef.current)) return;
+      popupClosedAtRef.current ??= Date.now();
+      if (
+        Date.now() - popupClosedAtRef.current <=
+        POPUP_CLOSED_CONFIRMATION_GRACE_MS
+      ) {
+        return;
+      }
+      window.clearInterval(timer);
+      popupRef.current = null;
+      popupClosedAtRef.current = null;
+      setConnecting(false);
+      void refresh().then((next) => {
+        if (next?.connected) onConfigured();
+      });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [connecting, onConfigured, refresh]);
 
   const connect = useCallback(() => {
     setError(null);
@@ -879,6 +909,8 @@ function ChatGPTSubscriptionCard({
       );
       return;
     }
+    popupRef.current = popup;
+    popupClosedAtRef.current = null;
     setConnecting(true);
   }, [t]);
 
@@ -1121,6 +1153,11 @@ function LLMSectionInner({
   const [engineCatalogAvailable, setEngineCatalogAvailable] = useState(false);
   const [statusProbeAvailable, setStatusProbeAvailable] = useState(false);
   const probeGenerationRef = useRef({ env: 0, status: 0 });
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
+  const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(
+    null,
+  );
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
 
   const initialLoading = !enginesLoaded || !!builderLoading;
 
@@ -1328,9 +1365,48 @@ function LLMSectionInner({
   const engineChanged =
     selectedEngine !== currentEngine || selectedModel !== currentModel;
   const isEndpointProvider = selectedProviderOption.supportsEndpoint === true;
+  const isOllama = selectedProvider === "ollama";
   const endpointChanged =
     isEndpointProvider && (!!baseUrl.trim() || clearBaseUrl);
   const providerSettingsChanged = !!apiKey.trim() || endpointChanged;
+
+  // Ask the Ollama server itself which models it has pulled, instead of only
+  // offering the static suggestion list. Triggered explicitly by the "Find
+  // models" button, mirroring the same flow in `AgentProviderSetupForm`.
+  const handleFindOllamaModels = () => {
+    setOllamaModelsLoading(true);
+    setOllamaModelsError(null);
+    const typedEndpoint = baseUrl.trim();
+    void fetchOllamaModels(typedEndpoint || undefined)
+      .then(async (models) => {
+        setOllamaModels(models);
+        setOllamaModelsError(null);
+        // A successful check is the only signal this address actually works;
+        // persist it immediately so other surfaces reading the saved Ollama
+        // endpoint (the chat composer's model picker) don't keep falling back
+        // to the localhost default until "Save" is also clicked.
+        if (typedEndpoint) {
+          try {
+            await saveAgentEngineProviderSettings({
+              provider: selectedProvider,
+              ...(envVar ? { key: envVar } : {}),
+              baseUrl: typedEndpoint,
+            });
+            setBaseUrlConfigured(true);
+          } catch {
+            // coercion-ok: the connectivity check itself still succeeded and
+            // the found models are shown; the address just wasn't persisted
+            // (e.g. a dropped session). The "Save endpoint" button below
+            // retries it, so this is never reported as a clean success.
+          }
+        }
+      })
+      .catch((err) => {
+        setOllamaModels(null);
+        setOllamaModelsError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setOllamaModelsLoading(false));
+  };
 
   const modelOptions: SettingsSelectOption[] = (
     selectedEngineInfo?.supportedModels ?? []
@@ -1589,8 +1665,106 @@ function LLMSectionInner({
                       setApplyError(null);
                       setApplyNote(false);
                       setTestResult(null);
+                      setOllamaModels(null);
+                      setOllamaModelsError(null);
                     }}
                   />
+
+                  {isOllama && isEndpointProvider ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[12px] font-medium text-foreground">
+                          Endpoint URL
+                        </p>
+                        <span className="text-[10px] text-muted-foreground">
+                          {baseUrlConfigured ? "Configured" : "Optional"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="url"
+                          value={baseUrl}
+                          onChange={(e) => {
+                            const baseUrl = e.target.value;
+                            setSelectionState((previous) => ({
+                              ...previous,
+                              baseUrl,
+                              clearBaseUrl: baseUrl.trim()
+                                ? false
+                                : previous.clearBaseUrl,
+                            }));
+                            setOllamaModels(null);
+                            setOllamaModelsError(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void handleSave();
+                          }}
+                          placeholder={
+                            baseUrlConfigured
+                              ? "Leave blank to keep current endpoint"
+                              : "http://localhost:11434 or local network address like http://192.168.1.123:11434"
+                          }
+                          disabled={clearBaseUrl}
+                          spellCheck={false}
+                          autoComplete="off"
+                          className="flex h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent disabled:opacity-50 placeholder:text-muted-foreground/50"
+                          style={CONTROL_STYLE}
+                        />
+                        <Button
+                          type="button"
+                          intent="neutral"
+                          emphasis="outline"
+                          disabled={
+                            saving || ollamaModelsLoading || clearBaseUrl
+                          }
+                          onClick={handleFindOllamaModels}
+                          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {ollamaModelsLoading ? (
+                            <IconLoader2 size={12} className="animate-spin" />
+                          ) : (
+                            <IconSearch size={12} />
+                          )}
+                          Find models
+                        </Button>
+                      </div>
+                      {baseUrlConfigured && (
+                        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                          <Checkbox
+                            checked={clearBaseUrl}
+                            onChange={(checked) => {
+                              setSelectionState((previous) => ({
+                                ...previous,
+                                clearBaseUrl: checked,
+                                baseUrl: checked ? "" : previous.baseUrl,
+                              }));
+                            }}
+                            aria-label="Clear saved endpoint override"
+                            className="shrink-0"
+                          />
+                          Clear saved endpoint override
+                        </label>
+                      )}
+                      {endpointChanged && (
+                        <Button
+                          type="button"
+                          intent="neutral"
+                          emphasis="solid"
+                          onClick={handleSave}
+                          disabled={saving}
+                          className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                        >
+                          {saving ? (
+                            <IconLoader2 size={10} className="animate-spin" />
+                          ) : saved ? (
+                            <IconCheck size={10} />
+                          ) : (
+                            "Save endpoint"
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  ) : null}
 
                   {/* Catalog entries are suggestions; every provider also accepts
                 a model ID typed here so new releases need no UI update. */}
@@ -1598,7 +1772,11 @@ function LLMSectionInner({
                     <p className={fieldLabelClass(isPage)}>Model</p>
                     <input
                       type="text"
-                      list={`model-suggestions-${selectedEngine}`}
+                      list={
+                        isOllama
+                          ? undefined
+                          : `model-suggestions-${selectedEngine}`
+                      }
                       value={selectedModel}
                       onChange={(e) => {
                         const model = e.target.value;
@@ -1618,7 +1796,7 @@ function LLMSectionInner({
                       className={textInputClass(isPage)}
                       style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
                     />
-                    {modelOptions.length > 0 && (
+                    {!isOllama && modelOptions.length > 0 && (
                       <datalist id={`model-suggestions-${selectedEngine}`}>
                         {modelOptions.map((opt) => (
                           <option
@@ -1629,9 +1807,53 @@ function LLMSectionInner({
                         ))}
                       </datalist>
                     )}
+                    {isOllama ? (
+                      <div className="space-y-1.5">
+                        {ollamaModels && ollamaModels.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {ollamaModels.map((modelOption) => (
+                              <Button
+                                key={modelOption}
+                                type="button"
+                                disabled={saving}
+                                onClick={() => {
+                                  setSelectionState((previous) => ({
+                                    ...previous,
+                                    selectedModel: modelOption,
+                                  }));
+                                  setApplyError(null);
+                                  setApplyNote(false);
+                                  setTestResult(null);
+                                }}
+                                aria-pressed={selectedModel === modelOption}
+                                className={cn(
+                                  "rounded-md border px-2 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                                  selectedModel === modelOption
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border bg-background text-foreground hover:bg-accent/40",
+                                )}
+                              >
+                                {modelOption}
+                              </Button>
+                            ))}
+                          </div>
+                        ) : null}
+                        <p className="text-[10px] leading-relaxed text-muted-foreground">
+                          {ollamaModelsLoading
+                            ? "Checking installed models…"
+                            : ollamaModels && ollamaModels.length > 0
+                              ? `Found ${ollamaModels.length} installed model${ollamaModels.length === 1 ? "" : "s"}.`
+                              : ollamaModels
+                                ? "Connected, but no models are pulled yet — run `ollama pull llama3.1`."
+                                : ollamaModelsError
+                                  ? `${ollamaModelsError} Showing example model names below.`
+                                  : 'Click "Find models" above to list what your Ollama server actually has installed.'}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
 
-                  {isEndpointProvider && (
+                  {!isOllama && isEndpointProvider && (
                     <div className="border-t border-border/70 pt-2">
                       <Button
                         type="button"
@@ -1650,9 +1872,7 @@ function LLMSectionInner({
                           Advanced
                         </span>
                         <span className="truncate text-[10px] text-muted-foreground">
-                          {selectedProvider === "ollama"
-                            ? "Local Ollama endpoint"
-                            : "OpenAI-compatible endpoint"}
+                          OpenAI-compatible endpoint
                         </span>
                       </Button>
 
@@ -1685,9 +1905,7 @@ function LLMSectionInner({
                             placeholder={
                               baseUrlConfigured
                                 ? "Leave blank to keep current endpoint"
-                                : selectedProvider === "ollama"
-                                  ? "http://localhost:11434"
-                                  : "https://gateway.example/v1"
+                                : "https://gateway.example/v1"
                             }
                             disabled={clearBaseUrl}
                             spellCheck={false}
@@ -1737,7 +1955,6 @@ function LLMSectionInner({
                       )}
                     </div>
                   )}
-
                   {envVar && (envConfigured || settingsConfigured) ? (
                     <div
                       className={cn(
@@ -1974,9 +2191,34 @@ function AppDefaultModelPicker({
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
   const visibleEngines = engines.filter(
     (engine) => engine.name !== "ai-sdk:anthropic",
   );
+
+  // The static catalog only has the curated suggestion models for Ollama.
+  // Ask the configured Ollama server what it actually has installed and
+  // swap those in — a second, later render, so it never blocks this
+  // picker's first paint on a local network round trip. Gated on the
+  // popover actually being opened (a deliberate user action), not merely
+  // Ollama's presence in the catalog, which it always has by default —
+  // an unconditional probe would 502 for the vast majority of setups that
+  // never touched Ollama and never even open this picker.
+  useEffect(() => {
+    if (!open) return;
+    if (!engines.some((engine) => engine.name === "ai-sdk:ollama")) return;
+    let cancelled = false;
+    void fetchOllamaModels()
+      .then((models) => {
+        if (!cancelled && models.length > 0) setOllamaModels(models);
+      })
+      .catch(() => {
+        // No local Ollama server reachable — keep the static suggestions.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, engines]);
   const selectedModel = value.includes("::")
     ? value.slice(value.indexOf("::") + 2)
     : null;
@@ -2061,7 +2303,10 @@ function AppDefaultModelPicker({
                 engine.name === "builder"
                   ? "Builder.io"
                   : engine.label || engine.name;
-              const modelIds = latestModelsOnly(engine.supportedModels);
+              const modelIds =
+                engine.name === "ai-sdk:ollama" && ollamaModels?.length
+                  ? ollamaModels
+                  : latestModelsOnly(engine.supportedModels);
               const models = modelIds.length
                 ? modelIds
                 : engine.defaultModel
@@ -2136,6 +2381,7 @@ function AppModelDefaultsSectionInner({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -2165,10 +2411,36 @@ function AppModelDefaultsSectionInner({
 
   useEffect(() => load(), [load]);
 
+  // The static catalog only has the curated suggestion models for Ollama.
+  // Ask the configured Ollama server what it actually has installed and
+  // swap those in — a second, later render, so it never blocks this
+  // section's first paint on a local network round trip. Gated on Ollama
+  // actually being the selected engine here (not merely present in the
+  // catalog, which it always is by default) — an unconditional probe would
+  // 502 for the vast majority of setups that never touched Ollama.
+  useEffect(() => {
+    if (selectedEngine !== "ai-sdk:ollama") return;
+    let cancelled = false;
+    void fetchOllamaModels()
+      .then((models) => {
+        if (!cancelled && models.length > 0) setOllamaModels(models);
+      })
+      .catch(() => {
+        // No local Ollama server reachable — keep the static suggestions.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEngine]);
+
   if (!loading && !settings) return null;
 
   const selectedEngineInfo =
     settings?.engines.find((engine) => engine.name === selectedEngine) ?? null;
+  const selectedEngineModels =
+    selectedEngine === "ai-sdk:ollama" && ollamaModels?.length
+      ? ollamaModels
+      : (selectedEngineInfo?.supportedModels ?? []);
   const engineOptions: SettingsSelectOption[] = (settings?.engines ?? [])
     .filter(
       (engine) =>
@@ -2391,7 +2663,7 @@ function AppModelDefaultsSectionInner({
 
                 <AppDefaultModelField
                   engine={selectedEngine}
-                  models={selectedEngineInfo?.supportedModels ?? []}
+                  models={selectedEngineModels}
                   value={selectedModel}
                   defaultModel={selectedEngineInfo?.defaultModel}
                   disabled={!settings.canUpdate || saving}

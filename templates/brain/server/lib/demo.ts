@@ -6,6 +6,7 @@ import { getDb, schema } from "../db/index.js";
 import {
   createCapture,
   createSource,
+  getAccessibleCapture,
   nowIso,
   parseJson,
   sanitizeEvidenceCitationUrls,
@@ -17,9 +18,11 @@ import {
   type WriteKnowledgeInput,
 } from "./brain.js";
 import {
+  citationEvidenceMatchesCapture,
   redactSensitiveText,
   redactSensitiveValue,
   searchEverythingRows,
+  sourceUrlFromMetadata,
 } from "./search.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
@@ -1283,15 +1286,31 @@ function searchResultCitationUrl(
   return result.citation?.sourceUrl ?? result.sourceUrl ?? null;
 }
 
-function hasExpectedCitation(
+async function hasExpectedCitation(
   result: Awaited<ReturnType<typeof searchEverythingRows>>[number],
   evalCase: RetrievalEvalCase,
 ) {
   if (!evalCase.requireCitation) return true;
   const url = searchResultCitationUrl(result);
   if (!url?.startsWith("https://")) return false;
-  if (!evalCase.requireSlackProvider) return true;
-  return (result.provider ?? result.source?.provider) === "slack";
+  const captureId = result.citation?.captureId;
+  if (!captureId) return false;
+  const access = await getAccessibleCapture(captureId);
+  if (!access) return false;
+  if (
+    evalCase.requireSlackProvider &&
+    ((result.provider ?? result.source?.provider) !== "slack" ||
+      access.source.provider !== "slack")
+  ) {
+    return false;
+  }
+  const canonicalUrl = sourceUrlFromMetadata(
+    parseJson<Record<string, unknown>>(access.capture.metadataJson, {}),
+  );
+  return Boolean(
+    canonicalUrl === url &&
+    citationEvidenceMatchesCapture(result.citation, access.capture.content),
+  );
 }
 
 function findRetrievalEvalMatch(
@@ -1324,7 +1343,9 @@ async function evaluateRetrievalEvalCases() {
       limit: 8,
     });
     const match = findRetrievalEvalMatch(results, evalCase);
-    const citationOk = match ? hasExpectedCitation(match, evalCase) : false;
+    const citationOk = match
+      ? await hasExpectedCitation(match, evalCase)
+      : false;
 
     if (evalCase.kind === "answer") {
       answerCaseCount += 1;

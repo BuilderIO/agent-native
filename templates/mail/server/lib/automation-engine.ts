@@ -3,6 +3,7 @@ import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
+import { resolveCredential } from "@agent-native/core/credentials";
 import { emit } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
@@ -11,8 +12,14 @@ import {
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import {
+  getRequestContext,
+  getJevContextCredentials,
+  isJevEnabled,
   readDeployCredentialEnv,
+  requestJevThroughBuilder,
   runWithRequestContext,
+  type JevContextCredentials,
+  type JevResponse,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
@@ -26,6 +33,7 @@ import {
 } from "@shared/ai-filter.js";
 import {
   AI_PRIORITY_DEFAULT_INSTRUCTION,
+  aiPriorityEmailKey,
   type AiPriorityEmail,
 } from "@shared/ai-priority.js";
 import { mailLabelsInclude } from "@shared/gmail-labels.js";
@@ -44,6 +52,7 @@ import {
   resolveAutomationModelSettings,
   resolveTextAutomationModelSettings,
   TYPESAFE_AUTOMATION_ENGINE,
+  TYPESAFE_AUTOMATION_MODEL,
   type AutomationModelSettings,
 } from "./automation-model.js";
 import {
@@ -94,6 +103,11 @@ interface RuleRecord {
 async function resolveAnthropicKey(
   ownerEmail: string,
 ): Promise<string | undefined> {
+  const credential = await resolveCredential("ANTHROPIC_API_KEY", {
+    userEmail: ownerEmail,
+  });
+  if (credential?.trim()) return credential.trim();
+
   const userKey = (await getUserSetting(ownerEmail, "anthropic-api-key")) as
     | string
     | { key?: string }
@@ -102,7 +116,7 @@ async function resolveAnthropicKey(
   if (userKey && typeof userKey === "object" && userKey.key?.trim()) {
     return userKey.key.trim();
   }
-  return process.env.ANTHROPIC_API_KEY || undefined;
+  return readDeployCredentialEnv("ANTHROPIC_API_KEY") || undefined;
 }
 
 // ─── Token helpers ───────────────────────────────────────────────────────────
@@ -381,14 +395,45 @@ function isMissingProviderError(message: string): boolean {
 async function canUseAutomationModel(
   ownerEmail: string,
   settings: AutomationModelSettings,
-): Promise<boolean> {
+): Promise<{
+  available: boolean;
+  jevCredentials?: JevContextCredentials;
+  legacyTypesafeApiKey?: string;
+}> {
   if (settings.engine === TYPESAFE_AUTOMATION_ENGINE) {
-    return Boolean(readDeployCredentialEnv("TYPESAFE_API_KEY"));
+    return runWithRequestContext(
+      { ...getRequestContext(), userEmail: ownerEmail },
+      async () => {
+        const jevCredentials = await getJevContextCredentials(ownerEmail);
+        const legacyTypesafeApiKey =
+          readDeployCredentialEnv("TYPESAFE_API_KEY")?.trim() || undefined;
+        let available: boolean;
+        try {
+          available = await isJevEnabled(jevCredentials);
+        } catch (error) {
+          if (!legacyTypesafeApiKey) throw error;
+          console.warn(
+            "[automation-engine] Jev entitlement check failed; using the legacy Typesafe deployment key.",
+            error,
+          );
+          available = false;
+        }
+        return {
+          available: available || Boolean(legacyTypesafeApiKey),
+          jevCredentials,
+          ...(!available && legacyTypesafeApiKey
+            ? { legacyTypesafeApiKey }
+            : {}),
+        };
+      },
+    );
   }
 
   const cacheKey = `${ownerEmail}:${settings.engine ?? ""}:${settings.model ?? ""}`;
   const cached = modelAvailabilityCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.ok;
+  if (cached && cached.expiresAt > Date.now()) {
+    return { available: cached.ok };
+  }
 
   try {
     registerBuiltinEngines();
@@ -413,7 +458,7 @@ async function canUseAutomationModel(
       ok: true,
       expiresAt: Date.now() + MODEL_AVAILABILITY_CACHE_TTL_MS,
     });
-    return true;
+    return { available: true };
   } catch (err: any) {
     const message = err?.message || "Automation model unavailable";
     if (!isMissingProviderError(message)) throw err;
@@ -422,7 +467,7 @@ async function canUseAutomationModel(
       error: message,
       expiresAt: Date.now() + MODEL_AVAILABILITY_CACHE_TTL_MS,
     });
-    return false;
+    return { available: false };
   }
 }
 
@@ -529,10 +574,9 @@ async function evaluateRulesWithJev(
   emails: EmailSummary[],
   rules: RuleRecord[],
   ownerEmail: string,
+  credentials: JevContextCredentials,
+  legacyTypesafeApiKey?: string,
 ): Promise<Map<string, RuleMatch[]>> {
-  const apiKey = readDeployCredentialEnv("TYPESAFE_API_KEY");
-  if (!apiKey) throw new Error("TypeSafe Jev is not configured.");
-
   const questionEntries = emails.flatMap((email, emailIndex) =>
     rules.map((rule, ruleIndex) => {
       const id = `q_${emailIndex}_${ruleIndex}`;
@@ -573,33 +617,23 @@ async function evaluateRulesWithJev(
     questions: Object.fromEntries(questionEntries),
   };
 
-  let response: Response | undefined;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    response = await fetch("https://api.typesafe.ai/v1/systemone", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (response.ok) break;
-    if (attempt === 0 && (response.status === 429 || response.status === 529)) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      continue;
+  let payload: JevResponse;
+  if (credentials.builderAuth && !legacyTypesafeApiKey) {
+    try {
+      payload = await requestJevThroughBuilder(credentials.builderAuth, body, {
+        timeoutMs: 12_000,
+      });
+    } catch (error) {
+      if (!credentials.personalApiKey) throw error;
+      payload = await requestJevDirect(credentials.personalApiKey, body);
     }
-    const detail = (await response.text()).slice(0, 300);
-    throw new Error(
-      `TypeSafe Jev request failed (${response.status})${detail ? `: ${detail}` : ""}`,
-    );
+  } else if (credentials.personalApiKey) {
+    payload = await requestJevDirect(credentials.personalApiKey, body);
+  } else if (legacyTypesafeApiKey) {
+    payload = await requestJevDirect(legacyTypesafeApiKey, body);
+  } else {
+    throw new Error("Jev is not enabled.");
   }
-
-  if (!response?.ok) throw new Error("TypeSafe Jev request failed.");
-  const payload = (await response.json()) as {
-    answers?: Record<string, { type?: string; noul?: number }>;
-    usage?: { input_tokens?: number; output_tokens?: number };
-  };
   if (!payload.answers || typeof payload.answers !== "object") {
     throw new Error("TypeSafe Jev returned no answers.");
   }
@@ -640,7 +674,7 @@ async function evaluateRulesWithJev(
       ruleId: question.ruleId,
       match: true,
       confidence: Math.min(1, Math.max(0, probability)),
-      reason: `Jev confidence ${Math.round(probability * 100)}%`,
+      reason: `Jev match probability ${Math.round(probability * 100)}%`,
     });
     results.set(question.emailId, matches);
   }
@@ -653,13 +687,22 @@ async function evaluateRules(
   ownerEmail: string,
   modelSettings: AutomationModelSettings,
   aiFilterState?: AiFilterState,
+  jevCredentials?: JevContextCredentials,
+  legacyTypesafeApiKey?: string,
 ): Promise<Map<string, RuleMatch[]>> {
   // Returns: messageId → array of matched rules with model confidence/reason.
   const results = new Map<string, RuleMatch[]>();
   if (emails.length === 0 || rules.length === 0) return results;
 
   if (modelSettings.engine === TYPESAFE_AUTOMATION_ENGINE) {
-    return evaluateRulesWithJev(emails, rules, ownerEmail);
+    if (!jevCredentials) throw new Error("Jev is not enabled.");
+    return evaluateRulesWithJev(
+      emails,
+      rules,
+      ownerEmail,
+      jevCredentials,
+      legacyTypesafeApiKey,
+    );
   }
 
   // Process in batches of 10 emails per call
@@ -783,10 +826,13 @@ async function evaluatePriorityWithJev(
   emails: EmailSummary[],
   instruction: string,
   ownerEmail: string,
+  credentials: JevContextCredentials,
   signal?: AbortSignal,
 ): Promise<Map<string, PriorityScore>> {
-  const apiKey = readDeployCredentialEnv("TYPESAFE_API_KEY");
-  if (!apiKey) throw new Error("TypeSafe Jev is not configured.");
+  const { builderAuth, personalApiKey } = credentials;
+  if (!personalApiKey && !builderAuth) {
+    throw new Error("Jev is not enabled.");
+  }
 
   const questions = Object.fromEntries(
     emails.map((email, index) => [
@@ -817,36 +863,23 @@ async function evaluatePriorityWithJev(
     questions,
   };
 
-  let response: Response | undefined;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    signal?.throwIfAborted();
-    response = await fetch("https://api.typesafe.ai/v1/systemone", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
-        : AbortSignal.timeout(12_000),
-    });
-    if (response.ok) break;
-    if (attempt === 0 && (response.status === 429 || response.status === 529)) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      continue;
+  const request: Record<string, unknown> = { ...body };
+  let payload: JevResponse;
+  if (builderAuth) {
+    try {
+      payload = await requestJevThroughBuilder(builderAuth, request, {
+        signal,
+        timeoutMs: 12_000,
+      });
+    } catch (error) {
+      if (!personalApiKey) throw error;
+      payload = await requestJevDirect(personalApiKey, request, signal);
     }
-    const detail = (await response.text()).slice(0, 300);
-    throw new Error(
-      `TypeSafe Jev request failed (${response.status})${detail ? `: ${detail}` : ""}`,
-    );
+  } else if (personalApiKey) {
+    payload = await requestJevDirect(personalApiKey, request, signal);
+  } else {
+    throw new Error("Jev is not enabled.");
   }
-
-  if (!response?.ok) throw new Error("TypeSafe Jev request failed.");
-  const payload = (await response.json()) as {
-    answers?: Record<string, { noul?: number }>;
-    usage?: { input_tokens?: number; output_tokens?: number };
-  };
   if (!payload.answers || typeof payload.answers !== "object") {
     throw new Error("TypeSafe Jev returned no answers.");
   }
@@ -882,118 +915,97 @@ async function evaluatePriorityWithJev(
     }
     results.set(email.id, {
       score: probability,
-      reason: `Jev confidence ${Math.round(probability * 100)}%`,
+      reason: `Jev priority probability ${Math.round(probability * 100)}%`,
     });
   });
   return results;
 }
 
-async function evaluatePriorityWithTextModel(
-  emails: EmailSummary[],
-  instruction: string,
-  ownerEmail: string,
-  modelSettings: AutomationModelSettings,
+async function requestJevDirect(
+  apiKey: string,
+  body: Record<string, unknown>,
   signal?: AbortSignal,
-): Promise<Map<string, PriorityScore>> {
-  const results = new Map<string, PriorityScore>();
-  const batchSize = 25;
-  for (let i = 0; i < emails.length; i += batchSize) {
+): Promise<JevResponse> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     signal?.throwIfAborted();
-    const batch = emails.slice(i, i + batchSize);
-    const emailsText = batch
-      .map(
-        (email) =>
-          `--- Email (id: ${email.id}) ---\nFrom: ${email.from}\nTo: ${email.to}\nSubject: ${email.subject}\nSnippet: ${email.snippet}\nLabels: [${email.labelIds.join(", ")}]\nDate: ${email.date}`,
-      )
-      .join("\n\n");
-    const prompt = `Rank these emails for inbox priority using this user guidance: "${instruction}".
-
-Emails:
-${emailsText}
-
-Respond with ONLY a JSON array in this format:
-[{"emailId":"<id>","score":0.0,"reason":"short explanation"}]
-
-Use a score from 0 to 1. Give higher scores to emails that deserve attention sooner. Do not use the age of the email alone as the reason.`;
-    const text = await callModel(prompt, ownerEmail, modelSettings, signal);
-    const jsonStr = text
-      .replace(/```json?\n?/g, "")
-      .replace(/```/g, "")
-      .trim();
-    const parsed = JSON.parse(jsonStr) as Array<{
-      emailId: string;
-      score: number;
-      reason?: string;
-    }>;
-    if (!Array.isArray(parsed)) {
-      throw new Error("Priority model returned a non-array result.");
+    const response = await fetch("https://api.typesafe.ai/v1/systemone", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
+        : AbortSignal.timeout(12_000),
+    });
+    if (response.ok) return (await response.json()) as JevResponse;
+    if (attempt === 0 && (response.status === 429 || response.status === 529)) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      continue;
     }
-    for (const result of parsed) {
-      if (
-        typeof result?.emailId !== "string" ||
-        typeof result.score !== "number" ||
-        !Number.isFinite(result.score)
-      ) {
-        continue;
-      }
-      results.set(result.emailId, {
-        score: Math.min(1, Math.max(0, result.score)),
-        ...(typeof result.reason === "string"
-          ? { reason: result.reason.slice(0, 500) }
-          : {}),
-      });
-    }
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(
+      `TypeSafe Jev request failed (${response.status})${detail ? `: ${detail}` : ""}`,
+    );
   }
-  return results;
+  throw new Error("TypeSafe Jev request failed.");
 }
 
 export async function previewAutomationPriority(
   emails: AiPriorityEmail[],
   ownerEmail: string,
   instruction = AI_PRIORITY_DEFAULT_INSTRUCTION,
+  jevCredentials: JevContextCredentials,
   signal?: AbortSignal,
 ): Promise<{
   scores: Map<string, PriorityScore>;
   model: AutomationModelSettings;
 }> {
-  const model = await getAutomationModelSettings(ownerEmail);
-  if (!(await canUseAutomationModel(ownerEmail, model))) {
-    throw new Error("No LLM provider is connected for Mail priority sort.");
+  if (!jevCredentials.personalApiKey && !jevCredentials.builderAuth) {
+    throw new Error("Jev is not enabled.");
   }
+  const model = {
+    engine: TYPESAFE_AUTOMATION_ENGINE,
+    model: TYPESAFE_AUTOMATION_MODEL,
+  };
 
-  const messages: EmailSummary[] = emails
+  const messages = emails
     .filter(
       (email) =>
         !email.isArchived &&
         !email.isTrashed &&
         mailLabelsInclude(email.labelIds, "inbox"),
     )
-    .map((email) => ({
-      id: email.id,
-      threadId: email.threadId,
-      from: email.from,
-      to: email.to,
-      subject: email.subject,
-      snippet: email.snippet,
-      labelIds: email.labelIds,
-      date: email.date,
+    .map((email, index) => ({
+      key: aiPriorityEmailKey(email.accountEmail, email.id),
+      summary: {
+        id: `priority-${index}`,
+        threadId: email.threadId,
+        from: email.from,
+        to: email.to,
+        subject: email.subject,
+        snippet: email.snippet,
+        labelIds: email.labelIds,
+        date: email.date,
+      },
     }));
 
   const scores = new Map<string, PriorityScore>();
   for (let i = 0; i < messages.length; i += 50) {
     signal?.throwIfAborted();
     const batch = messages.slice(i, i + 50);
-    const batchScores =
-      model.engine === TYPESAFE_AUTOMATION_ENGINE
-        ? await evaluatePriorityWithJev(batch, instruction, ownerEmail, signal)
-        : await evaluatePriorityWithTextModel(
-            batch,
-            instruction,
-            ownerEmail,
-            model,
-            signal,
-          );
-    for (const [emailId, score] of batchScores) scores.set(emailId, score);
+    const batchScores = await evaluatePriorityWithJev(
+      batch.map(({ summary }) => summary),
+      instruction,
+      ownerEmail,
+      jevCredentials,
+      signal,
+    );
+    for (const { key, summary } of batch) {
+      const score = batchScores.get(summary.id);
+      if (score) scores.set(key, score);
+    }
   }
   return { scores, model };
 }
@@ -1008,7 +1020,8 @@ export async function previewAutomationRules(
   model: AutomationModelSettings;
 }> {
   const model = await getAutomationModelSettings(ownerEmail);
-  if (!(await canUseAutomationModel(ownerEmail, model))) {
+  const modelAccess = await canUseAutomationModel(ownerEmail, model);
+  if (!modelAccess.available) {
     throw new Error("No LLM provider is connected for Mail AI rules.");
   }
   const messages: EmailSummary[] = emails
@@ -1041,6 +1054,8 @@ export async function previewAutomationRules(
     ownerEmail,
     model,
     aiFilterState,
+    modelAccess.jevCredentials,
+    modelAccess.legacyTypesafeApiKey,
   );
   return { matches, model };
 }
@@ -1137,7 +1152,18 @@ export async function processAutomationsForAccount(
   // 2. Resolve model settings. Credentials are resolved by the selected engine
   // under the owner's request context, so Builder-managed models work here too.
   const modelSettings = await getAutomationModelSettings(ownerEmail);
-  if (!(await canUseAutomationModel(ownerEmail, modelSettings))) {
+  let modelAccess: Awaited<ReturnType<typeof canUseAutomationModel>>;
+  try {
+    modelAccess = await canUseAutomationModel(ownerEmail, modelSettings);
+  } catch (error) {
+    console.error(
+      "[automation-engine] Model availability check failed:",
+      error,
+    );
+    result.errors = 1;
+    return result;
+  }
+  if (!modelAccess.available) {
     result.errors = 1;
     return result;
   }
@@ -1194,6 +1220,8 @@ export async function processAutomationsForAccount(
     ownerEmail,
     modelSettings,
     aiFilterState,
+    modelAccess.jevCredentials,
+    modelAccess.legacyTypesafeApiKey,
   );
 
   // 6. Execute matched actions

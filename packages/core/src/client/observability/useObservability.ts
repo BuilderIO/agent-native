@@ -1,9 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type {
   InstructionUpdate,
-  OutputReviewRow,
+  OutputReviewDetail,
+  OutputReviewListRow,
 } from "../../observability/types.js";
 import { agentNativePath } from "../api-path.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
@@ -68,18 +70,40 @@ export function useTraces(sinceDays = 7, limit = 100) {
   });
 }
 
-export function useOutputReviews(sinceDays = 7, limit = 100) {
+export function useOutputReviews(
+  sinceDays = 7,
+  limit = 100,
+  cacheOrgId?: string,
+) {
   const params = useMemo(
     () => ({
       sinceMs: Date.now() - sinceDays * 86_400_000,
       limit,
+      ...(cacheOrgId ? { cacheOrgId } : {}),
     }),
-    [sinceDays, limit],
+    [cacheOrgId, sinceDays, limit],
   );
-  return useActionQuery<OutputReviewRow[]>(
+  const query = useActionQuery<OutputReviewListRow[]>(
     "list-observability-reviews",
     params,
-    { refetchInterval: 30_000 },
+    { enabled: Boolean(cacheOrgId), refetchInterval: 30_000 },
+  );
+  return query;
+}
+
+export function useOutputReviewApp(runId: string | null) {
+  return useActionQuery<AgentMcpAppPayload | null>(
+    "get-observability-review-app",
+    { runId: runId ?? "" },
+    { enabled: runId !== null, gcTime: 0 },
+  );
+}
+
+export function useOutputReviewDetail(runId: string | null) {
+  return useActionQuery<OutputReviewDetail>(
+    "get-observability-review-detail",
+    { runId: runId ?? "" },
+    { enabled: runId !== null, gcTime: 0 },
   );
 }
 
@@ -146,17 +170,26 @@ export function useFeedbackList(
   sinceDays = 7,
   limit = 100,
   feedbackType?: FeedbackEntry["feedbackType"],
+  cacheOrgId?: string | null,
 ) {
   const sinceMs = Date.now() - sinceDays * 86_400_000;
   const typeQuery = feedbackType
     ? `&feedbackType=${encodeURIComponent(feedbackType)}`
     : "";
   return useQuery({
-    queryKey: ["observability", "feedback", sinceDays, limit, feedbackType],
+    queryKey: [
+      "observability",
+      "feedback",
+      cacheOrgId,
+      sinceDays,
+      limit,
+      feedbackType,
+    ],
     queryFn: () =>
       fetchJson<FeedbackEntry[]>(
         `${BASE}/feedback?since=${sinceMs}&limit=${limit}${typeQuery}`,
       ),
+    enabled: cacheOrgId !== undefined,
     refetchInterval: 30_000,
   });
 }
@@ -168,12 +201,13 @@ export interface FeedbackStats {
   categories: Record<string, number>;
 }
 
-export function useFeedbackStats(sinceDays = 7) {
+export function useFeedbackStats(sinceDays = 7, cacheOrgId?: string | null) {
   const sinceMs = Date.now() - sinceDays * 86_400_000;
   return useQuery({
-    queryKey: ["observability", "feedback-stats", sinceDays],
+    queryKey: ["observability", "feedback-stats", cacheOrgId, sinceDays],
     queryFn: () =>
       fetchJson<FeedbackStats>(`${BASE}/feedback/stats?since=${sinceMs}`),
+    enabled: cacheOrgId !== undefined,
     refetchInterval: 30_000,
   });
 }
@@ -206,6 +240,17 @@ export function useSubmitFeedback() {
       });
     },
   });
+}
+
+export function useSaveReviewFeedback() {
+  return useActionMutation<
+    FeedbackEntry,
+    {
+      runId: string;
+      feedbackType: "thumbs_up" | "thumbs_down" | "text";
+      value?: string;
+    }
+  >("save-observability-review-feedback");
 }
 
 // ─── Satisfaction ──────────────────────────────────────────────────────

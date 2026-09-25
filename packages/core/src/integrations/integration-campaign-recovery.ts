@@ -3,10 +3,12 @@ import {
   getIntegrationCampaign,
   failDisabledIntegrationCampaignTask,
   listDueIntegrationCampaignIds,
+  deferIntegrationCampaignForRuntime,
 } from "./integration-campaigns-store.js";
 import {
   dispatchPendingIntegrationTask,
   isIntegrationDurableDispatchEnabledForTask,
+  isIntegrationDurableDispatchExplicitlyDisabledForTask,
 } from "./integration-durable-dispatch.js";
 import {
   getNextPendingTaskForThread,
@@ -77,6 +79,19 @@ export async function recoverDueIntegrationCampaigns(options: {
         hasConfirmedDeliveryReceipt(task.payload) ||
         (await getA2AContinuationTaskOutcome(task.id)) === "terminal-delivered";
       if (!durableDispatchEnabled && !confirmedReceipt) {
+        if (
+          !isIntegrationDurableDispatchExplicitlyDisabledForTask({
+            platform: task.platform,
+            externalThreadId: task.externalThreadId,
+            platformContext: task.dispatchScope
+              ? { channelId: task.dispatchScope }
+              : undefined,
+          })
+        ) {
+          await deferIntegrationCampaignForRuntime(campaign.id, 60_000);
+          result.skipped += 1;
+          continue;
+        }
         await failDisabledIntegrationCampaignTask(task.id);
         const nextTask = await getNextPendingTaskForThread(
           task.platform,

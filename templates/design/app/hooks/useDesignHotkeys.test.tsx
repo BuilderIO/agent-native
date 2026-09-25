@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   isDesignHotkeyEditableTarget,
   isDesignHistoryHotkeyTarget,
+  isNativeKeyboardActivationTarget,
   useDesignHotkeys,
   type UseDesignHotkeysProps,
 } from "./useDesignHotkeys";
@@ -36,6 +37,30 @@ describe("isDesignHotkeyEditableTarget", () => {
 
     markedInput.remove();
     ordinaryInput.remove();
+  });
+});
+
+describe("isNativeKeyboardActivationTarget", () => {
+  it("recognizes native activation controls without treating custom canvas cards as controls", () => {
+    const button = document.createElement("button");
+    const summary = document.createElement("summary");
+    const card = document.createElement("div");
+    card.setAttribute("role", "button");
+    card.tabIndex = 0;
+    const rowButton = document.createElement("button");
+    rowButton.setAttribute("data-layer-row-button", "");
+    document.body.append(button, summary, card, rowButton);
+
+    expect(isNativeKeyboardActivationTarget(button)).toBe(true);
+    expect(isNativeKeyboardActivationTarget(summary)).toBe(true);
+    expect(isNativeKeyboardActivationTarget(rowButton)).toBe(true);
+    expect(isNativeKeyboardActivationTarget(card)).toBe(false);
+    expect(isNativeKeyboardActivationTarget(document.body)).toBe(false);
+
+    button.remove();
+    summary.remove();
+    card.remove();
+    rowButton.remove();
   });
 });
 
@@ -404,6 +429,31 @@ describe("useDesignHotkeys — Figma selection and frame traversal", () => {
     });
     expect(onEnter).toHaveBeenCalledTimes(1);
     expect(onSelectParent).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Enter canvas drilling available from a selected layer row", async () => {
+    const onEnter = vi.fn();
+    const rowButton = document.createElement("button");
+    rowButton.setAttribute("data-layer-row-button", "");
+    document.body.append(rowButton);
+    await withHotkeys({ onEnter }, () => {
+      const event = dispatchKey("Enter", {}, rowButton);
+      expect(event.defaultPrevented).toBe(true);
+    });
+    expect(onEnter).toHaveBeenCalledTimes(1);
+    rowButton.remove();
+  });
+
+  it("leaves Enter activation to a standalone native inspector button", async () => {
+    const onEnter = vi.fn();
+    const button = document.createElement("button");
+    document.body.append(button);
+    await withHotkeys({ onEnter }, () => {
+      const event = dispatchKey("Enter", {}, button);
+      expect(event.defaultPrevented).toBe(false);
+    });
+    expect(onEnter).not.toHaveBeenCalled();
+    button.remove();
   });
 
   it("falls back to onEnter for Shift+Enter when onSelectParent isn't wired", async () => {

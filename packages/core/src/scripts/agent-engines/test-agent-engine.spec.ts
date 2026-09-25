@@ -28,6 +28,7 @@ vi.mock("../../server/credential-provider.js", () => ({
   readDeployCredentialEnv: (...args: unknown[]) =>
     readDeployCredentialEnv(...args),
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
+  isTrustedSelfHostedRuntime: () => false,
 }));
 
 describe("test-agent-engine", () => {

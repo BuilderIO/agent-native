@@ -12,7 +12,16 @@ export interface LabDefinition {
   keywords?: string;
 }
 
-const registry = new Map<string, LabDefinition>();
+const LABS_REGISTRY_SYMBOL = Symbol.for("agent-native.labs.registry");
+const globalLabsRegistry = globalThis as typeof globalThis & {
+  [LABS_REGISTRY_SYMBOL]?: Map<string, LabDefinition>;
+};
+
+// Dev servers can load app plugins from source while action registries resolve
+// the built package. Keep both module instances on one process-wide registry.
+const registry =
+  globalLabsRegistry[LABS_REGISTRY_SYMBOL] ??
+  (globalLabsRegistry[LABS_REGISTRY_SYMBOL] = new Map());
 
 function normalizeDefinition(definition: LabDefinition): LabDefinition {
   const key = definition.key.trim();

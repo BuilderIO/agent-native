@@ -1540,13 +1540,30 @@ it("keeps decided suggestion history readable and replies only to pending thread
       (button) => button.getAttribute("aria-label") === "comments.submit",
     );
     expect(submit).toBeDefined();
-    await act(async () => submit?.click());
+    await act(async () => {
+      submit?.click();
+      submit?.click();
+    });
+    expect(replyMutate).toHaveBeenCalledTimes(1);
     expect(replyMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         commentId: "root-pending-suggestion",
         body: "Pending reply",
       }),
       expect.any(Object),
+    );
+    const firstOperationId = replyMutate.mock.calls[0][0].clientOperationId;
+    const timeout = Object.assign(new Error("Request timed out"), {
+      timedOut: true,
+    });
+    await act(async () => {
+      replyMutate.mock.calls[0][1].onError(timeout);
+      replyMutate.mock.calls[0][1].onSettled();
+    });
+    expect(drafts.get("thread-pending-suggestion").text).toBe("Pending reply");
+    await act(async () => submit?.click());
+    expect(replyMutate.mock.calls[1][0].clientOperationId).toBe(
+      firstOperationId,
     );
   } finally {
     await act(async () => root.unmount());

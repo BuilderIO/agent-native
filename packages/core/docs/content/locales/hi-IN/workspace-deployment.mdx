@@ -140,7 +140,7 @@ Hosted कार्यस्थान builds के लिए deploy provider en
 
 हाथ से deploy करने के बजाय किसी provider का build command wire कर रहे हैं? उसी command में `--build-only` जोड़ें, उदाहरण के लिए `npx @agent-native/core@latest deploy --preset vercel --build-only`। यह आउटपुट सीधे लिखता है, इसलिए कार्यस्थान routing के लिए किसी `vercel.json` की ज़रूरत नहीं।
 
-एक shared origin के बजाय हर ऐप के लिए अलग domain पसंद करते हैं? कार्यस्थान का हर ऐप अब भी स्वतंत्र रूप से तैनात किया जा सकता है। एक standalone scaffold की तरह `cd apps/<name> && npx @agent-native/core@latest build` चलाएं।
+एक shared origin के बजाय हर ऐप के लिए अलग domain पसंद करते हैं? कार्यस्थान का हर ऐप अब भी स्वतंत्र रूप से तैनात किया जा सकता है। एक standalone scaffold की तरह `cd apps/<name> && pnpm build` चलाएं।
 
 </Callout>
 
@@ -217,7 +217,7 @@ Hosted कार्यस्थान builds के लिए deploy provider en
 Base path client bundle के लिए एक build-time input है और server के लिए एक runtime input। हर ऐप को उसी path के साथ build करें जिस पर proxy उसे route करेगा:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

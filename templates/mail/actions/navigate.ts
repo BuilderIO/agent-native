@@ -1,10 +1,15 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  getJevContextCredentials,
+  getRequestUserEmail,
+  isJevEnabled,
+} from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or email thread. Writes a navigate command to application state which the UI reads and auto-deletes.",
+    "Navigate the UI to a specific view, inbox sort, or email thread. Priority sort requires Jev access. Writes a navigate command to application state which the UI reads and auto-deletes.",
   schema: z.object({
     view: z
       .string()
@@ -19,7 +24,7 @@ export default defineAction({
       .max(80)
       .optional()
       .describe(
-        'Inbox tab id to open, from list-inbox-threads\' `tabs` list — a pinned label id, a saved filter id, "important", or "other"',
+        'Inbox tab id to open, from list-inbox-threads\' `tabs` list — All, a pinned label id, a saved filter id, "important", or "other"',
       ),
     filter: z
       .string()
@@ -59,6 +64,18 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
+    if (args.sort === "priority") {
+      const ownerEmail = getRequestUserEmail();
+      const credentials = ownerEmail
+        ? await getJevContextCredentials(ownerEmail)
+        : null;
+      if (!credentials || !(await isJevEnabled(credentials))) {
+        fail("Priority sort requires Jev to be enabled for this account.", {
+          errorCode: "jev_not_enabled",
+          statusCode: 403,
+        });
+      }
+    }
     const tab = args.tab || args.label || args.filter;
     if (
       !args.view &&

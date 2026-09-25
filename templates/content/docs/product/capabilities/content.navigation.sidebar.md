@@ -27,6 +27,7 @@ evidence:
   [
     "../../../app/components/sidebar/document-sidebar-sections.test.ts",
     "../../../app/components/sidebar/DocumentSidebar.layout.test.ts",
+    "../../../actions/move-page-to-space.db.test.ts",
     "../../../app/components/editor/database/sidebar.tsx",
     "../../../actions/content-recent.test.ts",
     "../../../actions/content-personal-navigation-patch.test.ts",
@@ -34,7 +35,7 @@ evidence:
     "../../../app/hooks/use-content-database.test.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-09-18"
+last_reviewed: "2026-09-23"
 ---
 
 # Personal sidebar
@@ -55,6 +56,10 @@ parentage remain unchanged.
 - Pinned entries are personal References; dynamic sections are access-scoped query results.
 - Personal ordering, expansion, and collapse do not reparent Pages, change Collection membership, or grant shared edit authority.
 - Intentional references may expand; the sidebar is not a general-purpose object renderer.
+- Every sidebar row opens one Page menu with one order: pin; copy link and open in a new tab; rename, duplicate, and move; remove from Recent or move to Trash; then who last edited the Page and when. Each section offers only the items it allows, and each item still requires the caller's access.
+- Files and Pinned rows may rename, duplicate a Page with its sub-pages beside the original, move it within its Content space or into another space the viewer can add pages to, and move it to Trash. Local-file Pages mirror disk and are not renamed, duplicated, or moved from the sidebar, and local-folder spaces are never offered as destinations.
+- Moving a Page to another space moves its sub-pages with it. The person moving becomes the owner, and access resets to the destination's: organization-wide in an organization space, private otherwise, or the new parent's sharing. Existing shares and public access are removed, and the viewer is warned and confirms before anything moves. Comments, history, and block identities travel with the Pages. Pages that contain Collections, Collection rows, local-folder files, and Notion- or Builder-linked Pages cannot change space yet and are refused with a reason.
+- Recent rows carry only actions that leave the Page unchanged: pin or unpin, copy link, open in a new tab, and remove from Recent. Shared mutations such as rename, move, trash, add child, and reorder stay with Files and Pinned.
 - Missing, deleted, inaccessible, stale, and unavailable entries are handled honestly and recoverably.
 
 ## Boundaries and non-goals
@@ -68,6 +73,19 @@ general Tree View, or a hidden shared workspace organizer.
 
 Given two pinned References, when a viewer changes their order, then only that person's
 navigation preference changes and neither target Page's parentage nor membership changes.
+
+### Forget a Recent destination
+
+Given a Page in a viewer's Recent, when they remove it from Recent, then only that
+viewer's Recent history changes; the Page, its pins, and every other viewer's Recent
+are unchanged.
+
+### Move a Page into an organization space
+
+Given a private Page with a sub-page and an existing share, when its owner moves it to
+an organization space and confirms the warning, then both Pages appear in that space's
+Files, everyone in the organization can view them, the old share no longer applies, and
+their comments and history are still there.
 
 ### Open an access-scoped section
 
@@ -94,8 +112,26 @@ legacy and unassigned pins. The selected space's Files tree is the only tree ren
 section order, visibility, and expansion persist, while five-row Pinned and Recent
 display counts are deliberately transient. Contextual pin reorder patches only the
 loaded subset and preserves unrelated personal order entries. Files, Pinned, and Recent
-share a presentational navigation row; Recent retains its real icon and exact View link
-without inheriting tree expansion or mutation controls.
+share a presentational navigation row and one hover/focus row-actions layer; Recent
+retains its real icon and exact View link without inheriting tree expansion or shared
+mutation controls. Its row menu offers Pin/Unpin, using the requester's pinned state
+resolved under the same access as the row, and Remove from Recent through the shared
+`remove-content-recent` Action, which forgets only that user's visit.
+
+Files and Pinned rows use the same menu with Rename (inline, through `update-document`),
+Duplicate (`duplicate-database-item`, which now keeps the copy under the original's
+parent and, when named by Page id, uses the Page's own space Files membership rather
+than a Favorites membership), Move to (a same-space picker over `move-document`), and
+Move to Trash. The menu footer reads `get-document-activity` only while open.
+Duplicate now uses `duplicate-page`, which copies the Page's sub-pages too (Collections
+stay put) and places each copy as if the caller created it there. Move to picks a space
+first and warns before a cross-space move; `move-document` with `spaceId` then rewrites
+the subtree's space, owner, and visibility, drops its shares, swaps Files membership,
+and carries comments, history, and block identities in one transaction. Database tests
+cover moving with comments and history, ownership handoff, nesting only under the
+mover's own Pages, refusing Pages with Collections, and duplicating within and across
+spaces.
+Reorderable rows now stay inside the sidebar width, so Pinned row actions are visible.
 
 Each section's menu opens its complete selected-space collection: scoped personal pins,
 the retained Recent window, or the canonical Files table. Section headers use one grid
@@ -127,6 +163,10 @@ or recovery contracts.
 3. Exercise keyboard, ARIA navigation, responsive behavior, agent context, and unavailable sources.
 
 ## Open questions
+
+- Pages that contain Collections, and Collection rows, cannot change space yet. Carrying
+  a Collection's rows, properties, views, and sources to another space, and whether a
+  duplicate should copy a Collection rather than keep pointing at it, is undecided.
 
 - The initial catalog is Pinned and Recent alongside selected-space Files navigation.
   Pinned and Recent start visible and expanded, show five entries initially, and allow

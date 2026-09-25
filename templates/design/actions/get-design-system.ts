@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import {
   hydrateBuilderDesignSystemReference,
+  isBuilderDesignSystemReadyByCount,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -41,7 +42,8 @@ interface BuilderGenerationContext {
     tokenValues?: Record<string, string>;
   }>;
   tokenValues: Record<string, string>;
-  docCount: number;
+  /** null when Builder could not be read at all; 0 means "still indexing". */
+  docCount: number | null;
   warning?: string;
 }
 
@@ -199,7 +201,8 @@ function buildDesignSystemAgentContext({
   // than presenting placeholder proxy values as if they were the user's brand.
   const builderUsable = Boolean(
     builder &&
-    (builder.docCount > 0 || Object.keys(builder.tokenValues).length > 0),
+    typeof builder.docCount === "number" &&
+    isBuilderDesignSystemReadyByCount(builder.docCount),
   );
   if (builder && !builderUsable) {
     lines.push(
@@ -363,7 +366,7 @@ export default defineAction({
             ...builderReference,
             docs: [],
             tokenValues: {},
-            docCount: 0,
+            docCount: null,
             warning:
               error instanceof Error
                 ? error.message

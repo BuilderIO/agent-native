@@ -9,6 +9,7 @@ import { authConfig } from "./auth.js";
 import { integrationsConfig } from "./integrations.js";
 import { migrationConfig } from "./migration.js";
 import { observabilityConfig } from "./observability.js";
+import { onboardingConfig } from "./onboarding.js";
 import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
 import { runtimeConfig } from "./runtime.js";
@@ -40,6 +41,7 @@ export const appConfigSchema = z.object({
   integrations: integrationsConfig.prefault({}),
   migration: migrationConfig.prefault({}),
   observability: observabilityConfig.prefault({}),
+  onboarding: onboardingConfig.prefault({}),
   plugins: pluginsConfig.prefault({}),
   privateBlob: privateBlobConfig.prefault({}),
   runtime: runtimeConfig.prefault({}),

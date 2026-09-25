@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "收件箱",
+      all: "全部",
       unread: "未讀",
       starred: "已加星號",
       snoozed: "已稍後提醒",
@@ -67,7 +68,8 @@ const messages = {
       renameTab: "重新命名標籤頁面",
       savedFilters: "已儲存的篩選條件",
       combinedInbox: "合併收件匣",
-      help: "勾選的專案會顯示為標籤頁面。標籤郵件會從收件箱中分離。",
+      allTab: "全部分頁",
+      help: "全部會顯示收件匣中的所有郵件串。勾選的標籤會拆分收件匣。",
     },
     accounts: {
       remove: "移除",
@@ -510,6 +512,7 @@ const messages = {
       previewButton: "執行預覽",
       previewRunning: "正在檢查最近的收件匣郵件…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev 符合機率 {{percent}}%",
       feedbackLabel: "勾選不應包含的符合項目",
       notSpamShort: "不是垃圾郵件",
       notMatchShort: "不符合",

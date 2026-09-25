@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  fetchBuilderDesignSystemDocumentCount,
+  parseBuilderDesignSystemProxyReference,
+} from "@agent-native/core/server";
+import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
@@ -25,6 +29,15 @@ function normalizeEmail(email: string | undefined): string | null {
 function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
   if (!current || ROLE_RANK[next] > ROLE_RANK[current]) return next;
   return current;
+}
+
+function withLiveDocCount(data: string, docCount: number): string {
+  const parsed = JSON.parse(data) as Record<string, unknown>;
+  return JSON.stringify({
+    ...parsed,
+    docCount,
+    builderStatus: docCount > 0 ? "ready" : "in-progress",
+  });
 }
 
 export default defineAction({
@@ -68,6 +81,41 @@ export default defineAction({
 
     if (rows.length === 0) {
       return { count: 0, designSystems: [] };
+    }
+
+    // docCount is never stored in SQL and never read from a cached value on
+    // the row: it always comes from Builder's own document-count endpoint,
+    // fetched fresh for every Builder-backed row on every list call, in
+    // parallel so N Builder-backed systems cost one round trip, not N.
+    const builderRows = rows
+      .map((row) => ({
+        row,
+        reference: parseBuilderDesignSystemProxyReference(row.data),
+      }))
+      .filter(
+        (
+          entry,
+        ): entry is {
+          row: (typeof rows)[number];
+          reference: NonNullable<typeof entry.reference>;
+        } => entry.reference !== null,
+      );
+    const liveDocCounts = new Map<string, number>();
+    const liveRowData = new Map<string, string>();
+    if (builderRows.length > 0) {
+      const results = await Promise.all(
+        builderRows.map(async ({ row, reference }) => {
+          const result = await fetchBuilderDesignSystemDocumentCount(
+            reference.builderDesignSystemId,
+          );
+          return { row, result };
+        }),
+      );
+      for (const { row, result } of results) {
+        if (!result.ok) continue;
+        liveDocCounts.set(row.id, result.docCount);
+        liveRowData.set(row.id, withLiveDocCount(row.data, result.docCount));
+      }
     }
 
     // The row-level isDefault column is per-owner, so a shared system owned by
@@ -133,6 +181,8 @@ export default defineAction({
         role = "owner";
       }
       const canManage = canManageDesignSystemRole(role);
+      const data = liveRowData.get(row.id) ?? row.data;
+      const docCount = liveDocCounts.get(row.id);
       if (args.compact === "true") {
         return {
           id: row.id,
@@ -140,13 +190,15 @@ export default defineAction({
           isDefault: row.id === effectiveDefaultId,
           accessRole: role,
           canManage,
+          docCount,
         };
       }
       return {
         id: row.id,
         title: row.title,
         description: row.description,
-        data: row.data,
+        data,
+        docCount,
         assets: row.assets,
         customInstructions: row.customInstructions ?? "",
         isDefault: row.id === effectiveDefaultId,

@@ -54,6 +54,7 @@ const messages = {
     emptyState: "Pregúntame cualquier cosa sobre tus presentaciones",
     thisSlide: "Esta diapositiva",
     currentSelection: "Selección actual",
+    slideNumber: "Diapositiva {{number}}",
     suggestionPitch: "Crea un pitch de 10 diapositivas desde este doc",
     suggestionBrand: "Aplica nuestra marca a este deck",
     suggestionHero: "Genera una imagen principal para esta diapositiva",
@@ -185,6 +186,12 @@ const messages = {
     emptyTitle: "Configura la identidad de tu marca",
     emptyDescription:
       "Crea un sistema de diseño con los colores, la tipografía y los logotipos de tu marca. Cada nueva presentación seguirá tu identidad visual.",
+    tierLimitTitle: "Se alcanzó el límite de sistemas de diseño",
+    tierLimitDescription:
+      "Has alcanzado el límite de sistemas de diseño de tu plan de Builder. Mejora tu plan de Builder para crear otro.",
+    tierLimitDescriptionWithCount:
+      "Estás usando {{current}} de {{max}} sistemas de diseño en tu plan {{plan}} de Builder. Mejora tu plan para crear otro.",
+    tierLimitUpgrade: "Mejorar plan de Builder",
   },
   editorToolbar: {
     layoutTitle: "Título",
@@ -710,6 +717,8 @@ const messages = {
       "Si sales o recargas ahora, podrías perder los cambios que aún no se han guardado. ¿Seguro que quieres salir?",
     keepEditing: "Seguir editando",
     leaveWithoutSaving: "Salir sin guardar",
+    editorMarkupNotSaved:
+      "Esta edición no se guardó porque habría añadido marcado del editor a la diapositiva.",
   },
   designSystemSetup: {
     importedBrand: "Marca importada",
@@ -771,6 +780,8 @@ const messages = {
     websitePlaceholder: "example.com o Nike",
     add: "Añadir",
     githubRepository: "Conectar código: repositorio de GitHub",
+    codeIndexingEnterpriseOnly:
+      "La indexación de código y repositorios requiere el plan Builder Enterprise",
     githubRef: "Rama, etiqueta o commit (opcional)",
     githubPaths: "Archivos o carpetas, separados por comas (opcional)",
     codeFiles: "Conectar archivos de código",
@@ -842,10 +853,6 @@ const messages = {
     continue: "Continuar",
     continueToGenerate: "Continuar para generar",
     designSystem: "Sistema de diseño",
-    designSystemIndexing: "Indexando…",
-    designSystemUnavailable: "No disponible",
-    designSystemIndexingNotice:
-      "Este sistema de diseño todavía se está indexando. Elige otro o espera a que termine la indexación antes de continuar.",
     referenceDeck: "Deck de referencia",
     referenceDeckPlaceholder: "Imitar el estilo de un deck existente",
     referenceDeckNone: "No usar ninguno",

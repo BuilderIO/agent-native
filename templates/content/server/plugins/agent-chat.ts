@@ -27,6 +27,7 @@ export default createAgentChatPlugin({
   resolveActionSurface: resolveCommentAiActionSurface,
   durableBackgroundRuns: true,
   selectedA2AReceiverOwnsObjective: true,
+  frameworkTools: { labs: true },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {

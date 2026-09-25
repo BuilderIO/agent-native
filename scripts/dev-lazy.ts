@@ -41,12 +41,11 @@ interface TemplateApp {
   ready?: boolean;
   readinessProbe?: Promise<void>;
   lastActivityAt?: number;
-  // Last time this app returned (or was probed as returning) a non-5xx
-  // response. Initialized to spawn time so a fresh cold boot is never
-  // mistaken for a stuck/stranded server. Drives both the stuck-app restart
-  // cap in `failAppStartupTimeout` and the permanent-503 self-heal in
-  // `dispatch()`.
+  // Last non-5xx response, used by the stuck-app restart cap in
+  // `failAppStartupTimeout`.
   lastNon5xxAt?: number;
+  // Start of the current run of 5xx responses; cleared by a non-5xx response.
+  persistent5xxSince?: number;
   openSockets?: number;
   evicting?: boolean;
 }
@@ -820,8 +819,8 @@ export function probeHttpReady(
         // reads as a broken page with a retry button seconds before the app
         // would have served it. Keep probing until it answers non-5xx — the
         // caller's deadline (`proxyReadyTimeoutMs`) still bounds the wait, and
-        // the persistent-5xx self-heal is driven by `lastNon5xxAt`, not by
-        // this probe, so a genuinely wedged app is still restarted.
+        // the persistent-5xx self-heal is driven by proxied 5xx responses, not
+        // by this probe, so a genuinely wedged app is still restarted.
         finish((res.statusCode ?? 500) < 500);
       },
     );
@@ -873,6 +872,7 @@ export function readinessProbeTimeoutMs(deadline: number, now: number): number {
 export function markAppReady(app: TemplateApp): void {
   app.ready = true;
   app.lastNon5xxAt = Date.now();
+  app.persistent5xxSince = undefined;
   app.restartAttempts = 0;
 }
 
@@ -894,16 +894,15 @@ export function shouldRestartStuckApp(input: {
 }
 
 /**
- * Pure decision backing the permanent-503 self-heal: once an app has gone
- * `restartMs` without a single non-5xx response, a run of 5xx responses is
- * treated as a stranded dev-server runner rather than a transient blip.
+ * Pure decision backing the permanent-503 self-heal: a continuous run of 5xx
+ * responses lasting `restartMs` is treated as a stranded dev-server runner.
  */
 export function shouldRestartPersistent5xx(input: {
-  lastNon5xxAt: number;
+  first5xxAt: number;
   now: number;
   restartMs: number;
 }): boolean {
-  return input.now - input.lastNon5xxAt > input.restartMs;
+  return input.now - input.first5xxAt > input.restartMs;
 }
 
 function ensureReadinessProbe(app: TemplateApp): void {
@@ -1105,11 +1104,10 @@ function startApp(app: TemplateApp): void {
   app.outputTail = undefined;
   app.evicting = false;
   app.lastActivityAt = Date.now();
-  // Seed the persistent-5xx/stuck-app clock at spawn time so a fresh cold
-  // boot (which necessarily has no non-5xx response yet) is never mistaken
-  // for a stranded runner or a stuck compile before it has had a chance to
-  // serve anything.
+  // Seed the stuck-app clock at spawn time so a fresh cold boot is not
+  // mistaken for a stuck compile before it has had a chance to serve.
   app.lastNon5xxAt = Date.now();
+  app.persistent5xxSince = undefined;
   app.openSockets ??= 0;
 
   const basePath = `/${app.id}`;
@@ -1224,7 +1222,7 @@ function startApp(app: TemplateApp): void {
   });
 }
 
-function scheduleAppRestart(
+export function scheduleAppRestart(
   app: TemplateApp,
   input: { code: number | null; output: string; logMessage: string },
 ): void {
@@ -1245,7 +1243,6 @@ function scheduleAppRestart(
     app.restartTimer = undefined;
     startApp(app);
   }, delay);
-  app.restartTimer.unref();
 }
 
 /**
@@ -1314,9 +1311,9 @@ async function failAppStartupTimeout(app: TemplateApp): Promise<void> {
  * gives up after a few worker crashes and serves 5xx for every request
  * forever (the response body mentions the runner being unavailable). Because
  * the gateway only ever saw "a response happened" before, it never noticed —
- * this is the escalation path that does. Only fires once the app has gone
- * `persistent5xxRestartMs` with no non-5xx response at all, so a normal
- * transient 500 during a rebuild never triggers it.
+ * this is the escalation path that does. Only fires after `persistent5xxRestartMs`
+ * worth of continuous 5xx responses, so a normal transient 500 during a rebuild
+ * never triggers it.
  */
 async function maybeRecoverPersistent5xx(
   app: TemplateApp,
@@ -1324,9 +1321,10 @@ async function maybeRecoverPersistent5xx(
 ): Promise<void> {
   if (app.restartTimer) return;
   const now = Date.now();
+  const first5xxAt = (app.persistent5xxSince ??= now);
   if (
     !shouldRestartPersistent5xx({
-      lastNon5xxAt: app.lastNon5xxAt ?? now,
+      first5xxAt,
       now,
       restartMs: persistent5xxRestartMs,
     })
@@ -1338,11 +1336,11 @@ async function maybeRecoverPersistent5xx(
   if (!(await probePort(app.port))) return;
   // Re-check after the async gap: another path may have already restarted it
   // or it may have just recovered on its own.
-  if (app.restartTimer) return;
+  if (app.restartTimer || app.persistent5xxSince !== first5xxAt) return;
   process.stderr.write(
-    `${colorPrefix(app.id)} stuck serving ${statusCode} for ` +
-      `${formatProxyReadyTimeout(persistent5xxRestartMs)} with no healthy ` +
-      `response; restarting (likely a stranded dev-server runner)\n`,
+    `${colorPrefix(app.id)} stuck serving ${statusCode} continuously for ` +
+      `${formatProxyReadyTimeout(persistent5xxRestartMs)}; restarting ` +
+      `(likely a stranded dev-server runner)\n`,
   );
   app.ready = false;
   killChildProcessTree(app.process, "SIGTERM");

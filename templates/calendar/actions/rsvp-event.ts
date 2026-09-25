@@ -3,8 +3,10 @@ import { z } from "zod";
 
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
+  googleEventResultId,
   normalizeWritableGoogleEventId,
   requireActionUserEmail,
+  resolveGoogleEventAccountEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
 
@@ -49,11 +51,11 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
-      args.accountEmail,
+      resolveGoogleEventAccountEmail(args.id, args.accountEmail),
       ownerEmail,
     );
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
 
     await googleCalendar.rsvpEvent(
       googleEventId,
@@ -66,7 +68,7 @@ export default defineAction({
 
     return {
       success: true,
-      id: `google-${googleEventId}`,
+      id: googleEventResultId(args.id, googleEventId, accountEmail),
       accountEmail,
       status: args.status,
       note: args.note?.trim() ?? args.note,

@@ -169,18 +169,22 @@ export function CommentEntry({
   currentUserEmail,
   canComment,
   members,
+  onCreatedCommentConfirmed,
 }: {
   comment: Comment;
   documentId: string;
   currentUserEmail?: string;
   canComment: boolean;
   members: MentionMember[];
+  onCreatedCommentConfirmed?: (operationId: string) => void;
 }) {
   const t = useT();
   const { formatDate } = useFormatters();
   const edit = useEditComment();
   const create = useCreateComment({ email: currentUserEmail });
   const [checking, setChecking] = useState(false);
+  const [checkedUnresolvedOperationId, setCheckedUnresolvedOperationId] =
+    useState<string | null>(null);
   const sourceDraft = useCommentDraft(
     comment.parent_id ? `reply:${documentId}:${comment.thread_id}` : "pending",
   );
@@ -212,6 +216,45 @@ export function CommentEntry({
       if (result === "confirmed" && submitted) {
         sourceDraft.clearIfUnchanged(submitted);
       }
+      if (result === "confirmed") {
+        onCreatedCommentConfirmed?.(comment.mutation.operationId);
+      }
+      setCheckedUnresolvedOperationId(
+        result === "unresolved" ? comment.mutation.operationId : null,
+      );
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setChecking(false);
+    }
+  };
+  const retryUnconfirmed = async () => {
+    const operationId = comment.mutation?.operationId;
+    if (
+      !comment.mutation?.ambiguous ||
+      checkedUnresolvedOperationId !== operationId ||
+      checking ||
+      !canComment
+    )
+      return;
+    setChecking(true);
+    try {
+      await create.mutateAsync({
+        clientOperationId: operationId,
+        documentId,
+        content: comment.content,
+        threadId: comment.parent_id ? comment.thread_id : undefined,
+        parentId: comment.parent_id ?? undefined,
+        quotedText: comment.quoted_text ?? undefined,
+        anchorPrefix: comment.anchor_prefix ?? undefined,
+        anchorSuffix: comment.anchor_suffix ?? undefined,
+        anchorStartOffset: comment.anchor_start_offset ?? undefined,
+        mentions: JSON.stringify(comment.mentions),
+      });
+      setCheckedUnresolvedOperationId(null);
+      onCreatedCommentConfirmed?.(operationId);
     } catch (error) {
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
@@ -349,15 +392,28 @@ export function CommentEntry({
           </span>
         )}
         {comment.mutation?.ambiguous && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={checking}
-            onClick={checkSaved}
-          >
-            {t("comments.checkSaved")}
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={checking}
+              onClick={checkSaved}
+            >
+              {t("comments.checkSaved")}
+            </Button>
+            {checkedUnresolvedOperationId === comment.mutation.operationId && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={checking || !canComment}
+                onClick={retryUnconfirmed}
+              >
+                {t("comments.retry")}
+              </Button>
+            )}
+          </>
         )}
         {comment.mutation?.status === "error" && showMutationStatus && (
           <span role="alert" className="block text-xs text-destructive">

@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "전체",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -67,7 +68,8 @@ const messages = {
       renameTab: "탭 이름 변경",
       savedFilters: "저장된 필터",
       combinedInbox: "통합 받은편지함",
-      help: "체크한 항목은 탭으로 표시됩니다. 라벨 이메일은 받은편지함에서 분리됩니다.",
+      allTab: "전체 탭",
+      help: "전체에는 받은편지함의 모든 스레드가 포함됩니다. 선택한 라벨에 따라 받은편지함이 나뉩니다.",
     },
     accounts: {
       remove: "제거",
@@ -527,6 +529,7 @@ const messages = {
       previewButton: "미리보기 실행",
       previewRunning: "최근 받은편지함 메일 확인 중…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev 일치 확률 {{percent}}%",
       feedbackLabel: "포함하지 않을 일치 항목을 선택하세요",
       notSpamShort: "스팸 아님",
       notMatchShort: "일치하지 않음",

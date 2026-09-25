@@ -128,7 +128,7 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
     reportLinkedEditUnavailable,
     setSelectedElement,
   }: CommitRelativeStyleDeltaToSelectedLayersArgs,
-  property: string,
+  property: string | string[],
   operation: number | ScrubRelativeExpression,
   pendingUndoGestureId?: string,
 ) {
@@ -142,8 +142,37 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
       !effectiveLayerState.hiddenIds.has(target.layerId),
   );
   if (targets.length === 0) return false;
+  const properties = [
+    ...new Set(Array.isArray(property) ? property : [property]),
+  ];
+  if (properties.length === 0) return false;
+  const relativeStylesByTarget = new Map<
+    SelectedLayerTarget,
+    Record<string, string>
+  >();
+  const stylesForTarget = (target: SelectedLayerTarget) => {
+    const styles: Record<string, string> = {};
+    for (const property of properties) {
+      const writeProperty = property === "rotation" ? "transform" : property;
+      const currentValue =
+        property === "rotation"
+          ? (target.elementInfo.inlineStyles?.transform ??
+            target.elementInfo.computedStyles.transform)
+          : (target.elementInfo.computedStyles[
+              property as keyof typeof target.elementInfo.computedStyles
+            ] as string | undefined);
+      const nextValue =
+        property === "rotation"
+          ? applyRelativeRotationToTransform(currentValue, operation)
+          : typeof operation === "number"
+            ? applyRelativeDeltaToStyleValue(currentValue, operation)
+            : applyRelativeExpressionToStyleValue(currentValue, operation);
+      if (nextValue === null) return null;
+      styles[writeProperty] = nextValue;
+    }
+    return styles;
+  };
 
-  const writeProperty = property === "rotation" ? "transform" : property;
   const styleTargets: Array<{
     fileId: string;
     nodeId: string;
@@ -180,29 +209,18 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
       targetsResolved = false;
       return;
     }
-    const currentValue =
-      property === "rotation"
-        ? (target.elementInfo.inlineStyles?.transform ??
-          target.elementInfo.computedStyles.transform)
-        : (target.elementInfo.computedStyles[
-            property as keyof typeof target.elementInfo.computedStyles
-          ] as string | undefined);
-    const nextValue =
-      property === "rotation"
-        ? applyRelativeRotationToTransform(currentValue, operation)
-        : typeof operation === "number"
-          ? applyRelativeDeltaToStyleValue(currentValue, operation)
-          : applyRelativeExpressionToStyleValue(currentValue, operation);
-    if (nextValue === null) {
+    const styles = stylesForTarget(target);
+    if (!styles) {
       targetsResolved = false;
       return;
     }
+    relativeStylesByTarget.set(target, styles);
     if (linkedComponentRootForNode(node, projection))
       includesLinkedTarget = true;
     styleTargets.push({
       fileId: target.fileId,
       nodeId: node.dataAttributes["data-agent-native-node-id"] ?? "",
-      styles: { [writeProperty]: nextValue },
+      styles,
     });
   });
   if (includesLinkedTarget) {
@@ -293,7 +311,7 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
   });
 
   let appliedAny = false;
-  const appliedValueByLayerId = new Map<string, string>();
+  const appliedStylesByLayerId = new Map<string, Record<string, string>>();
   const acceptedNodeByLayerId = new Map<
     string,
     NonNullable<ReturnType<typeof mapAcceptedSelectionNode>>
@@ -312,20 +330,8 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
     let nextContent = baseContent;
     let projection = buildCodeLayerProjection(nextContent, { source });
     fileTargets.forEach((target) => {
-      const currentValue =
-        property === "rotation"
-          ? (target.elementInfo.inlineStyles?.transform ??
-            target.elementInfo.computedStyles.transform)
-          : (target.elementInfo.computedStyles[
-              property as keyof typeof target.elementInfo.computedStyles
-            ] as string | undefined);
-      const nextValue =
-        property === "rotation"
-          ? applyRelativeRotationToTransform(currentValue, operation)
-          : typeof operation === "number"
-            ? applyRelativeDeltaToStyleValue(currentValue, operation)
-            : applyRelativeExpressionToStyleValue(currentValue, operation);
-      if (nextValue === null) return;
+      const styles = relativeStylesByTarget.get(target);
+      if (!styles) return;
       const sourceId = bridgeSourceIdForCodeLayerNode(target.node);
       const selector = preferredCodeLayerSelector(target.node);
       const node =
@@ -336,22 +342,28 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
       if (!node) return;
       // §6.4 — relative-delta commits (mixed-value arrow steps) route
       // through the same breakpoint scoping as absolute commits.
-      const patch = applyScopedVisualStyleEdit({
-        content: nextContent,
-        target: { nodeId: node.id },
-        property: writeProperty,
-        value: nextValue,
-        source,
-        upperBoundPx: activeBreakpointUpperBoundPx,
-        lowerBoundPx:
-          responsiveEditScopeRef.current === "only"
-            ? activeBreakpointWidthStateRef.current
-            : null,
-      });
-      if (patch.result.status !== "applied") return;
-      nextContent = patch.content;
-      projection = patch.projection;
-      appliedValueByLayerId.set(target.layerId, nextValue);
+      let targetNextContent = nextContent;
+      let targetProjection = projection;
+      for (const [writeProperty, value] of Object.entries(styles)) {
+        const patch = applyScopedVisualStyleEdit({
+          content: targetNextContent,
+          target: { nodeId: node.id },
+          property: writeProperty,
+          value,
+          source,
+          upperBoundPx: activeBreakpointUpperBoundPx,
+          lowerBoundPx:
+            responsiveEditScopeRef.current === "only"
+              ? activeBreakpointWidthStateRef.current
+              : null,
+        });
+        if (patch.result.status !== "applied") return;
+        targetNextContent = patch.content;
+        targetProjection = patch.projection;
+      }
+      nextContent = targetNextContent;
+      projection = targetProjection;
+      appliedStylesByLayerId.set(target.layerId, styles);
     });
     if (nextContent === baseContent) return;
     appliedAny = true;
@@ -386,10 +398,10 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
 
   if (appliedAny) {
     const primaryTarget = targets[targets.length - 1];
-    const primaryValue = primaryTarget
-      ? appliedValueByLayerId.get(primaryTarget.layerId)
+    const primaryStyles = primaryTarget
+      ? appliedStylesByLayerId.get(primaryTarget.layerId)
       : undefined;
-    if (primaryTarget && primaryValue !== undefined) {
+    if (primaryTarget && primaryStyles !== undefined) {
       const acceptedPrimaryTarget = acceptedNodeByLayerId.get(
         primaryTarget.layerId,
       );
@@ -412,14 +424,15 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
           ...base,
           computedStyles: {
             ...base.computedStyles,
-            [writeProperty]: primaryValue,
+            ...primaryStyles,
           },
-          inlineStyles: patchAuthoredInlineStyles(base.inlineStyles, {
-            [writeProperty]: primaryValue,
-          }),
+          inlineStyles: patchAuthoredInlineStyles(
+            base.inlineStyles,
+            primaryStyles,
+          ),
           authoredSizeStyles: clearAuthoredSizeStylesForCommit(
             base.authoredSizeStyles,
-            { [writeProperty]: primaryValue },
+            primaryStyles,
           ),
         };
       });

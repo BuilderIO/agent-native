@@ -13,6 +13,7 @@ import {
   inArray,
   isNull,
   lt,
+  notInArray,
   or,
   sql,
   type SQL,
@@ -36,6 +37,7 @@ import {
   documentSearchRanking,
   searchQueryProximityPattern,
 } from "./_document-search-ranking.js";
+import { loadPageSubtree } from "./_page-subtree.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -89,6 +91,13 @@ export default defineAction({
         .optional()
         .describe("Exact parent document ID; null selects roots"),
       spaceId: z.string().min(1).optional().describe("Exact Content space ID"),
+      excludeSubtreeOf: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Leave out this document and every page beneath it, e.g. to list valid new parents when moving it",
+        ),
       documentType: z
         .enum(["page", "database"])
         .optional()
@@ -184,6 +193,18 @@ export default defineAction({
         ].slice(0, 256);
       }
     }
+    let excludedIds: string[] = [];
+    if (args.excludeSubtreeOf) {
+      const [excludedRoot] = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, args.excludeSubtreeOf));
+      excludedIds = excludedRoot
+        ? (
+            await loadPageSubtree(db, excludedRoot, { includeTrashed: false })
+          ).map((document) => document.id)
+        : [args.excludeSubtreeOf];
+    }
     const where = documentDiscoveryWhere({
       userEmail,
       authorizedOrgIds,
@@ -199,6 +220,9 @@ export default defineAction({
             )
           : undefined,
         ...matchPredicates,
+        excludedIds.length > 0
+          ? notInArray(schema.documents.id, excludedIds)
+          : undefined,
         // updatedAt is a text column holding both ISO "T"-separated values and
         // PostgreSQL "space"-separated defaults, so it must be compared as a
         // timestamp; a lexical compare drops valid rows at page boundaries.

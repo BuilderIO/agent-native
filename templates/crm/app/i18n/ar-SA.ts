@@ -598,6 +598,19 @@ const messages = {
     evaluatedThroughAsk: "تم التقييم عبر Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "مراجعة المكررات",
+    duplicateReviewTitle: "سجلات قد تكون مكررة",
+    duplicateReviewDescription:
+      "قارن هذا السجل بالمرشحين المسموح بالوصول إليهم. يرسل Jev أسماء السجلات وأنواعها وإشارات تطابق ما يصل إلى خمسة مرشحين إلى TypeSafe. الاحتمال مجرد اقتراح؛ ويتطلب الدمج مراجعة منفصلة.",
+    duplicateReviewRun: "فحص المكررات",
+    duplicateReviewLoading: "جارٍ الفحص…",
+    duplicateReviewFailed: "تعذر إكمال مراجعة المكررات.",
+    duplicateReviewUnavailable:
+      "تعذرت مراجعة Jev لهذه السجلات. لا يزال المرشحون المستندون إلى القواعد ظاهرين.",
+    duplicateReviewEmpty: "لم يُعثر على مكررات محتملة.",
+    duplicateRuleConfidence: "تطابق قائم على القواعد: {{percent}}%",
+    duplicateJevProbability: "احتمال Jev لتطابق الكيان: {{percent}}%",
+    duplicateMatchedOn: "إشارات التطابق: {{values}}",
     evidenceAttached: "تم إرفاق دليل المكالمة.",
     evidenceAttachFailed: "تعذر إرفاق الدليل.",
     addEvidence: "إضافة دليل",

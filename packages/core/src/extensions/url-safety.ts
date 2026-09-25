@@ -224,7 +224,25 @@ function normalizeAllowedPrivateOriginOriginKeys(
   return keys;
 }
 
+function allowedPrivateOriginForDestination(
+  destinationUrl: string | undefined,
+  allowedPrivateOrigins: readonly string[],
+): string | undefined {
+  if (!destinationUrl) return undefined;
+  const destination = new URL(destinationUrl);
+  const port =
+    destination.port || (destination.protocol === "https:" ? "443" : "80");
+  const destinationKey = `${destination.protocol}//${normalizeLookupHostname(destination.hostname)}:${port}`;
+  return normalizeAllowedPrivateOriginOriginKeys(allowedPrivateOrigins).has(
+    destinationKey,
+  )
+    ? destination.origin
+    : undefined;
+}
+
 let sharedSsrfDispatcher: Promise<unknown> | undefined;
+// Agents capture their private-origin policy and destination port.
+const privateSsrfDispatchers = new Map<string, Promise<unknown>>();
 
 async function createSsrfSafeDispatcherUncached(
   allowedPrivateOrigins: readonly string[] = [],
@@ -325,15 +343,43 @@ export async function createSsrfSafeDispatcher(
   destinationUrl?: string,
   options: { required?: boolean } = {},
 ): Promise<unknown> {
-  if (allowedPrivateOrigins.length === 0 && !options.required) {
-    sharedSsrfDispatcher ??= createSsrfSafeDispatcherUncached();
-    return sharedSsrfDispatcher;
-  }
-  return createSsrfSafeDispatcherUncached(
-    allowedPrivateOrigins,
+  const allowedPrivateOrigin = allowedPrivateOriginForDestination(
     destinationUrl,
-    options,
+    allowedPrivateOrigins,
   );
+  if (!allowedPrivateOrigin) {
+    sharedSsrfDispatcher ??= createSsrfSafeDispatcherUncached();
+    const dispatcher = await sharedSsrfDispatcher;
+    if (dispatcher || !options.required) return dispatcher;
+    return createSsrfSafeDispatcherUncached([], undefined, options);
+  }
+
+  const cacheKey = JSON.stringify([
+    allowedPrivateOrigin,
+    options.required === true,
+  ]);
+  let dispatcher = privateSsrfDispatchers.get(cacheKey);
+  if (!dispatcher) {
+    dispatcher = createSsrfSafeDispatcherUncached(
+      [allowedPrivateOrigin],
+      destinationUrl,
+      options,
+    );
+    privateSsrfDispatchers.set(cacheKey, dispatcher);
+  }
+
+  try {
+    const resolved = await dispatcher;
+    if (!resolved && privateSsrfDispatchers.get(cacheKey) === dispatcher) {
+      privateSsrfDispatchers.delete(cacheKey);
+    }
+    return resolved;
+  } catch (error) {
+    if (privateSsrfDispatchers.get(cacheKey) === dispatcher) {
+      privateSsrfDispatchers.delete(cacheKey);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -369,6 +415,7 @@ export async function ssrfSafeFetch(
   options: {
     maxRedirects?: number;
     followRedirects?: boolean;
+    requireDispatcher?: boolean;
     httpsOnly?: boolean;
     assertUrlAllowed?: (url: string) => void | Promise<void>;
     /**
@@ -421,6 +468,7 @@ export async function ssrfSafeFetch(
     const dispatcher = await createSsrfSafeDispatcher(
       options.allowedPrivateOrigins,
       currentUrl,
+      { required: options.requireDispatcher },
     );
     if (dispatcher) fetchOpts.dispatcher = dispatcher;
 

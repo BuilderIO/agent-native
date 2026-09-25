@@ -1,5 +1,8 @@
 import type { CSSProperties } from "react";
 
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+
 type ChartPoint = { label: string; value: number };
 type DesignToken = { label: string; value: string };
 type TableColumn = { source: string | number; label: string };
@@ -14,6 +17,7 @@ export type OutputPreviewModel =
       title?: string;
       summary?: string;
       imageUrl?: string;
+      previewUrl?: string;
       tokens: DesignToken[];
     };
 
@@ -22,6 +26,11 @@ const MAX_ANSWER_LENGTH = 20_000;
 const MAX_COLUMNS = 8;
 const MAX_ROWS = 24;
 const MAX_MARKDOWN_LINES = MAX_ROWS * 2 + 2;
+const DESIGN_HOST_ORIGIN = "https://design.agent-native.com";
+const BETA_DESIGN_HOST_ORIGIN = "https://beta.design.agent-native.com";
+const DESIGN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const DESIGN_URL_PATTERN =
+  /(?:^|[\s([{<"'=])((?:https?:\/\/[^\s<>"'`]+|\/design\/[A-Za-z0-9_-]+(?:[?#][^\s<>"'`]*)?))/gm;
 const REBINDING_DNS_SUFFIXES = [
   "nip.io",
   "sslip.io",
@@ -113,6 +122,63 @@ function safeImageUrl(value: unknown): string | undefined {
   return undefined;
 }
 
+function safeDesignPreviewUrl(
+  value: unknown,
+  baseOrigin?: string,
+): string | undefined {
+  const candidate = boundedString(value);
+  if (!candidate || candidate.startsWith("//")) return undefined;
+  try {
+    const baseUrl = baseOrigin ? new URL(baseOrigin) : undefined;
+    const url = new URL(candidate, baseUrl);
+    const sameOrigin = baseUrl?.origin === url.origin;
+    if (
+      url.username ||
+      url.password ||
+      (url.origin !== DESIGN_HOST_ORIGIN &&
+        url.origin !== BETA_DESIGN_HOST_ORIGIN &&
+        !sameOrigin)
+    ) {
+      return undefined;
+    }
+    const match = url.pathname.match(
+      /^\/design\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/,
+    );
+    if (!match || !DESIGN_ID_PATTERN.test(match[1])) return undefined;
+    return new URL(`/present/${match[1]}?reviewEmbed=1`, url.origin).toString();
+    // coercion-ok: malformed untrusted design URLs are intentionally rejected.
+  } catch {
+    return undefined;
+  }
+}
+
+function safeDesignArtifactPreviewUrl(
+  value: unknown,
+  baseOrigin = typeof window === "undefined"
+    ? undefined
+    : window.location.origin,
+): string | undefined {
+  const candidate = boundedString(value);
+  const match = candidate?.match(
+    /^\/(?:design|present)\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/,
+  );
+  return match
+    ? safeDesignPreviewUrl(`/design/${match[1]}`, baseOrigin)
+    : undefined;
+}
+
+function findDesignPreviewUrl(
+  text: string,
+  baseOrigin?: string,
+): string | undefined {
+  for (const match of text.matchAll(DESIGN_URL_PATTERN)) {
+    const candidate = match[1].replace(/[),.;!?]+$/, "");
+    const previewUrl = safeDesignPreviewUrl(candidate, baseOrigin);
+    if (previewUrl) return previewUrl;
+  }
+  return undefined;
+}
+
 function splitTableRow(line: string): string[] {
   return line
     .trim()
@@ -158,6 +224,7 @@ function parseMarkdownTable(answer: string): OutputPreviewModel | undefined {
 
 function parseStructuredPreview(
   value: unknown,
+  baseOrigin?: string,
 ): OutputPreviewModel | undefined {
   if (!isRecord(value)) return undefined;
   const type = boundedString(value.type)?.toLowerCase();
@@ -253,6 +320,10 @@ function parseStructuredPreview(
 
   if (type === "design") {
     const imageUrl = safeImageUrl(value.imageUrl ?? value.image);
+    const previewUrl = safeDesignPreviewUrl(
+      value.url ?? value.urlPath ?? value.designUrl,
+      baseOrigin,
+    );
     const tokens = Array.isArray(value.tokens)
       ? value.tokens.slice(0, MAX_COLUMNS).flatMap((token) => {
           if (!isRecord(token)) return [];
@@ -263,15 +334,20 @@ function parseStructuredPreview(
       : [];
     const title = boundedString(value.title);
     const summary = boundedString(value.summary);
-    if (imageUrl || tokens.length > 0 || title || summary) {
-      return { kind: "design", title, summary, imageUrl, tokens };
+    if (imageUrl || previewUrl || tokens.length > 0 || title || summary) {
+      return { kind: "design", title, summary, imageUrl, previewUrl, tokens };
     }
   }
 
   return undefined;
 }
 
-export function parseOutputPreview(answer: string): OutputPreviewModel {
+export function parseOutputPreview(
+  answer: string,
+  baseOrigin = typeof window === "undefined"
+    ? undefined
+    : window.location.origin,
+): OutputPreviewModel {
   const text = answer.trim();
   if (!text) return { kind: "text", text: "-" };
   if (text.length > MAX_ANSWER_LENGTH) {
@@ -280,11 +356,20 @@ export function parseOutputPreview(answer: string): OutputPreviewModel {
 
   const jsonText = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try {
-    const structured = parseStructuredPreview(JSON.parse(jsonText));
+    const structured = parseStructuredPreview(JSON.parse(jsonText), baseOrigin);
     if (structured) return structured;
     // coercion-ok: non-JSON answers intentionally use the text fallback.
   } catch {
     // Plain text and Markdown outputs are expected and remain the fallback.
+  }
+
+  const previewUrl = findDesignPreviewUrl(text, baseOrigin);
+  if (previewUrl) {
+    return {
+      kind: "design",
+      previewUrl,
+      tokens: [],
+    };
   }
 
   const imageMatch = text.match(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/i);
@@ -303,23 +388,131 @@ export function parseOutputPreview(answer: string): OutputPreviewModel {
 export function OutputPreview({
   answer,
   previewLabel,
+  inlineApp,
+  inlineAppTitle,
+  compact = false,
+  maxAppHeight,
+  designPreviewPath,
 }: {
   answer: string;
   previewLabel: string;
+  inlineApp?: AgentMcpAppPayload;
+  inlineAppTitle?: string;
+  compact?: boolean;
+  maxAppHeight?: number;
+  designPreviewPath?: string;
 }) {
   const preview = parseOutputPreview(answer);
-  const frameClassName =
-    "rounded-md border border-border bg-background p-3 text-sm text-foreground";
+  const designPreviewUrl =
+    safeDesignArtifactPreviewUrl(designPreviewPath) ??
+    (preview.kind === "design" ? preview.previewUrl : undefined);
+
+  if (designPreviewUrl) {
+    return (
+      <div
+        aria-label={
+          preview.kind === "design"
+            ? (preview.title ?? previewLabel)
+            : previewLabel
+        }
+        className={
+          compact
+            ? "relative size-full overflow-hidden bg-background"
+            : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
+        }
+        data-preview-kind={
+          compact ? "design-iframe-thumbnail" : "design-iframe"
+        }
+        role="img"
+      >
+        <iframe
+          aria-hidden="true"
+          className={
+            compact
+              ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
+              : "absolute inset-0 size-full border-0"
+          }
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          src={designPreviewUrl}
+          tabIndex={-1}
+          title={
+            preview.kind === "design"
+              ? (preview.title ?? previewLabel)
+              : previewLabel
+          }
+        />
+      </div>
+    );
+  }
+
+  if (inlineApp && !compact) {
+    return (
+      <div className="min-w-0 space-y-4">
+        {answer.trim() && preview.kind === "text" && (
+          <OutputPreview answer={answer} previewLabel={previewLabel} />
+        )}
+        <McpAppRenderer
+          app={inlineApp}
+          readOnly
+          className="min-w-0"
+          maxHeight={maxAppHeight}
+        />
+      </div>
+    );
+  }
+
+  const contentClassName = "text-sm text-foreground";
+
+  if (compact && (inlineApp || inlineAppTitle)) {
+    return (
+      <div
+        aria-label={previewLabel}
+        className="flex size-full min-w-0 items-end p-2"
+        data-preview-kind="app-thumbnail"
+        role="img"
+      >
+        <span className="truncate text-[10px] font-medium text-foreground">
+          {inlineAppTitle ??
+            inlineApp?.tool?.title ??
+            inlineApp?.tool?.name ??
+            inlineApp?.toolName}
+        </span>
+      </div>
+    );
+  }
 
   if (preview.kind === "chart") {
     const maxValue = Math.max(...preview.data.map((point) => point.value), 1);
     const chartSummary = preview.data
       .map((point) => `${point.label}: ${point.value}${preview.unit ?? ""}`)
       .join(", ");
+    if (compact) {
+      return (
+        <div
+          aria-label={`${preview.title ?? previewLabel}: ${chartSummary}`}
+          className="flex size-full items-end gap-1 overflow-hidden p-2"
+          data-preview-kind="chart-thumbnail"
+          role="img"
+        >
+          {preview.data.slice(0, 8).map((point) => (
+            <span
+              key={`${point.label}-${point.value}`}
+              className="min-w-0 flex-1 rounded-sm bg-primary/75"
+              style={
+                {
+                  height: `${Math.max(10, (point.value / maxValue) * 100)}%`,
+                } as CSSProperties
+              }
+            />
+          ))}
+        </div>
+      );
+    }
     return (
       <div
         aria-label={`${preview.title ?? previewLabel}: ${chartSummary}`}
-        className={frameClassName}
+        className={contentClassName}
         data-preview-kind="chart"
         role="img"
       >
@@ -355,16 +548,56 @@ export function OutputPreview({
   }
 
   if (preview.kind === "table") {
+    if (compact) {
+      return (
+        <div
+          aria-label={previewLabel}
+          className="size-full overflow-hidden p-1.5"
+          data-preview-kind="table-thumbnail"
+          role="img"
+        >
+          <table className="w-full table-fixed text-left text-[9px] leading-3">
+            <caption className="sr-only">{previewLabel}</caption>
+            <thead className="text-muted-foreground">
+              <tr>
+                {preview.headers.slice(0, 3).map((header) => (
+                  <th key={header} className="truncate px-1 py-0.5 font-medium">
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {preview.rows.slice(0, 3).map((row, rowIndex) => (
+                <tr
+                  key={`${rowIndex}-${row.join("|")}`}
+                  className="border-t border-border/70"
+                >
+                  {row.slice(0, 3).map((cell, cellIndex) => (
+                    <td
+                      key={`${cellIndex}-${cell}`}
+                      className="truncate px-1 py-0.5"
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
     return (
       <div
         aria-label={previewLabel}
-        className={`${frameClassName} overflow-x-auto p-0`}
+        className="overflow-x-auto text-sm text-foreground"
         data-preview-kind="table"
         role="region"
       >
         <table className="w-full min-w-[28rem] text-left text-xs">
           <caption className="sr-only">{previewLabel}</caption>
-          <thead className="bg-muted/30 text-muted-foreground">
+          <thead className="text-muted-foreground">
             <tr>
               {preview.headers.map((header) => (
                 <th key={header} className="px-3 py-2 font-medium">
@@ -377,7 +610,7 @@ export function OutputPreview({
             {preview.rows.map((row, rowIndex) => (
               <tr
                 key={`${rowIndex}-${row.join("|")}`}
-                className="border-t border-border"
+                className="border-t border-border/70"
               >
                 {row.map((cell, cellIndex) => (
                   <td
@@ -397,11 +630,15 @@ export function OutputPreview({
 
   if (preview.kind === "image") {
     return (
-      <figure className={frameClassName} data-preview-kind="image">
+      <figure data-preview-kind="image">
         <img
           src={preview.src}
           alt={preview.alt}
-          className="max-h-80 max-w-full rounded object-contain"
+          className={
+            compact
+              ? "size-full object-cover"
+              : "max-h-[min(70dvh,45rem)] max-w-full rounded object-contain"
+          }
           loading="lazy"
           referrerPolicy="no-referrer"
         />
@@ -410,8 +647,38 @@ export function OutputPreview({
   }
 
   if (preview.kind === "design") {
+    if (compact && preview.imageUrl) {
+      return (
+        <img
+          src={preview.imageUrl}
+          alt={preview.title ?? previewLabel}
+          className="size-full object-cover"
+          data-preview-kind="design-thumbnail"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      );
+    }
+    if (compact) {
+      return (
+        <div
+          aria-label={
+            [preview.title, preview.summary].filter(Boolean).join(": ") ||
+            previewLabel
+          }
+          className="size-full overflow-hidden p-2"
+          data-preview-kind="design-thumbnail"
+          role="img"
+        >
+          <span className="line-clamp-3 block text-left text-[10px] leading-3 text-muted-foreground">
+            {[preview.title, preview.summary].filter(Boolean).join(" — ") ||
+              previewLabel}
+          </span>
+        </div>
+      );
+    }
     return (
-      <div className={frameClassName} data-preview-kind="design">
+      <div className={contentClassName} data-preview-kind="design">
         {preview.imageUrl && (
           <img
             src={preview.imageUrl}
@@ -428,16 +695,14 @@ export function OutputPreview({
           </p>
         )}
         {preview.tokens.length > 0 && (
-          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+          <dl className="mt-3 divide-y divide-border/70">
             {preview.tokens.map((token) => (
               <div
                 key={`${token.label}-${token.value}`}
-                className="rounded border border-border bg-muted/20 px-2.5 py-2"
+                className="flex flex-wrap justify-between gap-x-4 gap-y-1 py-2 first:pt-0"
               >
-                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  {token.label}
-                </dt>
-                <dd className="mt-1 text-xs">{token.value}</dd>
+                <dt className="text-xs text-muted-foreground">{token.label}</dt>
+                <dd className="text-xs">{token.value}</dd>
               </div>
             ))}
           </dl>
@@ -447,10 +712,15 @@ export function OutputPreview({
   }
 
   return (
-    <div className={frameClassName} data-preview-kind="text">
-      <p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words">
-        {preview.text}
-      </p>
-    </div>
+    <p
+      className={
+        compact
+          ? "line-clamp-4 size-full overflow-hidden break-words p-2 text-[10px] leading-3 text-foreground"
+          : "whitespace-pre-wrap break-words text-sm text-foreground"
+      }
+      data-preview-kind="text"
+    >
+      {preview.text}
+    </p>
   );
 }

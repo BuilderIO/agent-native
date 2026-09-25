@@ -76,7 +76,12 @@ export function shouldRenderOverviewReviewCanvas(args: {
  * white in a dark editor. Matching the editor is what keeps the frame see-through.
  */
 function boardSurfaceRenderStyle(darkScheme: boolean) {
-  const scheme = darkScheme ? "html{color-scheme:dark!important;}" : "";
+  // The dark scheme also turns the default text colour white; design content
+  // must render as it does in a light editor and in exports.
+  const scheme = darkScheme
+    ? // guard:allow-raw-color — the UA light-scheme text default, written into the render copy only
+      "html{color-scheme:dark!important;color:#000}"
+    : "";
   return `<style data-agent-native-board-surface-render>${scheme}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"],body>[data-layer-name="body"],body>[data-layer-name="Body"],body>[data-layer-name="<body>"],body>[layer-name="body"],body>[layer-name="Body"],body>[layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
 }
 

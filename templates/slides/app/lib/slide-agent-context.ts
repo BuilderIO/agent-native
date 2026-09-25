@@ -14,6 +14,10 @@ export interface SlidesAgentContext {
   contextVersion: string;
 }
 
+export type SlidesAgentScopeLabel =
+  | { key: "agent.currentSelection" | "agent.thisSlide" }
+  | { key: "agent.slideNumber"; number: number };
+
 interface SlidesSelectionWindow extends Window {
   __slidesAgentSelection?: SlidesAgentSelection | null;
 }
@@ -112,4 +116,21 @@ export function hasCurrentSlideSelection(
     Array.isArray(selection.items) &&
     selection.items.length > 0
   );
+}
+
+export function getSlidesAgentScopeLabel(
+  selection: SlidesAgentSelection | null,
+  deckId: string,
+): SlidesAgentScopeLabel {
+  if (hasCurrentSlideSelection(selection, deckId)) {
+    return { key: "agent.currentSelection" };
+  }
+
+  const slideNumber =
+    selection?.deckId === deckId ? selection.slideNumber : undefined;
+  return typeof slideNumber === "number" &&
+    Number.isSafeInteger(slideNumber) &&
+    slideNumber >= 1
+    ? { key: "agent.slideNumber", number: slideNumber }
+    : { key: "agent.thisSlide" };
 }

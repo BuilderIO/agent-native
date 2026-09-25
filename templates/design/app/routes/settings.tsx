@@ -1,6 +1,8 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { TeamPage } from "@agent-native/core/client/org";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { TeamPage, useOrg } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -16,24 +18,53 @@ import {
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import { DESIGN_LABS } from "@shared/labs";
+import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.settingsDesign }];
+  return [{ title: enUSMessages.routeTitles.settingsDesign }];
 }
 
 export default function SettingsRoute() {
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
+  const {
+    data: activeOrg,
+    isLoading: orgLoading,
+    isError: orgError,
+  } = useOrg();
   const agentSettingsTabs = useAgentSettingsTabs({
     agentAdditionalTabFactories: creativeContextEnabled
       ? [createCreativeContextAgentTab]
       : [],
   });
+  const observabilityBasePath = buildSettingsRoute("observability");
+  const observabilityTabs =
+    !orgLoading &&
+    !orgError &&
+    activeOrg?.orgId &&
+    (activeOrg.role === "owner" || activeOrg.role === "admin")
+      ? [
+          {
+            id: "observability",
+            label: t("routeTitles.agentObservability"),
+            icon: IconActivity,
+            group: "agent",
+            href: `${observabilityBasePath}/overview`,
+            content: (
+              <ObservabilityDashboard
+                routeBasePath={observabilityBasePath}
+                showHumanReview
+              />
+            ),
+          },
+        ]
+      : [];
+  const settingsTabs = [...agentSettingsTabs, ...observabilityTabs];
   const labs = useMemo(
     () => [
       ...DESIGN_LABS.map((lab) => ({
@@ -66,7 +97,7 @@ export default function SettingsRoute() {
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
       <SettingsTabsPage
         account={<AccountSettingsCard />}
-        extraTabs={agentSettingsTabs}
+        extraTabs={settingsTabs}
         labs={labs}
         labsIntro={t("settings.labsIntro")}
         labsLabel={t("settings.labs")}

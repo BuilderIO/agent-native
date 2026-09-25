@@ -24,7 +24,8 @@ function interpolate(
     "agentChat.errorMessages.openBuilderSpaceSettings":
       "Builder-Space-Einstellungen öffnen",
     "agentChat.errorMessages.startNewChat": "Neuen Chat starten",
-    "agentChat.errorMessages.upgradeAtBuilder": "Upgrade bei Builder.io",
+    "agentChat.errorMessages.addCreditsInBuilder":
+      "Credits bei Builder hinzufügen",
   };
   return (messages[key] ?? String(options.defaultValue ?? key)).replace(
     /{{\s*(\w+)\s*}}/g,
@@ -64,7 +65,7 @@ describe("formatChatErrorText", () => {
     );
 
     expect(text).toBe(
-      `You've reached your AI credits limit.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
+      `You've reached your AI credits limit.\n\n[Add credits in Builder](${agentNativeUpgradeUrl})`,
     );
     expect(text).not.toMatch(/error|!/i);
   });
@@ -77,7 +78,7 @@ describe("formatChatErrorText", () => {
         "http_402",
       ),
     ).toBe(
-      `You've reached your AI credits limit.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
+      `You've reached your AI credits limit.\n\n[Add credits in Builder](${agentNativeUpgradeUrl})`,
     );
   });
 
@@ -89,9 +90,9 @@ describe("formatChatErrorText", () => {
     );
     expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
     expect(text).toMatch(/^Error: /);
-    // The CTA is the only suffix — no Upgrade-at-Builder CTA on this error
+    // The CTA is the only suffix — no Builder-credit CTA on this error
     // code, since it's not a quota/billing problem.
-    expect(text).not.toContain("[Upgrade at builder.io]");
+    expect(text).not.toContain("[Add credits in Builder]");
   });
 
   it("adds a Start-new-chat CTA for context_length_exceeded errors", () => {
@@ -102,7 +103,7 @@ describe("formatChatErrorText", () => {
     );
     expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
     expect(text).toMatch(/^Error: /);
-    expect(text).not.toContain("[Upgrade at builder.io]");
+    expect(text).not.toContain("[Add credits in Builder]");
   });
 
   it("adds a Start-new-chat CTA for input_too_long errors", () => {
@@ -254,7 +255,7 @@ describe("formatChatErrorText", () => {
           "credits-limit-monthly",
         ),
       ).toBe(
-        `You've reached your AI credits limit.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
+        `You've reached your AI credits limit.\n\n[Add credits in Builder](${agentNativeUpgradeUrl})`,
       );
     });
 
@@ -511,9 +512,9 @@ describe("localizeKnownChatErrorText", () => {
       "Builder-Space-Einstellungen öffnen",
     ],
     [
-      "Upgrade at builder.io",
+      "Add credits in Builder",
       "https://builder.io/upgrade",
-      "Upgrade bei Builder.io",
+      "Credits bei Builder hinzufügen",
     ],
   ])("localizes the %s action label", (label, href, localizedLabel) => {
     expect(

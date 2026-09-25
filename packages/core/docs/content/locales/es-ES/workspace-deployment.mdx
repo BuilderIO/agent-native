@@ -142,7 +142,7 @@ Las compilaciones de espacios de trabajo alojados requieren `A2A_SECRET` en el e
 
 ¿Estás configurando el comando de compilación de un proveedor en lugar de implementar a mano? Añade `--build-only` al mismo comando, por ejemplo `npx @agent-native/core@latest deploy --preset vercel --build-only`. Esto escribe la salida directamente, por lo que no se requiere ningún `vercel.json` para el enrutamiento del espacio de trabajo.
 
-¿Prefieres un dominio independiente por aplicación en lugar de un origen compartido? Cada aplicación del espacio de trabajo se puede seguir implementando de forma independiente. Ejecuta `cd apps/<name> && npx @agent-native/core@latest build` como si fuera un andamiaje independiente.
+¿Prefieres un dominio independiente por aplicación en lugar de un origen compartido? Cada aplicación del espacio de trabajo se puede seguir implementando de forma independiente. Ejecuta `cd apps/<name> && pnpm build` como si fuera un andamiaje independiente.
 
 </Callout>
 
@@ -221,7 +221,7 @@ Un **proxy inverso** es ese único punto de entrada en la imagen anterior: recib
 La ruta base es una entrada en tiempo de compilación para el paquete cliente y una entrada en tiempo de ejecución para el servidor. Compila cada aplicación con la misma ruta a la que el proxy la enrutará:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

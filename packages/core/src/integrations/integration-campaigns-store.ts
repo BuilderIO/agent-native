@@ -967,6 +967,28 @@ export async function completeIntegrationCampaignTaskAfterA2A(
   throw new Error("Database does not support atomic A2A parent completion");
 }
 
+export async function deferIntegrationCampaignForRuntime(
+  id: string,
+  delayMs: number,
+): Promise<boolean> {
+  await ensureTable();
+  const now = Date.now();
+  const nextRunAt = now + delayMs;
+  const result = await getDbExec().execute({
+    sql: `UPDATE integration_campaigns
+          SET next_run_at = ?,
+              lease_expires_at = CASE WHEN status = 'processing' THEN ? ELSE lease_expires_at END,
+              updated_at = ?
+          WHERE id = ? AND (
+            (status IN ('pending', 'waiting') AND next_run_at <= ?)
+            OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
+          )
+          RETURNING id`,
+    args: [nextRunAt, nextRunAt, now, id, now, now],
+  });
+  return (result.rows?.length ?? 0) > 0;
+}
+
 export async function listDueIntegrationCampaignIds(
   limit = 25,
 ): Promise<string[]> {

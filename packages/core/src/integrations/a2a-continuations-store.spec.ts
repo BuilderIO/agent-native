@@ -606,7 +606,101 @@ describe("A2A continuations store", () => {
       querySql(query).includes("INNER JOIN integration_pending_tasks"),
     );
     expect(joinedReads).toHaveLength(1);
+    expect(querySql(joinedReads[0]![0])).toContain(
+      "ORDER BY has_pending_confirmed_delivery DESC",
+    );
+    expect(querySql(joinedReads[0]![0])).toContain("MIN(c.next_check_at) ASC");
     expect(queryArgs(joinedReads[0]![0]).at(-1)).toBe(10);
+  });
+
+  it("defers only due unconfirmed continuations without spending a claim", async () => {
+    const { deferA2AContinuationsForRuntime } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 2 });
+
+    await deferA2AContinuationsForRuntime(["task-1", "task-2"], 120_000);
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SET next_check_at = ?"),
+    )?.[0];
+    expect(querySql(update!)).toContain(
+      "terminal_delivery_confirmed_at IS NULL",
+    );
+    expect(querySql(update!)).toContain("status = 'processing'");
+    expect(querySql(update!)).toContain("status = 'delivering'");
+    expect(querySql(update!)).not.toContain("attempts = attempts + 1");
+    expect(queryArgs(update!)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      "task-1",
+      "task-2",
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+  });
+
+  it("returns the claim attempt when runtime pauses before remote polling", async () => {
+    const { pauseA2AContinuationForRuntime } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [{ id: "cont-1" }] });
+
+    await expect(
+      pauseA2AContinuationForRuntime("cont-1", 31, 20_000),
+    ).resolves.toBe(true);
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("attempts = attempts - 1"),
+    )?.[0];
+    expect(querySql(update!)).toContain(
+      "status = 'processing' AND attempts = ?",
+    );
+    expect(queryArgs(update!)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      "cont-1",
+      31,
+    ]);
+  });
+
+  it("does not exhaust the remote polling budget through repeated runtime pauses", async () => {
+    const state = continuationRow({ status: "pending", attempts: 0 });
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (sql.includes("attempts = attempts + 1")) {
+          if (state.status !== "pending") return { rows: [] };
+          state.status = "processing";
+          state.attempts = Number(state.attempts) + 1;
+          return { rows: [{ ...state }] };
+        }
+        if (sql.includes("attempts = attempts - 1")) {
+          const expected = queryArgs(query).at(-1);
+          if (state.status !== "processing" || state.attempts !== expected) {
+            return { rows: [] };
+          }
+          state.status = "pending";
+          state.attempts = Number(state.attempts) - 1;
+          return { rows: [{ id: state.id }] };
+        }
+        return { rows: [] };
+      },
+    );
+    const { claimA2AContinuation, pauseA2AContinuationForRuntime } =
+      await loadStore();
+
+    for (let pause = 0; pause < 35; pause += 1) {
+      const claimed = await claimA2AContinuation("cont-1");
+      expect(claimed?.attempts).toBe(1);
+      await expect(
+        pauseA2AContinuationForRuntime("cont-1", claimed!.attempts, 20_000),
+      ).resolves.toBe(true);
+    }
+
+    expect(state.attempts).toBe(0);
+    await expect(claimA2AContinuation("cont-1")).resolves.toMatchObject({
+      attempts: 1,
+      a2aTaskId: "a2a-task-1",
+    });
   });
 
   it("terminalizes all active A2A rows for a disabled durable task", async () => {

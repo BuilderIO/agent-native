@@ -67,6 +67,8 @@ export function CornerRadiusControl({
   motionKeyframeContext,
   breakpointOverrideContext,
   parentGrid = false,
+  vectorPointRadius,
+  hideForVectorPoint,
 }: {
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
@@ -80,6 +82,12 @@ export function CornerRadiusControl({
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   parentGrid?: boolean;
+  vectorPointRadius?: {
+    value: number;
+    max: number;
+    onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
+  };
+  hideForVectorPoint?: boolean;
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
@@ -204,6 +212,32 @@ export function CornerRadiusControl({
       ) : null}
     </div>
   );
+  if (vectorPointRadius || hideForVectorPoint) {
+    return (
+      <>
+        <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+          {vectorPointRadius ? (
+            <div className="group/field relative">
+              <AppearanceScrubField
+                label={t("editPanel.labels.cornerRadius")}
+                icon={IconBorderRadius}
+                value={vectorPointRadius.value}
+                onChange={vectorPointRadius.onChange}
+                min={0}
+                max={vectorPointRadius.max}
+                precision={0}
+              />
+            </div>
+          ) : null}
+        </InspectorGridCell>
+        <InspectorGridCell
+          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+          ariaHidden
+        />
+        <InspectorGridCell span={INSPECTOR_GRID_ACTION_SPAN} ariaHidden />
+      </>
+    );
+  }
   const independentCornersAction = (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -498,6 +532,9 @@ export function AppearanceProperties({
   onToggleHidden,
   motionKeyframeContext,
   breakpointOverrideContext,
+  vectorPointRadius,
+  vectorPointSelected = false,
+  onVectorPointRadiusChange,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
@@ -506,6 +543,12 @@ export function AppearanceProperties({
   onToggleHidden?: () => void;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
+  vectorPointRadius?: { value: number; max: number } | null;
+  vectorPointSelected?: boolean;
+  onVectorPointRadiusChange?: (
+    value: number,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -605,6 +648,12 @@ export function AppearanceProperties({
           motionKeyframeContext={motionKeyframeContext}
           breakpointOverrideContext={breakpointOverrideContext}
           parentGrid
+          vectorPointRadius={
+            vectorPointRadius && onVectorPointRadiusChange
+              ? { ...vectorPointRadius, onChange: onVectorPointRadiusChange }
+              : undefined
+          }
+          hideForVectorPoint={vectorPointSelected}
         />
       </InspectorGrid>
     </PanelSection>

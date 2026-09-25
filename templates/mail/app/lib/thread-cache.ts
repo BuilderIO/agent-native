@@ -144,6 +144,7 @@ async function fetchThread(
         "Content-Type": "application/json",
         "X-Request-Source": TAB_ID,
       },
+      cache: "no-store",
     },
   );
   if (!res.ok) {

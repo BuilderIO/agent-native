@@ -54,6 +54,7 @@ const messages = {
     emptyState: "Ask me anything about your presentations",
     thisSlide: "This Slide",
     currentSelection: "Current Selection",
+    slideNumber: "Slide {{number}}",
     suggestionPitch: "Build a 10-slide pitch from this doc",
     suggestionBrand: "Apply our brand to this deck",
     suggestionHero: "Generate a hero image for this slide",
@@ -183,6 +184,12 @@ const messages = {
     emptyTitle: "Set up your brand identity",
     emptyDescription:
       "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+    tierLimitTitle: "Design system limit reached",
+    tierLimitDescription:
+      "You've reached the design system limit for your Builder plan. Upgrade your Builder plan to create another.",
+    tierLimitDescriptionWithCount:
+      "You're using {{current}} of {{max}} design systems on your Builder {{plan}} plan. Upgrade to create another.",
+    tierLimitUpgrade: "Upgrade Builder plan",
   },
   editorToolbar: {
     layoutTitle: "Title",
@@ -692,6 +699,8 @@ const messages = {
       "If you leave or reload now, you may lose changes that have not been saved yet. Are you sure you want to exit?",
     keepEditing: "Keep editing",
     leaveWithoutSaving: "Exit without saving",
+    editorMarkupNotSaved:
+      "This edit wasn't saved because it would have added editor markup to the slide.",
   },
   designSystemSetup: {
     importedBrand: "Imported brand",
@@ -729,6 +738,8 @@ const messages = {
     websitePlaceholder: "example.com or Nike",
     add: "Add",
     githubRepository: "Connect Code: GitHub repository",
+    codeIndexingEnterpriseOnly:
+      "Code and repository indexing requires the Builder Enterprise plan",
     githubRef: "Branch, tag, or commit (optional)",
     githubPaths: "Files or folders, comma-separated (optional)",
     codeFiles: "Connect Code Files",
@@ -818,10 +829,6 @@ const messages = {
     continue: "Continue",
     continueToGenerate: "Continue to generate",
     designSystem: "Design system",
-    designSystemIndexing: "Indexing…",
-    designSystemUnavailable: "Unavailable",
-    designSystemIndexingNotice:
-      "This design system is still indexing. Choose another one or wait for indexing to finish before continuing.",
     referenceDeck: "Reference deck",
     referenceDeckPlaceholder: "Match the style of an existing deck",
     referenceDeckNone: "Skip",

@@ -9,6 +9,7 @@ import {
   findInboxThreadIdByMessageId,
   INBOX_THREADS_QUERY_KEY,
   inboxThreadsHasNextPage,
+  keepLatestInboxSnapshot,
   inboxThreadsRefetchInterval,
   isUnauthorizedError,
   markInboxThreadReadOptimistic,
@@ -80,6 +81,9 @@ describe("resolveInboxTabId", () => {
       "important",
     );
     expect(resolveInboxTabId(new URLSearchParams("tab=other"))).toBe("other");
+    expect(resolveInboxTabId(new URLSearchParams("tab=__inbox_all__"))).toBe(
+      "__inbox_all__",
+    );
   });
 
   it("maps the legacy `label` param to a tab id", () => {
@@ -168,6 +172,28 @@ function visibleResult(qc: QueryClient) {
   ])!;
   return applyInboxMutationOverlay(qc, raw as any);
 }
+
+describe("keepLatestInboxSnapshot", () => {
+  it("keeps a confirmed newer response when an older request resolves last", () => {
+    const stale = seedResult({
+      clientSnapshotId: 1,
+      items: [seedResult().items[0]],
+      total: 1,
+    });
+    const confirmed = seedResult({
+      clientSnapshotId: 2,
+      items: [seedResult().items[1]],
+      total: 1,
+    });
+
+    expect(keepLatestInboxSnapshot(stale as any, confirmed as any)).toBe(
+      confirmed,
+    );
+    expect(keepLatestInboxSnapshot(confirmed as any, stale as any)).toBe(
+      confirmed,
+    );
+  });
+});
 
 describe("removeInboxThreadsOptimistic", () => {
   it("resolves message ids to the action cache's thread key", () => {

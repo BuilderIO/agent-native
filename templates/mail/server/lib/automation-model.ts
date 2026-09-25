@@ -4,6 +4,8 @@ import {
   resolveEngine,
 } from "@agent-native/core/agent/engine";
 import {
+  getJevContextCredentials,
+  isJevEnabled,
   readDeployCredentialEnv,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -67,7 +69,34 @@ async function resolveEngineDefaultModel(
 export async function resolveDefaultAutomationModel(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
-  if (readDeployCredentialEnv("TYPESAFE_API_KEY")) {
+  const jevAvailability = await runWithRequestContext(
+    { userEmail: ownerEmail },
+    async () => {
+      try {
+        return {
+          status: "checked" as const,
+          enabled: await isJevEnabled(
+            await getJevContextCredentials(ownerEmail),
+          ),
+        };
+      } catch (error) {
+        return { status: "error" as const, error };
+      }
+    },
+  );
+  if (jevAvailability.status === "error") {
+    console.warn(
+      "[automation-model] Jev availability check failed; using the configured model.",
+      jevAvailability.error,
+    );
+  }
+  if (jevAvailability.status === "checked" && jevAvailability.enabled) {
+    return {
+      engine: TYPESAFE_AUTOMATION_ENGINE,
+      model: TYPESAFE_AUTOMATION_MODEL,
+    };
+  }
+  if (readDeployCredentialEnv("TYPESAFE_API_KEY")?.trim()) {
     return {
       engine: TYPESAFE_AUTOMATION_ENGINE,
       model: TYPESAFE_AUTOMATION_MODEL,
@@ -137,6 +166,8 @@ export async function resolveAutomationModelSettings(
   ownerEmail: string,
   settings: AutomationModelSettings | null | undefined,
 ): Promise<AutomationModelSettings> {
+  if (settings?.engine && settings.model) return settings;
+
   const defaults = await resolveDefaultAutomationModel(ownerEmail);
   if (!settings?.engine && !settings?.model) return defaults;
 

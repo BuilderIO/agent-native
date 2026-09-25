@@ -15,6 +15,7 @@ import { validateProviderBaseUrl } from "../../agent/engine/provider-endpoint-va
 import type { ActionTool } from "../../agent/types.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  isTrustedSelfHostedRuntime,
   readDeployCredentialEnv,
   resolveSecret,
 } from "../../server/credential-provider.js";
@@ -66,18 +67,18 @@ async function resolveAgentEngineSecret(
 async function resolveAgentEngineEndpoint(
   key: string,
 ): Promise<string | undefined> {
+  const isOllama = key === OLLAMA_BASE_URL_ENV_VAR;
   const value = await resolveSecret(key);
   if (value) {
     return validateProviderBaseUrl(value, {
-      allowLocalOllama:
-        key === OLLAMA_BASE_URL_ENV_VAR &&
-        process.env.NODE_ENV === "development",
+      allowLocalOllama: isOllama && isTrustedSelfHostedRuntime(),
+      isOllama,
     });
   }
   if (!canUseDeployCredentialFallbackForRequest(key)) return undefined;
   const deployValue = readDeployCredentialEnv(key);
   return deployValue
-    ? validateProviderBaseUrl(deployValue, { allowPrivate: true })
+    ? validateProviderBaseUrl(deployValue, { allowPrivate: true, isOllama })
     : undefined;
 }
 
@@ -101,16 +102,15 @@ async function createEngineConfig(
   };
 
   if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
-    const endpointKey =
-      entry.name === "ai-sdk:ollama"
-        ? OLLAMA_BASE_URL_ENV_VAR
-        : OPENAI_BASE_URL_ENV_VAR;
+    const isOllama = entry.name === "ai-sdk:ollama";
+    const endpointKey = isOllama
+      ? OLLAMA_BASE_URL_ENV_VAR
+      : OPENAI_BASE_URL_ENV_VAR;
     const explicitBaseUrl = args.baseUrl?.trim();
     const baseUrl = explicitBaseUrl
       ? await validateProviderBaseUrl(explicitBaseUrl, {
-          allowLocalOllama:
-            entry.name === "ai-sdk:ollama" &&
-            process.env.NODE_ENV === "development",
+          allowLocalOllama: isOllama && isTrustedSelfHostedRuntime(),
+          isOllama,
         })
       : await resolveAgentEngineEndpoint(endpointKey);
     if (baseUrl) config.baseUrl = baseUrl;

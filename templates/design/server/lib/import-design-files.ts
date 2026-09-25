@@ -32,7 +32,7 @@ import {
 
 const DEFAULT_FRAME_WIDTH = 1440;
 const DEFAULT_FRAME_HEIGHT = 900;
-const FRAME_GAP = 96;
+export const FRAME_GAP = 96;
 
 export interface ImportedDesignFile {
   filename: string;

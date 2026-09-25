@@ -318,6 +318,8 @@ function headersWithSignupAttribution(
 export interface AuthSession {
   email: string;
   userId?: string;
+  /** Better Auth's canonical user id. Never populated by legacy or custom auth. */
+  authUserId?: string;
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
@@ -520,6 +522,11 @@ const AUTH_DISABLED_OPT_OUT_COOKIE = `${COOKIE_NAME}_auth_disabled_opt_out`;
  */
 export function cookieDomainAttrs(): { domain?: string } {
   const domain = getCookieDomain();
+  return domain ? { domain } : {};
+}
+
+export function sharedFirstPartyCookieDomainAttrs(): { domain?: string } {
+  const domain = AUTH_COOKIE_NAMESPACE.configuredCookieDomain;
   return domain ? { domain } : {};
 }
 
@@ -980,7 +987,7 @@ function setCookieNames(headers: Headers): string[] {
 }
 
 function extractSessionTokenFromSetCookies(
-  response: Response,
+  response: Pick<Response, "headers">,
 ): string | undefined {
   try {
     for (const sc of getSetCookieHeaders(response.headers)) {
@@ -1082,6 +1089,27 @@ function forwardBetterAuthSetCookies(
       event.res?.headers?.append("set-cookie", upgraded);
     }
   }
+}
+
+async function rotateTwoFactorSession(
+  event: H3Event,
+  session: AuthSession,
+  result: unknown,
+): Promise<void> {
+  const headers = (result as { headers?: Headers } | null)?.headers;
+  const cookieToken = headers && extractSessionTokenFromSetCookies({ headers });
+  if (!cookieToken) return;
+  if (!session.token) throw new Error("The current session token is missing.");
+
+  const replacement = await resolveBetterAuthSessionToken(cookieToken);
+  if (!replacement) {
+    throw new Error(
+      "Better Auth replaced the session without a resolvable token.",
+    );
+  }
+  if (replacement.token === session.token) return;
+  await replaceSession(session.token, replacement.token, replacement.email);
+  setFrameworkSessionCookie(event, replacement.token);
 }
 
 function betterAuthApiBody(result: unknown): Record<string, any> {
@@ -1312,9 +1340,15 @@ async function ensureEmailVerifiedForRedirect(
   request: Request,
   response: Response,
 ): Promise<void> {
-  const email =
-    (await emailFromVerificationResponseSession(response)) ??
-    decodeEmailVerificationTokenEmail(request);
+  let email = decodeEmailVerificationTokenEmail(request);
+  try {
+    email = (await emailFromVerificationResponseSession(response)) ?? email;
+  } catch (error) {
+    console.warn(
+      "[auth] could not resolve the magic-link session for verification repair:",
+      error instanceof Error ? error.constructor.name : typeof error,
+    );
+  }
   if (!email) return;
   try {
     const db = getDbExec();
@@ -1353,16 +1387,12 @@ async function ensureEmailVerifiedForRedirect(
 async function emailFromBetterAuthSessionToken(
   token: string,
 ): Promise<string | null> {
-  try {
-    const db = getDbExec();
-    const { rows } = await db.execute({
-      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
-      args: [token],
-    });
-    return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
-  } catch {
-    return null;
-  }
+  const db = getDbExec();
+  const { rows } = await db.execute({
+    sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+    args: [token],
+  });
+  return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
 }
 
 async function emailFromVerificationResponseSession(
@@ -1464,7 +1494,17 @@ async function persistMagicLinkLegacySession(
 ): Promise<void> {
   const rawToken = extractSessionTokenFromAuthResponse(response);
   if (!rawToken) return;
-  const resolved = await resolveBetterAuthSessionToken(rawToken);
+  let resolved: { token: string; email: string } | null;
+  try {
+    resolved = await resolveBetterAuthSessionToken(rawToken);
+  } catch (error) {
+    console.error(
+      "[auth] failed to resolve magic-link session:",
+      error instanceof Error ? error.constructor.name : typeof error,
+    );
+    setFrameworkSessionCookie(event, decodeSessionCookieValue(rawToken));
+    return;
+  }
   const token = resolved?.token ?? decodeSessionCookieValue(rawToken);
   setFrameworkSessionCookie(event, token);
   if (!resolved) return;
@@ -1863,6 +1903,31 @@ export async function addSession(token: string, email?: string): Promise<void> {
   );
   // The upsert can REBIND an existing token to a different email, so a cached
   // resolution for it is now wrong.
+  invalidateSessionEmailCache();
+}
+
+async function replaceSession(
+  oldToken: string,
+  newToken: string,
+  email?: string,
+): Promise<void> {
+  await ensureSessionTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Session rotation requires database transactions.");
+  }
+  await retryIfSessionsMissing(() =>
+    client.transaction!(async (tx) => {
+      await tx.execute({
+        sql: `INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at`,
+        args: [newToken, email ?? null, Date.now()],
+      });
+      await tx.execute({
+        sql: `DELETE FROM sessions WHERE token = ?`,
+        args: [oldToken],
+      });
+    }),
+  );
   invalidateSessionEmailCache();
 }
 
@@ -3618,7 +3683,7 @@ function loginHtmlResponse(
       html,
       getSsrAuthRedirectScript(
         SESSION_HINT_COOKIE,
-        resolveAppHomePath(getAppConfig().app),
+        resolveAppHomePath(getAppConfig().app, getAppConfig().workspace),
         getFrameworkRoutePrefix(),
       ),
     );
@@ -3980,7 +4045,8 @@ function createAuthGuardFn(
     if (
       config.rootAuth &&
       p === "/" &&
-      resolveAppHomePath(getAppConfig().app) !== "/" &&
+      resolveAppHomePath(getAppConfig().app, getAppConfig().workspace) !==
+        "/" &&
       isHtmlDocumentRequest(event, p)
     ) {
       return loginHtmlResponse(loginHtml, event, {
@@ -4015,7 +4081,10 @@ function createAuthGuardFn(
           continuation: query.get(SIGN_IN_CONTINUATION_PARAM),
           legacyReturn: query.get(SIGN_IN_LEGACY_RETURN_PARAM),
           basePath: getAppBasePath(),
-          homePath: resolveAppHomePath(getAppConfig().app),
+          homePath: resolveAppHomePath(
+            getAppConfig().app,
+            getAppConfig().workspace,
+          ),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
@@ -4135,7 +4204,10 @@ function createAuthGuardFn(
         const { resumeHref } = signInJourney({
           at: url,
           basePath: getAppBasePath(),
-          homePath: resolveAppHomePath(getAppConfig().app),
+          homePath: resolveAppHomePath(
+            getAppConfig().app,
+            getAppConfig().workspace,
+          ),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
@@ -4581,6 +4653,7 @@ function mapBetterAuthSession(baSession: {
 }): AuthSession {
   return {
     email: baSession.user.email,
+    authUserId: baSession.user.id,
     ...(typeof baSession.user.emailVerified === "boolean"
       ? { emailVerified: baSession.user.emailVerified }
       : {}),
@@ -4683,10 +4756,13 @@ async function resolveSessionUncached(
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) {
+      // Custom auth may have a userId, but it is not a Better Auth identity.
+      const safeSession = { ...session };
+      delete safeSession.authUserId;
       if (trustCustomEmailVerification && session.emailVerified === undefined) {
-        return { ...session, emailVerified: true };
+        return { ...safeSession, emailVerified: true };
       }
-      return session;
+      return safeSession;
     }
 
     const bearerSession = await getBearerSession(event);
@@ -4890,7 +4966,7 @@ export function redirectWithStagedCookies(
   return new Response("", { status, headers });
 }
 
-function isHttpsRequest(event: H3Event): boolean {
+export function isHttpsRequest(event: H3Event): boolean {
   try {
     const xfProto = getHeader(event, "x-forwarded-proto");
     if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
@@ -5955,9 +6031,8 @@ async function mountBetterAuthRoutes(
           headers: betterAuthHeadersForSession(event, session.token),
           returnHeaders: true,
         });
-        forwardBetterAuthSetCookies(event, result, {
-          excludeSessionCookies: true,
-        });
+        await rotateTwoFactorSession(event, session, result);
+        forwardBetterAuthSetCookies(event, result);
         return betterAuthApiBody(result);
       } catch (error) {
         return twoFactorError(event, error);
@@ -5982,9 +6057,8 @@ async function mountBetterAuthRoutes(
           headers: betterAuthHeadersForSession(event, session.token),
           returnHeaders: true,
         });
-        forwardBetterAuthSetCookies(event, result, {
-          excludeSessionCookies: true,
-        });
+        await rotateTwoFactorSession(event, session, result);
+        forwardBetterAuthSetCookies(event, result);
         return betterAuthApiBody(result);
       } catch (error) {
         return twoFactorError(event, error);

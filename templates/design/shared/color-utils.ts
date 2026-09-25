@@ -401,6 +401,48 @@ export function withColorOpacity(color: RgbaColor, opacity: number): RgbaColor {
   return normalizeRgba({ ...color, a: opacityToAlpha(opacity) });
 }
 
+/**
+ * Figma's second stop for a new gradient: the base colour with HSV value moved
+ * 40 points away from it (down from V ≥ 50%, up below), hue and saturation kept.
+ */
+export function defaultGradientEndColor(color: RgbaColor): RgbaColor {
+  const max = Math.max(color.r, color.g, color.b);
+  const min = Math.min(color.r, color.g, color.b);
+  const value = max / 255;
+  const saturation = max === 0 ? 0 : (max - min) / max;
+  const delta = max - min;
+  const hue =
+    delta === 0
+      ? 0
+      : max === color.r
+        ? ((color.g - color.b) / delta + 6) % 6
+        : max === color.g
+          ? (color.b - color.r) / delta + 2
+          : (color.r - color.g) / delta + 4;
+  const nextValue = value >= 0.5 ? value - 0.4 : value + 0.4;
+  const chroma = nextValue * saturation;
+  const x = chroma * (1 - Math.abs((hue % 2) - 1));
+  const m = nextValue - chroma;
+  const [r, g, b] =
+    hue < 1
+      ? [chroma, x, 0]
+      : hue < 2
+        ? [x, chroma, 0]
+        : hue < 3
+          ? [0, chroma, x]
+          : hue < 4
+            ? [0, x, chroma]
+            : hue < 5
+              ? [x, 0, chroma]
+              : [chroma, 0, x];
+  return normalizeRgba({
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255),
+    a: color.a,
+  });
+}
+
 function parseAlpha(value: string | undefined): number {
   if (!value) return 1;
   if (value.endsWith("%")) return Number(value.slice(0, -1)) / 100;

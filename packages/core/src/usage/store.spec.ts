@@ -65,6 +65,8 @@ beforeEach(async () => {
     cache_read_tokens BIGINT NOT NULL DEFAULT 0,
     cache_write_tokens BIGINT NOT NULL DEFAULT 0,
     cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+    builder_credits_used NUMERIC,
+    engine_name TEXT,
     cost_source TEXT NOT NULL DEFAULT 'estimated',
     model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat',
@@ -403,6 +405,88 @@ describe("listAppUsageMetrics app scoping", () => {
       outputTokens: 75,
     });
     expect(metrics.recent).toHaveLength(2);
+  });
+
+  it("uses fractional Builder-reported credits and estimates only known Builder rows", async () => {
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 25,
+      costCentsX100: 4_000,
+      builderCreditsUsed: 0.123,
+      engineName: "builder",
+      model: "claude-sonnet-4-5",
+      label: "chat",
+    });
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 25,
+      costCentsX100: 2_000,
+      engineName: "builder",
+      model: "claude-sonnet-4-5",
+      label: "automation",
+    });
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, builderCreditsEnabled: true },
+      { ownerEmail: "a@example.com", app: "" },
+    );
+
+    expect(metrics.totals.builderCredits).toBe(0.123);
+    expect(metrics.totals.estimatedBuilderCredits).toBe(5);
+    expect(
+      metrics.byLabel.find((bucket) => bucket.key === "chat")?.builderCredits,
+    ).toBe(0.123);
+    expect(
+      metrics.byLabel.find((bucket) => bucket.key === "automation")
+        ?.estimatedBuilderCredits,
+    ).toBe(5);
+    expect(metrics.daily[0]?.builderCredits).toBe(0.123);
+    expect(metrics.daily[0]?.estimatedBuilderCredits).toBe(5);
+    expect(metrics.currentDay.credits).toBe(0.123);
+    expect(metrics.currentDay.estimatedBuilderCredits).toBe(5);
+  });
+
+  it("keeps BYO-provider and unclassified spend in USD when Builder credits are enabled", async () => {
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 25,
+      costCentsX100: 4_000,
+      builderCreditsUsed: 0.123,
+      engineName: "builder",
+      model: "claude-sonnet-4-5",
+      label: "chat",
+    });
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 25,
+      costCentsX100: 2_000,
+      engineName: "ai-sdk:openai",
+      model: "gpt-5.6-luna",
+      label: "chat",
+    });
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, builderCreditsEnabled: true },
+      { ownerEmail: "a@example.com", app: "" },
+    );
+
+    expect(metrics.billing.unit).toBe("mixed");
+    expect(metrics.totals.builderCredits).toBe(0.123);
+    expect(metrics.totals.estimatedBuilderCredits).toBe(0);
+    expect(metrics.totals.otherCostCents).toBe(20);
+    expect(metrics.totals.otherCalls).toBe(1);
+    expect(metrics.daily[0]?.builderCredits).toBe(0.123);
+    expect(metrics.daily[0]?.otherCostCents).toBe(20);
+    const recentOpenAi = metrics.recent.find(
+      (row) => row.model === "gpt-5.6-luna",
+    );
+    expect(recentOpenAi?.engineName).toBe("ai-sdk:openai");
+    expect(recentOpenAi?.builderCredits).toBeUndefined();
+    expect(recentOpenAi?.otherCostCents).toBe(20);
   });
 
   it("includes historical legacy identities beside a stable app id", async () => {

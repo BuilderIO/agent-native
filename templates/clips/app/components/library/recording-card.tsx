@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
-import { AgentViewCount } from "@/components/player/recording-views-badge";
+import { AgentViewCount } from "@/components/player/agent-view-count";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -315,6 +315,7 @@ export function RecordingCard({
                 className="h-full w-full object-cover"
                 draggable={false}
                 onError={() => setThumbnailFailed(true)}
+                loading="lazy"
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">

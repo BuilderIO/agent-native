@@ -162,6 +162,7 @@ export function resolveCodeAgentRunnerInvocation(
 export function resolveExecutable(
   executable: string,
   environment: NodeJS.ProcessEnv | undefined,
+  platform: NodeJS.Platform = process.platform,
 ): string | null {
   if (!environment) return null;
 
@@ -195,14 +196,24 @@ export function resolveExecutable(
     "/usr/local/bin",
   ].filter((value): value is string => Boolean(value));
 
+  // Windows cannot launch the extensionless POSIX shims npm drops next to its
+  // `.cmd` wrappers (spawn fails with ENOENT), and `.cmd`/`.bat` need a shell
+  // that concatenates arguments unescaped. Only resolve files CreateProcess
+  // runs directly, such as the native `claude.exe` in `~/.local/bin`.
+  const names =
+    platform === "win32" && !path.extname(executable)
+      ? [`${executable}.exe`, `${executable}.com`]
+      : [executable];
   for (const directory of [...new Set(searchDirectories)]) {
-    const candidate = path.join(directory, executable);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // coercion-ok: an unreadable candidate is an expected search miss.
-      // Continue through the standard package-manager locations.
+    for (const name of names) {
+      const candidate = path.join(directory, name);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        // coercion-ok: an unreadable candidate is an expected search miss.
+        // Continue through the standard package-manager locations.
+      }
     }
   }
   return null;

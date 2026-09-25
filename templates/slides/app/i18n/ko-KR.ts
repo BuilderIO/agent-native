@@ -54,6 +54,7 @@ const messages = {
     emptyState: "프레젠테이션에 대해 무엇이든 물어보세요",
     thisSlide: "이 슬라이드",
     currentSelection: "현재 선택",
+    slideNumber: "슬라이드 {{number}}",
     suggestionPitch: "이 문서로 10장짜리 피치덱 만들기",
     suggestionBrand: "이 덱에 우리 브랜드 적용",
     suggestionHero: "이 슬라이드의 히어로 이미지 생성",
@@ -183,6 +184,12 @@ const messages = {
     emptyTitle: "브랜드 아이덴티티 설정",
     emptyDescription:
       "브랜드 색상, 타이포그래피, 로고로 디자인 시스템을 만드세요. 새 덱은 모두 이 시각적 정체성을 따릅니다.",
+    tierLimitTitle: "디자인 시스템 한도에 도달했습니다",
+    tierLimitDescription:
+      "현재 Builder 플랜의 디자인 시스템 한도에 도달했습니다. Builder 플랜을 업그레이드하여 새로 만드세요.",
+    tierLimitDescriptionWithCount:
+      "Builder {{plan}} 플랜에서 디자인 시스템을 {{current}}/{{max}}개 사용 중입니다. 업그레이드하여 새로 만드세요.",
+    tierLimitUpgrade: "Builder 플랜 업그레이드",
   },
   editorToolbar: {
     layoutTitle: "제목",
@@ -687,6 +694,8 @@ const messages = {
       "지금 나가거나 새로고침하면 아직 저장되지 않은 변경 사항을 잃을 수 있습니다. 정말 나가시겠어요?",
     keepEditing: "계속 편집",
     leaveWithoutSaving: "저장하지 않고 나가기",
+    editorMarkupNotSaved:
+      "이 편집은 슬라이드에 편집기 마크업이 추가되므로 저장되지 않았습니다.",
   },
   designSystemSetup: {
     importedBrand: "가져온 브랜드",
@@ -744,6 +753,8 @@ const messages = {
     websitePlaceholder: "example.com 또는 Nike",
     add: "추가",
     githubRepository: "코드 연결: GitHub 저장소",
+    codeIndexingEnterpriseOnly:
+      "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
     githubRef: "브랜치, 태그 또는 커밋 (선택 사항)",
     githubPaths: "파일 또는 폴더, 쉼표로 구분 (선택 사항)",
     codeFiles: "코드 파일 연결",
@@ -813,10 +824,6 @@ const messages = {
     continue: "계속",
     continueToGenerate: "생성 계속",
     designSystem: "디자인 시스템",
-    designSystemIndexing: "인덱싱 중…",
-    designSystemUnavailable: "사용 불가",
-    designSystemIndexingNotice:
-      "이 디자인 시스템은 아직 인덱싱 중입니다. 계속하기 전에 다른 시스템을 선택하거나 인덱싱이 끝날 때까지 기다리세요.",
     referenceDeck: "참고 덱",
     referenceDeckPlaceholder: "기존 덱의 스타일을 따르기",
     referenceDeckNone: "사용 안 함",

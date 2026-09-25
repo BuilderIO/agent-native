@@ -1,8 +1,8 @@
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 import AnalysisDetail from "@/pages/analyses/AnalysisDetail";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.analysis }];
+  return [{ title: enUSMessages.routeTitles.analysis }];
 }
 
 export default function AnalysisDetailRoute() {

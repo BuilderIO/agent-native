@@ -54,7 +54,15 @@ export const contentBlockRegistry = new BlockRegistry();
 // every other block keeps its canonical core metadata, so adding a 14th library
 // block in core lands in content automatically.
 registerLibraryBlocks(contentBlockRegistry, {
-  overrides: { table: { type: "table-block" } },
+  overrides: {
+    table: { type: "table-block" },
+    code: { empty: () => ({ code: "" }) },
+    "code-tabs": {
+      empty: () => ({
+        tabs: [{ id: "tab-1", label: "file.ts", code: "" }],
+      }),
+    },
+  },
 });
 for (const block of builderDocsBlocks) {
   contentBlockRegistry.register(block);

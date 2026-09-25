@@ -140,7 +140,7 @@ npx @agent-native/core@latest deploy
 
 想接入某个提供商的构建命令,而不是手动部署?在同一条命令后加上 `--build-only`,例如 `npx @agent-native/core@latest deploy --preset vercel --build-only`。它会直接写出输出,因此不需要 `vercel.json` 来处理工作区路由。
 
-更倾向于每个应用使用独立的域名,而不是共用一个源?工作区中的每个应用仍然可以独立部署。像运行一个独立脚手架一样运行 `cd apps/<name> && npx @agent-native/core@latest build`。
+更倾向于每个应用使用独立的域名,而不是共用一个源?工作区中的每个应用仍然可以独立部署。像运行一个独立脚手架一样运行 `cd apps/<name> && pnpm build`。
 
 </Callout>
 
@@ -217,7 +217,7 @@ npx @agent-native/core@latest deploy
 基础路径对客户端打包产物来说是一个构建期输入,对服务器来说是一个运行期输入。用代理将要路由到的同一个路径构建每个应用:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

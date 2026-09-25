@@ -5,6 +5,7 @@ import type {
 } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
 import { DEFAULT_AGENT_IDENTITY } from "@agent-native/toolkit/collab-ui";
 import {
   useSortable,
@@ -15,13 +16,13 @@ import { CSS } from "@dnd-kit/utilities";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
 import { IconEyeOff } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
-import { AddSlidePopover } from "@/components/editor/AddSlidePopover";
 import { AiEditingMarker } from "@/components/editor/AiEditingMarker";
+import { DeferredPopoverFallback } from "@/components/editor/DeferredPopoverFallback";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import {
   ContextMenu,
@@ -38,6 +39,7 @@ import {
 } from "@/components/ui/tooltip";
 import { defaultSlideContent, type Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
+import { DeferredAddSlidePopover } from "@/lib/deferred-editor-surfaces";
 import { TAB_ID } from "@/lib/tab-id";
 import { shortcutLabel } from "@/lib/utils";
 
@@ -669,6 +671,10 @@ export default function EditorSidebar({
   const t = useT();
   const [describeAnchorEl, setDescribeAnchorEl] =
     useState<HTMLButtonElement | null>(null);
+  const closeDescribePopover = useCallback(() => {
+    onCloseDescribe();
+    setDescribeAnchorEl(null);
+  }, [onCloseDescribe]);
   const [thumbnailListScrolled, setThumbnailListScrolled] = useState(false);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const focusAfterDeleteRef = useRef<string | null>(null);
@@ -1019,47 +1025,65 @@ export default function EditorSidebar({
         </div>
       </div>
       {describeSlideId && describeSlideIndex !== -1 && describeAnchorEl && (
-        <AddSlidePopover
-          open
-          onOpenChange={(open) => {
-            if (!open) {
-              onCloseDescribe();
-              setDescribeAnchorEl(null);
+        <LazyChunkErrorBoundary
+          fallback={
+            <DeferredPopoverFallback
+              surface="add-slide"
+              anchorRef={{ current: describeAnchorEl }}
+              failed
+              onClose={closeDescribePopover}
+            />
+          }
+        >
+          <Suspense
+            fallback={
+              <DeferredPopoverFallback
+                surface="add-slide"
+                anchorRef={{ current: describeAnchorEl }}
+                onClose={closeDescribePopover}
+              />
             }
-          }}
-          anchorRef={{ current: describeAnchorEl }}
-          placement="right"
-          deckId={deckId}
-          deckTitle={deckTitle}
-          activeSlideId={describeSlideId}
-          activeSlideIndex={describeSlideIndex}
-          slideCount={slides.length}
-          targetSlideId={describeSlideId}
-          agentSubmit={async (message, context) => {
-            onAddSlideGeneratingChange?.(true, describeSlideId);
-            try {
-              await onAwaitAddSlidePersisted?.();
-            } catch (error) {
-              console.error("Failed to persist new slide:", error);
-              onAddSlideGeneratingChange?.(false, null);
-              // Only remove the placeholder if it's still untouched —
-              // the save retries take long enough that the user could have
-              // started editing it directly on the canvas in the meantime,
-              // and deleting it would destroy that work.
-              const current = slides.find((s) => s.id === describeSlideId);
-              if (
-                current?.content === defaultSlideContent.blank &&
-                !current.notes
-              ) {
-                onRemoveFailedSlide?.(describeSlideId);
-              }
-              toast.error(t("editorSidebar.newSlideSaveFailed"));
-              return false;
-            }
-            addSlideAgentSubmit(message, context);
-            return true;
-          }}
-        />
+          >
+            <DeferredAddSlidePopover
+              open
+              onOpenChange={(open) => {
+                if (!open) closeDescribePopover();
+              }}
+              anchorRef={{ current: describeAnchorEl }}
+              placement="right"
+              deckId={deckId}
+              deckTitle={deckTitle}
+              activeSlideId={describeSlideId}
+              activeSlideIndex={describeSlideIndex}
+              slideCount={slides.length}
+              targetSlideId={describeSlideId}
+              agentSubmit={async (message, context) => {
+                onAddSlideGeneratingChange?.(true, describeSlideId);
+                try {
+                  await onAwaitAddSlidePersisted?.();
+                } catch (error) {
+                  console.error("Failed to persist new slide:", error);
+                  onAddSlideGeneratingChange?.(false, null);
+                  // Only remove the placeholder if it's still untouched —
+                  // the save retries take long enough that the user could have
+                  // started editing it directly on the canvas in the meantime,
+                  // and deleting it would destroy that work.
+                  const current = slides.find((s) => s.id === describeSlideId);
+                  if (
+                    current?.content === defaultSlideContent.blank &&
+                    !current.notes
+                  ) {
+                    onRemoveFailedSlide?.(describeSlideId);
+                  }
+                  toast.error(t("editorSidebar.newSlideSaveFailed"));
+                  return false;
+                }
+                addSlideAgentSubmit(message, context);
+                return true;
+              }}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
     </div>
   );

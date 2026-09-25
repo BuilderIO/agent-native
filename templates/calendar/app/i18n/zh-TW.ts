@@ -1,4 +1,4 @@
-const messages = {
+export default {
   common: {
     connect: "連線",
     connected: "已連線",
@@ -938,5 +938,3 @@ const messages = {
     },
   },
 };
-
-export default messages;

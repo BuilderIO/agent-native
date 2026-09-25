@@ -483,6 +483,178 @@ describe("LayoutContextProperties interactions", () => {
     container.remove();
   });
 
+  it.each(["container", "leaf"] as const)(
+    "only writes the edited margin side for a %s",
+    async (kind) => {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      const onStyleChange = vi.fn();
+      const onStylesChange = vi.fn();
+      const isContainer = kind === "container";
+      const element = {
+        tagName: isContainer ? "div" : "span",
+        primitiveKind: isContainer ? undefined : "text",
+        classes: [],
+        computedStyles: {
+          display: isContainer ? "flex" : "inline",
+          flexDirection: "row",
+          flexWrap: "nowrap",
+          width: "120px",
+          height: "80px",
+          marginTop: "auto",
+          marginRight: "12px",
+          marginBottom: "Mixed",
+          marginLeft: "8px",
+        },
+        boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+        isFlexChild: false,
+        isFlexContainer: isContainer,
+        isGridContainer: false,
+        childElementCount: isContainer ? 1 : 0,
+        sourceId: `${kind}-1`,
+      } as ElementInfo;
+
+      await act(async () => {
+        root.render(
+          <LayoutContextProperties
+            element={element}
+            onStyleChange={onStyleChange}
+            onStylesChange={onStylesChange}
+          />,
+        );
+      });
+
+      const leftMargin = container.querySelector<HTMLInputElement>(
+        'input[aria-label="editPanel.labels.marginLeft"]',
+      );
+      expect(leftMargin).not.toBeNull();
+      await act(async () => {
+        leftMargin?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+        );
+      });
+
+      expect(onStylesChange).toHaveBeenCalledOnce();
+      expect(onStylesChange).toHaveBeenCalledWith(
+        { marginLeft: "9px" },
+        expect.objectContaining({
+          source: "keyboard",
+          phase: "commit",
+        }),
+      );
+      expect(onStyleChange).not.toHaveBeenCalled();
+
+      await act(async () => root.unmount());
+      container.remove();
+    },
+  );
+
+  it("preserves the relative delta for both sides of a linked mixed margin edit", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onStylesChange = vi.fn();
+    const element = {
+      tagName: "span",
+      primitiveKind: "text",
+      classes: [],
+      computedStyles: {
+        display: "inline",
+        width: "120px",
+        height: "80px",
+        marginTop: "4px",
+        marginRight: "Mixed",
+        marginBottom: "4px",
+        marginLeft: "Mixed",
+      },
+      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: false,
+      childElementCount: 0,
+      sourceId: "leaf-mixed-margin",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties
+          element={element}
+          onStyleChange={vi.fn()}
+          onStylesChange={onStylesChange}
+        />,
+      );
+    });
+
+    const linkButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.linkMarginSides"]',
+    );
+    expect(linkButton).not.toBeNull();
+    await act(async () => linkButton?.click());
+
+    const horizontalMargin = container.querySelector<HTMLInputElement>(
+      'input[aria-label="editPanel.labels.marginLeft / editPanel.labels.marginRight"]',
+    );
+    expect(horizontalMargin).not.toBeNull();
+    await act(async () => {
+      horizontalMargin?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+
+    expect(onStylesChange).toHaveBeenCalledOnce();
+    expect(onStylesChange).toHaveBeenCalledWith(
+      { marginLeft: "1px", marginRight: "1px" },
+      expect.objectContaining({
+        source: "keyboard",
+        phase: "commit",
+        relativeDelta: 1,
+        relativeDeltaProperties: ["marginLeft", "marginRight"],
+      }),
+    );
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("shows a stylesheet-authored auto margin instead of its resolved pixel value", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const element = {
+      tagName: "span",
+      primitiveKind: "text",
+      classes: [],
+      computedStyles: {
+        display: "inline",
+        width: "120px",
+        height: "80px",
+        marginLeft: "auto",
+      },
+      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: false,
+      childElementCount: 0,
+      sourceId: "leaf-auto-margin",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties element={element} onStyleChange={vi.fn()} />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="editPanel.labels.marginLeft"]',
+      )?.value,
+    ).toBe("auto");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("keeps W/H sizing primary and reveals flex CSS fields in a popover", async () => {
     const container = document.createElement("div");
     document.body.append(container);

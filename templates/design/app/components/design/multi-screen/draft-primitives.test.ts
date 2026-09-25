@@ -1,8 +1,10 @@
+import { createCornerNode, serializePenPath } from "@shared/pen-path";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import {
   createDraftPrimitive,
+  createPenDraftPrimitive,
   draftPrimitiveToInsert,
 } from "./draft-primitives";
 import type {
@@ -50,6 +52,28 @@ describe("draftPrimitiveToInsert node id", () => {
       frame(0, 0, 400, 400),
     );
     expect(first.nodeId).not.toBe(second.nodeId);
+  });
+});
+
+describe("draftPrimitiveToInsert Pen paths", () => {
+  it("carries the same screen-local PenPath that it serializes for persistence", () => {
+    const draft = createPenDraftPrimitive(
+      {
+        closed: false,
+        nodes: [
+          createCornerNode({ x: 20, y: 30 }),
+          createCornerNode({ x: 70, y: 60 }),
+        ],
+      },
+      { id: "draft-pen" },
+    );
+    const inserted = draftPrimitiveToInsert(draft, frame(10, 20, 100, 80));
+
+    expect(inserted.penPath?.nodes.map((node) => node.point)).toEqual([
+      { x: 10, y: 10 },
+      { x: 60, y: 40 },
+    ]);
+    expect(inserted.pathData).toBe(serializePenPath(inserted.penPath!));
   });
 });
 

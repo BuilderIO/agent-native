@@ -98,6 +98,24 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 Use a PostgreSQL URL for every hosted environment. The framework configures
 Drizzle for PostgreSQL from `DATABASE_URL`.
 
+The framework bounds connections per database pool. Defaults are 20 for
+long-lived Node.js processes, 2 for serverless foreground functions, 4 for
+serverless background functions, and 1 for low-connection scheduled workers.
+Set `AGENT_NATIVE_DB_POOL_MAX` to override the per-pool maximum for both Neon
+and standard PostgreSQL clients:
+
+```bash
+AGENT_NATIVE_DB_POOL_MAX=4
+```
+
+Estimate the aggregate connection budget across all warm function instances or
+Node.js processes, apps, and distinct database URLs. Each process or function
+instance owns its own pools. Keep the sum below the database or pooler's
+connection limit, leaving capacity for migrations, administration, and other
+clients. Use a provider's pooled endpoint when available. For self-hosted
+PostgreSQL with many app processes, consider transaction pooling with
+PgBouncer.
+
 ### Builder.io managed database {#builder-managed}
 
 _Planned (not yet available):_ when connected to Builder.io, your app will be able to use a managed PostgreSQL database provisioned automatically, with no PostgreSQL connection string required.

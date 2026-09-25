@@ -54,6 +54,7 @@ const messages = {
     emptyState: "Frag mich alles zu deinen Präsentationen",
     thisSlide: "Diese Folie",
     currentSelection: "Aktuelle Auswahl",
+    slideNumber: "Folie {{number}}",
     suggestionPitch:
       "Erstelle aus diesem Dokument ein Pitch-Deck mit 10 Folien",
     suggestionBrand: "Wende unsere Marke auf dieses Deck an",
@@ -186,6 +187,12 @@ const messages = {
     emptyTitle: "Markenidentität einrichten",
     emptyDescription:
       "Erstelle ein Designsystem mit Markenfarben, Typografie und Logos. Jedes neue Deck folgt deiner visuellen Identität.",
+    tierLimitTitle: "Limit für Designsysteme erreicht",
+    tierLimitDescription:
+      "Du hast das Limit für Designsysteme deines Builder-Plans erreicht. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
+    tierLimitDescriptionWithCount:
+      "Du nutzt {{current}} von {{max}} Designsystemen in deinem Builder-Plan {{plan}}. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
+    tierLimitUpgrade: "Builder-Plan upgraden",
   },
   editorToolbar: {
     layoutTitle: "Titel",
@@ -706,6 +713,8 @@ const messages = {
       "Wenn du jetzt gehst oder neu lädst, können noch nicht gespeicherte Änderungen verloren gehen. Möchtest du wirklich beenden?",
     keepEditing: "Weiter bearbeiten",
     leaveWithoutSaving: "Ohne Speichern beenden",
+    editorMarkupNotSaved:
+      "Diese Änderung wurde nicht gespeichert, weil sie der Folie Editor-Markup hinzugefügt hätte.",
   },
   designSystemSetup: {
     importedBrand: "Importierte Marke",
@@ -767,6 +776,8 @@ const messages = {
     websitePlaceholder: "example.com oder Nike",
     add: "Hinzufügen",
     githubRepository: "Code verbinden: GitHub-Repository",
+    codeIndexingEnterpriseOnly:
+      "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
     githubRef: "Branch, Tag oder Commit (optional)",
     githubPaths: "Dateien oder Ordner, durch Kommas getrennt (optional)",
     codeFiles: "Code-Dateien verbinden",
@@ -838,10 +849,6 @@ const messages = {
     continue: "Weiter",
     continueToGenerate: "Zum Generieren fortfahren",
     designSystem: "Designsystem",
-    designSystemIndexing: "Wird indiziert…",
-    designSystemUnavailable: "Nicht verfügbar",
-    designSystemIndexingNotice:
-      "Dieses Designsystem wird noch indiziert. Wählen Sie ein anderes aus oder warten Sie, bis die Indizierung abgeschlossen ist.",
     referenceDeck: "Referenz-Deck",
     referenceDeckPlaceholder: "Den Stil eines vorhandenen Decks übernehmen",
     referenceDeckNone: "Keins verwenden",

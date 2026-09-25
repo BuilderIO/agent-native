@@ -119,6 +119,8 @@ export interface CanvasContextMenuPoint {
   clientY: number;
   canvasX?: number;
   canvasY?: number;
+  /** The screen canvasX/canvasY are local to, when opened over one. */
+  screenId?: string;
 }
 
 export interface CanvasContextMenuHandle {

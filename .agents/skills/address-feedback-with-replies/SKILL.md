@@ -49,21 +49,18 @@ the exact parent for manual cleanup and leave the thread otherwise untouched.
 New messages must pass the clear-bug gate before any external write.
 
 Use the disposition-specific release contract from `review-latest-feedback`:
-`✅` is only for **Fixed**, **Shipped**, or **Live verified** after all four
-bars; other terminal states use `:no_entry_sign:`. On reopen or re-claim,
+`✅` is only for verified **Fixed**, **Shipped**, or **Live verified**;
+`:no_entry_sign:` means triage complete, not fixed. On reopen or re-claim,
 remove this workflow's stale marker before adding `👀`. If removal is
 unavailable, use full reaction-aware enumeration, do not place `👀` beside the
 stale marker, and claim only after cleanup.
 
-Every eyed clear-bug or upvoted item enters the ledger; the eye is not
-completion. Before finishing, re-read each claim and record a reply or
-disposition from the vocabulary below. Evidence-limited states retain the eye
-and carry forward: next run, re-read the thread, act on evidence, and replace
-the state only after verification or blocker resolution. A reply or source change never promotes one to
-**Fixed**. Terminal states need their disposition-specific release marker.
-Record **Owned elsewhere** for a foreign eye without changing it. Pending
-clarification keeps the eye; **In progress** needs ownership and revisit.
-Mistaken out-of-scope eyes use cleanup rule.
+Every eye enters the ledger; it marks active investigation or a fix, not
+completion. Follow `review-latest-feedback` for ownership: claim before code
+investigation and remove it while reporter input blocks work or when no safe
+fix exists. Before finishing, re-read each claim and record its reply or
+disposition. A reply or source change never means **Fixed**; terminal states
+need their release marker. Preserve foreign eyes and clean up mistaken claims.
 
 ## Prerequisites
 
@@ -132,12 +129,12 @@ item is in scope, add `👀` before investigation or delegation.
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
 
-A tracked clear-bug or authorized upvoted improvement receives at most one
-disposition per run. Active evidence-limited dispositions are **Verified
-locally**, **Built - live unverified**, **Deployed - live unverified**, **Not
-reproducible - attempted**, **In progress**, **Asked**, **Clarification
-needed**, and **Blocked on reporter**; they
-retain the workflow's eye. Terminal dispositions: **Fixed**, **Shipped**,
+A tracked clear bug or authorized upvoted improvement receives at most one
+disposition per run. **Verified locally**, **Built - live unverified**,
+**Deployed - live unverified**, **Not reproducible - attempted**, and **In
+progress** retain the eye only while investigation or fix work is active.
+**Asked**, **Clarification needed**, and **Blocked on reporter** carry no eye.
+Terminal dispositions: **Fixed**, **Shipped**,
 **Live verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
 **Clustered**, and **Abandoned - no answer in 4 days**, each with required
 evidence and a release marker. An already-eyed out-of-scope item gets a
@@ -167,7 +164,7 @@ handoff first.
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
 the invoking identity's open disposition for the current cursor, not a terminal
-closure; keep the eye. The next
+closure; remove the eye while waiting. The next
 `review-latest-feedback` run must re-read every thread it previously asked in
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.

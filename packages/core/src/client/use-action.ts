@@ -456,6 +456,7 @@ async function performActionFetch<T>(
   try {
     try {
       res = await Promise.race([fetch(url, init), timedOutSignal]);
+      throwIfAborted(outerSignal);
       options?.onResponse?.(res);
     } catch (err) {
       if (timedOut) throwTimeout();
@@ -489,6 +490,7 @@ async function performActionFetch<T>(
     }
 
     // 204 No Content — nothing to parse.
+    throwIfAborted(outerSignal);
     if (res.status === 204) return null as T;
 
     // Read the body as text first so we can:
@@ -510,6 +512,11 @@ async function performActionFetch<T>(
     clearTimeout(timer);
     if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
   }
+
+  // A fetch implementation or service worker can resolve a response after it
+  // ignored the abort signal. Never let that abandoned response reach a query
+  // cache as if it were the current server state.
+  throwIfAborted(outerSignal);
 
   let data: any = undefined;
   let parseFailed = false;
@@ -625,7 +632,15 @@ async function performActionFetch<T>(
     throw error;
   }
 
+  throwIfAborted(outerSignal);
   return (data ?? (null as unknown)) as T;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  throw error;
 }
 
 function actionTelemetryNow(): number {

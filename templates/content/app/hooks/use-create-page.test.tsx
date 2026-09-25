@@ -157,7 +157,10 @@ describe("useCreatePage", () => {
     mocks.getQueryData.mockReturnValue(previous);
     mocks.createDocument.mockRejectedValue(new Error("create failed"));
 
-    let createPage!: () => Promise<string>;
+    let createPage!: (
+      parentId?: string,
+      requestedId?: string,
+    ) => Promise<string>;
     function Probe() {
       createPage = useCreatePage();
       return null;
@@ -168,7 +171,9 @@ describe("useCreatePage", () => {
     });
 
     await act(async () => {
-      await expect(createPage()).rejects.toThrow("create failed");
+      await expect(createPage("parent-page", "slash-page-id")).rejects.toThrow(
+        "create failed",
+      );
     });
 
     const optimisticUpdater = mocks.setQueryData.mock.calls[0]?.[1] as (
@@ -177,6 +182,13 @@ describe("useCreatePage", () => {
     const optimistic = optimisticUpdater(previous);
     expect(optimistic.pagination).toBe(previous.pagination);
     expect(optimistic.documents).toHaveLength(2);
+    expect(optimistic.documents[1]?.id).toBe("slash-page-id");
+    expect(mocks.createDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "slash-page-id",
+        parentId: "parent-page",
+      }),
+    );
     expect(mocks.rollbackOptimisticCreatedDocument).toHaveBeenCalledWith(
       expect.anything(),
       optimistic.documents[1]?.id,

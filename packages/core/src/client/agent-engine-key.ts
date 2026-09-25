@@ -313,6 +313,47 @@ export async function saveAgentEngineProviderSettings({
 }
 
 /**
+ * List the models an Ollama server actually has installed, via its native
+ * `/api/tags` endpoint. Pass `baseUrl` to check a server before it's saved
+ * (e.g. while the user is still typing the endpoint); omit it to use the
+ * saved endpoint. Throws a readable Error if the server can't be reached.
+ */
+export async function fetchOllamaModels(baseUrl?: string): Promise<string[]> {
+  const trimmed = baseUrl?.trim() ?? "";
+  const path = trimmed
+    ? `/_agent-native/agent-engine/ollama-models?baseUrl=${encodeURIComponent(trimmed)}`
+    : "/_agent-native/agent-engine/ollama-models";
+  const response = await fetch(agentNativePath(path), {
+    credentials: "include",
+  });
+  const text = await response.text();
+  let payload: unknown;
+  try {
+    payload = text.trim() ? JSON.parse(text) : undefined;
+  } catch {
+    throw new Error(
+      `Could not read the Ollama models response (HTTP ${response.status}).`,
+    );
+  }
+  if (!response.ok) {
+    const message =
+      payload &&
+      typeof payload === "object" &&
+      typeof (payload as { error?: unknown }).error === "string"
+        ? (payload as { error: string }).error
+        : `Could not list Ollama models (HTTP ${response.status}).`;
+    throw new Error(message);
+  }
+  const models =
+    payload && typeof payload === "object"
+      ? (payload as { models?: unknown }).models
+      : undefined;
+  return Array.isArray(models)
+    ? models.filter((model): model is string => typeof model === "string")
+    : [];
+}
+
+/**
  * Select the provider and model for the next conversation. This is separate
  * from saving credentials so keyless local providers such as Ollama can use
  * the same setup surface as API-key providers.

@@ -381,6 +381,15 @@ test("selection hide and Appearance visibility stay in sync with opacity", async
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "opacity"))
     .toBe(initialOpacity);
+  // Later cases select the heading on the shared seed; wait for the final
+  // show to be saved so a late save cannot leave it hidden for them.
+  await expect
+    .poll(async () =>
+      /<h1[^>]*data-agent-native-hidden="true"[^>]*>\s*E2E Hero Heading/.test(
+        await readDesignSource(page, designId),
+      ),
+    )
+    .toBe(false);
 });
 
 test("text gradient apply and removal survive reselection; box gradient editor persists", async ({

@@ -43,6 +43,7 @@ vi.mock("h3", () => ({
 
 import { getSession } from "../server/auth.js";
 import {
+  APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   getState,
   getStateMany,
   MAX_APP_STATE_BATCH_KEYS,
@@ -131,6 +132,57 @@ describe("application-state handlers", () => {
         statusCode: 401,
       });
 
+      expect(mockAppStateGet).not.toHaveBeenCalled();
+    });
+
+    it("scopes an unauthenticated request to the app's anonymous owner", async () => {
+      vi.mocked(getSession).mockResolvedValue(null as any);
+      mockAppStateGet.mockResolvedValue({ path: "/chat" });
+
+      const event = {
+        _params: { key: "navigation" },
+        _headers: {},
+        context: {
+          [APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY]: () => "anon-1@example.com",
+        },
+      };
+      await expect(getState(event)).resolves.toEqual({ path: "/chat" });
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "anon-1@example.com",
+        "navigation",
+      );
+    });
+
+    it("prefers the session over the anonymous owner", async () => {
+      mockAppStateGet.mockResolvedValue(null);
+      const anonymousOwner = vi.fn(() => "anon-1@example.com");
+
+      const event = {
+        _params: { key: "navigation" },
+        _headers: {},
+        context: { [APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY]: anonymousOwner },
+      };
+      await getState(event);
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "user@example.com",
+        "navigation",
+      );
+      expect(anonymousOwner).not.toHaveBeenCalled();
+    });
+
+    it("still rejects when the anonymous owner resolves to nothing", async () => {
+      vi.mocked(getSession).mockResolvedValue(null as any);
+
+      const event = {
+        _params: { key: "navigation" },
+        _headers: {},
+        context: { [APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY]: () => null },
+      };
+      await expect(getState(event)).rejects.toMatchObject({
+        statusCode: 401,
+      });
       expect(mockAppStateGet).not.toHaveBeenCalled();
     });
   });

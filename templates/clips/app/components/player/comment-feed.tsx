@@ -27,9 +27,9 @@ export function CommentSubmissionWidget({
   const t = useT();
 
   return (
-    <div className="comment-widget-shadow flex h-[96px] w-full flex-col items-start px-2.5 py-3">
-      <div className="relative flex min-h-0 flex-1 w-full items-start overflow-hidden rounded-xl border border-[hsl(var(--comment-input-border))] bg-background shadow-[var(--comment-input-shadow)] transition-[border-color,box-shadow] duration-150 focus-within:border-ring focus-within:shadow-[var(--comment-input-shadow)]">
-        <div className="flex min-h-0 flex-1 items-start overflow-hidden px-4 pb-2 pt-[11px] pr-12">
+    <div className="comment-widget-shadow flex min-h-[96px] w-full flex-col items-start px-2.5 py-3">
+      <div className="relative flex min-h-[72px] w-full items-start rounded-xl border border-[hsl(var(--comment-input-border))] bg-background shadow-[var(--comment-input-shadow)] transition-[border-color,box-shadow] duration-150 focus-within:border-ring focus-within:shadow-[var(--comment-input-shadow)]">
+        <div className="flex flex-1 items-start px-4 pb-2 pt-[11px] pr-12">
           <CommentTextComposer
             value={draft}
             aria-label={t("commentsPanel.leaveComment")}
@@ -39,8 +39,7 @@ export function CommentSubmissionWidget({
             onSubmit={onSubmit}
             placeholder={t("commentsPanel.leaveComment")}
             rows={2}
-            maxHeight={54}
-            className="h-auto min-h-[54px] max-h-[54px] w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-sm leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="h-auto min-h-[54px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
             submitOnEnter
           />
         </div>

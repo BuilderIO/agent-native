@@ -145,7 +145,6 @@ const messages = {
     createFolderError: "Erstellen fehlgeschlagen",
     folderCreated: "Ordner erstellt",
     folderNamePlaceholder: "Ordnername",
-    breadcrumbBack: "Zurück zu {{label}}",
   },
   empty: {
     library: {
@@ -1251,6 +1250,7 @@ const messages = {
     transcript: "Transkript",
     comment: "Kommentar",
     titleOrDescription: "Titel oder Beschreibung",
+    matchAt: "Treffer bei {{time}} im Video",
   },
   organizationSwitcher: {
     noOrganization: "Keine Organisation",

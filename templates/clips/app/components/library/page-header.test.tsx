@@ -149,26 +149,13 @@ describe("PageBreadcrumb overflow collapsing", () => {
   });
 });
 
-describe("PageBreadcrumb back button", () => {
-  // The back button carries the only aria-labelled link; breadcrumb segment
-  // links have none, so this selector isolates it regardless of how many
-  // ancestors happen to be visible.
-  const backLink = (el: HTMLElement) =>
-    el.querySelector<HTMLAnchorElement>("a[aria-label]");
+describe("PageBreadcrumb", () => {
+  it("renders no back-arrow icon button alongside the breadcrumb trail", async () => {
+    const el = await renderBreadcrumb(1000, [
+      { label: "Library", to: "/library" },
+      { label: "CurrentDoc" },
+    ]);
 
-  it("links one step back to the parent segment, even when the path collapses", async () => {
-    // Tight enough that the left of the path collapses, yet the back target is
-    // still the path's parent (Subfolder3 → /library/folder/4), not whatever
-    // ancestor happens to sit next to the ellipsis.
-    const el = await renderBreadcrumb(10);
-
-    expect(el.textContent).not.toContain("ProjectA");
-    expect(backLink(el)?.getAttribute("href")).toBe("/library/folder/4");
-  });
-
-  it("renders no back button at the root of the path", async () => {
-    const el = await renderBreadcrumb(1000, [{ label: "Library" }]);
-
-    expect(backLink(el)).toBeNull();
+    expect(el.querySelector("a[aria-label]")).toBeNull();
   });
 });

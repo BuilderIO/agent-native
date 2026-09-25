@@ -15,6 +15,7 @@ vi.mock("../server/lib/json.js", () => ({
 }));
 
 import {
+  failMissingVariantRun,
   resolveLiveBatchContinuation,
   upsertVariantSlot,
   wasVariantSlotDismissed,
@@ -138,6 +139,103 @@ describe("variant slot state", () => {
       }),
       expect.objectContaining({ slotId: "slot-2", status: "pending" }),
     ]);
+  });
+
+  it("fails only a stale pending slot for the requested run", async () => {
+    await Promise.all(
+      ["stale-run", "other-run"].map((runId, index) =>
+        upsertVariantSlot({
+          runId,
+          batchId: "batch-1",
+          libraryId: "lib-1",
+          prompt: "Generate a diagram",
+          slotId: `slot-${index + 1}`,
+          status: "pending",
+          threadId: "thread-1",
+        }),
+      ),
+    );
+
+    await expect(
+      failMissingVariantRun({
+        runId: "stale-run",
+        libraryId: "lib-1",
+        scopeId: "thread-1",
+        staleBefore: Date.parse("2026-05-28T00:01:00.000Z"),
+        error: "Image generation was interrupted.",
+      }),
+    ).resolves.toBe(true);
+
+    expect((appStateByKey["asset-variants:thread-1"] as any).slots).toEqual([
+      expect.objectContaining({
+        slotId: "slot-1",
+        status: "failed",
+        error: "Image generation was interrupted.",
+      }),
+      expect.objectContaining({ slotId: "slot-2", status: "pending" }),
+    ]);
+  });
+
+  it("does not fail a recent pending run", async () => {
+    await upsertVariantSlot({
+      runId: "recent-run",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "Generate a diagram",
+      slotId: "slot-1",
+      status: "pending",
+      threadId: "thread-1",
+    });
+
+    await expect(
+      failMissingVariantRun({
+        runId: "recent-run",
+        libraryId: "lib-1",
+        scopeId: "thread-1",
+        staleBefore: Date.parse("2026-05-27T23:59:00.000Z"),
+        error: "Image generation was interrupted.",
+      }),
+    ).resolves.toBe(false);
+    expect(
+      (appStateByKey["asset-variants:thread-1"] as any).slots[0].status,
+    ).toBe("pending");
+  });
+
+  it("starts a fresh age window when a slot id is reused for a new run", async () => {
+    await upsertVariantSlot({
+      runId: "old-run",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "Generate a diagram",
+      slotId: "slot-1",
+      status: "pending",
+    });
+    (appState as any).slots[0].createdAt = "2026-05-27T00:00:00.000Z";
+
+    await upsertVariantSlot({
+      runId: "new-run",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "Generate a revised diagram",
+      slotId: "slot-1",
+      status: "pending",
+    });
+
+    expect((appState as any).slots[0]).toEqual(
+      expect.objectContaining({
+        runId: "new-run",
+        status: "pending",
+        createdAt: "2026-05-28T00:00:00.000Z",
+      }),
+    );
+    await expect(
+      failMissingVariantRun({
+        runId: "new-run",
+        libraryId: "lib-1",
+        staleBefore: Date.parse("2026-05-27T23:59:00.000Z"),
+        error: "Image generation was interrupted.",
+      }),
+    ).resolves.toBe(false);
   });
 
   it("records thread candidates in isolated state while mirroring the latest stage", async () => {

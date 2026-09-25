@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   alphaToOpacity,
+  defaultGradientEndColor,
   hexToRgba,
   opacityToAlpha,
   parseCssColor,
@@ -336,5 +337,21 @@ describe("color utils", () => {
       // accidentally treated as valid because it differs from the last one.
       expect(parseCssColorExtended("not-a-real-color-fn(1 2 3)")).toBeNull();
     });
+  });
+});
+
+describe("defaultGradientEndColor", () => {
+  // Measured in Figma: a new Linear fill's second stop for each base colour.
+  it.each([
+    ["#d9d9d9", "#737373"],
+    ["#000000", "#666666"],
+    ["#ffffff", "#999999"],
+    ["#808080", "#1a1a1a"],
+    ["#737373", "#d9d9d9"],
+    ["#4d4d4d", "#b3b3b3"],
+    ["#f08989", "#8a4f4f"],
+    ["#3366ff", "#1f3d99"],
+  ])("%s -> %s", (base, end) => {
+    expect(rgbaToHex(defaultGradientEndColor(hexToRgba(base)!))).toBe(end);
   });
 });

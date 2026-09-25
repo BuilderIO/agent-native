@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type RefObject,
 } from "react";
 
 import {
@@ -36,30 +37,43 @@ interface CommentComposerProps {
   autoFocus?: boolean;
   disabled?: boolean;
   rows?: number;
-  maxHeight?: number;
-  fixedHeight?: number;
   className?: string;
   submitOnEnter?: boolean;
   "aria-label"?: string;
 }
 
-function resizeTextarea(
-  element: HTMLTextAreaElement,
-  maxHeight?: number,
-  fixedHeight?: number,
-) {
+export function resizeCommentTextarea(element: HTMLTextAreaElement) {
+  const maxHeight = Math.round(window.innerHeight * 0.4);
   element.style.height = "auto";
-  if (fixedHeight) {
-    element.style.height = `${fixedHeight}px`;
-    element.style.overflowY = "hidden";
-    return;
-  }
-  const height = maxHeight
-    ? Math.min(element.scrollHeight, maxHeight)
-    : element.scrollHeight;
+  const height = Math.min(element.scrollHeight, maxHeight);
   element.style.height = `${height}px`;
   element.style.overflowY =
-    maxHeight && element.scrollHeight > maxHeight ? "auto" : "hidden";
+    element.scrollHeight > maxHeight ? "auto" : "hidden";
+}
+
+export function useAutoResizeCommentTextarea(
+  textareaRef: RefObject<HTMLTextAreaElement | null>,
+  value: string,
+  rows: number,
+) {
+  useLayoutEffect(() => {
+    const element = textareaRef.current;
+    if (element) resizeCommentTextarea(element);
+  }, [rows, textareaRef, value]);
+
+  useLayoutEffect(() => {
+    const element = textareaRef.current;
+    if (!element) return;
+    const resize = () => resizeCommentTextarea(element);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+    observer?.observe(element);
+    window.addEventListener("resize", resize);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", resize);
+    };
+  }, [rows, textareaRef]);
 }
 
 export const CommentComposer = forwardRef<
@@ -78,8 +92,6 @@ export const CommentComposer = forwardRef<
     autoFocus,
     disabled = false,
     rows = 2,
-    maxHeight,
-    fixedHeight,
     className,
     submitOnEnter = false,
     "aria-label": ariaLabel,
@@ -102,22 +114,7 @@ export const CommentComposer = forwardRef<
     if (autoFocus) innerRef.current?.focus();
   }, [autoFocus]);
 
-  useLayoutEffect(() => {
-    const element = innerRef.current;
-    if (!element) return;
-    resizeTextarea(element, maxHeight, fixedHeight);
-  }, [fixedHeight, maxHeight, rows, value]);
-
-  useLayoutEffect(() => {
-    const element = innerRef.current;
-    if (!element || fixedHeight || typeof ResizeObserver === "undefined")
-      return;
-    const observer = new ResizeObserver(() =>
-      resizeTextarea(element, maxHeight, fixedHeight),
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [fixedHeight, maxHeight, rows]);
+  useAutoResizeCommentTextarea(innerRef, value, rows);
 
   const filtered =
     query === null
@@ -280,7 +277,7 @@ export const CommentComposer = forwardRef<
             }}
             placeholder={placeholder}
             className={cn(
-              "w-full resize-none bg-transparent placeholder:text-muted-foreground focus:outline-none",
+              "max-h-[40vh] w-full resize-none bg-transparent placeholder:text-muted-foreground focus:outline-none",
               className,
             )}
           />

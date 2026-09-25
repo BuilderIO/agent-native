@@ -582,14 +582,21 @@ function DashboardReportCaptureSurface({
  * Save dashboard config via the update-dashboard action. Throws on error so
  * callers (e.g. the panel editor dialog) can surface BigQuery validation
  * errors inline instead of silently swallowing them.
+ *
+ * `expectedUpdatedAt` fences the save against a concurrent writer (another
+ * tab, user, or the agent): the server rejects the write with a conflict
+ * error instead of silently overwriting whatever they saved in between. Omit
+ * it only when there is no prior read to fence against.
  */
 async function saveDashboard(
   dashboardId: string,
   data: SqlDashboardConfig,
-): Promise<void> {
-  await callAction("update-dashboard", {
+  expectedUpdatedAt?: string,
+): Promise<{ updatedAt?: string }> {
+  return await callAction("update-dashboard", {
     dashboardId,
     config: data as unknown as Record<string, unknown>,
+    expectedUpdatedAt,
   });
 }
 
@@ -676,6 +683,16 @@ function SqlDashboardPageContent({
   );
   const viewedDashboardIdRef = useRef<string | null>(null);
   const pendingConfigRef = useRef<DashboardAdoptionHold | null>(null);
+  // Fences the next save's `expectedUpdatedAt`. Kept in sync with the
+  // `dashboardUpdatedAt` state below AND bumped directly from each save's own
+  // response — the latter matters because two saves queued back-to-back in
+  // the same tab (e.g. deleting a panel, then editing another before the
+  // delete's refetch lands) must fence the second save against the first
+  // one's result, not wait on a query refetch that hasn't resolved yet.
+  const dashboardUpdatedAtRef = useRef<string | null>(null);
+  useEffect(() => {
+    dashboardUpdatedAtRef.current = dashboardUpdatedAt;
+  }, [dashboardUpdatedAt]);
   const dashboardSaveQueueRef = useRef<{
     dashboardId: string;
     queue: ReturnType<typeof createDashboardSaveQueue<SqlDashboardConfig>>;
@@ -1135,9 +1152,20 @@ function SqlDashboardPageContent({
       if (dashboardSaveQueueRef.current?.dashboardId !== id) {
         dashboardSaveQueueRef.current = {
           dashboardId: id,
-          queue: createDashboardSaveQueue((config) =>
-            saveDashboard(id, config),
-          ),
+          queue: createDashboardSaveQueue(async (config) => {
+            const result = await saveDashboard(
+              id,
+              config,
+              dashboardUpdatedAtRef.current ?? undefined,
+            );
+            // Advance the fence immediately from this save's own response —
+            // the next queued save (already enqueued from stale-by-then local
+            // state) must fence against what THIS save just wrote, not wait
+            // for the query invalidation below to refetch and adopt it.
+            if (typeof result?.updatedAt === "string") {
+              dashboardUpdatedAtRef.current = result.updatedAt;
+            }
+          }),
         };
       }
       return dashboardSaveQueueRef.current.queue.enqueue(updated);
@@ -1182,6 +1210,15 @@ function SqlDashboardPageContent({
           });
         })
         .catch((err) => {
+          // The save failed (including a stale-write conflict from another
+          // tab/user/agent) after `dashboard` state was already optimistically
+          // updated above. Drop the adoption hold and refetch so the page
+          // reconciles to what the server actually has instead of continuing
+          // to show a change that was never persisted.
+          pendingConfigRef.current = null;
+          void queryClient.invalidateQueries({
+            queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+          });
           toast.error(
             err instanceof Error
               ? t("sqlDashboard.saveFailedWithMessage", {
@@ -1216,7 +1253,19 @@ function SqlDashboardPageContent({
       }
       resetRevisionNavigation();
       holdDashboardConfig();
-      const { isLatest } = await enqueueDashboardSave(dashboardId, updated);
+      let isLatest: boolean;
+      try {
+        ({ isLatest } = await enqueueDashboardSave(dashboardId, updated));
+      } catch (err) {
+        // Same reconciliation as `persist`'s catch: a rejected save (e.g. a
+        // stale-write conflict) must not leave the page pointed at state the
+        // server never accepted.
+        pendingConfigRef.current = null;
+        void queryClient.invalidateQueries({
+          queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+        });
+        throw err;
+      }
       if (!isLatest) return;
       setDashboard(updated);
       updateCachedDashboardConfig(updated);

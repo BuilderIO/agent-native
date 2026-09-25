@@ -5,6 +5,8 @@ export interface DesignSystemData {
   builderBranchName?: string;
   builderUrl?: string;
   builderStatus?: string;
+  /** Builder-reported indexed document count; readiness, unlike builderStatus. */
+  docCount?: number;
   builderSyncedAt?: string;
   colors?: {
     primary?: unknown;
@@ -45,6 +47,15 @@ export function parseDesignSystemData(
   }
 }
 
+/**
+ * docCount is the only readiness signal: not builderStatus, not a sync
+ * timestamp, not document types. A Builder-backed row with no recorded
+ * docCount has not been measured yet, which is not ready.
+ */
+function isBuilderKitIndexed(parsed: DesignSystemData): boolean {
+  return typeof parsed.docCount === "number" && parsed.docCount > 0;
+}
+
 export function shouldRefreshBuilderDesignSystem(
   system: Pick<{ accessRole?: string; data: string }, "accessRole" | "data">,
 ): boolean {
@@ -54,11 +65,7 @@ export function shouldRefreshBuilderDesignSystem(
       system.accessRole === "admin" ||
       system.accessRole === "editor") &&
     parsed?.source === "builder" &&
-    (parsed.builderStatus === "in-progress" ||
-      ((parsed.builderStatus === "ready" ||
-        parsed.builderStatus === "complete" ||
-        parsed.builderStatus === "completed") &&
-        typeof parsed.builderSyncedAt !== "string"))
+    (!isBuilderKitIndexed(parsed) || typeof parsed.builderSyncedAt !== "string")
   );
 }
 
@@ -66,11 +73,7 @@ export function isDesignSystemUsableForGeneration(data: string): boolean {
   const parsed = parseDesignSystemData(data);
   if (!parsed) return false;
   if (parsed.source !== "builder") return true;
-  return (
-    parsed.builderStatus === "ready" ||
-    parsed.builderStatus === "complete" ||
-    parsed.builderStatus === "completed"
-  );
+  return isBuilderKitIndexed(parsed);
 }
 
 export function builderRefreshKey(system: {

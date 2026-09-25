@@ -8,6 +8,8 @@ import type { PlanMdxFolder } from "@/lib/desktop-plan-files";
 
 import { parsePlanMdxFolder } from "../../server/plan-mdx";
 
+export { planReturnPathFromLocation } from "./plan-return-path";
+
 export type LocalPlanBundle = PlanBundle & {
   localOnly: true;
   slug: string;
@@ -97,15 +99,6 @@ export function localPlanBridgeUrlFromLocation(
   } catch {
     return bridgeUrl;
   }
-}
-
-export function planReturnPathFromLocation(location: {
-  pathname: string;
-  search: string;
-  hash: string;
-}): string {
-  const safeHash = location.hash.startsWith("#bridge=") ? "" : location.hash;
-  return `${location.pathname}${location.search}${safeHash}`;
 }
 
 export async function localNetworkAccessPermissionState(): Promise<

@@ -62,6 +62,44 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
+  it("renders signed-in share viewers in the app shell with breadcrumbs", () => {
+    const route = readRoute("share.$shareId.tsx");
+    const root = readFileSync(resolve(process.cwd(), "app/root.tsx"), "utf8");
+
+    expect(root).toContain("isRecordingSharePath(location.pathname)");
+    expect(root).toContain('typeof window !== "undefined"');
+    expect(root).toContain('sessionStatus === "authenticated"');
+    expect(root).toContain(
+      "isStandalonePublicPath(location.pathname) && !authenticatedShare",
+    );
+    expect(root).toContain("<LibraryLayout>");
+    expect(route).toContain("<PageBreadcrumb items={shareBreadcrumbItems} />");
+    expect(route).not.toContain(
+      'aria-label={t("recordingPage.backToLibrary")}',
+    );
+  });
+
+  it("keeps sharing unavailable while a recording upload is processing", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const viewStart = route.indexOf("const processingView = (");
+    const viewEnd = route.indexOf("return processingView;", viewStart);
+    const processingView = route.slice(viewStart, viewEnd);
+
+    expect(viewStart).toBeGreaterThanOrEqual(0);
+    expect(viewEnd).toBeGreaterThan(viewStart);
+    expect(processingView).not.toContain("renderShareControl()");
+    expect(processingView).not.toContain("ShareCopyRow");
+  });
+
+  it("keeps transient missing share records loading while retrying locally", () => {
+    const route = readRoute("share.$shareId.tsx");
+    expect(route).toContain("const MISSING_SHARE_RETRY_LIMIT = 8;");
+    expect(route).toContain("status === 404 &&");
+    expect(route).toContain("updateCount < MISSING_SHARE_RETRY_LIMIT");
+    expect(route).toContain("retryingMissingShare ||");
+    expect(route).toContain("getQueryState(shareQueryKey)?.dataUpdateCount");
+  });
+
   it("keeps expired share loader data impersonal for CDN caching", () => {
     const route = readRoute("share.$shareId.tsx");
 
@@ -240,7 +278,7 @@ describe("authenticated recording route loading", () => {
       recordingRoute.match(/t\("recordingPage\.sharedWithYou"\)/g),
     ).toHaveLength(2);
     expect(recordingRoute).toContain("const renderShareControl =");
-    expect(recordingRoute.match(/renderShareControl\(/g)).toHaveLength(2);
+    expect(recordingRoute.match(/renderShareControl\(/g)).toHaveLength(1);
     expect(shareRoute).toContain("<ClipsShareTrigger");
     expect(trigger).toContain('intent="primary"');
     expect(trigger).toContain('emphasis="solid"');
@@ -248,8 +286,13 @@ describe("authenticated recording route loading", () => {
     const publicControlsStart = shareRoute.indexOf("<header");
     expect(publicControlsStart).toBeGreaterThan(-1);
     const publicControls = shareRoute.slice(publicControlsStart);
-    expect(publicControls.indexOf("<ClipsShareTrigger")).toBeGreaterThan(-1);
-    expect(publicControls.indexOf("<RecordingOptionsMenu")).toBeGreaterThan(-1);
+    expect(shareRoute.indexOf("const shareControl")).toBeLessThan(
+      publicControlsStart,
+    );
+    expect(publicControls.indexOf("{shareControl}")).toBeGreaterThan(-1);
+    expect(publicControls.indexOf("{shareControl}")).toBeLessThan(
+      publicControls.indexOf("<RecordingOptionsMenu"),
+    );
     expect(shareRoute).not.toContain("IconDotsVertical");
     expect(shareRoute).not.toContain("IconDots className");
   });

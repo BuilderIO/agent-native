@@ -13,7 +13,6 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
-import { parseDesignSystemIndexingStatus } from "../shared/design-system-validation.js";
 
 type EffectiveRole = "owner" | ShareRole;
 
@@ -35,16 +34,32 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
   return current;
 }
 
+/**
+ * Builder-reported indexed document count cached on the row. Undefined means
+ * "not measured yet", which is not the same as a system with zero documents.
+ */
+function cachedBuilderDocCount(data: string | null): number | undefined {
+  if (!data) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    // coercion-ok: unparseable row data leaves the count unknown, and
+    // undefined stays distinguishable from a measured zero.
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const docCount = (parsed as Record<string, unknown>).docCount;
+  return typeof docCount === "number" ? docCount : undefined;
+}
+
 export default defineAction({
   description:
     "List all design systems accessible to the current user. Returns title, " +
-    "id, isDefault (true only for the caller's effective default), and " +
-    "indexingStatus ('ready' | 'indexing' | 'unavailable'). Do not pass a " +
-    "non-'ready' id to create-deck or apply-design-system — its tokens and " +
-    "components are not queryable yet; call get-design-system to confirm " +
-    "status if unsure. For a named system, match the exact title and pass " +
-    "its id as designSystemId — or pass the title as `designSystem` on " +
-    "create-deck — then call get-design-system once before authoring.",
+    "id, and isDefault (true only for the caller's effective default). For a " +
+    "named system, match the exact title and pass its id as designSystemId " +
+    "— or pass the title as `designSystem` on create-deck — then call " +
+    "get-design-system once before authoring.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -145,8 +160,8 @@ export default defineAction({
         role = "owner";
       }
       const canManage = canManageRole(role);
-      const indexingStatus = parseDesignSystemIndexingStatus(row.data);
 
+      const docCount = cachedBuilderDocCount(row.data);
       if (args.compact === "true") {
         return {
           id: row.id,
@@ -154,7 +169,7 @@ export default defineAction({
           isDefault: row.id === effectiveDefaultId,
           accessRole: role,
           canManage,
-          indexingStatus,
+          docCount,
         };
       }
       return {
@@ -162,13 +177,13 @@ export default defineAction({
         title: row.title,
         description: row.description,
         data: row.data,
+        docCount,
         isDefault: row.id === effectiveDefaultId,
         visibility: row.visibility,
         accessRole: role,
         canManage,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
-        indexingStatus,
       };
     });
 

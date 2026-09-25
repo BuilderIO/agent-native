@@ -28,6 +28,7 @@ import {
 } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
+import { hidePenPathFill } from "./pen-path-paint";
 import type { DesignFile } from "./types";
 
 export { normalizedDesignFileType };
@@ -386,10 +387,17 @@ export function appendCanvasPrimitiveToHtml(
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;
     const geometry = primitive.geometry;
-    const left = options?.preserveNegativePosition
+    // A pen path's box is its path bounds; clamping it moves the box off the
+    // drawn path, which the path data (in absolute coordinates) never follows.
+    const explicitPathData = primitive.pathData?.trim()
+      ? primitive.pathData
+      : null;
+    const preserveNegativePosition =
+      options?.preserveNegativePosition || explicitPathData !== null;
+    const left = preserveNegativePosition
       ? Math.round(geometry.x)
       : Math.max(0, Math.round(geometry.x));
-    const top = options?.preserveNegativePosition
+    const top = preserveNegativePosition
       ? Math.round(geometry.y)
       : Math.max(0, Math.round(geometry.y));
     const width = Math.max(1, Math.round(geometry.width));
@@ -437,15 +445,6 @@ export function appendCanvasPrimitiveToHtml(
     ) {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-      const explicitPathData = primitive.pathData?.trim()
-        ? primitive.pathData
-        : null;
-      const pathViewBoxLeft = options?.preserveNegativePosition
-        ? geometry.x
-        : Math.max(0, geometry.x);
-      const pathViewBoxTop = options?.preserveNegativePosition
-        ? geometry.y
-        : Math.max(0, geometry.y);
       const pathViewBoxWidth = Math.max(1, geometry.width);
       const pathViewBoxHeight = Math.max(1, geometry.height);
       const points = primitive.points?.length
@@ -469,12 +468,19 @@ export function appendCanvasPrimitiveToHtml(
             .join(" "),
       );
       const paint = canvasVectorPaint({
-        closed: isClosedPathData(explicitPathData),
+        outline: isClosedPathData(explicitPathData)
+          ? "closed-path"
+          : "open-path",
         fill: primitive.fill,
         stroke: primitive.stroke,
         strokeWidth: primitive.strokeWidth,
       });
       path.setAttribute("fill", paint.fill);
+      // Figma fills only closed regions: a fill added to an open path stays in
+      // the file for when it closes, but must not paint the chord meanwhile.
+      if (explicitPathData && !isClosedPathData(explicitPathData)) {
+        hidePenPathFill(path);
+      }
       path.setAttribute("stroke", paint.stroke);
       path.setAttribute("stroke-width", String(paint.strokeWidth));
       path.setAttribute("stroke-linecap", "round");
@@ -539,7 +545,7 @@ export function appendCanvasPrimitiveToHtml(
       svg.setAttribute(
         "viewBox",
         explicitPathData
-          ? `${pathViewBoxLeft} ${pathViewBoxTop} ${pathViewBoxWidth} ${pathViewBoxHeight}`
+          ? `${geometry.x} ${geometry.y} ${pathViewBoxWidth} ${pathViewBoxHeight}`
           : `0 0 ${width} ${height}`,
       );
       // P4: without this, resizing the shape non-uniformly (e.g. dragging
@@ -549,14 +555,23 @@ export function appendCanvasPrimitiveToHtml(
       // (polygon/star, div-based shapes) already stretches to its
       // width/height, so pen paths/lines/arrows should match.
       svg.setAttribute("preserveAspectRatio", "none");
+      // Box and viewBox must stay 1:1, or vector edit reads a scaled SVG.
+      const box = explicitPathData
+        ? {
+            left: hostLeft + geometry.x - left,
+            top: hostTop + geometry.y - top,
+            width: pathViewBoxWidth,
+            height: pathViewBoxHeight,
+          }
+        : { left: hostLeft, top: hostTop, width, height };
       svg.setAttribute(
         "style",
         [
           "position:absolute",
-          `left:${hostLeft}px`,
-          `top:${hostTop}px`,
-          `width:${width}px`,
-          `height:${height}px`,
+          `left:${box.left}px`,
+          `top:${box.top}px`,
+          `width:${box.width}px`,
+          `height:${box.height}px`,
           "overflow:visible",
           `${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint}`,
           `${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`,
@@ -580,7 +595,7 @@ export function appendCanvasPrimitiveToHtml(
         polygonPointsForHtmlShape(primitive.kind, width, height),
       );
       const polygonPaint = canvasVectorPaint({
-        closed: true,
+        outline: "shape",
         fill: primitive.fill,
         stroke: primitive.stroke,
         strokeWidth: primitive.strokeWidth,

@@ -21,6 +21,7 @@ import {
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
 } from "./agent-chat-adapter.js";
+import { MAX_REQUEST_BODY_BYTES } from "./chat/attachment-adapters.js";
 import {
   claimRunStream,
   createRunStreamToken,
@@ -1400,6 +1401,114 @@ describe("createAgentChatAdapter", () => {
         source: "codebase",
       },
     ]);
+  });
+
+  it("rejects a recovered request that exceeds the serialized body limit", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const prompt = "p".repeat(750_000);
+    const pdfData = `data:application/pdf;base64,${"a".repeat(3_000_000)}`;
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith("/stream-token")) {
+        return Promise.resolve(jsonResponse({ token: "test-stream-token" }));
+      }
+      if (init?.method === "POST") {
+        return Promise.resolve(
+          sseResponse([
+            { type: "text", text: "I am reading the PDF." },
+            {
+              type: "error",
+              error: "The worker was interrupted.",
+              errorCode: "stale_run",
+              recoverable: true,
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse({ error: "unexpected request" }, 500),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      streamingUrl: "https://stream.example.com/agent-chat",
+      tabId: "chat-oversized-recovery",
+      threadId: "thread-oversized-recovery",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: prompt }],
+            attachments: [
+              {
+                name: "report.pdf",
+                contentType: "application/pdf",
+                content: [
+                  {
+                    type: "file",
+                    data: pdfData,
+                    mimeType: "application/pdf",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+    const posts = fetchSpy.mock.calls.filter(
+      ([, init]) => init?.method === "POST",
+    );
+    const streamTokenRequests = fetchSpy.mock.calls.filter(([url]) =>
+      url.endsWith("/stream-token"),
+    );
+
+    expect(posts).toHaveLength(1);
+    expect(streamTokenRequests).toHaveLength(1);
+    expect(
+      new TextEncoder().encode(posts[0][1].body as string).byteLength,
+    ).toBeLessThan(MAX_REQUEST_BODY_BYTES);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "request_too_large",
+          message: "request_too_large",
+        }),
+      }),
+    );
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "incomplete", reason: "error" },
+    });
+    expect(
+      results
+        .at(-1)
+        ?.content.some(
+          (part: any) =>
+            part.type === "text" && part.text.includes("request_too_large"),
+        ),
+    ).toBe(false);
   });
 
   it("includes prior-turn text attachments in chat history", async () => {

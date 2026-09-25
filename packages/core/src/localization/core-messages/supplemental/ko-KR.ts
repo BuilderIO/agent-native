@@ -46,6 +46,8 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "취소",
   couldNotRevoke: "토큰을 취소할 수 없습니다.",
   authorizeDevice: "기기 승인",
+  fullCatalogRequested:
+    "이 기기는 전체 작업 카탈로그에 대한 액세스를 요청하고 있습니다.",
   createToken: "연결 토큰 생성",
   authorizingDevice: "기기 승인 중...",
   creatingToken: "토큰 생성 중...",

@@ -25,6 +25,48 @@ const content = `<!doctype html><html><head><style>#plain{background-color:rgb(1
 
 describe("editor chrome layer-state paint", () => {
   it(
+    "routes pasted SVG wrapper paint through a single shape nested in a group",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(
+          `<!doctype html><body><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"><g><path d="M0 0h10v10z" fill="#f97316"/></g></svg></body>`,
+        );
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "style-change",
+              selector: '[data-agent-native-node-id="pasted"]',
+              property: "fill",
+              value: "#3b82f6",
+            },
+            "*",
+          );
+        });
+
+        await expect
+          .poll(() => page.locator("svg path").getAttribute("style"))
+          .toContain("fill: rgb(59, 130, 246)");
+        await expect
+          .poll(() =>
+            page
+              .locator('svg[data-agent-native-node-id="pasted"]')
+              .getAttribute("style"),
+          )
+          .toBeNull();
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "removes an inline override when a style change restores an empty value",
     { timeout: 30_000 },
     async () => {

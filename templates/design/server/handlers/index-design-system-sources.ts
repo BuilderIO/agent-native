@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core";
 import {
   FeatureNotConfiguredError,
   getSession,
@@ -69,6 +70,16 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
         error: err.message,
         builderConnectUrl:
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
+      };
+    }
+    // Forward structured failures (e.g. tier-limit 402s) instead of a
+    // generic 502, so the client can recover the upgrade link.
+    if (isActionContractError(err)) {
+      setResponseStatus(event, err.statusCode);
+      return {
+        error: err.message,
+        errorCode: err.errorCode,
+        details: err.details,
       };
     }
     setResponseStatus(event, 502);

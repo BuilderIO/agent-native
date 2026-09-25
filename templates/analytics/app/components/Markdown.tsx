@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useMemo } from "react";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 /**
  * Lightweight Markdown renderer — handles headings, bold, italic, code blocks,
@@ -25,9 +25,9 @@ export default function Markdown({ content }: { content: string }) {
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-type MarkdownLabels = (typeof messagesByLocale)["en-US"]["markdown"];
+type MarkdownLabels = (typeof enUSMessages)["markdown"];
 
-const DEFAULT_MARKDOWN_LABELS = messagesByLocale["en-US"].markdown;
+const DEFAULT_MARKDOWN_LABELS = enUSMessages.markdown;
 
 function escapeHtml(str: string): string {
   return str

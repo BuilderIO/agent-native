@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -25,6 +27,24 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 describe("AuthPage", () => {
+  it("does not show raw Google OAuth exceptions to users", () => {
+    const source = readFileSync(
+      new URL("./AuthPage.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf("const startGoogle = React.useCallback");
+    const end = source.indexOf(
+      "  }, [\n    apiPath,\n    googleAuthUrlPath",
+      start,
+    );
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const googleOAuthCatch = source.slice(start, end);
+
+    expect(googleOAuthCatch).toContain('text: t("failedToConnect")');
+    expect(googleOAuthCatch).not.toContain("error.message");
+  });
+
   it("recognizes Better Auth invalid-token redirects as expired verification links", () => {
     expect(isVerificationLinkInvalid("verification_link_invalid")).toBe(true);
     expect(isVerificationLinkInvalid("INVALID_TOKEN")).toBe(true);
@@ -200,7 +220,7 @@ describe("AuthPage", () => {
     expect(html).toContain('data-agent-native-marketing-home="true"');
     expect(html).toContain('class="auth-marketing-visual"');
     expect(html).toContain('data-agent-native-starfield="true"');
-    expect(html).toContain("New to Slides?");
+    expect(html).not.toContain("New to Slides?");
     expect(html).toContain("Welcome to Slides");
     expect(html).toContain('data-i18n="welcomeToApp"');
     expect(html).toContain("Sign in or create your account");
@@ -208,7 +228,23 @@ describe("AuthPage", () => {
     expect(html).toContain('class="app-status-badge">alpha</span>');
     expect(html).toContain('class="oss-badge"');
     expect(html).toContain('href="https://agent-native.com/apps/slides"');
-    expect(html).toContain('class="auth-marketing-learn-more"');
+    expect(html).toContain('class="auth-marketing-description-link"');
+    expect(html.indexOf('class="auth-marketing-description"')).toBeLessThan(
+      html.indexOf('class="auth-marketing-description-link"'),
+    );
+    expect(
+      html.indexOf('class="auth-marketing-description-link"'),
+    ).toBeLessThan(html.indexOf('class="oss-badge"'));
+    const githubBadge = html.match(/<a class="oss-badge"[^>]*>/)?.[0];
+    expect(githubBadge).toContain(
+      'href="https://github.com/BuilderIO/agent-native"',
+    );
+    expect(githubBadge).toContain('target="_blank"');
+    const badgeStart = html.indexOf(githubBadge ?? "");
+    const githubIcon = html.indexOf("<svg", badgeStart);
+    const sourceLabel = html.indexOf('data-i18n="openSource"', badgeStart);
+    expect(githubIcon).toBeGreaterThan(badgeStart);
+    expect(html.slice(githubIcon, sourceLabel)).toContain('aria-hidden="true"');
     expect(onboardingHtml).toContain(
       "top: max(1rem, env(safe-area-inset-top));\n    inset-inline-end: max(4rem, calc(env(safe-area-inset-right) + 3.5rem));",
     );
@@ -240,16 +276,17 @@ describe("AuthPage", () => {
     );
   });
 
-  it("places the learn-more link top-right for every app, with no per-app opt-in", () => {
-    // Mail never configured a placement — top-right is the only layout, not a toggle.
+  it("places Learn more after the marketing description for every app", () => {
     const props = propsFromHtml(
       getOnboardingHtml({ requestHost: "mail.agent-native.com" }),
     );
     const html = renderToString(<AuthPage {...props} />);
 
-    expect(props.marketing).not.toHaveProperty("learnMorePlacement");
-    expect(html).toContain('class="auth-marketing-learn-more"');
-    expect(html).not.toContain("has-bottom-right-learn-more");
+    expect(html.indexOf('class="auth-marketing-description"')).toBeLessThan(
+      html.indexOf('class="auth-marketing-description-link"'),
+    );
+    expect(html).not.toContain('class="auth-marketing-top-right"');
+    expect(html).not.toContain("New to Mail?");
   });
 
   it.each(["slides.agent-native.com", "analytics.agent-native.com"])(

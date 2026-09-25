@@ -4,7 +4,7 @@ registerRequiredSecret({
   key: "GEMINI_API_KEY",
   label: "Gemini API Key",
   description:
-    "Required for video generation and optional as a manual image-generation fallback when Builder-managed generation is not connected.",
+    "Manual video-generation option and optional image-generation fallback when Builder-managed generation is unavailable.",
   docsUrl: "https://aistudio.google.com/apikey",
   scope: "user",
   kind: "api-key",

@@ -29,10 +29,12 @@ import {
   hasOnlyLegacyFailedA2AContinuationsForIntegrationTask,
   hasPendingConfirmedA2ADeliveryForIntegrationTask,
   listRecoverableA2AIntegrationTasks,
+  deferA2AContinuationsForRuntime,
   recoverDueA2AContinuationIds,
   recordA2ATerminalDeliveryReceipt,
   retainA2AUnconfirmedDeliveryClaim,
   rescheduleA2AContinuation,
+  pauseA2AContinuationForRuntime,
   saveA2AVerifiedArtifactCheckpoint,
   type A2AContinuation,
   type A2ATerminalDeliveryKind,
@@ -47,7 +49,9 @@ import {
 } from "./integration-campaigns-store.js";
 import {
   dispatchPendingIntegrationTask,
+  integrationDurableDispatchRuntimeUnavailableReasons,
   isIntegrationDurableDispatchEnabledForTask,
+  isIntegrationDurableDispatchExplicitlyDisabledForTask,
 } from "./integration-durable-dispatch.js";
 import { signInternalToken } from "./internal-token.js";
 import {
@@ -328,6 +332,7 @@ export async function recoverDueA2AContinuations(options?: {
   const candidateTasks = await listRecoverableA2AIntegrationTasks(200);
   const eligibleTaskIds: string[] = [];
   const confirmedHistoryTaskIds: string[] = [];
+  const unavailableTaskIds: string[] = [];
   for (const task of candidateTasks) {
     const enabled = isIntegrationDurableDispatchEnabledForTask({
       platform: task.platform,
@@ -340,11 +345,22 @@ export async function recoverDueA2AContinuations(options?: {
       eligibleTaskIds.push(task.id);
     } else if (task.hasPendingConfirmedDelivery) {
       confirmedHistoryTaskIds.push(task.id);
-    } else {
+    } else if (
+      isIntegrationDurableDispatchExplicitlyDisabledForTask({
+        platform: task.platform,
+        externalThreadId: task.externalThreadId,
+        platformContext: task.dispatchScope
+          ? { channelId: task.dispatchScope }
+          : undefined,
+      })
+    ) {
       await failDisabledDurableA2ATask(task);
+    } else {
+      unavailableTaskIds.push(task.id);
     }
     if (eligibleTaskIds.length + confirmedHistoryTaskIds.length >= limit) break;
   }
+  await deferA2AContinuationsForRuntime(unavailableTaskIds, 2 * 60_000);
   const ids = await recoverDueA2AContinuationIds(limit, eligibleTaskIds);
   const remaining = Math.max(0, limit - ids.length);
   const confirmedHistoryIds =
@@ -577,6 +593,28 @@ async function durableContinuationScopeStillEnabled(
   if (enabled) return true;
 
   if (
+    task?.status === "processing" &&
+    !isIntegrationDurableDispatchExplicitlyDisabledForTask({
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: task.dispatchScope
+        ? { channelId: task.dispatchScope }
+        : undefined,
+    })
+  ) {
+    await pauseA2AContinuationForRuntime(
+      continuation.id,
+      continuation.attempts,
+      RESCHEDULE_DELAY_MS,
+    );
+    console.warn(
+      `[integrations] A2A continuation ${continuation.id} paused: durable dispatch runtime unavailable`,
+      integrationDurableDispatchRuntimeUnavailableReasons(),
+    );
+    return false;
+  }
+
+  if (
     await hasPendingConfirmedA2ADeliveryForIntegrationTask(
       continuation.integrationTaskId,
     )
@@ -650,6 +688,17 @@ export async function reconcileTerminalA2AParentIfDisabled(
   if (
     !task ||
     isIntegrationDurableDispatchEnabledForTask({
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: task.dispatchScope
+        ? { channelId: task.dispatchScope }
+        : undefined,
+    })
+  ) {
+    return false;
+  }
+  if (
+    !isIntegrationDurableDispatchExplicitlyDisabledForTask({
       platform: task.platform,
       externalThreadId: task.externalThreadId,
       platformContext: task.dispatchScope

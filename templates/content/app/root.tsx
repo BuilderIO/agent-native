@@ -118,7 +118,8 @@ export function shouldRevalidate({
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
 const LazyAgentSidebar = lazy(async () => {
-  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  const { AgentSidebar } =
+    await import("@agent-native/core/client/AgentSidebar");
   return { default: AgentSidebar };
 });
 

@@ -263,7 +263,20 @@ test("preset screen dimensions and direct size edits survive reload", async ({
 
     await pickFrameMode(page, "Screen");
     await frameToolButton(page).click();
-    await page
+    await expect
+      .poll(() => page.getByRole("button", { name: /Desktop.*1440/ }).count())
+      .toBe(1);
+    const presetGroups = page.locator(".design-inspector-scroll > section");
+    const desktopGroup = presetGroups.nth(0);
+    const phoneGroup = presetGroups.nth(1);
+    await expect(desktopGroup.locator(":scope > button").first()).toContainText(
+      "Desktop",
+    );
+    await expect(desktopGroup.getByRole("button").nth(1)).toContainText(
+      "Desktop",
+    );
+    await phoneGroup.locator(":scope > button").click();
+    await phoneGroup
       .getByRole("button", { name: /iPhone 17/ })
       .first()
       .click();
@@ -1596,6 +1609,22 @@ test("K scales Screen contents and history as one root Frame edit", async ({
     await page.mouse.move(startX, startY);
     await page.mouse.down();
     await page.mouse.move(startX + 24, startY + 24, { steps: 4 });
+    await expect
+      .poll(async () => {
+        const diagnostics = await readScaleDiagnostics();
+        const fontSize = await layout.evaluate((element) =>
+          Number.parseFloat(
+            getComputedStyle(element.querySelector("#copy")!).fontSize,
+          ),
+        );
+        return Boolean(
+          diagnostics.cardBounds &&
+          beforeCardBounds &&
+          diagnostics.cardBounds.width > beforeCardBounds.width &&
+          fontSize > contentBefore.text.fontSize,
+        );
+      })
+      .toBe(true);
     await page.mouse.up();
     await expect
       .poll(async () => (await readScreenState()).frame?.width)

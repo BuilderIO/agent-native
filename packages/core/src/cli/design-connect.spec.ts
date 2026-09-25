@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
@@ -13,6 +14,8 @@ import {
   discoverDesignRoutes,
   designConnectManifestsTargetSameApp,
   deriveDesignPreviewAttestationSignature,
+  deriveDesignScopedLiveEditCapability,
+  deriveDesignScopedLiveEditRegistrationCapability,
   parseDesignConnectArgs,
   prepareDesignConnectManifest,
   registerConnectionWithServer,
@@ -20,6 +23,33 @@ import {
   runDesign,
   startDesignConnectBridge,
 } from "./design-connect.js";
+
+function liveEditAuth(
+  bridge: Awaited<ReturnType<typeof startDesignConnectBridge>>,
+  designId: string,
+) {
+  return {
+    "x-design-preview-token": bridge.previewToken,
+    "x-agent-native-live-edit-capability": deriveDesignScopedLiveEditCapability(
+      bridge.bridgeToken,
+      designId,
+    ),
+  };
+}
+
+function liveEditRegistrationAuth(
+  bridge: Awaited<ReturnType<typeof startDesignConnectBridge>>,
+  designId: string,
+) {
+  return {
+    "x-design-preview-token": bridge.previewToken,
+    "x-agent-native-live-edit-registration-capability":
+      deriveDesignScopedLiveEditRegistrationCapability(
+        bridge.bridgeToken,
+        designId,
+      ),
+  };
+}
 
 // ── Bridge helpers ──────────────────────────────────────────────────────────
 
@@ -602,7 +632,80 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("publishes and retrieves pending visual edits without the Design tab", async () => {
+  it("retains stale-revision rejection after key eviction, re-registration, and daemon restart", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    let bridge = await startDesignConnectBridge(manifest);
+    const base = `http://127.0.0.1:${port}`;
+    const designId = "design-revision-survives-reload";
+    const auth = liveEditAuth(bridge, designId);
+    const publish = (revision: number) =>
+      postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId,
+          revision,
+          pending: {
+            designId,
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: `Revision ${revision}`,
+          },
+        },
+        auth,
+      );
+    const register = (bridgeKey: string) =>
+      postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey,
+          designId,
+        },
+        auth,
+      );
+    try {
+      expect((await register("revision-survivor")).status).toBe(200);
+      expect((await publish(9)).status).toBe(200);
+      for (let index = 0; index < 128; index += 1) {
+        const otherDesign = `design-key-eviction-${index}`;
+        const otherAuth = liveEditAuth(bridge, otherDesign);
+        const registered = await postJson(
+          `${base}/live-edit-bridge`,
+          {
+            script: "agent-native:editor-chrome-ready",
+            bridgeKey: `evicting-key-${index}`,
+            designId: otherDesign,
+          },
+          otherAuth,
+        );
+        expect(registered.status).toBe(200);
+      }
+      expect((await publish(8)).status).toBe(403);
+      expect((await register("revision-survivor-again")).status).toBe(200);
+      expect((await publish(8)).status).toBe(409);
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+
+    bridge = await startDesignConnectBridge(manifest);
+    try {
+      expect((await register("revision-survivor-after-restart")).status).toBe(
+        200,
+      );
+      expect((await publish(8)).status).toBe(409);
+      expect((await publish(10)).status).toBe(200);
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  });
+
+  it("fails closed instead of evicting retained design revision marks at capacity", async () => {
     const root = tmpDir();
     const port = await freePort();
     const manifest = await prepareDesignConnectManifest({
@@ -612,8 +715,172 @@ describe("design connect bridge endpoints", () => {
     });
     const bridge = await startDesignConnectBridge(manifest);
     const base = `http://127.0.0.1:${port}`;
-    const auth = { "x-design-preview-token": bridge.previewToken };
+    const register = (designId: string) =>
+      postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "bounded-revision-key",
+          designId,
+        },
+        liveEditAuth(bridge, designId),
+      );
+    const publish = (designId: string, revision: number) =>
+      postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId,
+          revision,
+          pending: {
+            designId,
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: `${designId} revision ${revision}`,
+          },
+        },
+        liveEditAuth(bridge, designId),
+      );
+    try {
+      for (let index = 0; index < 256; index += 1) {
+        const designId = `bounded-design-${index}`;
+        expect((await register(designId)).status).toBe(200);
+        expect((await publish(designId, index === 0 ? 5 : 1)).status).toBe(200);
+      }
+
+      const file = path.join(root, ".agent-native", "live-edit-revisions.json");
+      const stored = JSON.parse(fs.readFileSync(file, "utf8")) as {
+        revisions: Record<string, number>;
+      };
+      expect(Object.keys(stored.revisions)).toHaveLength(256);
+
+      expect((await register("bounded-design-overflow")).status).toBe(200);
+      expect((await publish("bounded-design-overflow", 1)).status).toBe(503);
+      expect((await register("bounded-design-0")).status).toBe(200);
+      expect((await publish("bounded-design-0", 4)).status).toBe(409);
+      expect(
+        JSON.parse(fs.readFileSync(file, "utf8")).revisions["bounded-design-0"],
+      ).toBe(5);
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  });
+
+  it("serializes concurrent pending revisions so a queued lower revision is stale", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const base = `http://127.0.0.1:${port}`;
+    const designId = "design-concurrent-revisions";
+    const auth = liveEditAuth(bridge, designId);
+    const registered = await postJson(
+      `${base}/live-edit-bridge`,
+      {
+        script: "agent-native:editor-chrome-ready",
+        bridgeKey: "concurrent-revision-key",
+        designId,
+      },
+      auth,
+    );
+    expect(registered.status).toBe(200);
+
+    const originalRename = fsPromises.rename;
+    let releaseFirstRename!: () => void;
+    let notifyFirstRename!: () => void;
+    const firstRenameStarted = new Promise<void>((resolve) => {
+      notifyFirstRename = resolve;
+    });
+    const firstRenameGate = new Promise<void>((resolve) => {
+      releaseFirstRename = resolve;
+    });
+    let renameCount = 0;
+    const renameSpy = vi
+      .spyOn(fsPromises, "rename")
+      .mockImplementation(async (...args) => {
+        renameCount += 1;
+        if (renameCount === 1) {
+          notifyFirstRename();
+          await firstRenameGate;
+        }
+        return originalRename(...args);
+      });
+
+    const publish = (revision: number) =>
+      postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId,
+          revision,
+          pending: {
+            designId,
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: `Revision ${revision}`,
+          },
+        },
+        auth,
+      );
+    try {
+      const newer = publish(20);
+      await firstRenameStarted;
+      const older = publish(19);
+      releaseFirstRename();
+
+      const [newerResult, olderResult] = await Promise.all([newer, older]);
+      expect(newerResult.status).toBe(200);
+      expect(olderResult.status).toBe(409);
+      expect(olderResult.body.error).toMatch(/stale pending publication/);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=${designId}`, auth))
+          .body.pending,
+      ).toMatchObject({ prompt: "Revision 20" });
+      expect(
+        JSON.parse(
+          fs.readFileSync(
+            path.join(root, ".agent-native", "live-edit-revisions.json"),
+            "utf8",
+          ),
+        ).revisions[designId],
+      ).toBe(20);
+    } finally {
+      releaseFirstRename();
+      renameSpy.mockRestore();
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  });
+
+  it("derives the same design-scoped capability contract as the Design action", () => {
+    expect(
+      deriveDesignScopedLiveEditCapability("stored-bridge-token", "design_1"),
+    ).toBe("35a0a665bdfa09540ba0fa820572e5bdda7b4ce7d3a7906a6d90617063189130");
+    expect(
+      deriveDesignScopedLiveEditRegistrationCapability(
+        "stored-bridge-token",
+        "design_1",
+      ),
+    ).toBe("b0399b9ad730e945aeacb7d5122fb683a175724eff548537fbbace9967ff55c7");
+  });
+
+  it("isolates local pending visual edits by design", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const base = `http://127.0.0.1:${port}`;
+    const authA = liveEditAuth(bridge, "design-1");
+    const authB = liveEditAuth(bridge, "design-2");
+    const registrationAuthA = liveEditRegistrationAuth(bridge, "design-1");
+    const auth = authA;
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const registered = await postJson(
         `${base}/live-edit-bridge`,
@@ -622,19 +889,132 @@ describe("design connect bridge endpoints", () => {
           bridgeKey: "screen-a",
           designId: "design-1",
         },
-        auth,
+        authA,
       );
       expect(registered.status).toBe(200);
+      const publicViewerRegistered = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "public-viewer-screen-a",
+          designId: "design-1",
+        },
+        registrationAuthA,
+      );
+      expect(publicViewerRegistered.status).toBe(200);
+      expect(
+        (
+          await getJson(
+            `${base}/live-edit-pending?designId=design-1`,
+            registrationAuthA,
+          )
+        ).status,
+      ).toBe(403);
+      const publicViewerPublish = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 1,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "A copied public link cannot publish agent handoff data.",
+          },
+        },
+        registrationAuthA,
+      );
+      expect(publicViewerPublish.status).toBe(403);
+      const secondRegistered = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "screen-b",
+          designId: "design-2",
+        },
+        authB,
+      );
+      expect(secondRegistered.status).toBe(200);
+      const forgedDesignRegistration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "forged-screen-b",
+          designId: "design-2",
+        },
+        registrationAuthA,
+      );
+      expect(forgedDesignRegistration.status).toBe(403);
       expect((await getJson(`${base}/live-edit-pending`)).status).toBe(401);
-      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
-        ok: true,
-        pending: null,
-      });
+      const unscopedRead = await getJson(`${base}/live-edit-pending`, authA);
+      expect(unscopedRead.status).toBe(400);
+      expect(unscopedRead.body.error).toMatch(/designId is required/);
+      const unregisteredRead = await getJson(
+        `${base}/live-edit-pending?designId=design-3`,
+        authA,
+      );
+      expect(unregisteredRead.status).toBe(403);
+      const unregisteredWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-3",
+          revision: 1,
+          pending: {
+            designId: "design-3",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt:
+              "A registered design's token must not write an unregistered design.",
+          },
+        },
+        auth,
+      );
+      expect(unregisteredWrite.status).toBe(403);
+      const forgedDesignRead = await getJson(
+        `${base}/live-edit-pending?designId=design-2`,
+        authA,
+      );
+      expect(forgedDesignRead.status).toBe(403);
+      const forgedDesignWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-2",
+          revision: 1,
+          pending: {
+            designId: "design-2",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "design A capability cannot write design B",
+          },
+        },
+        authA,
+      );
+      expect(forgedDesignWrite.status).toBe(403);
+      await expect(
+        runDesign([
+          "pending",
+          "--root",
+          root,
+          "--bridge-url",
+          base,
+          "--preview-token",
+          bridge.previewToken,
+        ]),
+      ).resolves.toBe(1);
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("--design-id"),
+      );
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body,
+      ).toEqual({ ok: true, pending: null });
       expect(
         (
           await postJson(
             `${base}/live-edit-pending`,
             {
+              designId: "design-1",
+              revision: 1,
               pending: {
                 designId: "design-1",
                 pendingEditCount: 2,
@@ -650,6 +1030,8 @@ describe("design connect bridge endpoints", () => {
       const queryTokenWrite = await postJson(
         `${base}/live-edit-pending?previewToken=${encodeURIComponent(bridge.previewToken)}`,
         {
+          designId: "design-1",
+          revision: 2,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -663,6 +1045,8 @@ describe("design connect bridge endpoints", () => {
       const disallowedOriginWrite = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 3,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -677,6 +1061,8 @@ describe("design connect bridge endpoints", () => {
       const opaqueOriginWrite = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 4,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -691,6 +1077,8 @@ describe("design connect bridge endpoints", () => {
       const crossSiteNoOriginWrite = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 5,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -716,9 +1104,40 @@ describe("design connect bridge endpoints", () => {
       );
       expect(textPlainWrite.status).toBe(415);
 
+      const unwrapped = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          pendingEditCount: 2,
+          status: "ready",
+          prompt: "Unwrapped visual edits.",
+        },
+        auth,
+      );
+      expect(unwrapped.status).toBe(400);
+      expect(unwrapped.body.error).toBe("pending must be an object or null");
+
+      const missingRevision = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Missing revision.",
+          },
+        },
+        auth,
+      );
+      expect(missingRevision.status).toBe(400);
+      expect(missingRevision.body.error).toMatch(/positive safe revision/);
+
       const published = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 10,
           pending: {
             designId: "design-1",
             pendingEditCount: 2,
@@ -726,7 +1145,7 @@ describe("design connect bridge endpoints", () => {
             prompt: "Apply the two pending visual edits.",
           },
         },
-        auth,
+        authA,
       );
       expect(published.status).toBe(200);
       expect(published.body.pending).toMatchObject({
@@ -736,20 +1155,101 @@ describe("design connect bridge endpoints", () => {
         prompt: "Apply the two pending visual edits.",
       });
 
-      const pulled = await getJson(`${base}/live-edit-pending`, auth);
+      const secondPublished = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-2",
+          revision: 3,
+          pending: {
+            designId: "design-2",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Apply design two's visual edits.",
+          },
+        },
+        authB,
+      );
+      expect(secondPublished.status).toBe(200);
+
+      const pulled = await getJson(
+        `${base}/live-edit-pending?designId=design-1`,
+        auth,
+      );
       expect(pulled.status).toBe(200);
       expect(pulled.body.pending).toMatchObject({
         designId: "design-1",
         prompt: "Apply the two pending visual edits.",
       });
+      const pulledSecond = await getJson(
+        `${base}/live-edit-pending?designId=design-2`,
+        authB,
+      );
+      expect(pulledSecond.body.pending).toMatchObject({
+        designId: "design-2",
+        prompt: "Apply design two's visual edits.",
+      });
+
+      const staleUpdate = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 9,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "An older prompt must not replace the latest one.",
+          },
+        },
+        auth,
+      );
+      expect(staleUpdate.status).toBe(409);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body.pending,
+      ).toMatchObject({ prompt: "Apply the two pending visual edits." });
+      const exactRevisionRetry = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 10,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 2,
+            status: "ready",
+            prompt: "Apply the two pending visual edits.",
+          },
+        },
+        auth,
+      );
+      expect(exactRevisionRetry.status).toBe(200);
+      const conflictingRevisionRetry = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 10,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 2,
+            status: "ready",
+            prompt: "Conflicting content at the same revision.",
+          },
+        },
+        auth,
+      );
+      expect(conflictingRevisionRetry.status).toBe(409);
 
       await expect(
         runDesign([
           "pending",
+          "--root",
+          root,
           "--bridge-url",
           base,
           "--preview-token",
           bridge.previewToken,
+          "--design-id",
+          "design-1",
         ]),
       ).resolves.toBe(0);
       expect(log).toHaveBeenCalledWith(
@@ -759,11 +1259,13 @@ describe("design connect bridge endpoints", () => {
       const oversized = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 11,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
             status: "ready",
-            prompt: "x".repeat(520_000),
+            prompt: "x".repeat(64 * 1024 + 1),
           },
         },
         auth,
@@ -772,16 +1274,172 @@ describe("design connect bridge endpoints", () => {
 
       const cleared = await postJson(
         `${base}/live-edit-pending`,
-        { designId: "design-1", pending: null },
+        { designId: "design-1", revision: 11, pending: null },
         auth,
       );
       expect(cleared.status).toBe(200);
-      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
-        ok: true,
-        pending: null,
-      });
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body,
+      ).toEqual({ ok: true, pending: null });
+      const staleAfterClear = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 10,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "An old prompt must not resurrect after clear.",
+          },
+        },
+        auth,
+      );
+      expect(staleAfterClear.status).toBe(409);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body,
+      ).toEqual({ ok: true, pending: null });
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-2`, authB))
+          .body.pending,
+      ).toMatchObject({ designId: "design-2" });
+
+      for (let index = 0; index <= 32; index += 1) {
+        const designId = `design-cap-${index}`;
+        const registeredForCap = await postJson(
+          `${base}/live-edit-bridge`,
+          {
+            script: "agent-native:editor-chrome-ready",
+            bridgeKey: `screen-cap-${index}`,
+            designId,
+          },
+          liveEditAuth(bridge, designId),
+        );
+        expect(registeredForCap.status).toBe(200);
+        const storedForCap = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId,
+            revision: 1,
+            pending: {
+              designId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: `Apply edits for ${designId}.`,
+            },
+          },
+          liveEditAuth(bridge, designId),
+        );
+        expect(storedForCap.status).toBe(200);
+      }
+      expect(
+        (
+          await getJson(
+            `${base}/live-edit-pending?designId=design-cap-0`,
+            liveEditAuth(bridge, "design-cap-0"),
+          )
+        ).body.pending,
+      ).toBeNull();
+      expect(
+        (
+          await getJson(
+            `${base}/live-edit-pending?designId=design-cap-32`,
+            liveEditAuth(bridge, "design-cap-32"),
+          )
+        ).body.pending,
+      ).toMatchObject({ designId: "design-cap-32" });
+      const staleAfterCapacityEviction = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-cap-0",
+          revision: 1,
+          pending: {
+            designId: "design-cap-0",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "A payload evicted by the capacity limit must not return.",
+          },
+        },
+        liveEditAuth(bridge, "design-cap-0"),
+      );
+      expect(staleAfterCapacityEviction.status).toBe(409);
+
+      const ttlDesignId = "design-ttl-expired";
+      const ttlRegistration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "screen-ttl-expired",
+          designId: ttlDesignId,
+        },
+        liveEditAuth(bridge, ttlDesignId),
+      );
+      expect(ttlRegistration.status).toBe(200);
+      let now = Date.now();
+      const systemTime = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const ttlPublish = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId: ttlDesignId,
+            revision: 7,
+            pending: {
+              designId: ttlDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "This payload will expire.",
+            },
+          },
+          liveEditAuth(bridge, ttlDesignId),
+        );
+        expect(ttlPublish.status).toBe(200);
+        now += 7 * 24 * 60 * 60 * 1_000;
+        expect(
+          (
+            await getJson(
+              `${base}/live-edit-pending?designId=${ttlDesignId}`,
+              liveEditAuth(bridge, ttlDesignId),
+            )
+          ).body.pending,
+        ).toBeNull();
+        const staleAfterTtlExpiry = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId: ttlDesignId,
+            revision: 6,
+            pending: {
+              designId: ttlDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "An expired payload's older revision must not return.",
+            },
+          },
+          liveEditAuth(bridge, ttlDesignId),
+        );
+        expect(staleAfterTtlExpiry.status).toBe(409);
+        const newerAfterTtlExpiry = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId: ttlDesignId,
+            revision: 8,
+            pending: {
+              designId: ttlDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "A newer edit remains publishable after expiry.",
+            },
+          },
+          liveEditAuth(bridge, ttlDesignId),
+        );
+        expect(newerAfterTtlExpiry.status).toBe(200);
+      } finally {
+        systemTime.mockRestore();
+      }
     } finally {
       log.mockRestore();
+      error.mockRestore();
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
@@ -813,13 +1471,14 @@ describe("design connect bridge endpoints", () => {
       const base = `http://127.0.0.1:${port}`;
       const origin = "http://localhost:18081";
       const liveEditUrl = `${base}/live-edit?path=/library&bridgeKey=screen-a&previewToken=${bridge.previewToken}`;
-      const auth = { "x-design-preview-token": bridge.previewToken };
+      const auth = liveEditAuth(bridge, "test-design");
       const registration = await postJson(
         `${base}/live-edit-bridge`,
         {
           script:
             '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
           bridgeKey: "screen-a",
+          designId: "test-design",
         },
         auth,
       );
@@ -886,19 +1545,19 @@ describe("design connect bridge endpoints", () => {
     const bridge = await startDesignConnectBridge(manifest);
     try {
       const base = `http://127.0.0.1:${port}`;
-      const auth = { "x-design-preview-token": bridge.previewToken };
+      const auth = liveEditAuth(bridge, "test-design");
       const scriptA =
         '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>';
       const scriptB =
         '<script>window.__screenBridge="B";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>';
       await postJson(
         `${base}/live-edit-bridge`,
-        { script: scriptA, bridgeKey: "screen-a" },
+        { script: scriptA, bridgeKey: "screen-a", designId: "test-design" },
         auth,
       );
       await postJson(
         `${base}/live-edit-bridge`,
-        { script: scriptB, bridgeKey: "screen-b" },
+        { script: scriptB, bridgeKey: "screen-b", designId: "test-design" },
         auth,
       );
 
@@ -968,7 +1627,7 @@ describe("design connect bridge endpoints", () => {
     const openClientSockets: Array<{ destroy(): void }> = [];
     try {
       const base = `http://127.0.0.1:${port}`;
-      const auth = { "x-design-preview-token": bridge.previewToken };
+      const auth = liveEditAuth(bridge, "test-design");
       const frames = Array.from({ length: frameCount }, (_, i) => ({
         bridgeKey: `frame-${i}`,
         route: `/screen-${i}`,
@@ -987,6 +1646,7 @@ describe("design connect bridge endpoints", () => {
             {
               script: `<script>window.__frame="${frame.marker}";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>`,
               bridgeKey: frame.bridgeKey,
+              designId: "test-design",
             },
             auth,
           ),
@@ -1135,8 +1795,9 @@ describe("design connect bridge endpoints", () => {
           script:
             '<script>window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
           bridgeKey: "screen-a",
+          designId: "test-design",
         },
-        { "x-design-preview-token": bridge.previewToken },
+        liveEditAuth(bridge, "test-design"),
       );
       expect(registration.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
 
@@ -1311,16 +1972,22 @@ describe("design connect bridge endpoints", () => {
         {
           script:
             "<script>window.__editorBridgeReady = 'agent-native:editor-chrome-ready';</script>",
+          bridgeKey: "authorized-screen",
+          designId: "test-design",
         },
-        { "x-design-preview-token": bridge.previewToken },
+        liveEditAuth(bridge, "test-design"),
       );
       expect(registration.status).toBe(200);
       expect(registration.body["ok"]).toBe(true);
 
       const rejectedArbitraryScript = await postJson(
         `${base}/live-edit-bridge`,
-        { script: "<script>window.__arbitrary = true</script>" },
-        { "x-design-preview-token": bridge.previewToken },
+        {
+          script: "<script>window.__arbitrary = true</script>",
+          bridgeKey: "arbitrary-screen",
+          designId: "test-design",
+        },
+        liveEditAuth(bridge, "test-design"),
       );
       expect(rejectedArbitraryScript.status).toBe(400);
 
@@ -1556,8 +2223,9 @@ describe("design connect bridge endpoints", () => {
           script:
             "<script>window.__panBridgeMarker = 'embedded-canvas-pan'</script>",
           bridgeKey: "pan-only",
+          designId: "test-design",
         },
-        { "x-design-preview-token": bridge.previewToken },
+        liveEditAuth(bridge, "test-design"),
       );
       expect(panOnlyRegistration.status).toBe(200);
       const panOnlyHtml = await getText(
@@ -1830,13 +2498,14 @@ describe("design connect bridge endpoints", () => {
     const bridge = await startDesignConnectBridge(manifest);
     try {
       const base = `http://127.0.0.1:${port}`;
-      const auth = { "x-design-preview-token": bridge.previewToken };
+      const auth = liveEditAuth(bridge, "test-design");
       await postJson(
         `${base}/live-edit-bridge`,
         {
           script:
             '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
           bridgeKey: "screen-a",
+          designId: "test-design",
         },
         auth,
       );
@@ -1847,6 +2516,7 @@ describe("design connect bridge endpoints", () => {
           script:
             '<script>window.__screenBridge="B";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
           bridgeKey: "screen-b",
+          designId: "test-design",
         },
         auth,
       );
@@ -2724,6 +3394,42 @@ describe("design connect bridge endpoints", () => {
         "https://design.example.com",
       );
       expect(approved.headers["access-control-allow-origin"]).not.toBe("*");
+
+      const liveEditPreflight = await new Promise<{
+        status: number;
+        headers: http.IncomingHttpHeaders;
+      }>((resolve, reject) => {
+        const request = http.request(
+          `${base}/live-edit-pending`,
+          {
+            method: "OPTIONS",
+            headers: {
+              origin: "https://design.example.com",
+              "access-control-request-method": "POST",
+              "access-control-request-headers":
+                "content-type,x-design-preview-token,x-agent-native-live-edit-registration-capability",
+            },
+          },
+          (response) => {
+            response.resume();
+            response.on("end", () =>
+              resolve({
+                status: response.statusCode ?? 0,
+                headers: response.headers,
+              }),
+            );
+          },
+        );
+        request.on("error", reject);
+        request.end();
+      });
+      expect(liveEditPreflight.status).toBe(204);
+      expect(
+        liveEditPreflight.headers["access-control-allow-headers"],
+      ).toContain("x-agent-native-live-edit-capability");
+      expect(
+        liveEditPreflight.headers["access-control-allow-headers"],
+      ).toContain("x-agent-native-live-edit-registration-capability");
 
       const hostile = await getText(
         `${base}/manifest.json?previewToken=${bridge.previewToken}`,

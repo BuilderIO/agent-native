@@ -25,10 +25,12 @@ import {
   getHeader,
   getMethod,
   getQuery,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
+import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -86,6 +88,16 @@ async function resolveOwner(event: H3Event): Promise<string> {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   return session.email;
+}
+
+async function feedbackReadScope(
+  event: H3Event,
+  userId: string,
+): Promise<{ orgId: string } | { userId: string; orgId?: string }> {
+  const org = await getOrgContext(event);
+  return org.orgId && (org.role === "owner" || org.role === "admin")
+    ? { orgId: org.orgId }
+    : { userId, ...(org.orgId ? { orgId: org.orgId } : {}) };
 }
 
 function canManageExperiments(ownerEmail: string): boolean {
@@ -184,8 +196,12 @@ export function createObservabilityHandler() {
       parts[0] === "feedback" &&
       parts[1] === "stats"
     ) {
+      setResponseHeader(event, "Cache-Control", "private, no-store");
       const q = getQuery(event);
-      return getFeedbackStats(parseSince(q), { userId: owner });
+      return getFeedbackStats(
+        parseSince(q),
+        await feedbackReadScope(event, owner),
+      );
     }
 
     // POST /feedback — submit feedback
@@ -214,34 +230,42 @@ export function createObservabilityHandler() {
         feedbackType === "text"
           ? getHeader(event, "idempotency-key")?.trim() || null
           : null;
+      const org = await getOrgContext(event);
+      const runId = body.runId ? String(body.runId) : null;
+      let threadId = body.threadId ? String(body.threadId) : null;
+      let model: string | undefined;
+      let orgId = org.orgId;
+      if (runId) {
+        const summary = await getTraceSummary(runId, {
+          userId: owner,
+          ...(org.orgId ? { orgId: org.orgId } : {}),
+        });
+        if (!summary || (threadId && threadId !== summary.threadId)) {
+          setResponseStatus(event, 404);
+          return { error: "Trace not found" };
+        }
+        threadId = summary.threadId;
+        model = summary.model || undefined;
+        orgId = summary.orgId ?? org.orgId;
+      }
       const inserted = await insertFeedback({
         id,
-        runId: body.runId ? String(body.runId) : null,
-        threadId: body.threadId ? String(body.threadId) : null,
+        runId,
+        threadId,
         messageSeq:
           typeof body.messageSeq === "number" ? body.messageSeq : null,
         feedbackType,
         value,
         idempotencyKey,
         userId: owner,
+        orgId,
+        source: "chat",
         createdAt: Date.now(),
       });
       if (!inserted) return { id };
       {
-        const runId = body.runId ? String(body.runId) : null;
-        const threadId = body.threadId ? String(body.threadId) : null;
         const isThumb =
           feedbackType === "thumbs_up" || feedbackType === "thumbs_down";
-        let model: string | undefined;
-        if (runId) {
-          try {
-            const summary = await getTraceSummary(runId, { userId: owner });
-            model = summary?.model || undefined;
-          } catch {
-            // Feedback persistence is authoritative; analytics enrichment is
-            // best-effort and must never make the submission fail.
-          }
-        }
 
         // Every submission is reported, including `category` and `text`, which
         // previously emitted nothing at all. Only thumbs carry `sentiment` —
@@ -291,10 +315,10 @@ export function createObservabilityHandler() {
         });
       }
       // Fire-and-forget: recompute satisfaction score for the thread.
-      if (body.threadId) {
+      if (threadId) {
         import("./feedback.js")
           .then(({ computeSatisfactionScore }) =>
-            computeSatisfactionScore(String(body.threadId), {
+            computeSatisfactionScore(threadId!, {
               userId: owner,
             }).catch(() => {}),
           )
@@ -305,6 +329,7 @@ export function createObservabilityHandler() {
 
     // GET /feedback — list feedback entries
     if (method === "GET" && parts.length === 1 && parts[0] === "feedback") {
+      setResponseHeader(event, "Cache-Control", "private, no-store");
       const q = getQuery(event);
       return getFeedback({
         sinceMs: parseSince(q),
@@ -312,7 +337,8 @@ export function createObservabilityHandler() {
         feedbackType: isFeedbackType(q.feedbackType)
           ? q.feedbackType
           : undefined,
-        userId: owner,
+        source: "chat",
+        ...(await feedbackReadScope(event, owner)),
       });
     }
 

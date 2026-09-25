@@ -1,7 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareDialog as CoreShareDialog } from "@agent-native/core/client/sharing";
+import {
+  ShareDialog as CoreShareDialog,
+  withShareLinkAttribution,
+} from "@agent-native/core/client/sharing";
 import {
   cloneElement,
   isValidElement,
@@ -32,6 +36,7 @@ export default function ShareDialog({
   onOpenChange,
 }: ShareDialogProps) {
   const t = useT();
+  const { session } = useSession();
   const [open, setOpen] = useState(false);
   const [shareLink, setShareLink] = useState<{
     deckId: string;
@@ -49,8 +54,14 @@ export default function ShareDialog({
 
   const shareToken =
     shareLink?.deckId === deck.id ? shareLink.token : undefined;
+  // Viral attribution: whoever copies this public presentation link is
+  // tagged as the referrer, so a signup that follows it can be attributed.
   const primaryShareLink = shareToken
-    ? `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`
+    ? withShareLinkAttribution(
+        `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`,
+        "deck_share",
+        session?.userId,
+      )
     : undefined;
   const openShareDialog = useCallback(async () => {
     if (shareToken) {

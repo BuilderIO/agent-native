@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildHeadingCommands,
+  cleanupFailedSlashCreation,
   CommandButton,
   CONTENT_HEADING_LEVELS,
   equationNodeContent,
@@ -36,6 +37,20 @@ import {
   setCodeBlockFromSlashCommand,
   setPlainTextBlock,
 } from "./SlashCommandMenu";
+
+describe("failed slash creation cleanup", () => {
+  it("trashes the new resource even if removing its editor reference fails", async () => {
+    const removeError = new Error("editor is unavailable");
+    const trash = vi.fn().mockResolvedValue(undefined);
+
+    const errors = await cleanupFailedSlashCreation(() => {
+      throw removeError;
+    }, trash);
+
+    expect(errors).toEqual([removeError]);
+    expect(trash).toHaveBeenCalledOnce();
+  });
+});
 
 function TestIcon() {
   return createElement("svg");
@@ -885,19 +900,33 @@ describe("inline database slash command", () => {
     expect(chain.insertContent).not.toHaveBeenCalled();
   });
 
-  it("keeps /database wired to inline creation instead of page navigation", () => {
+  it("offers inline and full-page collection commands for /database", () => {
     const source = readSlashCommandMenuSource();
 
     expect(source).toContain("useCreateInlineContentDatabase");
     expect(source).toContain("hostDocumentId: documentId");
     expect(source).toContain("preserveSlashRange: true");
-    expect(source).toContain("deleteRange(slashRange)");
-    expect(source).toContain("insertInlineDatabaseBlock(");
+    expect(source).toMatch(
+      /insertInlineDatabaseBlock\(\s*editor,\s*result\.block,\s*slashRange,/,
+    );
     expect(source).toContain("requiredText: result.block.ownerBlockId");
     expect(source).toContain("await onDraftPersisted(content)");
-    expect(source).not.toContain("useCreateContentDatabase");
-    expect(source).not.toContain(
-      "navigate(`/page/${result.database.documentId}`",
+    expect(source).toContain("useCreateContentDatabase");
+    expect(source).toContain("contentDatabaseCreationRequest({");
+    expect(source).toContain("const newDocumentId = crypto.randomUUID()");
+    expect(source).toContain("createdPageId = newDocumentId");
+    expect(source).toContain(
+      ".catch(() => createFullPageDatabase.mutateAsync(request))",
     );
+    expect(source).toContain("useRollbackCreatedSlashDocument");
+    expect(source).not.toContain("useDeleteContentDatabase");
+    expect(source).toContain('searchText: "database collection inline"');
+    expect(source).toContain('searchText: "database collection full page"');
+    expect(source).toContain("parentId: documentId");
+    expect(source).toContain(
+      'const insertContent = [pageReference, { type: "paragraph" }]',
+    );
+    expect(source).toContain("insertContentAt(range, insertContent)");
+    expect(source).toContain("navigate(`/page/${pageId}`");
   });
 });

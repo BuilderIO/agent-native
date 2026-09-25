@@ -437,8 +437,9 @@ const editor = {
   pageBodySyncing: "इस पेज की सामग्री अभी भी सिंक हो रही है",
   pageBodySyncingDescription:
     "पेज का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा सामग्री अधिलेखित न हो।",
+  createCollection: "संग्रह बनाएँ",
   creatingDatabase: "इनलाइन संग्रह बनाया जा रहा है...",
-  databaseCreated: "इनलाइन संग्रह बनाया गया",
+  databaseCreated: "संग्रह बनाया गया",
   emptyBlockPlaceholder: "कमांड के लिए '/' दबाएं",
   describeWhatToGenerate: "वर्णन करें कि क्या उत्पन्न करना है...",
   enterToSubmit: "सबमिट करने के लिए दर्ज करें",
@@ -686,6 +687,10 @@ const editor = {
     collapsibleBlockDescription: "बंधनेवाला ब्लॉक",
     database: "संग्रह",
     databaseDescription: "इस पेज में इनलाइन संग्रह",
+    collectionInline: "संग्रह — इनलाइन",
+    collectionInlineDescription: "इस पेज में एक संग्रह जोड़ें",
+    collectionFullPage: "संग्रह — पूरा पेज",
+    collectionFullPageDescription: "एक चाइल्ड संग्रह बनाएँ और उसे यहाँ लिंक करें",
     divider: "विभाजक",
     dividerDescription: "क्षैतिज नियम",
     generate: "उत्पन्न करें",
@@ -793,6 +798,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     suggestionCreateFailed: "सुझाव नहीं बनाया जा सका",
     suggestionsCount: "{{count}} सुझाव",
     acceptSuggestion: "स्वीकार करें",
@@ -835,7 +847,37 @@ const rawLiterals = {
     contentSpace: "Content स्पेस",
     addChild: "चाइल्ड जोड़ें",
     addChildTo: "{{title}} में चाइल्ड जोड़ें",
+    removeFromRecent: "हाल ही में देखे गए से हटाएँ",
+    copyLink: "लिंक कॉपी करें",
+    openInNewTab: "नए टैब में खोलें",
+    rename: "नाम बदलें",
+    duplicate: "डुप्लिकेट करें",
+    moveTo: "यहाँ ले जाएँ",
+    moveToTrash: "ट्रैश में ले जाएँ",
+    lastEditedBy: "अंतिम बार {{name}} ने संपादित किया",
+    lastEdited: "अंतिम संपादन",
+    pageName: "पेज का नाम",
+    movePageTo: "“{{title}}” को यहाँ ले जाएँ",
+    topLevel: "शीर्ष स्तर",
+    noMatchingPages: "कोई मेल खाते पेज नहीं",
+    failedRenamePage: "पेज का नाम नहीं बदला जा सका",
+    failedDuplicatePage: "पेज डुप्लिकेट नहीं किया जा सका",
+    duplicatedFromLastSave:
+      "आख़िरी सहेजा गया संस्करण कॉपी किया गया; हाल के बिना सहेजे बदलाव शामिल नहीं हैं।",
+    chooseSpace: "वर्कस्पेस चुनें",
+    moveToSpaceTitle: "{{space}} में ले जाएँ?",
+    moveToSpaceWarningShared:
+      "{{space}} में सभी लोग “{{title}}” और इसके सब-पेज देख सकेंगे। मौजूदा शेयरिंग और सार्वजनिक लिंक हटा दिए जाएँगे, और आप इसके मालिक बन जाएँगे।",
+    moveToSpaceWarningPrivate:
+      "{{space}} में “{{title}}” और इसके सब-पेज केवल आपके लिए निजी होंगे। मौजूदा शेयरिंग और सार्वजनिक लिंक हटा दिए जाएँगे, और आप इसके मालिक बन जाएँगे।",
+    back: "वापस",
+    movePage: "ले जाएँ",
+    movedToSpace: "“{{title}}” को {{space}} में ले जाया गया",
+    failedRemoveFromRecent: "हाल ही में देखे गए से हटाया नहीं जा सका",
+    collapseItem: "{{title}} संक्षिप्त करें",
+    expandItem: "{{title}} का विस्तार करें",
     database: "संग्रह",
+    collection: "संग्रह",
     databasePermanentlyDeleted: "संग्रह स्थायी रूप से हटाया गया",
     databaseRestored: "संग्रह बहाल किया गया",
     deleteDatabaseNamedPermanently: "{{title}} को स्थायी रूप से हटाएं",
@@ -974,6 +1016,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     suggestionAmendmentEmpty:
       "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
     suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
@@ -1191,6 +1240,15 @@ const overrides = {
     labCreativeContext: "क्रिएटिव संदर्भ",
     labCreativeContextDescription:
       "Content में प्रबंधित संदर्भ संदर्भ को कनेक्ट और पुन: उपयोग करें।",
+    labSlashAdvancedCode: "उन्नत कोड ब्लॉक",
+    labSlashAdvancedCodeDescription: "स्लैश मेनू में कोड और कोड टैब ब्लॉक जोड़ें।",
+    labSlashLayouts: "लेआउट ब्लॉक",
+    labSlashLayoutsDescription: "स्लैश मेनू में कस्टम HTML और टैब ब्लॉक जोड़ें।",
+    labSlashVisuals: "विज़ुअल ब्लॉक",
+    labSlashVisualsDescription:
+      "स्लैश मेनू में डायग्राम, Mermaid और वायरफ़्रेम ब्लॉक जोड़ें।",
+    labSlashDeveloperDocs: "डेवलपर दस्तावेज़ ब्लॉक",
+    labSlashDeveloperDocsDescription: "स्लैश मेनू में API और डेवलपर दस्तावेज़ ब्लॉक जोड़ें।",
   },
   chat: {
     publicEmptyState: "इस document के बारे में कुछ भी पूछें",
@@ -1210,6 +1268,13 @@ const overrides = {
     genericError: "कुछ गलत हुआ",
   },
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     ...editor,
     sourceComponent: {
       defaultTitle: "स्रोत कंपोनेंट",

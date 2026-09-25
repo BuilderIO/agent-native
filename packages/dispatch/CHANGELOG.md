@@ -1,5 +1,35 @@
 # @agent-native/dispatch
 
+## 0.38.7
+
+### Patch Changes
+
+- a10ae73: Limit Dispatch app launchers to apps connected to the current workspace and clarify that usage alerts notify at a threshold without limiting spend.
+- fbd85b3: Allow hosts to customize the Dispatch sidebar name and icon through the exported `Layout` and `NavContent` components while preserving the existing Dispatch branding by default.
+- Release all public npm packages with a patch version bump.
+- 973e7d5: Stop deleting workspace app registry rows when an app is missing from the current deployment's manifest. Deployments that share one database (production, beta, local development) each see a different app list, so this removed access for apps that were still live elsewhere. Removing an app from the registry is now only done by archiving it.
+- Updated dependencies
+  - @agent-native/toolkit@0.20.9
+
+## 0.38.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.20.8
+
+## 0.38.5
+
+### Patch Changes
+
+- 5ed3eb0: Report a taken workspace app id as a typed `app-id-taken` result instead of an unhandled 500. `startWorkspaceAppCreation` checked for an id collision in two places — a cross-member guard and the reservation itself — and neither was inside a `try`, so the message each one built (naming the conflict and, for an in-flight creation, its owner) was replaced by a generic "Internal server error" in the create-app UI and in chat. Both collision paths now throw `WorkspaceAppIdTakenError`, the caller converts only that error into `{ mode: "app-id-taken", conflict, owner, message }`, and registry/storage failures keep propagating. `workspace-template-card` previously fell through to a success toast for any mode it did not recognize and now reports this one as an error.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [2427195]
+- Updated dependencies [d43305d]
+- Updated dependencies
+  - @agent-native/toolkit@0.20.7
+
 ## 0.38.4
 
 ### Patch Changes
@@ -989,37 +1019,5 @@
 - c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
 - Updated dependencies [c41fd16]
   - @agent-native/toolkit@0.13.8
-
-## 0.22.1
-
-### Patch Changes
-
-- c29fcb7: Keep the Admin and Settings links visible in the chat-first Dispatch sidebar.
-
-## 0.22.0
-
-### Minor Changes
-
-- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-### Patch Changes
-
-- 061896a: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
-- 061896a: Use the Toolkit header store and mobile hook through Dispatch compatibility paths.
-- 061896a: Improve Thread Debug with diagnosis-first failure triage and retained run evidence.
-- Updated dependencies [061896a]
-  - @agent-native/toolkit@0.13.7
-
-## 0.21.0
-
-### Minor Changes
-
-- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-### Patch Changes
-
-- cf16fae: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
-- Updated dependencies [cf16fae]
-  - @agent-native/toolkit@0.13.6
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

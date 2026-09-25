@@ -43,12 +43,17 @@ function workspaceRoot(): string {
   throw new Error("Could not locate workspace root.");
 }
 
-function writeSkill(repo: string, name: string, body = "Body"): void {
+function writeSkill(
+  repo: string,
+  name: string,
+  body = "Body",
+  installerGroup?: string,
+): void {
   const dir = path.join(repo, "skills", name);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, "SKILL.md"),
-    `---\nname: ${name}\ndescription: Use when testing ${name}.\n---\n\n# ${name}\n\n${body}\n`,
+    `---\nname: ${name}\n${installerGroup ? `installer-group: ${installerGroup}\n` : ""}description: Use when testing ${name}.\n---\n\n# ${name}\n\n${body}\n`,
     "utf-8",
   );
 }
@@ -294,6 +299,8 @@ describe("@agent-native/skills", () => {
     const project = tmpDir();
     writeSkill(repo, "quick-recap");
     writeSkill(repo, "efficient-fable");
+    writeSkill(repo, "factory", "Body", "factory");
+    writeSkill(repo, "factory-review-prs", "Body", "factory");
     let skillContext: SkillsPromptContext | undefined;
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
@@ -329,6 +336,16 @@ describe("@agent-native/skills", () => {
           description: "Use when testing efficient-fable.",
         },
         {
+          name: "factory",
+          description: "Use when testing factory.",
+          installerGroup: "factory",
+        },
+        {
+          name: "factory-review-prs",
+          description: "Use when testing factory-review-prs.",
+          installerGroup: "factory",
+        },
+        {
           name: "quick-recap",
           description: "Use when testing quick-recap.",
         },
@@ -336,12 +353,16 @@ describe("@agent-native/skills", () => {
     });
 
     const selected = await (options as any).promptSkills({
+      message: "Choose a Factory subset.",
       initialTargets: ["visual-plan", "visual-recap", "visualize-repo"],
+      required: false,
       options: [{ value: "quick-recap", label: "quick-recap", hint: "Recap" }],
     });
     expect(selected).toEqual(["quick-recap"]);
     expect(skillContext).toMatchObject({
+      message: "Choose a Factory subset.",
       initialSkills: ["visual-plan", "visual-recap", "visualize-repo"],
+      required: false,
       options: [{ value: "quick-recap" }],
     });
   });

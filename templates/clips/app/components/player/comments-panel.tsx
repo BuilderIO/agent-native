@@ -1124,11 +1124,10 @@ function CommentComposer({
             onSubmit={onSubmit}
             placeholder={t("commentsPanel.leaveComment")}
             rows={2}
-            maxHeight={128}
             className={cn(
               "resize-none bg-transparent text-base leading-5 sm:text-sm",
               isConversationPresentation
-                ? "max-h-32 min-h-8 flex-1 border-0 px-0 py-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                ? "min-h-8 flex-1 border-0 px-0 py-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 : "min-h-[60px]",
             )}
             submitOnEnter
@@ -1199,8 +1198,7 @@ function InlineReplyComposer({
           onSubmit={onSubmit}
           placeholder={t("commentsPanel.writeReply")}
           rows={1}
-          maxHeight={128}
-          className="min-h-6 max-h-32 resize-none border-0 bg-transparent px-0 py-0.5 text-sm leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          className="min-h-6 resize-none border-0 bg-transparent px-0 py-0.5 text-sm leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           onEscape={onCancel}
           submitOnEnter
         />

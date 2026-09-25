@@ -423,6 +423,19 @@ jobs:
             echo "publish_directory=$TARGET_PUBLISH_DIRECTORY" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install native canvas build dependencies
+        if: inputs.migration_only != true && inputs.artifact_download != true
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            pkg-config \
+            libcairo2-dev \
+            libpixman-1-dev \
+            libpango1.0-dev \
+            libjpeg-dev \
+            libgif-dev \
+            librsvg2-dev
+
       - name: Run the release migration from the Netlify environment
         if: inputs.migration_only
         env:
@@ -472,6 +485,9 @@ jobs:
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
           ANALYTICS_DATABASE_URL_SECRET: ${{ inputs.target == 'production' && steps.target.outputs.source_template == 'analytics' && secrets.ANALYTICS_DATABASE_URL || '' }}
           TARGET: ${{ inputs.target }}
+          SENTRY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.SENTRY_AUTH_TOKEN || '' }}
+          SENTRY_ORG: bridge-tm
+          SENTRY_PROJECT: agent-native-browser
         run: |
           set -euo pipefail
           if [[ "$TARGET" != "preview" || "$DEPLOY" == "true" ]]; then

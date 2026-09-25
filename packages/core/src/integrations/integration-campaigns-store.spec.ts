@@ -276,6 +276,28 @@ describe("integration campaigns store", () => {
     ]);
   });
 
+  it("defers only due runtime-paused campaigns so later receipts can be swept", async () => {
+    const { deferIntegrationCampaignForRuntime } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [{ id: "campaign-1" }] });
+
+    await expect(
+      deferIntegrationCampaignForRuntime("campaign-1", 60_000),
+    ).resolves.toBe(true);
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      sqlOf(query).includes("SET next_run_at = ?"),
+    )?.[0];
+    expect(sqlOf(update!)).toContain("lease_expires_at <= ?");
+    expect(argsOf(update!)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      "campaign-1",
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+  });
+
   it("reports the chunk ceiling instead of looping a campaign forever", async () => {
     const { claimIntegrationCampaign } = await loadStore();
     executeMock.mockImplementation(async (query: string | { sql: string }) => {

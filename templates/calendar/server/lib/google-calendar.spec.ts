@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createGoogleAccountEventId } from "../../shared/google-calendar-sources.js";
+
 const getOAuthAccountsMock = vi.hoisted(() => vi.fn());
 const listOAuthAccountsByOwnerMock = vi.hoisted(() => vi.fn());
 const listOAuthAccountsMock = vi.hoisted(() =>
@@ -518,6 +520,76 @@ describe("calendar event listing", () => {
     expect(calendars[0]?.canonicalKey).toMatch(/^google-calendar-canonical:/);
   });
 
+  it.each([
+    {
+      order: "reader account sorts first",
+      ownerAccount: "zulu@example.com",
+      readerAccount: "alpha@example.com",
+    },
+    {
+      order: "owner account sorts first",
+      ownerAccount: "alpha@example.com",
+      readerAccount: "zulu@example.com",
+    },
+  ])(
+    "keeps the writable primary event when the $order",
+    async ({ ownerAccount, readerAccount }) => {
+      listOAuthAccountsByOwnerMock.mockResolvedValue(
+        [ownerAccount, readerAccount].map((accountId) => ({
+          accountId,
+          tokens: {
+            access_token: `${accountId}-token`,
+            expiry_date: Date.now() + 10 * 60_000,
+          },
+        })),
+      );
+      calendarListCalendarsMock.mockImplementation(
+        async (accessToken: string) => ({
+          items: [
+            {
+              id: ownerAccount,
+              summary: "Personal",
+              primary: accessToken === `${ownerAccount}-token`,
+              accessRole:
+                accessToken === `${ownerAccount}-token` ? "owner" : "reader",
+            },
+          ],
+        }),
+      );
+      calendarListEventsMock.mockResolvedValue({
+        items: [
+          {
+            id: "personal-event",
+            summary: "Personal event",
+            start: { dateTime: "2026-07-06T16:00:00Z" },
+            end: { dateTime: "2026-07-06T16:30:00Z" },
+          },
+        ],
+      });
+
+      const [{ sourceKey }] = (await listGoogleCalendars("owner@example.com"))
+        .calendars;
+      const result = await listEvents(
+        "2026-07-06T00:00:00Z",
+        "2026-07-07T00:00:00Z",
+        "owner@example.com",
+        { calendarSourceKeys: [sourceKey!] },
+      );
+
+      expect(result.events).toHaveLength(1);
+      expect(result.events[0]).toMatchObject({
+        id: createGoogleAccountEventId({
+          accountEmail: ownerAccount,
+          googleEventId: "personal-event",
+        }),
+        accountEmail: ownerAccount,
+        calendarAccessRole: "owner",
+        calendarPrimary: true,
+        calendarReadOnly: false,
+      });
+    },
+  );
+
   it("keeps a canonical source event when its strongest account path fails", async () => {
     listOAuthAccountsByOwnerMock.mockResolvedValue([
       {
@@ -535,15 +607,18 @@ describe("calendar event listing", () => {
         },
       },
     ]);
-    calendarListCalendarsMock.mockResolvedValue({
-      items: [
-        {
-          id: "friends@example.com",
-          summary: "Friends",
-          accessRole: "reader",
-        },
-      ],
-    });
+    calendarListCalendarsMock.mockImplementation(
+      async (accessToken: string) => ({
+        items: [
+          {
+            id: "alpha@example.com",
+            summary: "Personal",
+            primary: accessToken === "alpha-token",
+            accessRole: accessToken === "alpha-token" ? "owner" : "reader",
+          },
+        ],
+      }),
+    );
     calendarListEventsMock
       .mockRejectedValueOnce(new Error("provider unavailable"))
       .mockResolvedValueOnce({
@@ -556,25 +631,113 @@ describe("calendar event listing", () => {
         ],
       });
 
-    const [{ sourceKey }] = (await listGoogleCalendars("owner@example.com"))
+    const [calendar] = (await listGoogleCalendars("owner@example.com"))
       .calendars;
+    const fallbackSourceKey = calendar.sourcePaths?.find(
+      (path) => path.accountEmail === "zulu@example.com",
+    )?.sourceKey;
     const result = await listEvents(
       "2026-07-06T00:00:00Z",
       "2026-07-07T00:00:00Z",
       "owner@example.com",
-      { calendarSourceKeys: [sourceKey!] },
+      { calendarSourceKeys: [calendar.sourceKey] },
     );
 
     expect(result.events).toHaveLength(1);
     expect(result.events[0]).toMatchObject({
-      calendarSourceKey: sourceKey,
+      id: `google-${fallbackSourceKey}-friends-event`,
+      calendarSourceKey: fallbackSourceKey,
       canonicalKey: expect.stringMatching(/^google-calendar-canonical:/),
+      accountEmail: "zulu@example.com",
+      calendarAccessRole: "reader",
+      calendarPrimary: false,
+      calendarReadOnly: true,
     });
     expect(result.errors).toContainEqual(
       expect.objectContaining({
         error: expect.stringContaining("provider unavailable"),
       }),
     );
+    calendarGetEventMock.mockResolvedValue({
+      id: "friends-event",
+      start: { dateTime: "2026-07-06T16:00:00Z" },
+      end: { dateTime: "2026-07-06T16:30:00Z" },
+    });
+    const reopened = await getEvent(
+      "friends-event",
+      { ownerEmail: "owner@example.com", accountEmail: "zulu@example.com" },
+      { calendarSourceKey: fallbackSourceKey },
+    );
+    expect(reopened).toMatchObject({
+      id: result.events[0].id,
+      calendarSourceKey: fallbackSourceKey,
+      accountEmail: "zulu@example.com",
+      calendarReadOnly: true,
+    });
+
+    calendarListEventsMock.mockClear().mockResolvedValue({
+      items: [
+        {
+          id: "friends-event",
+          start: { dateTime: "2026-07-06T16:00:00Z" },
+          end: { dateTime: "2026-07-06T16:30:00Z" },
+        },
+      ],
+    });
+    const selectedFallback = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+      { calendarSourceKeys: [fallbackSourceKey!] },
+    );
+    expect(selectedFallback.events).toHaveLength(1);
+    expect(selectedFallback.events[0].id).toBe(result.events[0].id);
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(1);
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
+      "zulu-token",
+      "alpha@example.com",
+      expect.any(Object),
+    );
+  });
+
+  it("keeps equal provider ids from distinct primary accounts separate", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue(
+      ["alpha@example.com", "zulu@example.com"].map((accountId) => ({
+        accountId,
+        tokens: {
+          access_token: `${accountId}-token`,
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      })),
+    );
+    calendarListEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: "same-provider-id",
+          summary: "Account-specific event",
+          start: { dateTime: "2026-07-06T16:00:00Z" },
+          end: { dateTime: "2026-07-06T16:30:00Z" },
+        },
+      ],
+    });
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(result.events).toHaveLength(2);
+    expect(result.events.map((event) => event.accountEmail)).toEqual([
+      "alpha@example.com",
+      "zulu@example.com",
+    ]);
+    const eventIds = result.events.map((event) => event.id);
+    expect(eventIds[0]).not.toBe(eventIds[1]);
+    expect(eventIds).toEqual([
+      expect.stringMatching(/^google-account-event:/),
+      expect.stringMatching(/^google-account-event:/),
+    ]);
   });
 
   it("validates selected sources and preserves their event provenance", async () => {
@@ -827,7 +990,15 @@ describe("calendar event listing", () => {
         },
       },
     ]);
-    calendarListEventsMock.mockResolvedValue({ items: [] });
+    calendarListEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: "shared-provider-id",
+          start: { dateTime: "2026-07-06T16:00:00Z" },
+          end: { dateTime: "2026-07-06T16:30:00Z" },
+        },
+      ],
+    });
 
     const result = await listEvents(
       "2026-07-06T00:00:00Z",
@@ -836,7 +1007,12 @@ describe("calendar event listing", () => {
       { accountEmails: ["QUIET@example.com"] },
     );
 
-    expect(result).toEqual({ events: [], errors: [] });
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      id: expect.stringMatching(/^google-account-event:/),
+      accountEmail: "quiet@example.com",
+    });
+    expect(result.errors).toEqual([]);
     expect(calendarListEventsMock).toHaveBeenCalledTimes(1);
     expect(calendarListEventsMock).toHaveBeenCalledWith(
       "quiet-token",

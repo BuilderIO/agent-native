@@ -637,8 +637,12 @@ const enUS = {
     setupReady: "ready",
     builderDescriptionReady: "Connected for managed generation.",
     builderDescriptionManaged:
-      "Managed image generation and storage, no provider keys.",
-    builderDescriptionDisabled: "Disabled for this deployment.",
+      "Connect Builder for managed image generation and storage. Video generation is available when enabled for your space.",
+    builderDescriptionDisabled:
+      "Image generation is disabled here; Builder video may still be available.",
+    builderLookupFailed:
+      "Couldn’t check Builder access. Retry to refresh the connection status.",
+    statusUnavailable: "Status unavailable",
     optional: "Optional",
     reconnect: "Reconnect",
     generation: "Generation",
@@ -646,7 +650,7 @@ const enUS = {
     generationNeedsSetup: "Needs setup",
     manualGenerationKeys: "Manual generation keys",
     manualGenerationDescription:
-      "Add Gemini for video generation, or OpenAI/Gemini as image fallbacks.",
+      "Add Gemini for manual video generation, or OpenAI/Gemini as image fallbacks.",
     storage: "Storage",
     storageReady:
       "Originals, thumbnails, videos, and exports have a durable home.",
@@ -668,7 +672,8 @@ const enUS = {
     saveKey: "Save key",
     saving: "Saving",
     noManualOptions: "No manual setup options are available for this item.",
-    builderManaged: "Builder is handling managed image generation.",
+    builderManaged:
+      "Builder manages image generation. Video generation is available when enabled for your space.",
     providerConfigured: "{{providers}} configured.",
     addGeminiOrOpenAI: "Add Gemini or OpenAI before generating new assets.",
     addBuilderGeminiOrOpenAI:
@@ -3987,15 +3992,20 @@ export const messagesByLocale = {
         "在生成新资产之前添加 Builder、Gemini 或 OpenAI。",
       addGeminiOrOpenAI: "在生成新资产之前添加Gemini或OpenAI。",
       brandKits: "品牌套件",
-      builderDescriptionDisabled: "对此部署禁用。",
-      builderDescriptionManaged: "托管图像生成和存储，无需提供商密钥。",
+      builderDescriptionDisabled:
+        "此处已停用图像生成；Builder 视频生成功能仍可能可用。",
+      builderLookupFailed: "无法检查 Builder 访问权限。重试以刷新连接状态。",
+      statusUnavailable: "状态不可用",
+      builderDescriptionManaged:
+        "连接 Builder 即可使用托管图像生成和存储。若你的空间已启用视频生成功能，也可使用该功能。",
       builderDescriptionReady: "连接管理一代。",
-      builderManaged: "Builder 正在处理托管映像生成。",
+      builderManaged:
+        "Builder 管理图像生成。若你的空间已启用视频生成功能，即可使用。",
       chooseProvider: "选择提供商",
       enterValueFirst: "首先输入一个值。",
       generationNeedsSetup: "需要设置",
       manualGenerationDescription:
-        "添加 Gemini 用于视频生成，或 OpenAI/Gemini 作为图像后备。",
+        "添加 Gemini 作为手动视频生成选项，或 OpenAI/Gemini 作为图像后备选项。",
       manualGenerationKeys: "手动生成密钥",
       manualKeys: "手动按键",
       noManualOptions: "该项目没有可用的手动设置选项。",
@@ -4834,17 +4844,21 @@ export const messagesByLocale = {
       addGeminiOrOpenAI:
         "Agregue Gemini o OpenAI antes de generar nuevos activos.",
       brandKits: "Kits de marca",
-      builderDescriptionDisabled: "Deshabilitado para esta implementación.",
+      builderDescriptionDisabled:
+        "La generación de imágenes está desactivada aquí; la generación de vídeo de Builder puede seguir disponible.",
+      builderLookupFailed:
+        "No se pudo comprobar el acceso a Builder. Vuelve a intentarlo para actualizar el estado de la conexión.",
+      statusUnavailable: "Estado no disponible",
       builderDescriptionManaged:
-        "Generación y almacenamiento de imágenes gestionados, sin claves de proveedor.",
+        "Conecta Builder para usar la generación y el almacenamiento de imágenes gestionados. La generación de vídeo está disponible si se habilita para tu espacio.",
       builderDescriptionReady: "Conectado para generación gestionada.",
       builderManaged:
-        "Builder se encarga de la generación de imágenes administradas.",
+        "Builder gestiona la generación de imágenes. La generación de vídeo está disponible si se habilita para tu espacio.",
       chooseProvider: "Elige un proveedor",
       enterValueFirst: "Introduzca un valor primero.",
       generationNeedsSetup: "Necesita configuración",
       manualGenerationDescription:
-        "Agregue Gemini para generación de video o OpenAI/Gemini como respaldo de imágenes.",
+        "Agregue Gemini para la generación manual de vídeo u OpenAI/Gemini como alternativas para imágenes.",
       manualGenerationKeys: "Claves de generación manual",
       manualKeys: "llaves manuales",
       noManualOptions:
@@ -5346,16 +5360,21 @@ export const messagesByLocale = {
       addGeminiOrOpenAI:
         "Ajoutez Gemini ou OpenAI avant de générer de nouveaux actifs.",
       brandKits: "Kits de marque",
-      builderDescriptionDisabled: "Désactivé pour ce déploiement.",
+      builderDescriptionDisabled:
+        "La génération d’images est désactivée ici ; la génération vidéo de Builder peut rester disponible.",
+      builderLookupFailed:
+        "Impossible de vérifier l’accès à Builder. Réessayez pour actualiser l’état de la connexion.",
+      statusUnavailable: "État indisponible",
       builderDescriptionManaged:
-        "Génération et stockage d'images gérés, pas de clés de fournisseur.",
+        "Connectez Builder pour gérer la génération et le stockage d’images. La génération vidéo est disponible si elle est activée pour votre espace.",
       builderDescriptionReady: "Connecté pour une génération gérée.",
-      builderManaged: "Builder gère la génération d'images gérées.",
+      builderManaged:
+        "Builder gère la génération d’images. La génération vidéo est disponible si elle est activée pour votre espace.",
       chooseProvider: "Choisissez un fournisseur",
       enterValueFirst: "Entrez d'abord une valeur.",
       generationNeedsSetup: "Nécessite une configuration",
       manualGenerationDescription:
-        "Ajoutez Gemini pour la génération vidéo, ou OpenAI/Gemini comme images de secours.",
+        "Ajoutez Gemini pour la génération vidéo manuelle, ou OpenAI/Gemini comme solutions de secours pour les images.",
       manualGenerationKeys: "Clés de génération manuelle",
       manualKeys: "Clés manuelles",
       noManualOptions:
@@ -5847,8 +5866,12 @@ export const messagesByLocale = {
       setupReady: "bereit",
       builderDescriptionReady: "Für verwaltete Generierung verbunden.",
       builderDescriptionManaged:
-        "Verwaltete Bildgenerierung und Speicher, keine Provider-Schlüssel.",
-      builderDescriptionDisabled: "Für diese Bereitstellung deaktiviert.",
+        "Verbinde Builder für verwaltete Bildgenerierung und Speicherung. Videogenerierung ist verfügbar, wenn sie für deinen Space aktiviert ist.",
+      builderDescriptionDisabled:
+        "Die Bildgenerierung ist hier deaktiviert; die Videogenerierung mit Builder kann weiterhin verfügbar sein.",
+      builderLookupFailed:
+        "Der Builder-Zugriff konnte nicht geprüft werden. Versuche es erneut, um den Verbindungsstatus zu aktualisieren.",
+      statusUnavailable: "Status nicht verfügbar",
       optional: "Optional",
       reconnect: "Neu verbinden",
       generation: "Generierung",
@@ -5856,7 +5879,7 @@ export const messagesByLocale = {
       generationNeedsSetup: "Einrichtung erforderlich",
       manualGenerationKeys: "Manuelle Generierungsschlüssel",
       manualGenerationDescription:
-        "Füge Gemini für Videogenerierung oder OpenAI/Gemini als Bild-Fallbacks hinzu.",
+        "Füge Gemini für die manuelle Videogenerierung oder OpenAI/Gemini als Bild-Fallbacks hinzu.",
       storage: "Speicher",
       storageReady:
         "Originale, Miniaturen, Videos und Exporte haben einen dauerhaften Speicherort.",
@@ -5869,7 +5892,8 @@ export const messagesByLocale = {
       connecting: "Verbindung wird hergestellt",
       noManualOptions:
         "Für dieses Element sind keine manuellen Einrichtungsoptionen verfügbar.",
-      builderManaged: "Builder verwaltet die Bildgenerierung.",
+      builderManaged:
+        "Builder verwaltet die Bildgenerierung. Videogenerierung ist verfügbar, wenn sie für deinen Space aktiviert ist.",
       providerConfigured: "{{providers}} konfiguriert.",
 
       addBuilderGeminiOrOpenAI:
@@ -6244,8 +6268,12 @@ export const messagesByLocale = {
       setupReady: "準備完了",
       builderDescriptionReady: "管理された生成に接続済みです。",
       builderDescriptionManaged:
-        "管理された画像生成とストレージ。プロバイダーキーは不要です。",
-      builderDescriptionDisabled: "このデプロイでは無効です。",
+        "Builder に接続すると、画像生成と保存を管理できます。動画生成はスペースで有効な場合に利用できます。",
+      builderDescriptionDisabled:
+        "ここでは画像生成が無効です。Builder の動画生成は引き続き利用できる場合があります。",
+      builderLookupFailed:
+        "Builder のアクセス権を確認できませんでした。再試行して接続状態を更新してください。",
+      statusUnavailable: "状態を確認できません",
       optional: "任意",
       reconnect: "再接続",
       generation: "生成",
@@ -6253,7 +6281,7 @@ export const messagesByLocale = {
       generationNeedsSetup: "設定が必要です",
       manualGenerationKeys: "手動生成キー",
       manualGenerationDescription:
-        "動画生成には Gemini を、画像のフォールバックには OpenAI/Gemini を追加します。",
+        "手動で動画を生成する場合は Gemini、画像の代替には OpenAI/Gemini を追加します。",
       storage: "ストレージ",
       storageReady:
         "オリジナル、サムネイル、動画、エクスポートの保存先が確保されています。",
@@ -6265,7 +6293,8 @@ export const messagesByLocale = {
       available: "利用可能",
       connecting: "接続中",
       noManualOptions: "この項目で利用できる手動設定オプションはありません。",
-      builderManaged: "Builder が管理された画像生成を処理しています。",
+      builderManaged:
+        "Builder が画像生成を管理します。動画生成はスペースで有効な場合に利用できます。",
       providerConfigured: "{{providers}} が設定済みです。",
 
       addBuilderGeminiOrOpenAI:
@@ -6637,8 +6666,12 @@ export const messagesByLocale = {
       setupReady: "준비됨",
       builderDescriptionReady: "관리형 생성에 연결되었습니다.",
       builderDescriptionManaged:
-        "관리형 이미지 생성 및 저장소, 제공자 키가 필요 없습니다.",
-      builderDescriptionDisabled: "이 배포에서는 비활성화되었습니다.",
+        "이미지 생성 및 저장을 관리하려면 Builder를 연결하세요. 동영상 생성은 워크스페이스에서 사용 설정된 경우 이용할 수 있습니다.",
+      builderDescriptionDisabled:
+        "여기서는 이미지 생성이 비활성화되어 있습니다. Builder 동영상 생성은 계속 사용할 수 있을 수 있습니다.",
+      builderLookupFailed:
+        "Builder 액세스를 확인할 수 없습니다. 다시 시도하여 연결 상태를 새로고침하세요.",
+      statusUnavailable: "상태를 확인할 수 없음",
       optional: "선택 사항",
       reconnect: "다시 연결",
       generation: "생성",
@@ -6646,7 +6679,7 @@ export const messagesByLocale = {
       generationNeedsSetup: "설정 필요",
       manualGenerationKeys: "수동 생성 키",
       manualGenerationDescription:
-        "비디오 생성에는 Gemini를, 이미지 대체 모델에는 OpenAI/Gemini를 추가하세요.",
+        "수동 동영상 생성에는 Gemini를, 이미지 대체에는 OpenAI/Gemini를 추가하세요.",
       storage: "저장소",
       storageReady:
         "원본, 썸네일, 비디오, 내보내기에 사용할 영구 저장소가 있습니다.",
@@ -6658,7 +6691,8 @@ export const messagesByLocale = {
       available: "사용 가능",
       connecting: "연결 중",
       noManualOptions: "이 항목에 사용할 수 있는 수동 설정 옵션이 없습니다.",
-      builderManaged: "Builder가 관리형 이미지 생성을 처리합니다.",
+      builderManaged:
+        "Builder가 이미지 생성을 관리합니다. 동영상 생성은 워크스페이스에서 사용 설정된 경우 이용할 수 있습니다.",
       providerConfigured: "{{providers}} 설정됨.",
 
       addBuilderGeminiOrOpenAI:
@@ -7032,17 +7066,21 @@ export const messagesByLocale = {
       addGeminiOrOpenAI:
         "Adicione Gemini ou OpenAI antes de gerar novos ativos.",
       brandKits: "Kits de marca",
-      builderDescriptionDisabled: "Desativado para esta implantação.",
+      builderDescriptionDisabled:
+        "A geração de imagens está desativada aqui; a geração de vídeo do Builder ainda pode estar disponível.",
+      builderLookupFailed:
+        "Não foi possível verificar o acesso ao Builder. Tente novamente para atualizar o estado da conexão.",
+      statusUnavailable: "Status indisponível",
       builderDescriptionManaged:
-        "Geração e armazenamento de imagens gerenciados, sem chaves de provedor.",
+        "Conecte o Builder para gerenciar a geração e o armazenamento de imagens. A geração de vídeo fica disponível quando ativada para seu espaço.",
       builderDescriptionReady: "Conectado para geração gerenciada.",
       builderManaged:
-        "Builder está lidando com a geração de imagens gerenciadas.",
+        "O Builder gerencia a geração de imagens. A geração de vídeo fica disponível quando ativada para seu espaço.",
       chooseProvider: "Escolha um provedor",
       enterValueFirst: "Insira um valor primeiro.",
       generationNeedsSetup: "Precisa de configuração",
       manualGenerationDescription:
-        "Adicione Gemini para geração de vídeo ou OpenAI/Gemini como substitutos de imagem.",
+        "Adicione Gemini para geração manual de vídeo ou OpenAI/Gemini como alternativas para imagens.",
       manualGenerationKeys: "Chaves de geração manual",
       manualKeys: "Chaves manuais",
       noManualOptions:
@@ -7524,8 +7562,12 @@ export const messagesByLocale = {
       setupReady: "तैयार",
       builderDescriptionReady: "Managed generation के लिए connected.",
       builderDescriptionManaged:
-        "Managed image generation और storage, provider keys के बिना.",
-      builderDescriptionDisabled: "इस deployment के लिए disabled.",
+        "प्रबंधित इमेज जनरेशन और स्टोरेज के लिए Builder कनेक्ट करें। वीडियो जनरेशन आपके स्पेस में सक्षम होने पर उपलब्ध है।",
+      builderDescriptionDisabled:
+        "यहां छवि निर्माण बंद है; Builder वीडियो निर्माण फिर भी उपलब्ध हो सकता है।",
+      builderLookupFailed:
+        "Builder की पहुंच जांची नहीं जा सकी। कनेक्शन की स्थिति अपडेट करने के लिए फिर से प्रयास करें।",
+      statusUnavailable: "स्थिति उपलब्ध नहीं",
       optional: "वैकल्पिक",
       reconnect: "फिर से कनेक्ट करें",
       generation: "जनरेशन",
@@ -7533,7 +7575,7 @@ export const messagesByLocale = {
       generationNeedsSetup: "Setup जरूरी",
       manualGenerationKeys: "मैनुअल generation keys",
       manualGenerationDescription:
-        "वीडियो generation के लिए Gemini जोड़ें, या image fallbacks के लिए OpenAI/Gemini.",
+        "मैन्युअल वीडियो जनरेशन के लिए Gemini जोड़ें, या इमेज फ़ॉलबैक के लिए OpenAI/Gemini जोड़ें।",
       storage: "स्टोरेज",
       storageReady:
         "Originals, thumbnails, videos और exports के लिए durable home मौजूद है.",
@@ -7545,7 +7587,8 @@ export const messagesByLocale = {
       available: "उपलब्ध",
       connecting: "कनेक्ट हो रहा है",
       noManualOptions: "इस item के लिए कोई manual setup options उपलब्ध नहीं हैं.",
-      builderManaged: "Builder managed image generation संभाल रहा है.",
+      builderManaged:
+        "Builder इमेज जनरेशन संभालता है। वीडियो जनरेशन आपके स्पेस में सक्षम होने पर उपलब्ध है।",
       providerConfigured: "{{providers}} configured.",
 
       addBuilderGeminiOrOpenAI:
@@ -7915,16 +7958,21 @@ export const messagesByLocale = {
         "قم بإضافة Builder، أو Gemini، أو OpenAI قبل إنشاء أصول جديدة.",
       addGeminiOrOpenAI: "أضف Gemini أو OpenAI قبل إنشاء أصول جديدة.",
       brandKits: "مجموعات العلامة التجارية",
-      builderDescriptionDisabled: "معطل لهذا النشر.",
+      builderDescriptionDisabled:
+        "إنشاء الصور معطّل هنا؛ قد يظل إنشاء الفيديو عبر Builder متاحًا.",
+      builderLookupFailed:
+        "تعذّر التحقق من الوصول إلى Builder. أعد المحاولة لتحديث حالة الاتصال.",
+      statusUnavailable: "الحالة غير متاحة",
       builderDescriptionManaged:
-        "إدارة إنشاء الصور وتخزينها، بدون مفاتيح الموفر.",
+        "اربط Builder لإدارة إنشاء الصور وتخزينها. يتوفر إنشاء الفيديو عند تفعيله لمساحتك.",
       builderDescriptionReady: "متصل للجيل المدار.",
-      builderManaged: "يتعامل Builder مع إنشاء الصور المُدارة.",
+      builderManaged:
+        "يدير Builder إنشاء الصور. يتوفر إنشاء الفيديو عند تفعيله لمساحتك.",
       chooseProvider: "اختر مزودًا",
       enterValueFirst: "أدخل قيمة أولاً.",
       generationNeedsSetup: "يحتاج إلى إعداد",
       manualGenerationDescription:
-        "أضف Gemini لإنشاء الفيديو، أو OpenAI/Gemini كصور احتياطية.",
+        "أضف Gemini لإنشاء الفيديو يدويًا، أو OpenAI/Gemini كخيارات احتياطية للصور.",
       manualGenerationKeys: "مفاتيح الجيل اليدوي",
       manualKeys: "مفاتيح يدوية",
       noManualOptions: "لا تتوفر خيارات الإعداد اليدوي لهذا العنصر.",

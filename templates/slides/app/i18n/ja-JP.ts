@@ -54,6 +54,7 @@ const messages = {
     emptyState: "プレゼンテーションについて何でも聞いてください",
     thisSlide: "このスライド",
     currentSelection: "現在の選択",
+    slideNumber: "スライド {{number}}",
     suggestionPitch: "このドキュメントから 10 枚のピッチ資料を作成",
     suggestionBrand: "このデッキにブランドを適用",
     suggestionHero: "このスライド用のヒーロー画像を生成",
@@ -183,6 +184,12 @@ const messages = {
     emptyTitle: "ブランドアイデンティティを設定",
     emptyDescription:
       "ブランドカラー、タイポグラフィ、ロゴを使ってデザインシステムを作成します。新しいデッキはすべてそのビジュアルアイデンティティに従います。",
+    tierLimitTitle: "デザインシステムの上限に達しました",
+    tierLimitDescription:
+      "現在のBuilderプランのデザインシステム上限に達しました。BuilderBuilderプランをアップグレードして新しく作成してください。",
+    tierLimitDescriptionWithCount:
+      "Builderの{{plan}}プランでデザインシステムを{{current}}/{{max}}件使用しています。アップグレードして新しく作成してください。",
+    tierLimitUpgrade: "プランをアップグレード",
   },
   editorToolbar: {
     layoutTitle: "タイトル",
@@ -692,6 +699,8 @@ const messages = {
       "今終了または再読み込みすると、まだ保存されていない変更が失われる可能性があります。本当に終了しますか？",
     keepEditing: "編集を続ける",
     leaveWithoutSaving: "保存せずに終了",
+    editorMarkupNotSaved:
+      "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
   },
   designSystemSetup: {
     importedBrand: "インポートしたブランド",
@@ -752,6 +761,8 @@ const messages = {
     websitePlaceholder: "example.com または Nike",
     add: "追加",
     githubRepository: "コードを接続: GitHub リポジトリ",
+    codeIndexingEnterpriseOnly:
+      "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
     githubRef: "ブランチ、タグ、コミット（任意）",
     githubPaths: "ファイルまたはフォルダー（カンマ区切り、任意）",
     codeFiles: "コードファイルを接続",
@@ -822,10 +833,6 @@ const messages = {
     continue: "続行",
     continueToGenerate: "生成に進む",
     designSystem: "デザインシステム",
-    designSystemIndexing: "インデックス作成中…",
-    designSystemUnavailable: "利用不可",
-    designSystemIndexingNotice:
-      "このデザインシステムはまだインデックス作成中です。続行する前に別のシステムを選択するか、完了をお待ちください。",
     referenceDeck: "参考デッキ",
     referenceDeckPlaceholder: "既存デッキのスタイルに合わせる",
     referenceDeckNone: "使用しない",

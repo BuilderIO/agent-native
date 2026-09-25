@@ -55,9 +55,11 @@ import {
   isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
+  patchCloudflareModuleServerOutput,
   generateProvidedPluginsNitroPluginSource,
   generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
+  shimCloudflarePagesModuleTimers,
   isAwsAmplifyPreset,
   configureAwsLambdaRuntimeOutput,
   isCloudflareModulePreset,
@@ -315,6 +317,94 @@ describe("AWS Lambda streaming runtime output", () => {
 });
 
 describe("AWS Amplify runtime output", () => {
+  it("keeps workspace app-scoped database URLs in the runtime env", () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-workspace-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "index.mjs"), "");
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_NAME: "",
+      AGENT_NATIVE_WORKSPACE_APP_ID: "account-expert",
+      ACCOUNT_EXPERT_DATABASE_URL: "postgres://account-expert.example/db",
+      ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED:
+        "postgres://account-expert-direct.example/db",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_WORKSPACE_APP_ID="account-expert"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL="postgres://account-expert.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED="postgres://account-expert-direct.example/db"',
+    );
+  });
+
+  it("uses the VITE workspace app ID for app-scoped database URLs", () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-vite-workspace-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "index.mjs"), "");
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_NAME: "",
+      VITE_AGENT_NATIVE_WORKSPACE_APP_ID: "account-expert",
+      ACCOUNT_EXPERT_DATABASE_URL: "postgres://account-expert.example/db",
+      ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED:
+        "postgres://account-expert-direct.example/db",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain(
+      'VITE_AGENT_NATIVE_WORKSPACE_APP_ID="account-expert"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL="postgres://account-expert.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED="postgres://account-expert-direct.example/db"',
+    );
+  });
+
+  it.each([
+    ["trims a padded primary workspace ID", " account-expert ", "ignored"],
+    ["skips a blank primary ID", "   ", "account-expert"],
+  ])("%s", (_name, workspaceAppId, viteWorkspaceAppId) => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-normalized-workspace-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "index.mjs"), "");
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_NAME: "",
+      AGENT_NATIVE_WORKSPACE_APP_ID: workspaceAppId,
+      VITE_AGENT_NATIVE_WORKSPACE_APP_ID: viteWorkspaceAppId,
+      ACCOUNT_EXPERT_DATABASE_URL: "postgres://account-expert.example/db",
+      ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED:
+        "postgres://account-expert-direct.example/db",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL="postgres://account-expert.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED="postgres://account-expert-direct.example/db"',
+    );
+  });
+
   it("loads declared env keys before Nitro's compute entry", () => {
     const appDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "agent-native-amplify-test-"),
@@ -582,6 +672,34 @@ describe("resolveNitroBuildReplacements", () => {
       fs.rmSync(projectCwd, { recursive: true, force: true });
     }
   });
+
+  it("embeds the first-run onboarding mode resolved from the app config", () => {
+    expect(
+      resolveNitroBuildReplacements({}, undefined, undefined, "off")[
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"
+      ],
+    ).toBe(JSON.stringify("off"));
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING"
+      ],
+    ).toBe(JSON.stringify(""));
+  });
+
+  it("embeds the hosted harness setting resolved from the app config", () => {
+    expect(
+      resolveNitroBuildReplacements({}, undefined, undefined, "", "true")[
+        "process.env.AGENT_NATIVE_BUILD_HARNESS"
+      ],
+    ).toBe(JSON.stringify("true"));
+    // The default "" means no build recorded a value (older core) — distinct
+    // from a positively resolved "null" (configured "not configured").
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_HARNESS"
+      ],
+    ).toBe(JSON.stringify(""));
+  });
 });
 
 describe("isCloudflareModulePreset", () => {
@@ -612,19 +730,72 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain("function initializeBindings(env)");
-    expect(entry).toContain('export * from "./index.mjs";');
+    expect(entry).not.toContain("export * from");
+    // Restore must run AFTER loadHandler() resolves, not before: on a cold
+    // isolate nothing has captured the real setInterval yet until
+    // loadHandler()'s dynamic import actually evaluates the shimmed
+    // dependency graph. Restoring first is a no-op, then the shim re-neuters
+    // setInterval during that import with nothing left to restore it again —
+    // real request-time setInterval calls silently get the no-op stub.
     expect(entry).toContain(
-      "initializeBindings(env);\n    return (await loadHandler())",
+      "const h = await loadHandler();\n    __cfRestoreModuleTimers();\n    return h.fetch",
     );
     expect(entry).toContain('await import("./index.mjs")');
-    expect(entry).toContain(
-      "return (await loadHandler()).fetch(request, env, ctx);",
-    );
     expect(entry).toContain("async scheduled(controller, env, ctx)");
     expect(entry).toContain("async queue(batch, env, ctx)");
     expect(entry).toContain("async email(message, env, ctx)");
     expect(entry).toContain("async tail(traces, env, ctx)");
     expect(entry).toContain("async trace(traces, env, ctx)");
+  });
+
+  // Regression for the Builder review finding: restoring before loadHandler()
+  // is a no-op on a cold isolate (nothing has captured the real setInterval
+  // yet), so the shim's neutering during that later import wins and never
+  // gets undone. Proven behaviorally, not just by string-matching the source.
+  it("restores the real setInterval before the loaded handler runs, even on a cold isolate", async () => {
+    const dir = makeTempDir();
+    const marker = "__test_captured_set_interval__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+// A module-scope timer, the same shape patchCloudflareModuleServerOutput
+// shims in a real Nitro dependency chunk.
+setInterval(() => {}, 60_000).unref?.();
+
+export default {
+  async fetch() {
+    globalThis.${marker} = setInterval;
+    return new Response("ok");
+  },
+};
+`,
+    );
+    // Applies the real build-time patch, exactly as buildWithNitro's
+    // post-build step does to server output before worker.mjs ever runs.
+    patchCloudflareModuleServerOutput(dir);
+
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const realSetIntervalBefore = globalThis.setInterval;
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+
+      await worker.fetch(new Request("https://app.test/"), {}, {});
+
+      expect((globalThis as Record<string, unknown>)[marker]).toBe(
+        realSetIntervalBefore,
+      );
+    } finally {
+      globalThis.setInterval = realSetIntervalBefore;
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      Reflect.deleteProperty(
+        globalThis as Record<string, unknown>,
+        "__cfModuleOrigSetInterval",
+      );
+    }
   });
 
   it("points Wrangler at the lazy entry while retaining the Nitro server", () => {
@@ -654,6 +825,70 @@ describe("Cloudflare module Worker entry", () => {
     expect(
       fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
     ).toContain("t??=Ei();");
+  });
+});
+
+describe("patchCloudflareModuleServerOutput", () => {
+  it("recurses into nested dependency paths a flat scan would miss", () => {
+    const serverDir = makeTempDir();
+    const nestedDir = path.join(serverDir, "_libs", "@agent-native");
+    fs.mkdirSync(nestedDir, { recursive: true });
+    const nestedFile = path.join(nestedDir, "core.mjs");
+    fs.writeFileSync(
+      nestedFile,
+      "setInterval(() => cleanup(), 60_000).unref?.();\nexport const cleanup = () => {};",
+    );
+
+    patchCloudflareModuleServerOutput(serverDir);
+
+    const patched = fs.readFileSync(nestedFile, "utf8");
+    expect(patched).toContain("__cf_module_timer_shim__");
+    expect(patched).toContain("globalThis.setInterval=function()");
+    expect(patched.indexOf("globalThis.setInterval=function()")).toBeLessThan(
+      patched.indexOf("setInterval(() => cleanup()"),
+    );
+    // Module chunks never restore themselves — only worker.mjs does, from
+    // inside its handlers — so nothing gets appended after the file's
+    // original tail.
+    expect(patched.trimEnd().endsWith("export const cleanup = () => {};")).toBe(
+      true,
+    );
+  });
+
+  it("is idempotent across repeated patch passes", () => {
+    const serverDir = makeTempDir();
+    const file = path.join(serverDir, "index.mjs");
+    fs.writeFileSync(file, "setInterval(() => {}, 1000);");
+
+    patchCloudflareModuleServerOutput(serverDir);
+    const once = fs.readFileSync(file, "utf8");
+    patchCloudflareModuleServerOutput(serverDir);
+    const twice = fs.readFileSync(file, "utf8");
+
+    expect(twice).toBe(once);
+    expect(once.match(/__cf_module_timer_shim__/g)).toHaveLength(1);
+  });
+
+  it("shares its globalThis capture key with the worker entry's restore helper", () => {
+    const serverDir = makeTempDir();
+    fs.mkdirSync(path.join(serverDir, "_libs"), { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "_libs", "core.mjs"),
+      "setInterval(() => {}, 1000);",
+    );
+
+    patchCloudflareModuleServerOutput(serverDir);
+    const shimmed = fs.readFileSync(
+      path.join(serverDir, "_libs", "core.mjs"),
+      "utf8",
+    );
+    const captureKeyMatch = shimmed.match(
+      /globalThis\.(\w+)===["']undefined["']/,
+    );
+    expect(captureKeyMatch).not.toBeNull();
+
+    const entry = generateCloudflareModuleWorkerEntry();
+    expect(entry).toContain(`globalThis.${captureKeyMatch![1]}`);
   });
 });
 
@@ -1021,6 +1256,92 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
     expect(source).toContain(
       "runWithRequestContext(anonymousContext, () => rrHandler(request))",
     );
+  });
+
+  // Pages' worker used to copy bindings into process.env without ever setting
+  // `globalThis.__env__` — the framework's canonical Cloudflare invocation
+  // signal (hasCloudflareRuntime() in db/client.ts). That silently defeated
+  // every runtime check keyed off it, including the hosted-database guard,
+  // on every real Cloudflare Pages deploy.
+  describe("Cloudflare Pages worker entry", () => {
+    afterEach(() => {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    });
+
+    it("sets globalThis.__env__ from the same shared helper as the Module entry", () => {
+      const source = generateWorkerEntry([], []);
+
+      expect(source).toContain("function initializeBindings(env)");
+      expect(source).toContain("globalThis.__env__ = env;");
+      expect(source).toContain("initializeBindings(env);");
+    });
+
+    it("actually sets globalThis.__env__ when the worker handles a real request", async () => {
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+      const bindings = { DATABASE_URL: "postgres://example.test/db" };
+
+      await worker.fetch(new Request("https://app.test/"), bindings, {});
+
+      expect((globalThis as Record<string, unknown>).__env__).toBe(bindings);
+    });
+
+    // Regression: the Pages entry's __cfRestoreModuleTimers() call used to be
+    // dead code. buildCloudflarePages()'s own post-build patch shimmed every
+    // file with a separate, per-file `var __origSetInterval`, never the
+    // globalThis.__cfModuleOrigSetInterval key the Pages entry's restore
+    // function actually reads — so the restore never did anything. Proven
+    // with shimCloudflarePagesModuleTimers(), the exact function
+    // buildCloudflarePages()'s per-file loop now calls instead of its own
+    // disconnected shim — not a stand-in for it.
+    it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "keep-alive-action.mjs");
+      const rawAction = `
+// A module-scope timer, the same shape a real Pages dependency chunk gets
+// shimmed into by buildCloudflarePages()'s post-build patch loop.
+setInterval(() => {}, 60_000).unref?.();
+
+export default { run: async () => ({ ok: true }) };
+`;
+      // Applies the exact function buildCloudflarePages()'s per-file loop now
+      // calls (unified onto cloudflareModuleTimerShimPrefix() /
+      // CF_MODULE_ORIG_SET_INTERVAL_KEY), not a stand-in for it.
+      fs.writeFileSync(actionPath, shimCloudflarePagesModuleTimers(rawAction));
+
+      const entrySource = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "keep-alive", absPath: actionPath, method: "post" }],
+        null,
+        [],
+        "",
+        { includeReactRouterSsr: false },
+      );
+      const entryPath = path.join(dir, "entry.mjs");
+      fs.writeFileSync(entryPath, entrySource);
+
+      const realSetIntervalBefore = globalThis.setInterval;
+      try {
+        const worker = (
+          await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+        ).default;
+
+        // Statically importing the entry above also imported the action
+        // fixture, which ran the shared shim before any fetch() call.
+        expect(globalThis.setInterval).not.toBe(realSetIntervalBefore);
+
+        await worker.fetch(new Request("https://app.test/"), {}, {});
+
+        expect(globalThis.setInterval).toBe(realSetIntervalBefore);
+      } finally {
+        globalThis.setInterval = realSetIntervalBefore;
+        Reflect.deleteProperty(
+          globalThis as Record<string, unknown>,
+          "__cfModuleOrigSetInterval",
+        );
+      }
+    });
   });
 
   it("guards UI-only actions in generated workers", () => {

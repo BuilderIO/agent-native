@@ -401,11 +401,13 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### 每個應用獨立部署
 
-更喜歡每個應用程式在自己的域中（`mail.company.com`、`calendar.company.com`）？工作區中的每個應用程式仍然是獨立可部署的 - `cd apps/mail && npx @agent-native/core@latest build` 的行為與獨立腳手架完全相同。然後，跨應用程式 A2A 透過具有共用 `A2A_SECRET` 的標準 JWT 簽名路徑。單獨部署的應用程式之間的跨域 SSO 由以 Dispatch 作為中心的身分聯合處理 - 請參閱 [Cross-App SSO](/docs/cross-app-sso)；統一的單來源部署避免了需要它。
+更喜歡每個應用程式在自己的域中（`mail.company.com`、`calendar.company.com`）？工作區中的每個應用程式仍然是獨立可部署的 - `cd apps/mail && pnpm build` 的行為與獨立腳手架完全相同。然後，跨應用程式 A2A 透過具有共用 `A2A_SECRET` 的標準 JWT 簽名路徑。單獨部署的應用程式之間的跨域 SSO 由以 Dispatch 作為中心的身分聯合處理 - 請參閱 [Cross-App SSO](/docs/cross-app-sso)；統一的單來源部署避免了需要它。
 
 ### 共用資料庫、共用憑證
 
 無論您選取什麼，都將每個應用程式指向相同的 `DATABASE_URL` 以獲得開箱即用的跨應用程式狀態：一組使用者帳戶、一組組織、一組共用設定。如果每個應用程式都有自己的資料庫，那麼工作區模式仍然有效 - 您只是失去了共用狀態的故事。
+
+共用同一資料庫的程序會累加連線需求。例如，五個長時間執行的 Node.js 應用程式程序各自為相同的 `DATABASE_URL` 使用一個共用執行階段連線池時，依每個連線池預設 20 個連線計算，最多可使用 100 個連線（`5 × 1 個連線池 × 20`）。對於無伺服器工作區，請根據執行階段對應的連線池預設值估算每個應用程式的暖機函式執行個體數。`AGENT_NATIVE_DB_POOL_MAX` 和完整的預算說明請參閱[伺服器資料庫](/docs/server-database)。
 
 共用包本身永遠不會獨立部署。這是一個 `workspace:*` 依賴項，pnpm 符號連結到每個應用程式的 `node_modules/`，因此每個應用程式在建置時透明地捆綁它需要的任何內容。
 

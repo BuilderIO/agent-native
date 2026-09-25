@@ -174,10 +174,7 @@ import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
 } from "./harness/hosted.js";
-import {
-  BUILDER_JEV_PROXY_ENABLED,
-  preloadJevTools,
-} from "./jev-tool-prefetch.js";
+import { preloadJevTools } from "./jev-tool-prefetch.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -674,15 +671,36 @@ export async function getOwnerApiKey(
 export async function getOwnerJevApiKey(
   ownerEmail: string | null | undefined,
 ): Promise<string | undefined> {
-  if (!ownerEmail) return undefined;
+  return (await getOwnerJevApiKeyCredential(ownerEmail)).credential?.apiKey;
+}
+
+async function getOwnerJevApiKeyCredential(
+  ownerEmail: string | null | undefined,
+): Promise<{
+  credential: { apiKey: string; source: "user" | "deployment" } | null;
+  lookupFailed: boolean;
+}> {
+  if (!ownerEmail) return { credential: null, lookupFailed: false };
   const cacheKey = [
-    "jev",
+    "jev-source-v1",
     ownerEmail,
     getRequestOrgId() ?? `solo:${ownerEmail}`,
     getRequestContext()?.isSyntheticTraffic === true ? "synthetic" : "normal",
   ].join("\u0000");
   const cached = readOptionalKeyCache(cacheKey);
-  if (cached.hit) return cached.value;
+  if (cached.hit) {
+    if (!cached.value) return { credential: null, lookupFailed: false };
+    const separator = cached.value.indexOf(":");
+    const source = cached.value.slice(0, separator);
+    const apiKey = cached.value.slice(separator + 1);
+    return {
+      credential:
+        (source === "user" || source === "deployment") && apiKey
+          ? { apiKey, source }
+          : null,
+      lookupFailed: false,
+    };
+  }
   let lookupFailed = false;
   const value = await getOwnerApiKey("jev", ownerEmail, {
     onLookupFailure: () => {
@@ -690,10 +708,13 @@ export async function getOwnerJevApiKey(
     },
   });
   if (value) {
-    if (!lookupFailed) writeOptionalKeyCache(cacheKey, value);
-    return value;
+    if (!lookupFailed) writeOptionalKeyCache(cacheKey, `user:${value}`);
+    return {
+      credential: { apiKey: value, source: "user" },
+      lookupFailed,
+    };
   }
-  if (lookupFailed) return undefined;
+  if (lookupFailed) return { credential: null, lookupFailed: true };
 
   const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
     ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
@@ -705,27 +726,52 @@ export async function getOwnerJevApiKey(
       value: deployKey,
     }))
   ) {
-    if (!lookupFailed) writeOptionalKeyCache(cacheKey, deployKey);
-    return deployKey;
+    if (!lookupFailed) {
+      writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
+    }
+    return {
+      credential: { apiKey: deployKey, source: "deployment" },
+      lookupFailed: false,
+    };
   }
 
   if (!lookupFailed) writeOptionalKeyCache(cacheKey, undefined);
-  return undefined;
+  return { credential: null, lookupFailed: false };
 }
 
-async function getJevContextCredentials(
-  ownerEmail: string | null | undefined,
-): Promise<{
+export interface JevContextCredentials {
   apiKey: string | undefined;
+  personalApiKey: string | undefined;
   builderAuth: BuilderGatewayAuth | null;
-}> {
-  const apiKey = await getOwnerJevApiKey(ownerEmail);
-  if (!BUILDER_JEV_PROXY_ENABLED) return { apiKey, builderAuth: null };
-  try {
-    return { apiKey, builderAuth: await resolveBuilderGatewayAuth() };
-  } catch {
-    return { apiKey, builderAuth: null };
-  }
+  apiKeyLookupFailed?: boolean;
+  builderAuthLookupFailed?: boolean;
+}
+
+export async function getJevContextCredentials(
+  ownerEmail: string | null | undefined,
+): Promise<JevContextCredentials> {
+  const requestContext = getRequestContext();
+  const [lookup, builderAuthLookup] = await Promise.all([
+    getOwnerJevApiKeyCredential(ownerEmail),
+    resolveBuilderGatewayAuth({
+      userEmail: ownerEmail,
+      orgId: requestContext?.orgScope === "personal" ? null : getRequestOrgId(),
+    }).then(
+      (builderAuth) => ({ builderAuth, lookupFailed: false }),
+      () => ({ builderAuth: null, lookupFailed: true }),
+    ),
+  ]);
+  const credential = lookup.credential;
+  return {
+    apiKey: credential?.apiKey,
+    personalApiKey:
+      credential?.source === "user" ? credential.apiKey : undefined,
+    builderAuth: builderAuthLookup.builderAuth,
+    ...(lookup.lookupFailed ? { apiKeyLookupFailed: true } : {}),
+    ...(builderAuthLookup.lookupFailed
+      ? { builderAuthLookupFailed: true }
+      : {}),
+  };
 }
 
 /**
@@ -2782,6 +2828,8 @@ export interface AgentLoopUsage {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  builderCreditsUsed?: number;
+  engineName?: string;
   model: string;
   /** Number of provider model-stream attempts, including retries. */
   llmCalls?: number;
@@ -5294,6 +5342,7 @@ export async function runAgentLoop(opts: {
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    engineName: opts.engine.name,
     model,
   };
 
@@ -5962,12 +6011,21 @@ export async function runAgentLoop(opts: {
                 outputTokens: event.outputTokens,
                 cacheReadTokens: event.cacheReadTokens ?? 0,
                 cacheWriteTokens: event.cacheWriteTokens ?? 0,
+                engineName: opts.engine.name,
                 model,
+                ...(event.builderCreditsUsed !== undefined
+                  ? { builderCreditsUsed: event.builderCreditsUsed }
+                  : {}),
               };
               usage.inputTokens += eventUsage.inputTokens;
               usage.outputTokens += eventUsage.outputTokens;
               usage.cacheReadTokens += eventUsage.cacheReadTokens;
               usage.cacheWriteTokens += eventUsage.cacheWriteTokens;
+              if (eventUsage.builderCreditsUsed !== undefined) {
+                usage.builderCreditsUsed =
+                  (usage.builderCreditsUsed ?? 0) +
+                  eventUsage.builderCreditsUsed;
+              }
               usage.usageReported = true;
               opts.onUsage?.(eventUsage);
             } else if (event.type === "stop") {
@@ -7466,7 +7524,16 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          if (isAgentConnectionRequiredError(err)) {
+          // An abort is an unknown outcome, not a failure: the request may
+          // already have reached the provider. Recorded as an error, the
+          // resuming chunk reads it as "did not happen" and re-dispatches the
+          // write. The marker is what `seedWriteToolInterruptionsFromHistory`
+          // counts, so the ledger recovery and interruption budget apply.
+          // Keyed on `signal.aborted`, not the message, so the per-tool
+          // timeout (which rejects on `timeoutSignal`) stays a real failure.
+          if (signal.aborted) {
+            result = INTERRUPTED_TOOL_RESULT_MARKER;
+          } else if (isAgentConnectionRequiredError(err)) {
             const message =
               sanitizeToolErrorValue(err.message) ||
               `Connect ${err.provider} to continue.`;
@@ -7518,8 +7585,13 @@ export async function runAgentLoop(opts: {
           }
           isError = true;
         }
+        // The marker must survive verbatim (the interruption counter matches
+        // on it), and an unknown outcome must not feed the repeated-error
+        // breakers, which are for calls that genuinely failed.
         if (isError) {
-          result = finalizeToolErrorResult(result);
+          if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
+            result = finalizeToolErrorResult(result);
+          }
         } else {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
         }
@@ -8147,6 +8219,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    engineName: opts.engine.name,
     model: opts.model,
   };
   const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
@@ -8154,6 +8227,11 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.outputTokens += next.outputTokens;
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
+    if (next.builderCreditsUsed !== undefined) {
+      usage.builderCreditsUsed =
+        (usage.builderCreditsUsed ?? 0) + next.builderCreditsUsed;
+    }
+    usage.engineName = next.engineName ?? usage.engineName;
     usage.model = next.model;
     if (typeof next.llmCalls === "number") {
       usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
@@ -9950,7 +10028,7 @@ export function createProductionAgentHandler(
       );
     }
     let surfacedRequestActions = availableRequestActions;
-    let useDefaultRequestActionSurface = !options.resolveActionSurface;
+    let shouldFilterInitialRequestTools = !options.resolveActionSurface;
     if (options.resolveActionSurface) {
       const persistedSurface = isBackgroundWorker
         ? readPersistedActionSurface(body, "__resolvedActionSurface")
@@ -9985,6 +10063,8 @@ export function createProductionAgentHandler(
               availableActionNames: Object.keys(availableRequestActions),
             });
       const normalizedSurface = normalizeAgentActionSurfaceResolution(surface);
+      shouldFilterInitialRequestTools =
+        normalizedSurface.mode === "default" || !normalizedSurface.actionScope;
       if (
         requestedActionScope &&
         (normalizedSurface.mode === "default" || !normalizedSurface.actionScope)
@@ -9995,7 +10075,6 @@ export function createProductionAgentHandler(
       }
       const runCtx = ensureRequestRunContext();
       if (normalizedSurface.mode === "default") {
-        useDefaultRequestActionSurface = true;
         if (runCtx) {
           delete runCtx.allowedActionNames;
           delete runCtx.actionScope;
@@ -10624,7 +10703,7 @@ export function createProductionAgentHandler(
       presendCap(
         "jevContextCredentials",
         () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
-        { apiKey: undefined, builderAuth: null },
+        { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
         9000,
       ),
     ]);
@@ -10659,7 +10738,7 @@ export function createProductionAgentHandler(
         ? createPlanModeActionRegistry(surfacedRequestActions)
         : surfacedRequestActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const initialRequestTools = useDefaultRequestActionSurface
+    const initialRequestTools = shouldFilterInitialRequestTools
       ? filterInitialEngineTools(
           availableRequestTools,
           options.initialToolNames,
@@ -10684,6 +10763,7 @@ export function createProductionAgentHandler(
       preloadJevTools({
         request: requestMessage,
         apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         registry: requestActions,
         initialTools: curatedRequestTools,
@@ -10693,6 +10773,7 @@ export function createProductionAgentHandler(
       preloadJevContextForPrompt({
         request: requestMessage,
         apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
@@ -11789,6 +11870,8 @@ export function createProductionAgentHandler(
                     outputTokens: subUsage.outputTokens,
                     cacheReadTokens: subUsage.cacheReadTokens,
                     cacheWriteTokens: subUsage.cacheWriteTokens,
+                    builderCreditsUsed: subUsage.builderCreditsUsed,
+                    engineName: engine.name,
                     model: subUsage.model,
                     label: `custom-agent:${ref.name}`,
                     runId,
@@ -11914,6 +11997,7 @@ export function createProductionAgentHandler(
           outputTokens: 0,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          engineName: engine.name,
           model: effectiveModel,
         };
         const agentLoopOpts = {
@@ -11933,6 +12017,11 @@ export function createProductionAgentHandler(
             turnUsage.outputTokens += usage.outputTokens;
             turnUsage.cacheReadTokens += usage.cacheReadTokens;
             turnUsage.cacheWriteTokens += usage.cacheWriteTokens;
+            if (usage.builderCreditsUsed !== undefined) {
+              turnUsage.builderCreditsUsed =
+                (turnUsage.builderCreditsUsed ?? 0) + usage.builderCreditsUsed;
+            }
+            turnUsage.engineName = usage.engineName ?? turnUsage.engineName;
             turnUsage.model = usage.model;
           },
           ownerEmail,
@@ -12109,7 +12198,8 @@ export function createProductionAgentHandler(
               (turnUsage.inputTokens > 0 ||
                 turnUsage.outputTokens > 0 ||
                 turnUsage.cacheReadTokens > 0 ||
-                turnUsage.cacheWriteTokens > 0)
+                turnUsage.cacheWriteTokens > 0 ||
+                turnUsage.builderCreditsUsed != null)
             ) {
               const { recordUsage } = await import("../usage/store.js");
               await recordUsage({
@@ -12118,6 +12208,8 @@ export function createProductionAgentHandler(
                 outputTokens: turnUsage.outputTokens,
                 cacheReadTokens: turnUsage.cacheReadTokens,
                 cacheWriteTokens: turnUsage.cacheWriteTokens,
+                builderCreditsUsed: turnUsage.builderCreditsUsed,
+                engineName: engine.name,
                 model: turnUsage.model,
                 label: turnUsageLabel || "chat",
                 // token_usage has had run_id/thread_id/task_id since it was

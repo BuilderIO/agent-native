@@ -1,4 +1,3 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
   useEagerFileUploads,
@@ -16,13 +15,14 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
-import {
-  isInsidePortaledLayer,
-  uploadPromptFiles,
-  type UploadedFile,
-} from "@/components/editor/PromptDialog";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
+import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import {
+  deleteUploadedPromptFile,
+  uploadPromptFiles,
+  type UploadedFile,
+} from "@/lib/prompt-file-uploads";
 
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 
@@ -107,17 +107,6 @@ export function AddSlidePopover({
   const [panelHeight, setPanelHeight] = useState(320);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
-  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
-    const response = await fetch(`${appBasePath()}/api/uploads`, {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ path: file.path }),
-    });
-    if (!response.ok) {
-      throw new Error(`Upload cleanup failed (${response.status})`);
-    }
-  }, []);
   const handleRetainedFilesAbandoned = useCallback(
     (_files: readonly File[], discard: () => void) => {
       if (!submittingRef.current) discard();
@@ -133,7 +122,7 @@ export function AddSlidePopover({
     uploading,
     reset: resetEagerUploads,
   } = useEagerFileUploads(uploadPromptFiles, {
-    onDiscard: deleteUploadedFile,
+    onDiscard: deleteUploadedPromptFile,
     onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
 

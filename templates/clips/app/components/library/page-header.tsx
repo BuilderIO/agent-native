@@ -1,5 +1,3 @@
-import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowLeft } from "@tabler/icons-react";
 import {
   type ComponentProps,
   createContext,
@@ -108,9 +106,8 @@ export interface PageBreadcrumbItem {
 /**
  * Collapses breadcrumb segments only as far as the available header width
  * actually requires. Segments closest to the root are hidden first, so the
- * current page and the ancestors nearest it — including the parent the back
- * button returns to — stay visible: a long path degrades to
- * "Root / … / Parent / Current" rather than hiding where "back" leads.
+ * current page and its immediate parent stay visible: a long path degrades
+ * to "Root / … / Parent / Current" rather than hiding the nearest ancestor.
  * Re-measures on resize so widening the window (or collapsing the sidebar)
  * brings hidden segments back.
  */
@@ -118,7 +115,7 @@ function useBreadcrumbOverflow(itemCount: number) {
   const listRef = useRef<HTMLOListElement>(null);
   const [hiddenCount, setHiddenCount] = useState(0);
   // Middle segments are everything strictly between the root and the
-  // current page; the parent (the one right before current) is never hidden.
+  // current page; the immediate parent is never hidden.
   const maxHidden = Math.max(0, itemCount - 2 - 1);
 
   // The path changed — start fully expanded and let the measurement below
@@ -152,18 +149,14 @@ export function PageBreadcrumb({
 }: {
   items: readonly PageBreadcrumbItem[];
 }) {
-  const t = useT();
   const { listRef, hiddenCount } = useBreadcrumbOverflow(items.length);
 
   if (items.length === 0) return null;
 
-  // The item right before the current one is one step back in the path; it
-  // only exists on a nested path, so root-level trails render no back button.
-  const parent = items[items.length - 2];
   const fullPath = items.map((item) => item.label).join(" / ");
   const collapsed = hiddenCount > 0;
   // Keep the root as an anchor, drop the segments right after it, and keep the
-  // whole tail (parent + current) so the back target stays on screen.
+  // whole tail (parent + current) visible.
   const visibleItems = collapsed
     ? [items[0], ...items.slice(1 + hiddenCount)]
     : items;
@@ -211,37 +204,12 @@ export function PageBreadcrumb({
   );
 
   // The tooltip only adds value once ancestors are actually hidden.
-  const trail = collapsed ? (
+  return collapsed ? (
     <Tooltip>
       <TooltipTrigger asChild>{breadcrumb}</TooltipTrigger>
       <TooltipContent>{fullPath}</TooltipContent>
     </Tooltip>
   ) : (
     breadcrumb
-  );
-
-  if (!parent?.to) return trail;
-
-  const backLabel = t("navigation.breadcrumbBack", { label: parent.label });
-
-  return (
-    <div className="flex min-w-0 items-center gap-1">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            asChild
-            variant="ghost"
-            size="icon"
-            className="size-7 shrink-0 text-muted-foreground"
-          >
-            <NavLink to={parent.to} aria-label={backLabel}>
-              <IconArrowLeft className="size-4" />
-            </NavLink>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{backLabel}</TooltipContent>
-      </Tooltip>
-      {trail}
-    </div>
   );
 }

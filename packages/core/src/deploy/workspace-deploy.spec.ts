@@ -670,6 +670,67 @@ describe("workspace deploy", () => {
     expect(fs.existsSync(path.join(tmpDir, "dist", "_worker.js"))).toBe(false);
   });
 
+  it("writes a directory root page without redirecting the workspace root", async () => {
+    makeWorkspaceApp(tmpDir, "alpha");
+    makeWorkspaceApp(tmpDir, "beta");
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      'export default { deployment: { workspace: { rootPage: "directory" } } };\n',
+    );
+
+    for (const preset of ["netlify", "cloudflare_pages", "vercel"] as const) {
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset,
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+
+      const outputDir =
+        preset === "vercel"
+          ? path.join(tmpDir, ".vercel", "output", "static")
+          : path.join(tmpDir, "dist");
+      const directoryPage = fs.readFileSync(
+        path.join(outputDir, "index.html"),
+        "utf-8",
+      );
+      expect(directoryPage).toContain("Pick the right app for the work ahead.");
+      expect(directoryPage).toContain('href="/alpha/"');
+      expect(directoryPage).toContain('href="/beta/"');
+
+      if (preset === "netlify") {
+        expect(
+          fs.readFileSync(path.join(tmpDir, "dist", "_redirects"), "utf-8"),
+        ).not.toContain("/ /alpha/ 302");
+      }
+      if (preset === "cloudflare_pages") {
+        const routes = JSON.parse(
+          fs.readFileSync(path.join(tmpDir, "dist", "_routes.json"), "utf-8"),
+        ) as { include: string[] };
+        expect(routes.include).not.toContain("/");
+        expect(
+          fs.readFileSync(path.join(tmpDir, "dist", "_worker.js"), "utf-8"),
+        ).not.toContain('if (pathname === "/")');
+      }
+      if (preset === "vercel") {
+        const vercelConfig = JSON.parse(
+          fs.readFileSync(
+            path.join(tmpDir, ".vercel", "output", "config.json"),
+            "utf-8",
+          ),
+        ) as {
+          routes: Array<{ src?: string; headers?: { Location?: string } }>;
+        };
+        expect(vercelConfig.routes).not.toContainEqual(
+          expect.objectContaining({
+            src: "/",
+            headers: { Location: "/alpha/" },
+          }),
+        );
+      }
+    }
+  });
+
   it("propagates workspace app route access into manifests and app env", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "portal", {

@@ -108,6 +108,7 @@ import {
   integrationDispatchScopeValue,
   isInIntegrationRecoveryRuntime,
   isIntegrationDurableDispatchEnabledForTask,
+  isIntegrationDurableDispatchExplicitlyDisabledForTask,
 } from "./integration-durable-dispatch.js";
 import {
   forgetIntegrationMemory,
@@ -2064,6 +2065,18 @@ export function createIntegrationsPlugin(
           !durableCampaignEnabled &&
           !confirmedDeliveryProof
         ) {
+          if (
+            !isIntegrationDurableDispatchExplicitlyDisabledForTask({
+              platform: task.platform,
+              externalThreadId: task.externalThreadId,
+              platformContext: task.dispatchScope
+                ? { channelId: task.dispatchScope }
+                : undefined,
+            })
+          ) {
+            setResponseStatus(event, 202);
+            return { ok: true, paused: "durable-runtime-unavailable" };
+          }
           await failDisabledIntegrationCampaignTask(task.id);
           const nextTask = await getNextPendingTaskForThread(
             task.platform,

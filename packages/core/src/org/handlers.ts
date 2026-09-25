@@ -62,6 +62,7 @@ import {
 } from "./context.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import {
+  FederatedIconConflictError,
   addFederatedOrganizationMember,
   updateFederatedOrganizationMemberRole,
   revokeFederatedOrganizationMember,
@@ -70,11 +71,20 @@ import {
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
+import {
+  registerBackgroundWork,
+  trackInviteAccepted,
+} from "./track-invite-accepted.js";
 import type {
   OrgRole,
   RequiredAuthProvider,
   WorkspaceAppDefaultVisibility,
 } from "./types.js";
+import {
+  parseOrganizationIconJson,
+  requireOrganizationIconValue,
+  serializeOrganizationIcon,
+} from "./visual-identity.js";
 import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
@@ -95,6 +105,8 @@ async function syncFederatedOrgBestEffort(
     orgId: string | null;
     orgName: string | null;
     role: OrgRole | null;
+    icon: ReturnType<typeof parseOrganizationIconJson>;
+    iconRevision: number;
   },
 ): Promise<void> {
   if (!input.orgId || !input.orgName || !input.role) return;
@@ -103,6 +115,8 @@ async function syncFederatedOrgBestEffort(
     name: input.orgName,
     role: input.role,
     email: input.email,
+    icon: input.icon,
+    iconRevision: input.iconRevision,
   }).catch((error) => {
     // Federation is an opt-in cross-deployment enhancement. A hub outage must
     // not turn a healthy local organization read or create into an outage.
@@ -123,6 +137,8 @@ function scheduleFederatedOrgSync(
     orgId: string | null;
     orgName: string | null;
     role: OrgRole | null;
+    icon: ReturnType<typeof parseOrganizationIconJson>;
+    iconRevision: number;
   },
 ): void {
   if (!input.orgId || !input.orgName || !input.role) return;
@@ -132,22 +148,7 @@ function scheduleFederatedOrgSync(
     pendingFederatedOrgSyncs.delete(key);
   });
   pendingFederatedOrgSyncs.set(key, sync);
-  const waitUntil = (
-    event as H3Event & {
-      waitUntil?: (promise: Promise<unknown>) => void;
-    }
-  ).waitUntil;
-  if (typeof waitUntil === "function") {
-    try {
-      waitUntil.call(event, sync);
-      return;
-    } catch (error) {
-      // Some local adapters expose a non-functional placeholder. Continue the
-      // best-effort path without turning an org read into an outage.
-      void error;
-    }
-  }
-  void sync;
+  registerBackgroundWork(event, sync);
 }
 
 function normalizeWorkspaceAppDefaultVisibility(
@@ -184,11 +185,11 @@ async function getSessionForEvent(event: H3Event) {
 /** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
 export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
-  scheduleFederatedOrgSync(event, ctx);
 
   const e = await exec();
   const allOrgsRes = await e.execute({
-    sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
+    sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
+                 o.icon_json AS "iconJson", o.icon_revision AS "iconRevision"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
           WHERE LOWER(m.email) = ?
@@ -199,6 +200,8 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     orgId: String(r.orgId ?? r.org_id),
     role: String(r.role) as OrgRole,
     orgName: String(r.orgName ?? r.org_name),
+    icon: parseOrganizationIconJson(r.iconJson ?? r.icon_json),
+    iconRevision: Number(r.iconRevision ?? r.icon_revision ?? 0),
   }));
 
   const pendingRemovalRes = await e.execute({
@@ -244,9 +247,12 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   let workspaceUrl: string | null = null;
   let requiredAuthProvider: RequiredAuthProvider = null;
   let a2aSecretSet = false;
+  let icon = null;
+  let iconRevision = 0;
   if (ctx.orgId) {
     const adRes = await e.execute({
-      sql: `SELECT allowed_domain, a2a_secret, workspace_url, required_auth_provider
+      sql: `SELECT allowed_domain, a2a_secret, workspace_url, required_auth_provider,
+                   icon_json, icon_revision
             FROM organizations WHERE id = ? LIMIT 1`,
       args: [ctx.orgId],
     });
@@ -260,6 +266,8 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
       a2aSecretSet = Boolean(
         String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
       );
+      icon = parseOrganizationIconJson((adRes.rows[0] as any).icon_json);
+      iconRevision = Number((adRes.rows[0] as any).icon_revision ?? 0);
     }
   }
 
@@ -293,11 +301,15 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     invitedBy: String(r.invitedBy ?? r.invited_by),
   }));
 
+  scheduleFederatedOrgSync(event, { ...ctx, icon, iconRevision });
+
   return {
     email: ctx.email,
     orgId: ctx.orgId,
     orgName: ctx.orgName,
     role: ctx.role,
+    icon,
+    iconRevision,
     emailConfigured: await isEmailConfigured(),
     access: {
       signup: getAppConfig().access.signup,
@@ -542,6 +554,8 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
     orgId: id,
     orgName: createdName,
     role,
+    icon: null,
+    iconRevision: 0,
   });
   return { id, name: createdName, role };
 });
@@ -748,6 +762,32 @@ async function inviteOne(
     sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
     args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
   });
+
+  // Lazy import: an eager `tracking/registry.js` import here has previously
+  // regressed cold start on code that loads during auth/signup. Never let a
+  // tracking failure block or reject an invite. Registered with the
+  // request's `waitUntil` (see `registerBackgroundWork`) so a serverless
+  // runtime doesn't freeze the function before the dynamic import resolves.
+  try {
+    const inviteSentPromise = import("../tracking/registry.js")
+      .then(async ({ track, flushTracking }) => {
+        const app = getAppConfig().app.slug ?? "unknown";
+        track(
+          "invite_sent",
+          { app, template: app, org_id: ctx.orgId, role },
+          { userId: ctx.email },
+        );
+        // `track()` only dispatches; hold `waitUntil` until providers deliver.
+        await flushTracking();
+      })
+      .catch(() => {});
+    // coercion-ok: telemetry must never block or fail an invite.
+    registerBackgroundWork(event, inviteSentPromise);
+  } catch (error) {
+    // Tracking must never block or fail an invite, but a swallowed failure
+    // here should still be visible instead of silently disappearing.
+    console.warn("[org] Could not emit invite_sent telemetry", error);
+  }
 
   let emailSent = false;
   let emailError: string | undefined;
@@ -956,10 +996,20 @@ export const acceptInvitationHandler = defineEventHandler(
         email,
         updatedBy: String(inv.invitedBy ?? inv.invited_by),
       });
-      await e.execute({
-        sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+      const updated = await e.execute({
+        sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
         args: [invitationId],
       });
+      if (Number(updated.rowsAffected ?? 0) === 1) {
+        trackInviteAccepted({
+          email,
+          orgId: invOrgId,
+          role: inv.role == null ? null : String(inv.role),
+          invitedBy: String(inv.invitedBy ?? inv.invited_by ?? ""),
+          federated: Boolean(linked),
+          event,
+        });
+      }
       await setActiveOrgId(email, invOrgId, "accepted invitation");
       return {
         orgId: invOrgId,
@@ -1044,10 +1094,20 @@ export const acceptInvitationHandler = defineEventHandler(
       updatedBy: inviterEmail,
     });
 
-    await e.execute({
-      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+    const updated = await e.execute({
+      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
       args: [invitationId],
     });
+    if (Number(updated.rowsAffected ?? 0) === 1) {
+      trackInviteAccepted({
+        email,
+        orgId: invOrgId,
+        role: inv.role == null ? null : String(inv.role),
+        invitedBy: inviterEmail,
+        federated: Boolean(linked),
+        event,
+      });
+    }
 
     await setActiveOrgId(email, invOrgId, "accepted invitation");
 
@@ -1330,6 +1390,109 @@ export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
 
   return { orgId: ctx.orgId, name };
 });
+
+/** PUT /_agent-native/org/visual-identity — set or clear the workspace icon. */
+export const setOrgVisualIdentityHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No organization found" });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can change the workspace icon",
+      });
+    }
+
+    const body = await readBody(event);
+    if (!body || !("icon" in body)) {
+      throw createError({
+        statusCode: 400,
+        message: "Workspace icon must be provided; use null to remove it",
+      });
+    }
+    let icon = null;
+    if (body.icon !== null) {
+      try {
+        icon = requireOrganizationIconValue(body.icon);
+      } catch (error) {
+        throw createError({
+          statusCode: 400,
+          message:
+            error instanceof Error ? error.message : "Invalid workspace icon",
+        });
+      }
+    }
+
+    const e = await exec();
+    const currentResult = await e.execute({
+      sql: `SELECT name, icon_revision, identity_authority, identity_id
+            FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+    const current = currentResult.rows[0] as any;
+    if (!current) {
+      throw createError({ statusCode: 404, message: "Organization not found" });
+    }
+    const iconRevision = Number(current.icon_revision ?? 0) + 1;
+    const isFederated = Boolean(
+      String(current.identity_authority ?? "").trim() ||
+      String(current.identity_id ?? "").trim(),
+    );
+    const updated = await e.execute({
+      sql: `UPDATE organizations
+            SET icon_json = ?, icon_revision = ?
+            WHERE id = ? AND icon_revision = ?
+            RETURNING icon_revision`,
+      args: [
+        serializeOrganizationIcon(icon),
+        iconRevision,
+        ctx.orgId,
+        iconRevision - 1,
+      ],
+    });
+    if (updated.rows.length !== 1) {
+      throw createError({
+        statusCode: 409,
+        message: "The workspace icon changed elsewhere; retry your selection",
+      });
+    }
+    invalidateMemberOrgCaches();
+    let syncPending = false;
+    if (isFederated) {
+      try {
+        syncPending = !(await syncOrganizationToIdentityHub(event, {
+          id: ctx.orgId,
+          name: String(current.name ?? ctx.orgName ?? ""),
+          role: ctx.role,
+          email: ctx.email,
+        }));
+      } catch (error) {
+        if (error instanceof FederatedIconConflictError) {
+          await e.execute({
+            sql: `UPDATE organizations
+                  SET icon_json = ?, icon_revision = ?
+                  WHERE id = ? AND icon_revision = ?
+                    AND icon_json IS NOT DISTINCT FROM ?`,
+            args: [
+              serializeOrganizationIcon(error.icon),
+              error.iconRevision,
+              ctx.orgId,
+              iconRevision,
+              serializeOrganizationIcon(icon),
+            ],
+          });
+          invalidateMemberOrgCaches();
+          throw createError({ statusCode: 409, message: error.message });
+        }
+        console.warn("Workspace icon federation sync failed", error);
+        syncPending = true;
+      }
+    }
+    return { orgId: ctx.orgId, icon, iconRevision, syncPending };
+  },
+);
 
 /**
  * DELETE /_agent-native/org — permanently delete the current organization

@@ -2,7 +2,8 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { ContentDatabaseItem, ContentDatabaseResponse } from "@shared/api";
-import { act } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
@@ -21,6 +22,26 @@ import {
   databaseSidebarRows,
 } from "./sidebar";
 import type { DatabaseBoardGroup } from "./types";
+
+function WithSidebarLabels({ children }: { children: ReactNode }) {
+  return (
+    <AgentNativeI18nProvider
+      initialLocale="en-US"
+      persistPreference={false}
+      catalog={{
+        sourceLocale: "en-US",
+        messages: {
+          sidebar: {
+            expandItem: "Expand {{title}}",
+            collapseItem: "Collapse {{title}}",
+          },
+        },
+      }}
+    >
+      {children}
+    </AgentNativeI18nProvider>
+  );
+}
 
 const item = (id: string, title: string, parentId: string | null = null) =>
   ({
@@ -384,7 +405,9 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain('href="/page/page"');
     expect(markup).toContain("Project");
     expect(markup).toContain('aria-current="page"');
-    expect(markup).toContain("font-semibold");
+    // The active row is filled, not only bolder, so it outranks hover.
+    expect(markup).toContain("bg-sidebar-accent font-medium");
+    expect(markup).not.toContain("font-semibold");
   });
 
   it("starts with only hierarchy roots visible", () => {
@@ -410,33 +433,35 @@ describe("DatabaseSidebarView", () => {
     ]);
 
     const markup = renderToStaticMarkup(
-      <MemoryRouter>
-        <TooltipProvider>
-          <DatabaseSidebarView
-            groups={[
-              {
-                id: "all",
-                label: "All pages",
-                items: [rootItem],
-                property: null,
-                value: "all",
-              },
-            ]}
-            hierarchyItems={[rootItem, childItem, grandchildItem]}
-            grouped={false}
-            isLoading={false}
-            hasActiveConstraints
-            openPagesIn="full_page"
-            noMatchesLabel="No rows match this view"
-            clearLabel="Clear"
-            navigationLabel="Database pages"
-            untitledLabel="Untitled"
-            onClearResultConstraints={() => {}}
-            onPreview={() => {}}
-            activeDocumentId="parent"
-          />
-        </TooltipProvider>
-      </MemoryRouter>,
+      <WithSidebarLabels>
+        <MemoryRouter>
+          <TooltipProvider>
+            <DatabaseSidebarView
+              groups={[
+                {
+                  id: "all",
+                  label: "All pages",
+                  items: [rootItem],
+                  property: null,
+                  value: "all",
+                },
+              ]}
+              hierarchyItems={[rootItem, childItem, grandchildItem]}
+              grouped={false}
+              isLoading={false}
+              hasActiveConstraints
+              openPagesIn="full_page"
+              noMatchesLabel="No rows match this view"
+              clearLabel="Clear"
+              navigationLabel="Database pages"
+              untitledLabel="Untitled"
+              onClearResultConstraints={() => {}}
+              onPreview={() => {}}
+              activeDocumentId="parent"
+            />
+          </TooltipProvider>
+        </MemoryRouter>
+      </WithSidebarLabels>,
     );
 
     expect(markup).toContain('aria-label="Expand Page one"');
@@ -508,32 +533,34 @@ describe("DatabaseSidebarView", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter>
-          <TooltipProvider>
-            <DatabaseSidebarView
-              groups={[
-                {
-                  id: "all",
-                  label: "All pages",
-                  items: [rootItem],
-                  property: null,
-                  value: "all",
-                },
-              ]}
-              hierarchyItems={[rootItem, childItem]}
-              grouped={false}
-              isLoading={false}
-              hasActiveConstraints={false}
-              openPagesIn="full_page"
-              noMatchesLabel="No rows match this view"
-              clearLabel="Clear"
-              navigationLabel="Database pages"
-              untitledLabel="Untitled"
-              onClearResultConstraints={() => {}}
-              onPreview={() => {}}
-            />
-          </TooltipProvider>
-        </MemoryRouter>,
+        <WithSidebarLabels>
+          <MemoryRouter>
+            <TooltipProvider>
+              <DatabaseSidebarView
+                groups={[
+                  {
+                    id: "all",
+                    label: "All pages",
+                    items: [rootItem],
+                    property: null,
+                    value: "all",
+                  },
+                ]}
+                hierarchyItems={[rootItem, childItem]}
+                grouped={false}
+                isLoading={false}
+                hasActiveConstraints={false}
+                openPagesIn="full_page"
+                noMatchesLabel="No rows match this view"
+                clearLabel="Clear"
+                navigationLabel="Database pages"
+                untitledLabel="Untitled"
+                onClearResultConstraints={() => {}}
+                onPreview={() => {}}
+              />
+            </TooltipProvider>
+          </MemoryRouter>
+        </WithSidebarLabels>,
       );
     });
 
@@ -924,45 +951,51 @@ describe("DatabaseSidebarView", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter>
-          <TooltipProvider>
-            <DatabaseSidebarView
-              groups={[
-                {
-                  id: "all",
-                  label: "All pages",
-                  items: [
-                    {
-                      ...item("shared", "Shared page"),
-                      document: {
-                        ...item("shared", "Shared page").document,
-                        accessRole: "viewer",
-                        canEdit: false,
-                        canManage: false,
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
+          <MemoryRouter>
+            <TooltipProvider>
+              <DatabaseSidebarView
+                groups={[
+                  {
+                    id: "all",
+                    label: "All pages",
+                    items: [
+                      {
+                        ...item("shared", "Shared page"),
+                        document: {
+                          ...item("shared", "Shared page").document,
+                          accessRole: "viewer",
+                          canEdit: false,
+                          canManage: false,
+                        },
                       },
-                    },
-                  ],
-                  property: null,
-                  value: "all",
-                },
-              ]}
-              grouped={false}
-              isLoading={false}
-              hasActiveConstraints={false}
-              openPagesIn="full_page"
-              noMatchesLabel="No rows match this view"
-              clearLabel="Clear"
-              navigationLabel="Database pages"
-              untitledLabel="Untitled"
-              onClearResultConstraints={() => {}}
-              onPreview={() => {}}
-              onCreateChildPage={onCreateChildPage}
-              onCreateChildDatabase={onCreateChildDatabase}
-              onDeleteItem={() => {}}
-              onToggleFavorite={onToggleFavorite}
-            />
-          </TooltipProvider>
-        </MemoryRouter>,
+                    ],
+                    property: null,
+                    value: "all",
+                  },
+                ]}
+                grouped={false}
+                isLoading={false}
+                hasActiveConstraints={false}
+                openPagesIn="full_page"
+                noMatchesLabel="No rows match this view"
+                clearLabel="Clear"
+                navigationLabel="Database pages"
+                untitledLabel="Untitled"
+                onClearResultConstraints={() => {}}
+                onPreview={() => {}}
+                onCreateChildPage={onCreateChildPage}
+                onCreateChildDatabase={onCreateChildDatabase}
+                onDeleteItem={() => {}}
+                onToggleFavorite={onToggleFavorite}
+              />
+            </TooltipProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
       );
     });
 
@@ -1012,8 +1045,12 @@ describe("DatabaseSidebarView", () => {
     const menuItems = Array.from(
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     );
+    // A viewer gets the personal and read-only items only: no rename,
+    // duplicate, move, or trash without edit/manage access.
     expect(menuItems.map((menuItem) => menuItem.textContent?.trim())).toEqual([
       "Pin to sidebar",
+      "Copy link",
+      "Open in new tab",
     ]);
 
     await act(async () => {

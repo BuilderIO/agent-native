@@ -22,6 +22,7 @@ import {
   setOptimisticOverride,
   suppressThread,
   hasFreshOptimisticOverrideEvidence,
+  keepLatestEmailPage,
 } from "./use-emails";
 
 function makeEmail(id: string, threadId: string): EmailMessage {
@@ -59,6 +60,24 @@ function removalComponentSource(name: "EmailList" | "EmailThread"): string {
     "utf8",
   );
 }
+
+describe("keepLatestEmailPage", () => {
+  it("keeps a confirmed newer response when an older request resolves last", () => {
+    const stale = {
+      emails: [makeEmail("stale", "thread-stale")],
+      providerSnapshotId: 1,
+      suppressionFence: 0,
+    };
+    const confirmed = {
+      emails: [{ ...makeEmail("fresh", "thread-fresh"), isRead: true }],
+      providerSnapshotId: 2,
+      suppressionFence: 1,
+    };
+
+    expect(keepLatestEmailPage(stale, confirmed)).toBe(confirmed);
+    expect(keepLatestEmailPage(confirmed, stale)).toBe(confirmed);
+  });
+});
 
 describe("removal undo claim ownership", () => {
   it("releases only the claim created by the matching mutation hook", () => {
@@ -406,8 +425,10 @@ describe("useEmails query warming", () => {
     expect(source).toContain('const prefetchKey = ["email-prefetch"');
     expect(source).toContain("EMAIL_PREFETCH_TIMEOUT_MS");
     expect(source).toContain("queryClient.removeQueries");
-    expect(source).toContain("queryKey: prefetchKey");
-    expect(source).toContain("...emailQueryOptions(view, search, label)");
+    expect(source).toContain(
+      "EMAIL_PREFETCH_TIMEOUT_MS,\n        prefetchKey,",
+    );
+    expect(source).toContain("...emailQueryOptions(qc, view, search, label)");
   });
 });
 
@@ -599,6 +620,8 @@ describe("useUpdateSettings", () => {
     expect(source).toContain("rebasePinnedLabelsUpdate(");
     expect(source).toContain("resetPinnedLabelsState(owner)");
     expect(source).toContain("settingsLoading || !prev || !owner");
+    expect(source).toContain('if ("showAllTab" in variables)');
+    expect(source).toContain("invalidations.push(invalidateInboxThreads(qc))");
     expect(source).toContain("requestSource: TAB_ID");
   });
 });
@@ -632,6 +655,28 @@ describe("parseAccountErrorsHeader", () => {
 describe("apiFetch quota signaling", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("does not commit a response whose signal was aborted while its body was reading", async () => {
+    let resolveBody!: (body: string) => void;
+    const body = new Promise<string>((resolve) => {
+      resolveBody = resolve;
+    });
+    const response = {
+      headers: new Headers({ "Content-Type": "application/json" }),
+      ok: true,
+      status: 200,
+      json: vi.fn(() => body.then((value) => JSON.parse(value))),
+    } as unknown as Response;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    const controller = new AbortController();
+    const request = apiFetch("/api/emails", { signal: controller.signal });
+    await vi.waitFor(() => expect(response.json).toHaveBeenCalled());
+    controller.abort();
+    resolveBody(JSON.stringify({ emails: [] }));
+
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("attaches status and retryAfterMs from a 429 + Retry-After response", async () => {

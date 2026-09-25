@@ -1,6 +1,6 @@
 export { default } from "../pages/DesignSystemSetup";
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.designSystemSetup }];
+  return [{ title: enUSMessages.routeTitles.designSystemSetup }];
 }

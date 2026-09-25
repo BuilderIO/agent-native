@@ -1,5 +1,75 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.294
+
+### Patch Changes
+
+- Updated dependencies [07a6277]
+- Updated dependencies [48387db]
+- Updated dependencies [97d8280]
+- Updated dependencies [212d1b3]
+- Updated dependencies [92d3374]
+- Updated dependencies [039d52c]
+- Updated dependencies [69fac98]
+- Updated dependencies [ee516e2]
+- Updated dependencies [a10ae73]
+- Updated dependencies [15e304f]
+- Updated dependencies [a10ae73]
+- Updated dependencies [a10ae73]
+- Updated dependencies [68a89eb]
+- Updated dependencies [11208d2]
+- Updated dependencies [30aa31d]
+- Updated dependencies [ee70391]
+- Updated dependencies [9a22c5b]
+- Updated dependencies
+- Updated dependencies [1b15104]
+- Updated dependencies [ddabced]
+- Updated dependencies [c3c47f1]
+- Updated dependencies [eb6523c]
+- Updated dependencies [eb6523c]
+- Updated dependencies [fe9609c]
+- Updated dependencies [34ad348]
+- Updated dependencies [1b889ff]
+- Updated dependencies [7e014ff]
+- Updated dependencies [45ad5f3]
+  - @agent-native/core@0.187.0
+
+## 0.1.293
+
+### Patch Changes
+
+- Updated dependencies [69ecbfb]
+- Updated dependencies [6ce7517]
+- Updated dependencies [e383d8d]
+- Updated dependencies [67cf8bb]
+- Updated dependencies
+- Updated dependencies [be380fa]
+  - @agent-native/core@0.186.0
+
+## 0.1.292
+
+### Patch Changes
+
+- Updated dependencies [5ffb783]
+- Updated dependencies [d5f0a95]
+- Updated dependencies [2427195]
+- Updated dependencies [e7ccf40]
+- Updated dependencies [e7ccf40]
+- Updated dependencies [0289143]
+- Updated dependencies [c0d9e4b]
+- Updated dependencies [8f27701]
+- Updated dependencies [8f27701]
+- Updated dependencies [f6e9555]
+- Updated dependencies [3c865d5]
+- Updated dependencies
+- Updated dependencies [8c954cd]
+- Updated dependencies [3d5741f]
+- Updated dependencies [86e35d8]
+- Updated dependencies [70f20c0]
+- Updated dependencies [6806425]
+- Updated dependencies [ae65b08]
+  - @agent-native/core@0.185.0
+
 ## 0.1.291
 
 ### Patch Changes
@@ -1374,26 +1444,5 @@
 - Updated dependencies [fc85cb2]
 - Updated dependencies [61ca441]
   - @agent-native/core@0.164.5
-
-## 0.1.194
-
-### Patch Changes
-
-- Updated dependencies [c58cd6e]
-  - @agent-native/core@0.164.4
-
-## 0.1.193
-
-### Patch Changes
-
-- Updated dependencies [f790010]
-  - @agent-native/core@0.164.3
-
-## 0.1.192
-
-### Patch Changes
-
-- Updated dependencies [330cf77]
-  - @agent-native/core@0.164.2
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   AI_PRIORITY_MAX_EMAILS,
+  aiPriorityEmailKey,
   aiPriorityScoreSchema,
   type AiPriorityScore,
 } from "../../shared/ai-priority.js";
@@ -60,23 +61,34 @@ export async function saveAiPriorityCache(
 
 export function getCachedPriorityScores(
   cache: AiPriorityCache,
-  emails: ReadonlyArray<{ id: string; fingerprint: string }>,
+  emails: ReadonlyArray<{
+    id: string;
+    accountEmail?: string;
+    fingerprint: string;
+  }>,
   instructionKey: string,
 ): Map<string, AiPriorityScore> {
   const entriesById = new Map(
     cache.entries
       .filter((entry) => entry.instructionKey === instructionKey)
-      .map((entry) => [entry.emailId, entry]),
+      .map((entry) => [
+        aiPriorityEmailKey(entry.accountEmail, entry.emailId),
+        entry,
+      ]),
   );
   return new Map(
     emails.flatMap((email) => {
-      const entry = entriesById.get(email.id);
+      const key = aiPriorityEmailKey(email.accountEmail, email.id);
+      const entry = entriesById.get(key);
       return entry && entry.fingerprint === email.fingerprint
         ? [
             [
-              email.id,
+              key,
               {
                 emailId: entry.emailId,
+                ...(entry.accountEmail
+                  ? { accountEmail: entry.accountEmail }
+                  : {}),
                 score: entry.score,
                 reason: entry.reason,
               },
@@ -97,9 +109,14 @@ export function mergePriorityCache(
   const byId = new Map(
     cache.entries
       .filter((entry) => entry.instructionKey === instructionKey)
-      .map((entry) => [entry.emailId, entry]),
+      .map((entry) => [
+        aiPriorityEmailKey(entry.accountEmail, entry.emailId),
+        entry,
+      ]),
   );
-  for (const entry of entries) byId.set(entry.emailId, entry);
+  for (const entry of entries) {
+    byId.set(aiPriorityEmailKey(entry.accountEmail, entry.emailId), entry);
+  }
   return {
     entries: [...byId.values()]
       .sort((a, b) => b.evaluatedAt - a.evaluatedAt)

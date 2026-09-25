@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   buildBuilderDesignSystemIndexFiles,
   startBuilderDesignSystemIndex,
 } from "@agent-native/core/server";
@@ -107,6 +108,9 @@ export default defineAction({
     codeFiles,
     designMd,
   }) => {
+    if (githubRepoUrl || githubSources?.length || codeFiles?.length) {
+      await assertBuilderDesignSystemCodeIndexingAllowed();
+    }
     const files = buildBuilderDesignSystemIndexFiles({
       codeFiles,
       designMd,

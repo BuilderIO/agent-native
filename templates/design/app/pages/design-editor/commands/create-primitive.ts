@@ -226,16 +226,16 @@ export function runCreatePrimitive(
       return false;
     }
     const enrichedDocument =
-      primitive.kind === "path" && primitive.pathData
+      primitive.kind === "path" && (primitive.penPath || primitive.pathData)
         ? (() => {
-            const reconstructed = parsePenPathFromSerializedD(
-              primitive.pathData!,
-            );
-            return reconstructed
+            const penPath =
+              primitive.penPath ??
+              parsePenPathFromSerializedD(primitive.pathData!);
+            return penPath
               ? setPenNodesAttributeOnElement(
                   temporaryDocument,
                   nodeId,
-                  reconstructed,
+                  penPath,
                 )
               : temporaryDocument;
           })()
@@ -284,27 +284,23 @@ export function runCreatePrimitive(
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));
     return false;
   }
-  // Vector-edit foundations: stash the structured pen path (nodes +
-  // handles) alongside the flattened `d` so a later double-click/Enter
-  // can re-hydrate it into an editable path instead of only having the
-  // already-flattened curve. `primitive.pathData` is the only carrier of
-  // pen geometry that crosses the MultiScreenCanvas -> DesignEditor
-  // boundary for an OVERVIEW-drawn pen path (see
-  // parsePenPathFromSerializedD's doc comment for why this reconstructs
-  // rather than receives the structured path directly).
+  // Keep the structured path (nodes + handles) alongside the flattened `d`
+  // so later vector editing can restore the authored anchors. Prefer the
+  // structured model carried by current inserts and reconstruct older
+  // pathData-only producers as a fallback.
   const rawNextContent =
-    insertionPrimitive.kind === "path" &&
-    insertionPrimitive.pathData &&
-    insertionPrimitive.nodeId
+    insertionPrimitive.kind === "path" && insertionPrimitive.nodeId
       ? (() => {
-          const reconstructed = parsePenPathFromSerializedD(
-            insertionPrimitive.pathData!,
-          );
-          return reconstructed
+          const penPath =
+            insertionPrimitive.penPath ??
+            (insertionPrimitive.pathData
+              ? parsePenPathFromSerializedD(insertionPrimitive.pathData)
+              : null);
+          return penPath
             ? setPenNodesAttributeOnElement(
                 insertedContent,
                 insertionPrimitive.nodeId!,
-                reconstructed,
+                penPath,
               )
             : insertedContent;
         })()

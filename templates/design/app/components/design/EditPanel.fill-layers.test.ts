@@ -243,7 +243,7 @@ describe("addFillLayerPatch", () => {
       backgroundPositionLayers: [],
     });
 
-    expect(patch).toEqual({ backgroundColor: "#ffffff" });
+    expect(patch).toEqual({ backgroundColor: "#d9d9d9" });
   });
 
   it("adds a solid layer instead of un-hiding the base solid when layers already exist", () => {
@@ -263,7 +263,7 @@ describe("addFillLayerPatch", () => {
     expect(patch.backgroundColor).toBeUndefined();
     const layers = splitCssLayers(patch.backgroundImage ?? "");
     expect(layers).toHaveLength(2);
-    expect(parseSolidFillLayer(layers[0] ?? "")).toBe("#ffffff");
+    expect(parseSolidFillLayer(layers[0] ?? "")).toBe("#d9d9d9");
     expect(layers[1]).toBe("linear-gradient(90deg, red, blue)");
     expect(splitCssLayers(patch.backgroundSize ?? "")).toEqual([
       "auto",

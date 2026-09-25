@@ -77,6 +77,11 @@ export default defineAction({
     });
 
     console.log(`Delegation queued: remove-silences for ${args.recordingId}`);
-    return { queued: true, recordingId: args.recordingId };
+    return {
+      queued: true,
+      kind: "remove-silences",
+      requestedAt,
+      recordingId: args.recordingId,
+    };
   },
 });

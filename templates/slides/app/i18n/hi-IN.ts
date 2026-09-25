@@ -52,6 +52,7 @@ const messages = {
     emptyState: "अपनी प्रस्तुतियों के बारे में मुझसे कुछ भी पूछें",
     thisSlide: "यह स्लाइड",
     currentSelection: "वर्तमान चयन",
+    slideNumber: "स्लाइड {{number}}",
     suggestionPitch: "इस दस्तावेज़ से 10-स्लाइड पिच बनाएं",
     suggestionBrand: "इस डेक पर हमारा ब्रांड लागू करें",
     suggestionHero: "इस स्लाइड के लिए हीरो इमेज बनाएं",
@@ -181,6 +182,12 @@ const messages = {
     emptyTitle: "अपनी ब्रांड पहचान सेट करें",
     emptyDescription:
       "अपने ब्रांड रंगों, टाइपोग्राफी और लोगो के साथ डिज़ाइन सिस्टम बनाएं। हर नया डेक आपकी विज़ुअल पहचान का पालन करेगा।",
+    tierLimitTitle: "डिज़ाइन सिस्टम की सीमा पूरी हो गई",
+    tierLimitDescription:
+      "आपने अपनी Builder योजना की डिज़ाइन सिस्टम सीमा पूरी कर ली है। नया बनाने के लिए अपनी Builder Builder योजना अपग्रेड करें।",
+    tierLimitDescriptionWithCount:
+      "आप अपनी Builder {{plan}} योजना में {{max}} में से {{current}} डिज़ाइन सिस्टम का उपयोग कर रहे हैं। नया बनाने के लिए अपग्रेड करें।",
+    tierLimitUpgrade: "योजना अपग्रेड करें",
   },
   editorToolbar: {
     layoutTitle: "शीर्षक",
@@ -687,6 +694,8 @@ const messages = {
       "अगर आप अभी बाहर निकलते हैं या पेज फिर से लोड करते हैं, तो बिना सहेजे बदलाव खो सकते हैं। क्या आप वाकई बाहर निकलना चाहते हैं?",
     keepEditing: "संपादन जारी रखें",
     leaveWithoutSaving: "बिना सहेजे बाहर निकलें",
+    editorMarkupNotSaved:
+      "यह संपादन सहेजा नहीं गया, क्योंकि इससे स्लाइड में एडिटर मार्कअप जुड़ जाता।",
   },
   designSystemSetup: {
     importedBrand: "आयात किया गया ब्रांड",
@@ -742,6 +751,8 @@ const messages = {
     websitePlaceholder: "example.com या Nike",
     add: "जोड़ें",
     githubRepository: "कोड कनेक्ट करें: GitHub रिपॉज़िटरी",
+    codeIndexingEnterpriseOnly:
+      "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
     githubRef: "ब्रांच, टैग या कमिट (वैकल्पिक)",
     githubPaths: "फ़ाइलें या फ़ोल्डर, कॉमा से अलग (वैकल्पिक)",
     codeFiles: "कोड फ़ाइलें कनेक्ट करें",
@@ -811,10 +822,6 @@ const messages = {
     continue: "जारी रखें",
     continueToGenerate: "जनरेट करने के लिए जारी रखें",
     designSystem: "डिज़ाइन सिस्टम",
-    designSystemIndexing: "इंडेक्सिंग हो रही है…",
-    designSystemUnavailable: "अनुपलब्ध",
-    designSystemIndexingNotice:
-      "यह डिज़ाइन सिस्टम अभी भी इंडेक्स हो रहा है। जारी रखने से पहले कोई अन्य सिस्टम चुनें या इंडेक्सिंग पूरी होने की प्रतीक्षा करें।",
     referenceDeck: "संदर्भ डेक",
     referenceDeckPlaceholder: "किसी मौजूदा डेक की शैली अपनाएँ",
     referenceDeckNone: "किसी का उपयोग न करें",

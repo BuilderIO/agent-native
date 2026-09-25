@@ -41,7 +41,9 @@ import { toast } from "sonner";
 import { trace } from "@/components/design/design-trace";
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
-import PromptPopover from "@/components/editor/PromptDialog";
+import PromptPopover, {
+  preloadPromptComposer,
+} from "@/components/editor/PromptDialog";
 import type {
   PromptTemplateOption,
   UploadedFile,
@@ -310,6 +312,7 @@ export default function Index() {
 
   const handleNewPromptOpenChange = useCallback(
     (open: boolean) => {
+      if (open) preloadPromptComposer();
       setShowNewPrompt(open);
       if (!open) {
         newDesignSystemWasChosenRef.current = false;
@@ -779,6 +782,7 @@ export default function Index() {
 
   const openNewDesign = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
+      preloadPromptComposer();
       anchorElRef.current = e.currentTarget;
       setNewDesignDraftRevision((revision) => revision + 1);
       newDesignSystemWasChosenRef.current = false;

@@ -110,6 +110,8 @@ export interface RuntimeStructureDeleteRequest {
   rollbackScreenId?: string;
   rollbackSelector?: string;
   rollbackSourceId?: string;
+  /** Cancel a source delete and restore its DOM before rolling back the insert. */
+  cancelRequested?: boolean;
 }
 
 export interface RuntimeStructureRollbackRequest {
@@ -117,6 +119,8 @@ export interface RuntimeStructureRollbackRequest {
   transactionId?: string;
   selector: string;
   sourceId?: string;
+  /** A target lost across canvas unmount is already rolled back if absent. */
+  idempotent?: boolean;
 }
 
 export interface RuntimeLayerRenameRequest {
@@ -257,6 +261,8 @@ export interface ElementInfo {
   /** Capped at 4000 chars; same overwrite hazard as `textContent`. */
   htmlContent?: string;
   htmlContentTruncated?: boolean;
+  /** An `<img>`'s authored src, for the Image fill thumbnail. */
+  imageSource?: string;
   /** Direct element children; text nodes are ignored. */
   childElementCount?: number;
   isFlexChild: boolean;
@@ -301,6 +307,8 @@ export interface TextEditingState {
   hasRange?: boolean;
   computedStyles?: Record<string, string>;
   inlineStyles?: Record<string, string>;
+  /** The edited text box's live size; typing grows a hug-sized text. */
+  rect?: { width: number; height: number };
   /** Added by the host so overview iframes cannot exchange range styles. */
   screenId?: string;
 }

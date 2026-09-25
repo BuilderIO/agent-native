@@ -74,6 +74,297 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const STALE_PR_WATCHER_RE = new RegExp(
+  [
+    String.raw`\b(?:stop|remove|delete|pause|cancel|disable|turn off)\b[^.!?\n]{0,100}\b(?:ship[- ]watchdog|PR|pull request)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat)\b`,
+    String.raw`\b(?:stop|remove|delete|pause|cancel|disable|turn off)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat)\b[^.!?\n]{0,100}\b(?:PR|pull request|ship[- ]watchdog)\b`,
+    String.raw`\b(?:PR|pull request)\b[^.!?\n]{0,100}\b(?:merged|closed|complete|finished)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat|scheduled task)\b`,
+    String.raw`\b(?:pointless|duplicate|stale|redundant)\b[^.!?\n]{0,80}\b(?:scheduled tasks?|monitors?|watchers?)\b[^.!?\n]{0,80}\b(?:repeat(?:ed)?|same thing|same status|again)\b`,
+  ].join("|"),
+  "i",
+);
+
+const SHIP_USER = String.raw`(?:i|we|(?:the\s+)?user)`;
+const SHIP_OPT_OUT_TARGET = String.raw`(?:to\s+not\s+merge|not\s+to\s+merge|don['’]?t\s+merge(?:\s+(?:it|(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?))?|do\s+not\s+merge(?:\s+(?:it|(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?))?|leave\s+(?:(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?|it)\s+(?:open|unmerged)|no[- ]merge|ship_mode\s*=\s*ready[- ]only|ready[- ]only(?:\s+(?:mode|shipment|endpoint))?)`;
+const SHIP_AFFIRMATIVE_OPT_OUT_RE = new RegExp(
+  String.raw`(?:\b${SHIP_USER}\s+(?:explicitly\s+)?(?:asked|told|said|requested)[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}|\b${SHIP_USER}\s+(?:explicitly\s+)?(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*|^\s*(?:please\s+)?(?:don['’]?t|do\s+not)\s+merge\s+.{0,40}\b(?:PR|pull request)\s*#?\d+|^\s*(?:please\s+)?keep\s+(?:the\s+)?(?:PR|pull request)\s*#?\d+\s+(?:open|unmerged))\b`,
+  "i",
+);
+const SHIP_DIRECT_LEAVE_OPEN_RE =
+  /^\s*(?:please\s+)?leave\s+(?:the\s+)?(?:PR|pull request)\s*#?\d+\s+(?:open|unmerged)\b/i;
+const SHIP_FALSE_OPT_OUT_BEFORE_RE = new RegExp(
+  String.raw`\b(?:i|we)\s+(?:didn['’]?t|did not|never)\s+(?:ask|tell|say|request)\b[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}`,
+  "i",
+);
+const SHIP_FALSE_OPT_OUT_AFTER_RE =
+  /^(?:\s*[,;]?\s*(?:but|although|however|which)\s+)?(?:i|we)\s+(?:didn['’]?t|did not|never)(?:\s*$|\s*[.!?]\s*$|\s*[,;]\s*(?:because|since|as|i|we)\b)/i;
+const SHIP_FALSE_OPT_OUT_CLAIM_RE =
+  /\b(?:(?:that|this|it)\s+(?:is|was)\s+(?:false|wrong|untrue)|(?:i|we)\s+asked\s+for\s+(?:the\s+)?opposite)\b/i;
+const SHIP_AGENT_ATTRIBUTED_OPT_OUT_RE = new RegExp(
+  String.raw`\b(?:it|(?:the\s+)?(?:agent|assistant|model))\s+(?:(?:falsely|wrongly)\s+)?(?:claimed|thought|assumed|believed|asserted|reported|said)\s+(?:that\s+)?${SHIP_USER}\s+(?:(?:had|has)\s+)?(?:explicitly\s+)?(?:asked|told|said|requested)\b[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}`,
+  "i",
+);
+const SHIP_FALSE_OPT_OUT_FOLLOWUP_RE =
+  /^\s*[,;]?\s*(?:(?:but|although|however|which)\s+)?(?:(?:i|we)\s+(?:didn['’]?t|did not|never)(?:\s+(?:ask|tell|say|request)\b|[.!?,;]?\s*$)|(?:i|we)\s+(?:never|didn['’]?t|did not)\s+(?:authoriz\w*|approv\w*)\s+(?:that|it)\b|(?:that|this|it)\s+(?:is|was)\s+(?:false|wrong|untrue)\b|(?:i|we)\s+(?:asked|told|requested)\s+(?:for\s+)?(?:the\s+)?opposite\b)/i;
+
+const SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE = new RegExp(
+  String.raw`(?:${[
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,30}\b(?:had|have)\s+to\s+tell\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:running|active)\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:(?:it\s+)?(?:never\s+did|didn['’]?t\s+merge|did\s+not\s+merge|never\s+merged|didn['’]?t\s+finish|did\s+not\s+finish)|(?:(?:the\s+)?merge|it)\s+never\s+happened|never\s+happened)\b`,
+    String.raw`(?:\/ship\b|\[\$ship\])[^.!?\n]{0,50}\b(?:stopp?ed|ended|quit|returned)\b[^.!?\n]{0,50}\bwithout\s+merg(?:e|ing)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:PR|pull request)\s*#?\d+\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,40}\b(?:PR|pull request)\s*#?\d+\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:merely|only|just)\b[^.!?\n]{0,80}\b(?:open(?:ed)?|creat(?:ed)?|return(?:ed)?|finish(?:ed)?|stopp?ed|quit)\b`,
+    String.raw`\b(?:these are all|all these|all the)\s+(?:threads?|PRs?)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:told|asked|instructed)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:have|had)\s+to\b[^.!?\n]{0,80}(?:\/|\[\$)?ship-watchdog\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,60}\b(?:have|had)\s+to\b[^.!?\n]{0,60}(?:\/|\[\$)?ship-watchdog\b[^.!?\n]{0,80}\b(?:because|since)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|left)\b`,
+    String.raw`\b(?:had|have)\s+to\s+remind\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,80}\b(?:merged|merge)\b`,
+    String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,100}\b(?:stopp?ed|ended|quit|abandoned|returned|finished|completed)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:before|without|while|although|but|yet)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,60}\b(?:merge|merged|open|unmerged)\b`,
+    String.raw`(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:stopp?ed|ended|quit|abandoned|returned|finished|completed)\b[^.!?\n]{0,80}\b(?:before|without|while|although|but|yet)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,60}\b(?:merge|merged|open|unmerged)\b`,
+    String.raw`\bwhy\s+did\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:finish(?:ed)?|stopp?ed|ended|quit|abandoned)\b[^.!?\n]{0,80}\b(?:before|without)\b[^.!?\n]{0,60}\b(?:merg(?:e|ed|ing)|PR|pull request)\b`,
+    String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,60}\b(?:reported|called|marked)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,40}\b(?:complete|done|finished)\b[^.!?\n]{0,80}\b(?:but|yet|while)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\b(?:open|unmerged|not merged)\b`,
+    String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|abandoned)\b[^.!?\n]{0,40}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:with|while|although)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\b(?:unmerged|not merged|still open)\b`,
+    String.raw`\b(?:they|you|agents?|the\s+agent)\b[^.!?\n]{0,60}\b(?:just\s+)?stop\b[^.!?\n]{0,80}\bafter\b[^.!?\n]{0,60}\b(?:opening|creating|pushing)\b[^.!?\n]{0,30}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,60}\b(?:merge|merged)\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,50}\b(?:already|again|repeatedly|multiple times|more than once)\b[^.!?\n]{0,100}\b(?:asked|told|reminded|said)\b[^.!?\n]{0,100}\b(?:don['’]?t|do not|never)\s+stop\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\buntil\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\bmerged\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,50}\b(?:told|asked|instructed)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,100}\b(?:stopp?ed|ended|quit|abandoned|watchdog|babysit|left\s+(?:the\s+)?(?:PR|pull request)\s+open|unmerged)\b`,
+  ].join("|")})`,
+  "i",
+);
+const SHIP_STOPPED_BEFORE_MERGE_ALL_RE = new RegExp(
+  SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE.source,
+  "gi",
+);
+
+function sentenceBoundsAt(text, index) {
+  const start =
+    Math.max(
+      text.lastIndexOf(".", index - 1),
+      text.lastIndexOf("?", index - 1),
+      text.lastIndexOf("!", index - 1),
+      text.lastIndexOf("\n", index - 1),
+    ) + 1;
+  const end = [
+    text.indexOf(".", index),
+    text.indexOf("?", index),
+    text.indexOf("!", index),
+    text.indexOf("\n", index),
+  ].filter((boundary) => boundary >= 0);
+  return [start, end.length ? Math.min(...end) : text.length];
+}
+
+function prNumbers(text) {
+  return new Set(
+    [...text.matchAll(/\b(?:PR|pull request)\s*#?(\d+)\b/gi)].map(
+      (match) => match[1],
+    ),
+  );
+}
+
+function prNumbersNearMatch(text, match) {
+  const direct = prNumbers(match[0]);
+  if (direct.size > 0) return direct;
+
+  const start = match.index;
+  const end = start + match[0].length;
+  const references = [
+    ...text.matchAll(/\b(?:PR|pull request)\s*#?(\d+)\b/gi),
+  ].map((reference) => ({
+    number: reference[1],
+    distance:
+      reference.index > end
+        ? reference.index - end
+        : start > reference.index + reference[0].length
+          ? start - (reference.index + reference[0].length)
+          : 0,
+  }));
+  const nearestDistance = Math.min(
+    ...references.map(({ distance }) => distance),
+  );
+  return new Set(
+    references
+      .filter(({ distance }) => distance === nearestDistance && distance <= 100)
+      .map(({ number }) => number),
+  );
+}
+
+function sameShipment(leftPrs, rightPrs) {
+  if (leftPrs.size === 0 || rightPrs.size === 0) {
+    return leftPrs.size === 0 && rightPrs.size === 0;
+  }
+  return [...leftPrs].some((number) => rightPrs.has(number));
+}
+
+function shipStopPrNumbers(text, stopMatch) {
+  const direct = prNumbers(stopMatch[0]);
+  if (direct.size > 0) return direct;
+
+  const stopEnd = stopMatch.index + stopMatch[0].length;
+  const optOut = shipOptOutMatches(text)
+    .map(({ match }) => match)
+    .find((match) => match.index >= stopEnd);
+  const stopContext = optOut === undefined ? text : text.slice(0, optOut.index);
+  const beforeOptOut = prNumbersNearMatch(stopContext, stopMatch);
+  if (beforeOptOut.size > 0 || optOut === undefined) return beforeOptOut;
+
+  const afterOptOut = text.slice(optOut.index + optOut[0].length);
+  return prNumbersNearMatch(afterOptOut, { 0: "", index: 0 });
+}
+
+function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
+  const matches = [
+    ...text.matchAll(new RegExp(SHIP_AFFIRMATIVE_OPT_OUT_RE.source, "gi")),
+    ...text.matchAll(new RegExp(SHIP_DIRECT_LEAVE_OPEN_RE.source, "gi")),
+  ].sort((left, right) => left.index - right.index);
+  return matches.map((match) => {
+    const directPrs = prNumbers(match[0]);
+    const afterOptOut = text.slice(match.index + match[0].length);
+    const nearestPrs = prNumbersNearMatch(text, match);
+    const correction = afterOptOut.match(
+      /^\s*[,;—-]?\s*(?:no,\s*)?not\s+(?:the\s+)?(?:PR|pull request)\s*#?(\d+)\s*,?\s*(?:but|rather)\s+(?:the\s+)?(?:PR|pull request)\s*#?(\d+)\b/i,
+    );
+    const correctedPrs =
+      correction && nearestPrs.has(correction[1])
+        ? new Set([correction[2]])
+        : undefined;
+    const prs = correctedPrs ?? nearestPrs;
+    const mentionsDifferentWork =
+      /\b(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
+        match[0],
+      ) ||
+      /^\s+(?:(?:a|an|the)\s+)?(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
+        afterOptOut,
+      ) ||
+      /^\s+(?:for|to|about|regarding)\s+(?:(?:a|an|the)\s+)?(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
+        afterOptOut,
+      );
+    const refersBackToShipment =
+      previousShipmentPrs.size === 1 &&
+      directPrs.size === 0 &&
+      correctedPrs === undefined &&
+      !mentionsDifferentWork &&
+      /(?:\bleave\s+it\s+(?:open|unmerged)\b|\b(?:don['’]?t|do not)\s+merge\s+it\b|\b(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*)/i.test(
+        match[0],
+      );
+    const attributedPrs =
+      mentionsDifferentWork && directPrs.size === 0
+        ? directPrs
+        : refersBackToShipment
+          ? previousShipmentPrs
+          : prs;
+    return {
+      match,
+      sentence: text,
+      prs: attributedPrs,
+    };
+  });
+}
+
+function hasFalseOptOutDenial(optOut) {
+  const { match: optOutMatch, sentence: optOutSentence } = optOut;
+  if (SHIP_AGENT_ATTRIBUTED_OPT_OUT_RE.test(optOutSentence)) {
+    return true;
+  }
+
+  const denials = [
+    ...optOutSentence.matchAll(
+      new RegExp(SHIP_FALSE_OPT_OUT_BEFORE_RE.source, "gi"),
+    ),
+  ];
+  if (
+    denials.some((denial) =>
+      sameShipment(prNumbersNearMatch(optOutSentence, denial), optOut.prs),
+    )
+  ) {
+    return true;
+  }
+
+  const denialTail = optOutSentence.slice(
+    optOutMatch.index + optOutMatch[0].length,
+  );
+  const afterOptOut = optOut.afterSentence;
+  const afterOptOutPrs = prNumbers(afterOptOut);
+  return (
+    SHIP_FALSE_OPT_OUT_AFTER_RE.test(denialTail) ||
+    SHIP_FALSE_OPT_OUT_CLAIM_RE.test(denialTail) ||
+    SHIP_FALSE_OPT_OUT_FOLLOWUP_RE.test(denialTail) ||
+    ((sameShipment(afterOptOutPrs, optOut.prs) ||
+      (afterOptOutPrs.size === 0 && optOut.prs.size === 1)) &&
+      SHIP_FALSE_OPT_OUT_FOLLOWUP_RE.test(afterOptOut))
+  );
+}
+
+function isShipStoppedBeforeMerge(text) {
+  for (const match of text.matchAll(SHIP_STOPPED_BEFORE_MERGE_ALL_RE)) {
+    const [start, end] = sentenceBoundsAt(text, match.index);
+    const sentence = text.slice(start, end);
+    const previousSentenceStart =
+      start > 0 ? sentenceBoundsAt(text, start - 1)[0] : start;
+    const previousSentence = text.slice(previousSentenceStart, start).trim();
+    let nextStart = end < text.length ? end + 1 : end;
+    while (/\s/.test(text[nextStart] ?? "")) nextStart++;
+    const [nextSentenceStart, nextSentenceEnd] = sentenceBoundsAt(
+      text,
+      nextStart,
+    );
+    const nextSentence = text.slice(nextSentenceStart, nextSentenceEnd).trim();
+    let followingStart =
+      nextSentenceEnd < text.length ? nextSentenceEnd + 1 : nextSentenceEnd;
+    while (/\s/.test(text[followingStart] ?? "")) followingStart++;
+    const [, followingSentenceEnd] = sentenceBoundsAt(text, followingStart);
+    const followingSentence = text
+      .slice(followingStart, followingSentenceEnd)
+      .trim();
+    let fourthStart =
+      followingSentenceEnd < text.length
+        ? followingSentenceEnd + 1
+        : followingSentenceEnd;
+    while (/\s/.test(text[fourthStart] ?? "")) fourthStart++;
+    const [, fourthSentenceEnd] = sentenceBoundsAt(text, fourthStart);
+    const fourthSentence = text.slice(fourthStart, fourthSentenceEnd).trim();
+    const stopMatch = {
+      0: match[0],
+      index: match.index - start,
+    };
+    const stopPrs = shipStopPrNumbers(sentence, stopMatch);
+
+    const optOutMatch = [
+      ...shipOptOutMatches(
+        previousSentence,
+        prNumbers(previousSentence).size === 0 ? stopPrs : new Set(),
+      )
+        .filter(
+          (optOut) =>
+            stopPrs.size > 0 &&
+            optOut.prs.size > 0 &&
+            sameShipment(stopPrs, optOut.prs),
+        )
+        .map((optOut) => ({ ...optOut, afterSentence: sentence })),
+      ...shipOptOutMatches(sentence, stopPrs).map((optOut) => ({
+        ...optOut,
+        afterSentence: nextSentence,
+      })),
+      ...shipOptOutMatches(
+        nextSentence,
+        prNumbers(nextSentence).size === 0 ? stopPrs : new Set(),
+      ).map((optOut) => ({ ...optOut, afterSentence: followingSentence })),
+      ...shipOptOutMatches(followingSentence)
+        .filter(
+          (optOut) =>
+            stopPrs.size > 0 &&
+            optOut.prs.size > 0 &&
+            sameShipment(stopPrs, optOut.prs),
+        )
+        .map((optOut) => ({ ...optOut, afterSentence: fourthSentence })),
+    ].find((optOut) => sameShipment(stopPrs, optOut.prs));
+
+    if (!optOutMatch) return true;
+    if (hasFalseOptOutDenial(optOutMatch)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+const SHIP_STOPPED_BEFORE_MERGE_RE = { test: isShipStoppedBeforeMerge };
+
 const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
 const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
 // A bare namespace mention is routine documentation. Count it only when the
@@ -112,6 +403,175 @@ const DESIGN_FEEDBACK_REGEX_CASES = [
   [false, "The design needs a little more contrast."],
 ];
 
+const FEEDBACK_EYES_RE =
+  /(?:\b(?:no|not|zero|without|missing)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:put|add|place|react|mark)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:remove|clear|take off)\b[^.!?]{0,80}(?:\beyes?\b|👀)[^.!?]{0,80}\b(?:confiden\w*|sure|fix\w*)\b)/i;
+
+const FEEDBACK_EYES_REGEX_CASES = [
+  [true, "There's not a single eye emoji on anything."],
+  [true, "Put eye emoji on it and fix the bug."],
+  [true, "Remove eye emoji if you're not confident you can fix it."],
+  [false, "I like the eyes emoji."],
+  [false, "One eye emoji is already on the bug."],
+  [false, "Fixed, add a checkmark."],
+];
+
+const PR_REVIEW_HANDOFF_SUBJECTS = String.raw`(?:(?:your|our|this|my|the)\s+)?(?:handoff|recap|summary|report|output|review)`;
+const PR_REVIEW_HANDOFF_DETAILS = [
+  String.raw`which\s+(?:PRs?|pull\s+requests?)\s+(?:were|are)\s+ready(?:\s+to\s+merge)?`,
+  String.raw`(?:(?:the|a|an)\s+)?merge[- ]readiness(?:\s+(?:recommendation|status))?`,
+  String.raw`(?:(?:the|an?)\s+)?(?:(?:drafts?\s+)?(?:(?:author[- ]facing|author)\s+)?repl(?:y|ies)(?:\s+drafts?)?|drafts?\s+(?:(?:author[- ]facing)\s+)?comments?(?:\s+drafts?)?|author[- ]facing\s+comments?(?:\s+drafts?)?)`,
+  String.raw`(?:the\s+)?(?:(?:UI|UX)\s+)?screenshots?(?:\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:changed\s+)?(?:UI|UX)|changes?|updated interface|changed interface))?`,
+  String.raw`(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+|the\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
+  String.raw`(?:whether|if)\s+(?:(?:the|a|any|all|which|these|those)\s+)?(?:PRs?|pull\s+requests?)\s+(?:were|are|was|is)\s+ready(?:\s+to\s+merge)?`,
+  String.raw`(?:the\s+)?review\s+(?:disposition|status)|(?:the\s+)?approval\s+status|(?:whether|if)\s+(?:(?:the|a)\s+)?(?:PRs?|pull\s+requests?)\s+(?:were|are|was|is)\s+(?:approved|not approved|skipped)`,
+  String.raw`(?:the\s+)?screenshot(?:s)?\s+(?:availability|presence|status|disposition|evidence|available|present|attached|included)`,
+].join("|");
+const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
+  String.raw`(?:didn['’]?t|did not)\s+(?:say|state|report|mention|include|note)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+  String.raw`(?:didn['’]?t|did not)\s+(?:ask(?:\s+for)?|request|draft|write|prepare|provide)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+  String.raw`missed\s+(?:asking\s+for|saying|reporting|mentioning|including|requesting|drafting|writing|preparing|providing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+  String.raw`(?:forgot|failed)\s+to\s+(?:say|state|report|mention|include|note|ask(?:\s+for)?|request|draft|write|prepare|provide)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+  String.raw`(?:left out|left off|omitted|(?:was|is|were|are)\s+missing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
+].join("|");
+const PR_REVIEW_HANDOFF_RE = new RegExp(
+  [
+    String.raw`\b(?:you|we|${PR_REVIEW_HANDOFF_SUBJECTS})\b[^.!?]{0,80}\b(?:${PR_REVIEW_HANDOFF_MISS_ACTIONS})\b`,
+    String.raw`\b(?:you|we)\s+missed\s*:\s*(?:\r?\n\s*[-*]\s*)+(?:${PR_REVIEW_HANDOFF_DETAILS})\b`,
+    String.raw`\b(?:you|we)\s+(?:marked|called|classified)\s+(?:it|the\s+PR|the\s+pull\s+request)\s+(?:as\s+)?ready\b[^.!?]{0,80}\b(?:despite|although|without|ignoring)\b[^.!?]{0,40}\b(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)\b`,
+    String.raw`\b(?:you|we)\s+(?:sent|posted|drafted|added|left)\s+another\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?]{0,120}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
+    String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,120}(?:unanswered|unaddressed|still\s+outstanding)[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)`,
+    String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding)`,
+    String.raw`\b(?:do\s+not|don't|never|avoid)\s+(?:post|draft|send|leave)\s+(?:(?:another|additional|further)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)|a\s+follow[- ]?up)[^.!?]{0,120}(?:until|while)[^.!?]{0,100}(?:contributor|author|they)[^.!?]{0,80}(?:update|respond|reply|address)[^.!?]{0,80}(?:Steve['’]s?\s+)?(?:outstanding|prior|previous|unanswered)?\s*(?:request|comment|ask)`,
+    String.raw`\b(?:you|we)\s+should\s+have\s+waited[^.!?]{0,120}(?:contributor|author|they)[^.!?]{0,80}(?:update|respond|reply|address)[^.!?]{0,80}(?:Steve['’]s?\s+)?(?:outstanding|prior|previous|unanswered)?\s*(?:request|comment|ask)[^.!?]{0,80}(?:before|for)\s+(?:a\s+)?follow[- ]?up`,
+    String.raw`\b(?:the\s+)?(?:UI\s+)?screenshots?\s+(?:status|availability|presence|disposition)\s+(?:was|were|is|are)\s+(?:omitted|missing|not\s+(?:reported|included|mentioned))\b`,
+    String.raw`\b(?:the\s+)?(?:${PR_REVIEW_HANDOFF_DETAILS})\s+(?:was|were|is|are)\s+(?:omitted|missing|not\s+(?:reported|included|mentioned))\b`,
+  ].join("|"),
+  "i",
+);
+
+const PR_REVIEW_HANDOFF_REGEX_CASES = [
+  [
+    true,
+    "You didn't say which PRs were ready to merge or draft replies for the updates.",
+  ],
+  [true, "You missed asking for screenshots of the UI changes."],
+  [true, "You left out screenshots of the UX."],
+  [true, "The handoff forgot to say which PRs were ready to merge."],
+  [true, "You didn't request screenshots for the UI changes."],
+  [true, "You didn't draft an author reply."],
+  [true, "You didn't draft author replies."],
+  [true, "The handoff omitted the draft reply."],
+  [true, "You forgot to draft a reply."],
+  [true, "You didn't include a merge-readiness recommendation."],
+  [true, "You failed to report a merge-readiness status."],
+  [true, "You didn't include screenshots of the changed UI."],
+  [true, "You failed to include screenshots of changed UX."],
+  [true, "The recap omitted the review disposition."],
+  [true, "You didn't report whether the PR was approved."],
+  [true, "You didn't say which pull requests were ready to merge."],
+  [true, "You did not say which PRs were ready to merge."],
+  [true, "You didn't say whether the UI screenshots were present."],
+  [true, "You omitted whether screenshots were present."],
+  [true, "You left out screenshot availability."],
+  [true, "You forgot to mention whether the screenshots were attached."],
+  [true, "You left out the screenshot status."],
+  [true, "You omitted the merge-readiness recommendation."],
+  [true, "The handoff left out the screenshot disposition."],
+  [true, "You marked it ready despite an unresolved human change request."],
+  [true, "You sent another comment while my prior request was unanswered."],
+  [
+    true,
+    "Do not post another author-facing reply until the contributor addresses Steve's outstanding request.",
+  ],
+  [
+    true,
+    "Do not post a follow-up until the contributor addresses Steve's outstanding request.",
+  ],
+  [
+    true,
+    "You should have waited for the author to address my previous request before a follow-up.",
+  ],
+  [true, "You commented again even though my prior ask was still unaddressed."],
+  [true, "You forgot to include the UI screenshots."],
+  [true, "You didn't ask for UI screenshots."],
+  [true, "You didn't provide screenshots."],
+  [true, "You forgot to say whether the PR was ready to merge."],
+  [true, "You failed to report whether PRs were ready to merge."],
+  [true, "You omitted the author-facing reply draft."],
+  [true, "You failed to report screenshot availability."],
+  [true, "The recap omitted the merge-readiness recommendation."],
+  [true, "The recap did not say whether screenshots were present."],
+  [true, "You didn't explain the blocker. The screenshot status was omitted."],
+  [
+    true,
+    "You failed to wait for Steve's request. The handoff omitted screenshot status.",
+  ],
+  [
+    true,
+    "You failed to wait for Steve's request. The handoff was missing screenshot status.",
+  ],
+  [true, "Your recap omitted the merge-readiness recommendation."],
+  [true, "The review failed to report screenshot availability."],
+  [true, "The handoff was missing screenshot status."],
+  [true, "The recap was missing the merge-readiness recommendation."],
+  [true, "Handoff omitted which PRs were ready to merge."],
+  [true, "Handoff was missing screenshot status."],
+  [true, "Review omitted the merge-readiness status."],
+  [
+    true,
+    "You missed:\n- which PRs were ready to merge\n- the author-facing reply draft",
+  ],
+  [false, "Please tell me which PRs are ready to merge and draft replies."],
+  [false, "This PR updates the UI and includes screenshots."],
+  [false, "Please provide screenshots with your PR."],
+  [
+    false,
+    "You didn't include comments from the review thread in the issue summary.",
+  ],
+  [false, "I would like screenshots for new UX changes."],
+  [
+    false,
+    "Don't draft author replies for internal PRs; include screenshot status in the recap.",
+  ],
+  [
+    false,
+    "You should draft a follow-up after the contributor addresses Steve's prior request and include screenshot status in the recap.",
+  ],
+  [
+    false,
+    "You need to draft a follow-up after the contributor addresses Steve's request. Include screenshot status in the recap.",
+  ],
+  [
+    false,
+    "You didn't fix the failing test. Please tell me which PRs are ready to merge.",
+  ],
+  [
+    false,
+    "You didn't fix the failing test, and please tell me which PRs are ready to merge.",
+  ],
+  [
+    false,
+    "You forgot the release note, but please provide screenshots with your PR.",
+  ],
+  [
+    false,
+    "Please wait for the contributor to update before drafting another comment.",
+  ],
+  [false, "The author addressed my prior request in a new commit."],
+  [
+    false,
+    "You drafted another reply after Steve's prior request was addressed in the latest commit.",
+  ],
+  [
+    false,
+    "Do not post a follow-up after the contributor addressed Steve's request.",
+  ],
+  [
+    false,
+    "You classified the PR as ready to merge and included screenshot status.",
+  ],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -138,6 +598,278 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not push commits routinely."],
 ];
 
+const STALE_PR_WATCHER_REGEX_CASES = [
+  [true, "PR #6329 is merged; please stop this scheduled task."],
+  [
+    true,
+    "These pointless scheduled tasks repeat the same status; remove them.",
+  ],
+  [true, "Stop the duplicate ship-watchdog heartbeat."],
+  [true, "Please cancel the PR babysitter."],
+  [true, "Please disable the babysitter for PR #6329."],
+  [false, "Please check back every hour until deployment."],
+  [false, "The merged PR has not deployed yet."],
+  [false, "Run one scan of open PRs."],
+  [false, "Disable the heartbeat for my weekly report."],
+  [false, "Stop this scheduled dashboard refresh."],
+  [false, "These scheduled tasks are pointless."],
+];
+
+const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
+  [
+    true,
+    "These are all threads I told to /ship, but I still have to run /ship-watchdog every morning.",
+  ],
+  [
+    false,
+    "They just stop after opening the PR; keep checking CI and review until merged.",
+  ],
+  [
+    true,
+    "They just stop after opening the PR; /ship should keep checking until merged.",
+  ],
+  [false, "Do not stop /ship until the PR is merged."],
+  [true, "I had to tell the agent to keep /ship running."],
+  [false, "Please tell the agent to keep /ship running until the checks pass."],
+  [true, "I told /ship to merge the pull request, but it never did."],
+  [true, "I asked /ship to merge PR #123, but the merge never happened."],
+  [true, "I asked /ship to merge PR #123, but it never happened."],
+  [true, "/ship stopped without merging PR #123."],
+  [
+    false,
+    "/ship stopped without merging PR #123 because I asked to leave PR #123 open.",
+  ],
+  [
+    true,
+    "I asked /ship to merge PR #123, but it merely opened the PR and returned.",
+  ],
+  [
+    false,
+    "I asked /ship to merge PR #123, and it opened the PR while CI runs; it will merge after the checks pass.",
+  ],
+  [true, "I already asked: do not stop /ship until the PR is merged."],
+  [true, "The agent ended /ship before the PR was merged."],
+  [true, "Why did /ship finish before merging the pull request?"],
+  [true, "The agent reported /ship complete but left the PR open."],
+  [
+    false,
+    "The agent reported /ship complete but left the PR open because I asked to leave it open; ship_mode=ready-only.",
+  ],
+  [
+    false,
+    "The agent reported /ship complete but left the PR open because I asked for ship_mode=ready-only.",
+  ],
+  [
+    true,
+    "The agent set ship_mode=ready-only without my approval and stopped /ship while the PR was open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with the pull request unmerged because I explicitly opted out of merging.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I said don’t merge PR #123.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with the pull request unmerged because I asked to leave it open while PR #123 waits for CI.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly opted out of merging.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because it claimed I asked it to leave the PR open, but I did not.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it claimed I told it to leave PR #123 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it thought I said don’t merge PR #123, but I had asked /ship to merge it.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because it claimed I asked it to leave the PR open, which I did not.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because it claimed I asked to leave the PR open. I did not.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because it falsely claimed I explicitly asked to leave the PR open, then explained that several checks were green, no reviewer had replied, the worktree was clean, no merge command had run, and the original instruction still asked the agent to watch until merge. That is false; I asked for the opposite.",
+  ],
+  [
+    true,
+    "Although I did not ask to leave the PR open, the agent stopped /ship with the pull request unmerged because it claimed I explicitly asked to leave the PR open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because a reviewer asked to leave the PR open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. CI passed and no comments were pending. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. I asked to leave it open for the separate deploy.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because I asked it not to merge a separate PR.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the PR unmerged. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave it open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly said don’t merge it.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave PR #123 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave PR #123 open—not PR #123, but PR #456.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave PR #123 open—not PR #456, but PR #123.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave it open while I checked PR #456.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave it open while I checked a separate PR #456.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. Please leave PR #123 open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. CI passed and no comments were pending. I explicitly asked to leave PR #123 open.",
+  ],
+  [
+    false,
+    "I asked to leave PR #123 open. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    false,
+    "I explicitly asked to leave it open. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    true,
+    "I explicitly asked to leave it open while I checked PR #456. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave it open—not PR #123, but PR #456.",
+  ],
+  [
+    true,
+    "I asked to leave PR #456 open. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I said to leave PR #123 open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. Please don’t merge PR #123.",
+  ],
+  [false, "The agent stopped /ship with PR 123 unmerged. Keep PR 123 open."],
+  [
+    true,
+    "The agent stopped /ship with PR 123 unmerged. I explicitly asked to leave PR 456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. A reviewer said “Please don’t merge PR #123.”",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because I asked to leave the PR open for PR #456.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because I asked to leave PR #456 open while PR #123 waits for CI.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. It claimed I asked to leave it open. That is false.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave PR #123 open, but I did not expect the tests to fail.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it claimed I explicitly asked to leave PR #123 open, but that was false.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it claimed I asked to leave PR #123 open, but I never authorized that.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #456 unmerged because I explicitly asked to leave it open. The agent stopped /ship with PR #123 unmerged without my approval.",
+  ],
+  [false, "Ready-only shipment: the PR stayed open after checks passed."],
+  [true, "The agent stopped /ship with the pull request unmerged."],
+  [
+    false,
+    "The agent finished implementing the fix, but the PR is still open for review.",
+  ],
+  [false, "They stopped after opening the PR so I can review it."],
+  [
+    true,
+    "I had to remind the agent to keep /ship running until the PR merged.",
+  ],
+  [true, "/ship stopped while the PR is still open."],
+  [false, "I have to run /ship-watchdog every day."],
+  [
+    true,
+    "I have to run /ship-watchdog because /ship stopped after opening the PR.",
+  ],
+  [
+    true,
+    "These are all threads I told to [$ship], yet I have to run [$ship-watchdog] every day.",
+  ],
+  [
+    true,
+    "I had to remind the agent to keep [$ship] running until the PR merged.",
+  ],
+  [false, "Please run /ship and merge once CI is green."],
+  [false, "Please run [$ship] and merge once CI is green."],
+  [false, "Run /ship on the remaining changes."],
+  [false, "The pull request is still open while CI runs."],
+  [false, "Ship the feature and stop when its tests pass."],
+  [false, "/ship should merge the PR once all required checks pass."],
+  [false, "The agent can stop after the PR has merged."],
+  [
+    false,
+    "The PR is still open; I asked you to stop changing unrelated files.",
+  ],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -146,6 +878,17 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...SHIPPING_CHURN_REGEX_CASES.filter(
       ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...STALE_PR_WATCHER_REGEX_CASES.filter(
+      ([expected, message]) => STALE_PR_WATCHER_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        SHIP_STOPPED_BEFORE_MERGE_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -160,12 +903,22 @@ if (process.argv.includes("--self-test")) {
         DESIGN_FEEDBACK_SCOPE_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...FEEDBACK_EYES_REGEX_CASES.filter(
+      ([expected, message]) => FEEDBACK_EYES_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...PR_REVIEW_HANDOFF_REGEX_CASES.filter(
+      ([expected, message]) => PR_REVIEW_HANDOFF_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -189,6 +942,13 @@ const PATTERNS = [
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
     re: SHIPPING_CHURN_RE,
+  },
+  {
+    key: "stale-pr-watchers",
+    label: "Had to stop a monitor after its PR was complete",
+    fixedBy:
+      ".agents/skills/babysit-pr + ship-watchdog (terminal-state and opt-in gates, 2026-09-23)",
+    re: STALE_PR_WATCHER_RE,
   },
   {
     key: "branch-moves",
@@ -232,6 +992,13 @@ const PATTERNS = [
     label: "Stopped mid-task / queued instead of doing",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
     re: /\b(stop stopping|keep stopping|why (did|do) you stop|don'?t stop|still queued|should be doing everything now)\b/i,
+  },
+  {
+    key: "ship-stopped-before-merge",
+    label: "Had to demand authorized /ship continue through merge",
+    fixedBy:
+      ".agents/skills/ship + babysit-pr (goal and blocking merge lifecycle, 2026-09-24)",
+    re: SHIP_STOPPED_BEFORE_MERGE_RE,
   },
   {
     key: "cheap-model",
@@ -313,8 +1080,27 @@ const PATTERNS = [
     key: "feedback-reply-tone",
     label:
       "Reported duplicate feedback clarification or missing thank-first reply",
-    fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
+    fixedBy:
+      ".agents/skills/address-feedback* + .agents/skills/review-prs (first-contact thanks, 2026-09-24)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+  },
+  {
+    // Added 2026-09-24 to measure omissions in non-auto-approved PR handoffs.
+    // Match corrective feedback only; ordinary first-time review requests are
+    // not user friction.
+    key: "pr-review-handoff",
+    label:
+      "Had to ask for PR handoff detail or stop repeated external follow-ups",
+    fixedBy:
+      ".agents/skills/review-prs (external replies and follow-up wait gate, 2026-09-24)",
+    re: PR_REVIEW_HANDOFF_RE,
+  },
+  {
+    key: "feedback-eyes-missed",
+    label: "Had to demand correct 👀 ownership and release",
+    fixedBy:
+      ".agents/skills/review-latest-feedback + address-feedback-with-replies (active ownership lifecycle, 2026-09-23)",
+    re: FEEDBACK_EYES_RE,
   },
   // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly
   // questions but not their volume, so the 2026-09-01 sweep that posted 23

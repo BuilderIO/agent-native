@@ -362,6 +362,11 @@
           "name": "align",
           "hasDefault": true,
           "default": null
+        },
+        {
+          "name": "textAlign",
+          "hasDefault": true,
+          "default": null
         }
       ],
       "content": "block+",
@@ -392,6 +397,11 @@
         },
         {
           "name": "align",
+          "hasDefault": true,
+          "default": null
+        },
+        {
+          "name": "textAlign",
           "hasDefault": true,
           "default": null
         }

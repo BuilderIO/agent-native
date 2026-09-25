@@ -52,6 +52,7 @@ const messages = {
     emptyState: "اسألني أي شيء عن عروضك التقديمية",
     thisSlide: "هذه الشريحة",
     currentSelection: "التحديد الحالي",
+    slideNumber: "الشريحة {{number}}",
     suggestionPitch: "أنشئ عرضا من 10 شرائح من هذا المستند",
     suggestionBrand: "طبّق علامتنا على هذا العرض",
     suggestionHero: "أنشئ صورة رئيسية لهذه الشريحة",
@@ -181,6 +182,12 @@ const messages = {
     emptyTitle: "إعداد هوية علامتك التجارية",
     emptyDescription:
       "أنشئ نظام تصميم بألوان علامتك وخطوطها وشعاراتها. سيتبع كل عرض جديد هويتك البصرية.",
+    tierLimitTitle: "تم الوصول إلى الحد الأقصى لأنظمة التصميم",
+    tierLimitDescription:
+      "لقد وصلت إلى الحد الأقصى لأنظمة التصميم في خطة Builder الخاصة بك. قم بترقية خطة Builder لإنشاء نظام آخر.",
+    tierLimitDescriptionWithCount:
+      "أنت تستخدم {{current}} من {{max}} أنظمة تصميم في خطة Builder {{plan}}. قم بالترقية لإنشاء نظام آخر.",
+    tierLimitUpgrade: "ترقية خطة Builder",
   },
   editorToolbar: {
     layoutTitle: "العنوان",
@@ -710,6 +717,8 @@ const messages = {
       "إذا غادرت أو أعدت التحميل الآن، فقد تفقد التغييرات التي لم تُحفظ بعد. هل أنت متأكد من رغبتك في الخروج؟",
     keepEditing: "متابعة التحرير",
     leaveWithoutSaving: "الخروج دون حفظ",
+    editorMarkupNotSaved:
+      "لم يتم حفظ هذا التعديل لأنه كان سيضيف ترميز المحرر إلى الشريحة.",
   },
   designSystemSetup: {
     importedBrand: "علامة تجارية مستوردة",
@@ -765,6 +774,8 @@ const messages = {
     websitePlaceholder: "example.com أو Nike",
     add: "إضافة",
     githubRepository: "ربط الكود: مستودع GitHub",
+    codeIndexingEnterpriseOnly:
+      "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
     githubRef: "الفرع أو الوسم أو الالتزام (اختياري)",
     githubPaths: "الملفات أو المجلدات، مفصولة بفواصل (اختياري)",
     codeFiles: "ربط ملفات الكود",
@@ -835,10 +846,6 @@ const messages = {
     continue: "متابعة",
     continueToGenerate: "متابعة للإنشاء",
     designSystem: "نظام التصميم",
-    designSystemIndexing: "جارٍ الفهرسة…",
-    designSystemUnavailable: "غير متاح",
-    designSystemIndexingNotice:
-      "لا يزال نظام التصميم هذا قيد الفهرسة. اختر نظامًا آخر أو انتظر انتهاء الفهرسة قبل المتابعة.",
     referenceDeck: "عرض مرجعي",
     referenceDeckPlaceholder: "اتّبع أسلوب عرض موجود",
     referenceDeckNone: "بدون مرجع",

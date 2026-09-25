@@ -182,6 +182,25 @@ describe("VideoPlayer playback", () => {
     expect(playSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps playback errors above the player controls", () => {
+    const video = getVideo();
+    vi.spyOn(video, "load").mockImplementation(() => {});
+
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+
+    const error = container.querySelector<HTMLElement>('[role="status"]');
+    expect(error?.textContent).toContain("Video could not be loaded.");
+    expect(error?.parentElement?.className).toContain("top-3");
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("z-20");
+  });
+
   it("stops picture-in-picture playback when the player unmounts", () => {
     const video = getVideo();
     const exitPictureInPicture = vi.fn().mockResolvedValue(undefined);
@@ -429,7 +448,7 @@ describe("VideoPlayer playback", () => {
     expect(playbackComment).not.toBeNull();
     expect(hoverPreview?.className).toContain("z-50");
     expect(playbackComment?.className).toContain("z-40");
-    expect(getPlayerControls().className).not.toContain("z-20");
+    expect(getPlayerControls().className).toContain("z-20");
   });
 
   it("keeps throughout CTAs above playback comments", () => {

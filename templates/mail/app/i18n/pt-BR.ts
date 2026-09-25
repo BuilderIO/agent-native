@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Todas",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -67,7 +68,8 @@ const messages = {
       renameTab: "Renomear aba",
       savedFilters: "Filtros salvos",
       combinedInbox: "Caixa de entrada combinada",
-      help: "Itens marcados aparecem como abas. Emails com marcador ficam separados da caixa de entrada.",
+      allTab: "Aba Todas",
+      help: "Todas inclui todas as conversas da caixa de entrada. Os marcadores selecionados dividem a caixa.",
     },
     accounts: {
       remove: "Remover",
@@ -531,6 +533,8 @@ const messages = {
       previewButton: "Executar prévia",
       previewRunning: "Verificando emails recentes da Caixa de entrada…",
       jevBadge: "Jev",
+      jevMatchProbability:
+        "Probabilidade de correspondência do Jev: {{percent}}%",
       feedbackLabel: "Marque as correspondências que não devem ser incluídas",
       notSpamShort: "Não é spam",
       notMatchShort: "Não corresponde",

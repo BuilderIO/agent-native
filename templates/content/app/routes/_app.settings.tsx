@@ -14,7 +14,14 @@ import {
   createCreativeContextAgentTab,
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
-import { CONTENT_LABS } from "@shared/labs";
+import {
+  CONTENT_CREATIVE_CONTEXT,
+  CONTENT_LABS,
+  CONTENT_SLASH_ADVANCED_CODE,
+  CONTENT_SLASH_DEVELOPER_DOCS,
+  CONTENT_SLASH_LAYOUTS,
+  CONTENT_SLASH_VISUALS,
+} from "@shared/labs";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
@@ -46,14 +53,34 @@ export default function SettingsRoute() {
     () =>
       CONTENT_LABS.map((lab) => ({
         ...lab,
-        displayName: t("settings.labCreativeContext", {
-          defaultValue: lab.displayName ?? "Creative Context",
-        }),
-        description: t("settings.labCreativeContextDescription", {
-          defaultValue:
-            lab.description ??
-            "Connect and reuse governed reference context in Content.",
-        }),
+        ...(lab.key === CONTENT_CREATIVE_CONTEXT.key
+          ? {
+              displayName: t("settings.labCreativeContext"),
+              description: t("settings.labCreativeContextDescription"),
+            }
+          : lab.key === CONTENT_SLASH_ADVANCED_CODE.key
+            ? {
+                displayName: t("settings.labSlashAdvancedCode"),
+                description: t("settings.labSlashAdvancedCodeDescription"),
+              }
+            : lab.key === CONTENT_SLASH_LAYOUTS.key
+              ? {
+                  displayName: t("settings.labSlashLayouts"),
+                  description: t("settings.labSlashLayoutsDescription"),
+                }
+              : lab.key === CONTENT_SLASH_VISUALS.key
+                ? {
+                    displayName: t("settings.labSlashVisuals"),
+                    description: t("settings.labSlashVisualsDescription"),
+                  }
+                : lab.key === CONTENT_SLASH_DEVELOPER_DOCS.key
+                  ? {
+                      displayName: t("settings.labSlashDeveloperDocs"),
+                      description: t(
+                        "settings.labSlashDeveloperDocsDescription",
+                      ),
+                    }
+                  : {}),
       })),
     [t],
   );

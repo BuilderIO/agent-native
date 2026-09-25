@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
@@ -5,6 +6,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
 import {
   FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
   fetchFirstRunOnboardingStatus,
@@ -24,7 +26,15 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -32,18 +42,17 @@ import { toast } from "sonner";
 import DeckCard from "@/components/deck/DeckCard";
 import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
+import { DeferredPopoverFallback } from "@/components/editor/DeferredPopoverFallback";
 import {
   NewDeckReferenceStep,
   type ImportedReference,
   type NewDeckReferenceSelection,
   type NewDeckReferenceSource,
 } from "@/components/editor/NewDeckReferenceStep";
-import PromptPopover, {
-  uploadPromptFiles,
-  type PromptAttachmentActions,
-  type PromptImportSelection,
-  type PromptChatAttachment,
-  type UploadedFile,
+import type {
+  PromptAttachmentActions,
+  PromptImportSelection,
+  PromptChatAttachment,
 } from "@/components/editor/PromptDialog";
 import {
   AlertDialog,
@@ -62,7 +71,10 @@ import {
   type Deck,
 } from "@/context/DeckContext";
 import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  clearStartedGenerationAttempt,
+  useAgentGenerating,
+} from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
@@ -83,15 +95,13 @@ import {
 } from "@/lib/deck-filter";
 import { deckListViewState } from "@/lib/deck-list-loading";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
-import {
-  isDesignSystemSelectable,
-  resolveSelectableDesignSystemId,
-} from "@/lib/design-system-selection";
+import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
+import type { UploadedFile } from "@/lib/prompt-file-uploads";
 import {
   forgetRecentReference,
   readRecentReferences,
@@ -100,6 +110,20 @@ import {
 } from "@/lib/recent-references";
 import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
+
+const loadPromptPopover = () => import("@/components/editor/PromptDialog");
+const LazyPromptPopover = lazy(loadPromptPopover);
+
+async function uploadPromptFiles(files: File[]): Promise<UploadedFile[]> {
+  const module = await import("@/lib/prompt-file-uploads");
+  return module.uploadPromptFiles(files);
+}
+
+function preloadPromptPopover() {
+  // This is an optional hover/focus optimization; rendering the opened popover
+  // is where a failed chunk load is surfaced through its recovery boundary.
+  void loadPromptPopover().catch(() => {});
+}
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
@@ -356,6 +380,7 @@ export default function Index() {
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
     useState<Deck | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
+  const [hasOpenedNewDeckPrompt, setHasOpenedNewDeckPrompt] = useState(false);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
     key: number;
@@ -422,29 +447,22 @@ export default function Index() {
   const anchorRef = useRef<HTMLElement | null>(null);
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
+  useEffect(() => {
+    if (showNewDeckPrompt) setHasOpenedNewDeckPrompt(true);
+  }, [showNewDeckPrompt]);
   const effectiveDefaultDesignSystemId = resolveSelectableDesignSystemId(
     designSystems,
     defaultSystem?.id,
   );
   const workspaceDesignSystemId =
-    workspaceDesignSystem &&
-    workspaceDesignSystem.status === "available" &&
-    designSystems.some(
-      (designSystem) =>
-        designSystem.id === workspaceDesignSystem.id &&
-        isDesignSystemSelectable(designSystem),
-    )
+    workspaceDesignSystem && workspaceDesignSystem.status === "available"
       ? workspaceDesignSystem.id
       : null;
   const lastUsedDesignSystemId =
     recentReferences.find(
       (reference) =>
         reference.kind === "design-system" &&
-        designSystems.some(
-          (designSystem) =>
-            designSystem.id === reference.id &&
-            isDesignSystemSelectable(designSystem),
-        ),
+        designSystems.some((designSystem) => designSystem.id === reference.id),
     )?.id ?? null;
   const lastUsedReferenceDeckId =
     recentReferences.find(
@@ -503,6 +521,19 @@ export default function Index() {
   }, [createdByParam]);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
+  const clearInitialPromptFromUrl = useCallback(() => {
+    setSearchParams(
+      (previous) => {
+        if (previous.get("initialPrompt")?.trim() !== initialPrompt) {
+          return previous;
+        }
+        const next = new URLSearchParams(previous);
+        next.delete("initialPrompt");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [initialPrompt, setSearchParams]);
   const onboardingPreview = searchParams.get("onboarding") === "preview";
   const firstRunOnboardingEnabled =
     onboardingPreview || isFirstRunOnboardingEnabled();
@@ -512,15 +543,10 @@ export default function Index() {
     anchorElRef.current = null;
     setNewDeckInitialPrompt({ text: initialPrompt, key: Date.now() });
     setShowNewDeckPrompt(true);
-    setSearchParams(
-      (previous) => {
-        const next = new URLSearchParams(previous);
-        next.delete("initialPrompt");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [initialPrompt, setSearchParams]);
+    void loadPromptPopover()
+      .then(clearInitialPromptFromUrl)
+      .catch(() => {});
+  }, [clearInitialPromptFromUrl, initialPrompt]);
 
   useEffect(() => {
     if (!initialPrompt || initialPromptConsumedRef.current) return;
@@ -583,6 +609,7 @@ export default function Index() {
 
   const openNewDeck = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
+      preloadPromptPopover();
       anchorElRef.current = e.currentTarget;
       designSystemAutoRef.current = true;
       referenceDeckAutoRef.current = true;
@@ -595,6 +622,7 @@ export default function Index() {
 
   const setNewDeckPromptOpen = useCallback(
     (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {
+      if (open) preloadPromptPopover();
       setShowNewDeckPrompt(open);
       if (!open) {
         if (options.clearInitialPrompt !== false) {
@@ -611,6 +639,11 @@ export default function Index() {
     },
     [],
   );
+
+  const closeNewDeckPromptFallback = useCallback(() => {
+    setNewDeckPromptOpen(false);
+    clearInitialPromptFromUrl();
+  }, [clearInitialPromptFromUrl, setNewDeckPromptOpen]);
 
   const preservePromptForSignIn = useCallback(
     (
@@ -853,17 +886,47 @@ export default function Index() {
       return;
     }
     const deckId = deck.id;
+    const generationAttemptId = nanoid();
+    let generationFailureTracked = false;
+    const generationSubmitMessageId = nanoid();
+    trackEvent("generation_started", {
+      app_name: "slides",
+      template_name: "slides",
+      generation_attempt_id: generationAttemptId,
+      output_id: deckId,
+      output_type: "deck",
+      source: "new_deck_prompt",
+    });
     setNewDeckPromptOpen(false);
 
     // Leave the grid as soon as the optimistic deck exists. Persistence and
     // agent context hydration can take several seconds, so the editor's
     // generation state is the only useful surface while that work finishes.
-    void navigate(`/deck/${deck.id}?generating=1`, {
-      replace: true,
-      flushSync: true,
-    });
+    void navigate(
+      `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
+      {
+        replace: true,
+        flushSync: true,
+      },
+    );
 
-    const recoverFromGenerationSetupFailure = (description: string) => {
+    const recoverFromGenerationSetupFailure = (
+      description: string,
+      failureCode = "setup_failed",
+    ) => {
+      if (!generationFailureTracked) {
+        generationFailureTracked = true;
+        trackEvent("generation_failed", {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: generationAttemptId,
+          output_id: deckId,
+          output_type: "deck",
+          failure_code: failureCode,
+          failure_stage: "setup",
+          source: "new_deck_prompt",
+        });
+      }
       settlePendingDeckAttachments("discard");
       if (
         !savePromptForRetry(prompt, {
@@ -880,6 +943,7 @@ export default function Index() {
       setNewDeckRetryImportedReference(importedReferenceSource);
       setNewDeckRetryAttachments(attachmentsForGeneration);
       setNewDeckRetryModelSelection(modelSelection);
+      clearStartedGenerationAttempt(generationAttemptId, deckId);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
       if (
@@ -1043,9 +1107,9 @@ export default function Index() {
           "Source-preserving improvement mode:",
           `- The target deck already contains ${importedSourceDeck.slideCount} imported source slides. Treat those slides as the user's complete source, not as inspiration for a new deck.`,
           "- Keep the exact source slide count, order, IDs, factual meaning, notes, images, charts, tables, diagrams, and freeform objects unless the user explicitly asks to change one of them.",
-          "- Read get-deck once before editing to obtain every existing slide ID and source HTML, load the linked design system with get-design-system, then make a deck-wide restyle with one patch-deck call using requireAllSourceSlides=true and one patch-slide operation with fields.content for every source slide ID. The ordered source manifest is sourceImport.slideIds. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
+          "- Read the full deck once with get-deck compact=false to get sourceImport.slideIds, every slide's HTML and contentHash, and the linked design context; call get-design-system once for its full tokens, assets, and instructions. Make the deck-wide restyle in one patch-deck call using requireAllSourceSlides=true, with each patch-slide's matching contentHash as baseContentHash; use styleOnly=true for CSS-only changes that preserve slide structure. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
           "- For this restyle, keep the source slide structure and do not replace source images with generic cards. If the user explicitly asks to add, delete, or reorder slides, use the corresponding operation normally; it clears source-import provenance, so verify the edited slide count and order instead of waiting for sourceCoverage.",
-          '- After a source-preserving patch that leaves sourceImport present, verify with get-deck using compact: "true" so only slide IDs, count, and previews are returned. Do not claim success until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. If structural operations cleared sourceImport, verify the resulting slide count and order instead and do not require sourceCoverage.complete. Do not report an initial or partial pass, and do not leave any source slides for a later run.',
+          "- After a source-preserving patch that leaves sourceImport present, verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Confirm the full source reflects the request and sourceCoverage.complete is true with expectedSlideIds and actualSlideIds matching in order. If structural operations cleared sourceImport, verify the resulting slide count and order instead and do not require sourceCoverage.complete. Do not report an initial or partial pass, and do not leave any source slides for a later run.",
           "- If get-deck reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
         ].join("\n")
       : "";
@@ -1073,6 +1137,7 @@ export default function Index() {
       importedSourceDeck
         ? `The user uploaded a source presentation into target deck (id: "${deckId}") and wants a reliable visual improvement.`
         : `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
+      `The browser owns this deck's generation lifecycle. Its exact generationAttemptId is "${generationAttemptId}". If a tool call for this deck accepts generationAttemptId, pass this exact value unchanged; never create a substitute ID.`,
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       googleDocContext,
       fileContext,
@@ -1112,6 +1177,7 @@ export default function Index() {
         mode: importedSourceDeck ? "source-preserving" : "new",
         targetSlideCount:
           importedSourceDeck?.slideCount ?? requestedSlideCount(trimmedPrompt),
+        generationAttemptId,
       });
     } catch (error) {
       recoverFromGenerationSetupFailure(
@@ -1130,14 +1196,35 @@ export default function Index() {
     ).catch(() => {});
     deleteClientAppState("guided-questions").catch(() => {});
 
-    agentSubmit(createDeckAgentMessage(prompt), context, {
-      newTab: true,
-      reuseEmptyTab: true,
-      openSidebar: true,
-      ...getUploadedImageAgentOptions(filesForGeneration),
-      attachments: attachmentsForGeneration,
-      ...modelSelection,
-    });
+    try {
+      agentSubmit(createDeckAgentMessage(prompt), context, {
+        newTab: true,
+        reuseEmptyTab: true,
+        openSidebar: true,
+        submitMessageId: generationSubmitMessageId,
+        generationAttemptId,
+        generationOutputId: deckId,
+        ...getUploadedImageAgentOptions(filesForGeneration),
+        attachments: attachmentsForGeneration,
+        ...modelSelection,
+      });
+      trackEvent("generation_request_accepted", {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: generationAttemptId,
+        output_id: deckId,
+        output_type: "deck",
+        source: "new_deck_prompt",
+      });
+    } catch (error) {
+      recoverFromGenerationSetupFailure(
+        error instanceof Error
+          ? error.message
+          : t("home.generationStartFailedDescription"),
+        "agent_submit_failed",
+      );
+      return;
+    }
     settlePendingDeckAttachments("commit");
   };
 
@@ -1820,7 +1907,13 @@ export default function Index() {
         <>
           <DeckSearchInput value={deckSearch} onChange={setDeckSearch} />
           <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-          <Button onClick={openNewDeck} size="sm" className="cursor-pointer">
+          <Button
+            onClick={openNewDeck}
+            onPointerEnter={preloadPromptPopover}
+            onFocus={preloadPromptPopover}
+            size="sm"
+            className="cursor-pointer"
+          >
             <IconPlus className="w-3.5 h-3.5" />
             {t("home.newDeck")}
           </Button>
@@ -1905,6 +1998,8 @@ export default function Index() {
               {/* New deck card */}
               <button
                 onClick={openNewDeck}
+                onPointerEnter={preloadPromptPopover}
+                onFocus={preloadPromptPopover}
                 className="group relative cursor-pointer overflow-hidden rounded-xl border border-transparent bg-card text-start transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
               >
                 <div className="flex aspect-video items-center justify-center bg-muted/30">
@@ -1992,41 +2087,76 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <PromptPopover
-        open={showNewDeckPrompt}
-        onOpenChange={setNewDeckPromptOpen}
-        title={t("home.newDeckPromptTitle")}
-        placeholder={t("home.newDeckPlaceholder")}
-        onSkip={handlePromptSkip}
-        skipLabel={t("home.skipPrompt")}
-        onSubmit={handlePromptSubmit}
-        onImport={handleDirectImport}
-        importFromLabel={t("home.importFrom")}
-        importingLabel={t("editorToolbar.importing")}
-        onBeforeUpload={(prompt, files, context, attachments, options) => {
-          if (session) return true;
-          preservePromptForSignIn(prompt, {
-            context,
-            attachments,
-            hadFiles: files.length > 0,
-            modelSelection: options
-              ? {
-                  model: options.model,
-                  engine: options.engine,
-                  effort: options.effort,
-                }
-              : undefined,
-          });
-          return false;
-        }}
-        loading={generating}
-        anchorRef={anchorRef}
-        draftScope={NEW_DECK_DRAFT_SCOPE}
-        initialText={newDeckInitialPrompt?.text}
-        initialTextKey={newDeckInitialPrompt?.key}
-        initialModelSelection={newDeckRetryModelSelection}
-        onRetainedAttachmentsAbandoned={handlePendingDeckAttachmentsAbandoned}
-      />
+      {(showNewDeckPrompt || hasOpenedNewDeckPrompt) && (
+        <LazyChunkErrorBoundary
+          fallback={
+            showNewDeckPrompt ? (
+              <DeferredPopoverFallback
+                surface="prompt"
+                anchorRef={anchorRef}
+                failed
+                onClose={closeNewDeckPromptFallback}
+              />
+            ) : null
+          }
+        >
+          <Suspense
+            fallback={
+              showNewDeckPrompt ? (
+                <DeferredPopoverFallback
+                  surface="prompt"
+                  anchorRef={anchorRef}
+                  onClose={closeNewDeckPromptFallback}
+                />
+              ) : null
+            }
+          >
+            <LazyPromptPopover
+              open={showNewDeckPrompt}
+              onOpenChange={setNewDeckPromptOpen}
+              title={t("home.newDeckPromptTitle")}
+              placeholder={t("home.newDeckPlaceholder")}
+              onSkip={handlePromptSkip}
+              skipLabel={t("home.skipPrompt")}
+              onSubmit={handlePromptSubmit}
+              onImport={handleDirectImport}
+              importFromLabel={t("home.importFrom")}
+              importingLabel={t("editorToolbar.importing")}
+              onBeforeUpload={(
+                prompt,
+                files,
+                context,
+                attachments,
+                options,
+              ) => {
+                if (session) return true;
+                preservePromptForSignIn(prompt, {
+                  context,
+                  attachments,
+                  hadFiles: files.length > 0,
+                  modelSelection: options
+                    ? {
+                        model: options.model,
+                        engine: options.engine,
+                        effort: options.effort,
+                      }
+                    : undefined,
+                });
+                return false;
+              }}
+              loading={generating}
+              anchorRef={anchorRef}
+              draftScope={NEW_DECK_DRAFT_SCOPE}
+              initialText={newDeckInitialPrompt?.text}
+              initialTextKey={newDeckInitialPrompt?.key}
+              initialModelSelection={newDeckRetryModelSelection}
+              onRetainedAttachmentsAbandoned={
+                handlePendingDeckAttachmentsAbandoned
+              }
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
 
       <NewDeckReferenceStep
         open={showNewDeckReferenceStep}
@@ -2133,6 +2263,8 @@ function EmptyState({
         {t("home.emptyTitle")}
       </h2>
       <Button
+        onPointerEnter={preloadPromptPopover}
+        onFocus={preloadPromptPopover}
         onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
           onCreateDeck(e as React.MouseEvent<HTMLElement>)
         }

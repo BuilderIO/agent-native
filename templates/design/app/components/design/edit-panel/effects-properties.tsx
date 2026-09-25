@@ -625,6 +625,7 @@ export function EffectsProperties({
 }) {
   const t = useT();
   const [shaderPickerOpen, setShaderPickerOpen] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const styles = element.computedStyles;
   // M5 · Background (backdrop) blur is a distinct design effect type, backed by
   // CSS `backdrop-filter: blur()` (vs layer blur's `filter: blur()`).
@@ -734,6 +735,7 @@ export function EffectsProperties({
   return (
     <PanelSection
       title={t("editPanel.sections.effects")}
+      onEmptyTitleClick={() => setAddMenuOpen(true)}
       actions={
         <>
           <SectionIconButton
@@ -742,7 +744,7 @@ export function EffectsProperties({
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
-          <DropdownMenu>
+          <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>

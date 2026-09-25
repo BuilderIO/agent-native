@@ -27,6 +27,7 @@ export interface SkillEntry {
   name: string;
   dir: string;
   description?: string;
+  installerGroup?: string;
 }
 
 export interface InstallSkillsOptions {
@@ -121,7 +122,9 @@ interface PromptOption<T extends string> {
 }
 
 export interface SkillsPromptContext {
+  message?: string;
   initialSkills: string[];
+  required?: boolean;
   options: Array<PromptOption<string>>;
 }
 
@@ -474,6 +477,7 @@ export async function runSkillsCli(
         ? discoverSkills(loadedSource.root).map((entry) => ({
             name: entry.name,
             description: entry.description,
+            installerGroup: entry.installerGroup,
           }))
         : [];
       await runSkills(toCoreSkillsArgv(parsed), {
@@ -488,7 +492,9 @@ export async function runSkillsCli(
         promptSkills: options.promptSkills
           ? async (context: any) =>
               options.promptSkills?.({
+                message: context.message,
                 initialSkills: context.initialTargets,
+                required: context.required,
                 options: context.options,
               }) ?? null
           : undefined,
@@ -1330,7 +1336,13 @@ function skillEntry(dir: string): SkillEntry | null {
   const frontmatter = body.match(/^---\n([\s\S]*?)\n---/);
   const name = frontmatterField(frontmatter?.[1], "name") ?? path.basename(dir);
   const description = frontmatterField(frontmatter?.[1], "description");
-  return { name: normalizeSkillName(name), dir, description };
+  const installerGroup = frontmatterField(frontmatter?.[1], "installer-group");
+  return {
+    name: normalizeSkillName(name),
+    dir,
+    description,
+    installerGroup,
+  };
 }
 
 function frontmatterField(

@@ -16,6 +16,10 @@ import { injectDocumentMarkup } from "../shared/html-document.js";
 const DEFAULT_BRIDGE_PORT = 7331;
 const ROUTE_MANIFEST_FILE = path.join(".agent-native", "design-routes.json");
 const BRIDGE_TOKEN_FILE = path.join(".agent-native", "design-bridge-token");
+const LIVE_EDIT_REVISION_FILE = path.join(
+  ".agent-native",
+  "live-edit-revisions.json",
+);
 const LOCALHOST_CONNECTION_ID = /^localhost_[A-Za-z0-9_-]{16}$/;
 const DEFAULT_DEV_SERVER_CANDIDATES = [
   "http://127.0.0.1:5173",
@@ -210,6 +214,9 @@ async function resolveBridgeToken(
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+const LIVE_EDIT_CAPABILITY_DOMAIN = "agent-native-live-edit-design-v1\0";
+const LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN =
+  "agent-native-live-edit-registration-v1\0";
 const PREVIEW_ATTESTATION_DOMAIN =
   "agent-native-design-preview-attestation-v1\0";
 const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
@@ -231,6 +238,28 @@ export function deriveDesignPreviewToken(bridgeToken: string): string {
     .createHash("sha256")
     .update(PREVIEW_TOKEN_DOMAIN)
     .update(bridgeToken)
+    .digest("hex");
+}
+
+export function deriveDesignScopedLiveEditCapability(
+  bridgeToken: string,
+  designId: string,
+): string {
+  return crypto
+    .createHmac("sha256", bridgeToken)
+    .update(LIVE_EDIT_CAPABILITY_DOMAIN)
+    .update(designId)
+    .digest("hex");
+}
+
+export function deriveDesignScopedLiveEditRegistrationCapability(
+  bridgeToken: string,
+  designId: string,
+): string {
+  return crypto
+    .createHmac("sha256", bridgeToken)
+    .update(LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN)
+    .update(designId)
     .digest("hex");
 }
 
@@ -852,7 +881,7 @@ function configureBridgeCors(
         "access-control-allow-methods":
           "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
         "access-control-allow-headers":
-          "accept, authorization, content-type, x-agent-native-browser-tab, x-agent-native-build-id, x-agent-native-client-compatibility, x-agent-native-client-platform, x-agent-native-csrf, x-agent-native-desktop-verifier, x-agent-native-embed-target, x-agent-native-embed-transplant, x-agent-native-frontend, x-agent-native-session-id, x-bridge-token, x-csrf-token, x-design-preview-token, x-request-source, x-requested-with, x-xsrf-token, x-user-timezone",
+          "accept, authorization, content-type, x-agent-native-browser-tab, x-agent-native-build-id, x-agent-native-client-compatibility, x-agent-native-client-platform, x-agent-native-csrf, x-agent-native-desktop-verifier, x-agent-native-embed-target, x-agent-native-embed-transplant, x-agent-native-frontend, x-agent-native-live-edit-capability, x-agent-native-live-edit-registration-capability, x-agent-native-session-id, x-bridge-token, x-csrf-token, x-design-preview-token, x-request-source, x-requested-with, x-xsrf-token, x-user-timezone",
         "access-control-allow-credentials": "true",
         "access-control-allow-private-network": "true",
         vary: "Origin",
@@ -1746,9 +1775,186 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-const MAX_LIVE_EDIT_PENDING_BYTES = 512 * 1024;
+const MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH = 64 * 1024;
+const MAX_LIVE_EDIT_PENDING_BYTES =
+  MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH + 8 * 1024;
+const MAX_LIVE_EDIT_PENDING_DESIGNS = 32;
+const MAX_LIVE_EDIT_BRIDGE_KEYS = 128;
+const MAX_LIVE_EDIT_REVISION_DESIGNS = 256;
+const LIVE_EDIT_PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+
+type LiveEditPendingEntry = {
+  revision: number;
+  pending: Record<string, unknown> | null;
+  updatedAt: number;
+};
+
+function pruneLiveEditPendingEntries(
+  entries: Map<string, LiveEditPendingEntry>,
+  now: number,
+) {
+  for (const [designId, entry] of entries) {
+    if (now - entry.updatedAt >= LIVE_EDIT_PENDING_TTL_MS) {
+      entries.delete(designId);
+    }
+  }
+}
+
+function sameLiveEditPendingPayload(
+  current: Record<string, unknown> | null,
+  next: Record<string, unknown> | null,
+): boolean {
+  if (current === null || next === null) return current === next;
+  return (
+    current.designId === next.designId &&
+    current.pendingEditCount === next.pendingEditCount &&
+    current.status === next.status &&
+    current.prompt === next.prompt
+  );
+}
+
+function storeLiveEditPendingEntry(
+  entries: Map<string, LiveEditPendingEntry>,
+  revisionHighWaterMarks: Map<string, number>,
+  designId: string,
+  revision: number,
+  pending: Record<string, unknown> | null,
+  now: number,
+): "stored" | "stale" | "conflict" | "capacity" {
+  pruneLiveEditPendingEntries(entries, now);
+  const existing = entries.get(designId);
+  const highWaterMark = revisionHighWaterMarks.get(designId);
+  if (
+    highWaterMark === undefined &&
+    revisionHighWaterMarks.size >= MAX_LIVE_EDIT_REVISION_DESIGNS
+  ) {
+    return "capacity";
+  }
+  if (highWaterMark !== undefined && revision < highWaterMark) return "stale";
+  if (highWaterMark === revision) {
+    if (!existing) return "stale";
+    if (!sameLiveEditPendingPayload(existing.pending, pending))
+      return "conflict";
+    entries.delete(designId);
+    entries.set(designId, { ...existing, updatedAt: now });
+    return "stored";
+  }
+  revisionHighWaterMarks.set(designId, revision);
+  entries.delete(designId);
+  entries.set(designId, { revision, pending, updatedAt: now });
+  while (entries.size > MAX_LIVE_EDIT_PENDING_DESIGNS) {
+    const oldest = entries.keys().next().value;
+    if (typeof oldest !== "string") break;
+    entries.delete(oldest);
+  }
+  return "stored";
+}
+
+async function readLiveEditRevisionHighWaterMarks(
+  rootPath: string,
+): Promise<Map<string, number>> {
+  const filePath = path.join(rootPath, LIVE_EDIT_REVISION_FILE);
+  let serialized: string;
+  try {
+    serialized = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Map();
+    throw error;
+  }
+  const parsed: unknown = JSON.parse(serialized);
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    (parsed as { version?: unknown }).version !== 1 ||
+    !("revisions" in parsed) ||
+    !parsed.revisions ||
+    typeof parsed.revisions !== "object" ||
+    Array.isArray(parsed.revisions)
+  ) {
+    throw new Error("Invalid live-edit revision high-water file");
+  }
+  const revisions = Object.entries(parsed.revisions);
+  if (revisions.length > MAX_LIVE_EDIT_REVISION_DESIGNS) {
+    throw new Error(
+      "Live-edit revision high-water file exceeds its design cap",
+    );
+  }
+  const marks = new Map<string, number>();
+  for (const [designId, revision] of revisions) {
+    if (
+      !designId ||
+      !Number.isSafeInteger(revision) ||
+      (revision as number) < 1
+    ) {
+      throw new Error("Invalid live-edit revision high-water entry");
+    }
+    marks.set(designId, revision as number);
+  }
+  return marks;
+}
+
+async function writeLiveEditRevisionHighWaterMarks(
+  rootPath: string,
+  marks: Map<string, number>,
+): Promise<void> {
+  const filePath = path.join(rootPath, LIVE_EDIT_REVISION_FILE);
+  const directory = path.dirname(filePath);
+  await fs.mkdir(directory, { recursive: true });
+  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomBytes(8).toString("hex")}.tmp`;
+  try {
+    const handle = await fs.open(temporaryPath, "wx", 0o600);
+    try {
+      await handle.writeFile(
+        JSON.stringify({ version: 1, revisions: Object.fromEntries(marks) }),
+        "utf8",
+      );
+    } finally {
+      await handle.close();
+    }
+    await fs.rename(temporaryPath, filePath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true });
+  }
+}
+
+async function storePersistentLiveEditPendingEntry(
+  entries: Map<string, LiveEditPendingEntry>,
+  revisionHighWaterMarks: Map<string, number>,
+  rootPath: string,
+  designId: string,
+  revision: number,
+  pending: Record<string, unknown> | null,
+  now: number,
+): Promise<"stored" | "stale" | "conflict" | "capacity"> {
+  const nextEntries = new Map(entries);
+  const nextMarks = new Map(revisionHighWaterMarks);
+  const stored = storeLiveEditPendingEntry(
+    nextEntries,
+    nextMarks,
+    designId,
+    revision,
+    pending,
+    now,
+  );
+  if (stored !== "stored") return stored;
+  if (nextMarks.get(designId) !== revisionHighWaterMarks.get(designId)) {
+    try {
+      await writeLiveEditRevisionHighWaterMarks(rootPath, nextMarks);
+    } catch (error) {
+      throw new LiveEditRevisionPersistenceError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  entries.clear();
+  for (const [key, entry] of nextEntries) entries.set(key, entry);
+  revisionHighWaterMarks.clear();
+  for (const [key, mark] of nextMarks) revisionHighWaterMarks.set(key, mark);
+  return "stored";
+}
 
 class LiveEditPendingRequestTooLargeError extends Error {}
+class LiveEditRevisionPersistenceError extends Error {}
 
 async function readLiveEditPendingBody(req: IncomingMessage): Promise<string> {
   const declaredLength = Number(readHeader(req, "content-length"));
@@ -1757,7 +1963,7 @@ async function readLiveEditPendingBody(req: IncomingMessage): Promise<string> {
     declaredLength > MAX_LIVE_EDIT_PENDING_BYTES
   ) {
     throw new LiveEditPendingRequestTooLargeError(
-      "Pending visual edit payload exceeds the 512 KB limit.",
+      "Pending visual edit payload exceeds the 64 KB prompt limit.",
     );
   }
   return new Promise<string>((resolve, reject) => {
@@ -1777,7 +1983,7 @@ async function readLiveEditPendingBody(req: IncomingMessage): Promise<string> {
       if (tooLarge) {
         reject(
           new LiveEditPendingRequestTooLargeError(
-            "Pending visual edit payload exceeds the 512 KB limit.",
+            "Pending visual edit payload exceeds the 64 KB prompt limit.",
           ),
         );
         return;
@@ -2631,7 +2837,38 @@ export async function startDesignConnectBridge(
     }),
   );
   let liveEditBridgeScript = "";
-  let pendingVisualEditPayload: Record<string, unknown> | null = null;
+  const pendingVisualEditPayloads = new Map<string, LiveEditPendingEntry>();
+  // These marks outlive both payload eviction and bridge-script registration.
+  // They are persisted because the capability remains valid across daemon boots.
+  const pendingVisualEditRevisionHighWaterMarks =
+    await readLiveEditRevisionHighWaterMarks(manifest.rootPath);
+  let pendingVisualEditWriteQueue = Promise.resolve();
+  const storePendingVisualEdit = async (
+    designId: string,
+    revision: number,
+    pending: Record<string, unknown> | null,
+    now: number,
+  ) => {
+    const previous = pendingVisualEditWriteQueue;
+    let release!: () => void;
+    pendingVisualEditWriteQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await storePersistentLiveEditPendingEntry(
+        pendingVisualEditPayloads,
+        pendingVisualEditRevisionHighWaterMarks,
+        manifest.rootPath,
+        designId,
+        revision,
+        pending,
+        now,
+      );
+    } finally {
+      release();
+    }
+  };
   // One bridge process serves every URL-backed screen in an overview. The
   // editor script carries screen-specific state (notably screenId), so a
   // single global slot lets parallel iframe registrations overwrite each
@@ -2639,6 +2876,21 @@ export async function startDesignConnectBridge(
   // for modern clients while retaining the unkeyed slot for older clients.
   const liveEditBridgeScripts = new Map<string, string>();
   const liveEditBridgeDesignIds = new Map<string, string>();
+  const isRegisteredDesign = (designId: string) =>
+    Array.from(liveEditBridgeDesignIds.values()).includes(designId);
+  const isValidLiveEditCapability = (req: IncomingMessage, designId: string) =>
+    constantTimeTokenMatches(
+      readHeader(req, "x-agent-native-live-edit-capability"),
+      deriveDesignScopedLiveEditCapability(bridgeToken, designId),
+    );
+  const isValidLiveEditRegistrationCapability = (
+    req: IncomingMessage,
+    designId: string,
+  ) =>
+    constantTimeTokenMatches(
+      readHeader(req, "x-agent-native-live-edit-registration-capability"),
+      deriveDesignScopedLiveEditRegistrationCapability(bridgeToken, designId),
+    );
   // Identifies THIS bridge process's in-memory registry, minted fresh every
   // time the bridge boots. `liveEditBridgeScripts` above only lives in
   // process memory, so a bridge restart (crash, machine sleep/wake, manual
@@ -2819,6 +3071,19 @@ export async function startDesignConnectBridge(
               typeof body["designId"] === "string"
                 ? body["designId"].trim()
                 : "";
+            if (
+              !designId ||
+              !bridgeKey ||
+              (!isValidLiveEditCapability(req, designId) &&
+                !isValidLiveEditRegistrationCapability(req, designId))
+            ) {
+              sendJson(res, 403, {
+                ok: false,
+                error:
+                  "live-edit registration requires a design-scoped registration capability",
+              });
+              return;
+            }
             const installsSupportedDesignBridge =
               script.includes("agent-native:editor-chrome-ready") ||
               script.includes("embedded-canvas-pan");
@@ -2851,7 +3116,7 @@ export async function startDesignConnectBridge(
               }
               // Bound the in-memory cache. Normal editor usage has one key per
               // visible screen; 128 also leaves ample room for mode changes.
-              while (liveEditBridgeScripts.size > 128) {
+              while (liveEditBridgeScripts.size > MAX_LIVE_EDIT_BRIDGE_KEYS) {
                 const oldest = liveEditBridgeScripts.keys().next().value;
                 if (typeof oldest !== "string") break;
                 liveEditBridgeScripts.delete(oldest);
@@ -2876,7 +3141,33 @@ export async function startDesignConnectBridge(
       if (pathname === "/live-edit-pending") {
         if (req.method === "GET") {
           if (rejectInvalidPreviewToken()) return;
-          sendJson(res, 200, { ok: true, pending: pendingVisualEditPayload });
+          const designId = requestUrl.searchParams.get("designId")?.trim();
+          if (!designId) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "designId is required to read pending visual edits",
+            });
+            return;
+          }
+          if (!isValidLiveEditCapability(req, designId)) {
+            sendJson(res, 403, {
+              ok: false,
+              error: "pending read requires a design-scoped capability",
+            });
+            return;
+          }
+          if (!isRegisteredDesign(designId)) {
+            sendJson(res, 403, {
+              ok: false,
+              error: "pending read is not authorized for this design",
+            });
+            return;
+          }
+          pruneLiveEditPendingEntries(pendingVisualEditPayloads, Date.now());
+          sendJson(res, 200, {
+            ok: true,
+            pending: pendingVisualEditPayloads.get(designId)?.pending ?? null,
+          });
           return;
         }
         if (req.method !== "POST") {
@@ -2923,18 +3214,58 @@ export async function startDesignConnectBridge(
                 : body.designId;
             if (
               typeof pendingDesignId !== "string" ||
-              !Array.from(liveEditBridgeDesignIds.values()).includes(
-                pendingDesignId,
-              )
+              !isValidLiveEditCapability(req, pendingDesignId)
             ) {
+              sendJson(res, 403, {
+                ok: false,
+                error:
+                  "pending publication requires a design-scoped capability",
+              });
+              return;
+            }
+            if (!isRegisteredDesign(pendingDesignId)) {
               sendJson(res, 403, {
                 ok: false,
                 error: "pending publication is not authorized for this design",
               });
               return;
             }
+            const revision = body.revision;
+            const now = Date.now();
+            pruneLiveEditPendingEntries(pendingVisualEditPayloads, now);
+            const existing = pendingVisualEditPayloads.get(pendingDesignId);
             if (pending === null) {
-              pendingVisualEditPayload = null;
+              if (
+                typeof revision !== "number" ||
+                !Number.isSafeInteger(revision) ||
+                revision < 1
+              ) {
+                sendJson(res, 400, {
+                  ok: false,
+                  error:
+                    "pending publication requires a positive safe revision",
+                });
+                return;
+              }
+              const stored = await storePendingVisualEdit(
+                pendingDesignId,
+                revision,
+                null,
+                now,
+              );
+              if (stored !== "stored") {
+                sendJson(res, stored === "capacity" ? 503 : 409, {
+                  ok: false,
+                  error:
+                    stored === "capacity"
+                      ? "The bridge has reached its retained design revision limit."
+                      : stored === "stale"
+                        ? "stale pending publication revision"
+                        : "conflicting pending publication revision",
+                  revision: existing?.revision,
+                });
+                return;
+              }
               sendJson(res, 200, { ok: true, pending: null });
               return;
             }
@@ -2961,25 +3292,66 @@ export async function startDesignConnectBridge(
               });
               return;
             }
-            if (candidate.prompt.length > 512_000) {
+            if (candidate.prompt.length > MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH) {
               sendJson(res, 413, {
                 ok: false,
-                error: "pending prompt exceeds the 512 KB limit",
+                error: "pending prompt exceeds the 64 KB limit",
               });
               return;
             }
-            pendingVisualEditPayload = {
+            if (body.designId !== pendingDesignId) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "pending designId must match its envelope",
+              });
+              return;
+            }
+            if (
+              typeof revision !== "number" ||
+              !Number.isSafeInteger(revision) ||
+              revision < 1
+            ) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "pending publication requires a positive safe revision",
+              });
+              return;
+            }
+            const publishedPending = {
               designId: candidate.designId,
               pendingEditCount: candidate.pendingEditCount,
               status: candidate.status,
               prompt: candidate.prompt,
               updatedAt: new Date().toISOString(),
             };
-            sendJson(res, 200, { ok: true, pending: pendingVisualEditPayload });
+            const stored = await storePendingVisualEdit(
+              candidate.designId,
+              revision,
+              publishedPending,
+              now,
+            );
+            if (stored !== "stored") {
+              sendJson(res, stored === "capacity" ? 503 : 409, {
+                ok: false,
+                error:
+                  stored === "capacity"
+                    ? "The bridge has reached its retained design revision limit."
+                    : stored === "stale"
+                      ? "stale pending publication revision"
+                      : "conflicting pending publication revision",
+                revision: existing?.revision,
+              });
+              return;
+            }
+            sendJson(res, 200, { ok: true, pending: publishedPending });
           } catch (error) {
             sendJson(
               res,
-              error instanceof LiveEditPendingRequestTooLargeError ? 413 : 400,
+              error instanceof LiveEditPendingRequestTooLargeError
+                ? 413
+                : error instanceof LiveEditRevisionPersistenceError
+                  ? 500
+                  : 400,
               {
                 ok: false,
                 error: error instanceof Error ? error.message : String(error),
@@ -3628,6 +4000,7 @@ export async function startDesignConnectBridge(
     const upstreamHeaders = { ...req.headers };
     delete upstreamHeaders["x-bridge-token"];
     delete upstreamHeaders["x-design-preview-token"];
+    delete upstreamHeaders["x-agent-native-live-edit-capability"];
     delete upstreamHeaders["authorization"];
     delete upstreamHeaders["cookie"];
     upstreamHeaders.host = targetUrl.host;
@@ -3850,6 +4223,7 @@ Options:
 Pending visual edits:
   --bridge-url <url>      Paired local bridge URL (default http://127.0.0.1:${DEFAULT_BRIDGE_PORT})
   --root <path>           App/repo root containing .agent-native/design-bridge-token
+  --design-id <id>        Design ID whose pending visual edits to retrieve
   --preview-token <token> Read-only preview token when the root token is unavailable
 
 Element provenance (resolveNodeToFile):
@@ -4003,20 +4377,32 @@ export async function runDesign(argv: string[]) {
     const bridgeUrl = (
       readFlag("--bridge-url") ?? `http://127.0.0.1:${DEFAULT_BRIDGE_PORT}`
     ).replace(/\/$/, "");
-    const bridgeToken = readFlag("--preview-token");
-    const token =
-      bridgeToken ??
-      (await readPersistedBridgeToken(root).then((value) =>
-        value ? deriveDesignPreviewToken(value) : undefined,
-      ));
-    if (!token) {
+    const designId = readFlag("--design-id")?.trim();
+    if (!designId) {
       console.error(
-        "No preview token found. Pass --preview-token or run design connect from the app root.",
+        "Pass --design-id to select the visual-edit handoff to retrieve.",
       );
       return 1;
     }
-    const response = await fetch(`${bridgeUrl}/live-edit-pending`, {
-      headers: { "x-design-preview-token": token },
+    const bridgeToken = await readPersistedBridgeToken(root);
+    const previewTokenOverride = readFlag("--preview-token");
+    const token =
+      previewTokenOverride ??
+      (bridgeToken ? deriveDesignPreviewToken(bridgeToken) : undefined);
+    if (!token || !bridgeToken) {
+      console.error(
+        "The design-scoped live-edit credential is unavailable. Run design connect from the connected app root before reading pending edits.",
+      );
+      return 1;
+    }
+    const pendingUrl = new URL(`${bridgeUrl}/live-edit-pending`);
+    pendingUrl.searchParams.set("designId", designId);
+    const response = await fetch(pendingUrl, {
+      headers: {
+        "x-design-preview-token": token,
+        "x-agent-native-live-edit-capability":
+          deriveDesignScopedLiveEditCapability(bridgeToken, designId),
+      },
     });
     if (!response.ok) {
       console.error(`${response.status} ${await response.text()}`);

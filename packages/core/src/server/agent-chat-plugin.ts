@@ -3111,6 +3111,8 @@ export function createAgentChatPlugin(
         }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
+          getAuthUserIdFromEvent: async (event) =>
+            (await resolveOwnerContext(event)).authUserId,
           getUserNameFromEvent,
           appId: options?.appId,
           resolveOrgId: options?.resolveOrgId,
@@ -6782,6 +6784,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               token: await createAgentChatStreamToken({
                 ownerEmail: session.email,
                 orgId: session.orgId ?? null,
+                authUserId: session.authUserId,
               }),
               ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
             };
@@ -6822,6 +6825,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 owner: principal.ownerEmail,
                 anonymous: false,
                 orgId: principal.orgId,
+                ...(principal.authUserId
+                  ? { authUserId: principal.authUserId }
+                  : {}),
               });
               return invokeAgentChatHandler(event);
             },

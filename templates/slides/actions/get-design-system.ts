@@ -3,10 +3,11 @@ import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import { getDb, schema } from "../server/db/index.js";
 
 const MAX_AGENT_CONTEXT_CHARS = 14_000;
 const MAX_JSON_CONTEXT_CHARS = 2_500;
@@ -32,13 +33,52 @@ interface BuilderGenerationContext {
     tokenValues?: Record<string, string>;
   }>;
   tokenValues: Record<string, string>;
-  docCount: number;
+  /** null when Builder could not be read at all; 0 means still indexing. */
+  docCount: number | null;
   warning?: string;
 }
 
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
+}
+
+// list-design-systems only ever reads the docCount baked into row.data at
+// proxy creation time (always absent) - this is the one place that hydrates
+// a live count from Builder, so it is the one place that can refresh the
+// cache. Compare-and-set against the exact data snapshot this request read
+// avoids clobbering a concurrent sync/update; a lost race just leaves the
+// next call to persist it. Never bumps updatedAt, so a background count
+// refresh doesn't reorder the list.
+async function persistBuilderDocCount(
+  row: { id: string; ownerEmail: string; data: string | null },
+  docCount: number,
+): Promise<void> {
+  if (!row.data) return;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(row.data);
+  } catch {
+    return;
+  }
+  if (parsed.docCount === docCount) return;
+  const db = getDb();
+  await db
+    .update(schema.designSystems)
+    .set({ data: JSON.stringify({ ...parsed, docCount }) })
+    .where(
+      and(
+        eq(schema.designSystems.id, row.id),
+        eq(schema.designSystems.ownerEmail, row.ownerEmail),
+        eq(schema.designSystems.data, row.data),
+        accessFilter(
+          schema.designSystems,
+          schema.designSystemShares,
+          undefined,
+          "editor",
+        ),
+      ),
+    );
 }
 
 function parseJson(value: string | null | undefined): unknown {
@@ -282,7 +322,7 @@ export default defineAction({
             ...builderReference,
             docs: [],
             tokenValues: {},
-            docCount: 0,
+            docCount: null,
             warning:
               error instanceof Error
                 ? error.message
@@ -290,6 +330,10 @@ export default defineAction({
           }),
         )
       : null;
+
+    if (builder && typeof builder.docCount === "number") {
+      await persistBuilderDocCount(row, builder.docCount);
+    }
 
     return {
       id: row.id,

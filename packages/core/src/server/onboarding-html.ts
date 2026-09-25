@@ -197,7 +197,6 @@ const EN_AUTH_COPY = {
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
   openSource: "FREE & OPEN SOURCE",
-  newToApp: "New to {appName}?",
   learnMore: "Learn more",
   useOwnGoogleClient: "Use your own Google OAuth client:",
   copyCommand: "Copy command",
@@ -283,7 +282,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "本地开发登录不可用。",
     localDevFullOptions: "显示完整登录选项",
     openSource: "100% 免费且开源",
-    newToApp: "第一次使用 {appName}？",
     learnMore: "了解更多",
     useOwnGoogleClient: "使用你自己的 Google OAuth 客户端：",
     copyCommand: "复制命令",
@@ -357,7 +355,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "本機開發登入無法使用。",
     localDevFullOptions: "顯示完整登入選項",
     openSource: "100% 免費且開源",
-    newToApp: "第一次使用 {appName}？",
     learnMore: "深入瞭解",
     useOwnGoogleClient: "使用你自己的 Google OAuth 用戶端：",
     copyCommand: "複製指令",
@@ -434,7 +431,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "El inicio de sesión de desarrollo local no está disponible.",
     localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
     openSource: "100% gratis y de código abierto",
-    newToApp: "¿Nuevo en {appName}?",
     learnMore: "Más información",
     useOwnGoogleClient: "Usa tu propio cliente de Google OAuth:",
     copyCommand: "Copiar comando",
@@ -517,7 +513,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "La connexion de développement local est indisponible.",
     localDevFullOptions: "Afficher toutes les options de connexion",
     openSource: "100 % gratuit et open source",
-    newToApp: "Nouveau sur {appName} ?",
     learnMore: "En savoir plus",
     useOwnGoogleClient: "Utilisez votre propre client Google OAuth :",
     copyCommand: "Copier la commande",
@@ -601,7 +596,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
     localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
     openSource: "100 % kostenlos und Open Source",
-    newToApp: "Neu bei {appName}?",
     learnMore: "Mehr erfahren",
     useOwnGoogleClient: "Eigenen Google-OAuth-Client verwenden:",
     copyCommand: "Befehl kopieren",
@@ -684,7 +678,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "ローカル開発のサインインは利用できません。",
     localDevFullOptions: "完全なサインイン オプションを表示",
     openSource: "100% 無料でオープンソース",
-    newToApp: "{appName} は初めてですか？",
     learnMore: "詳細を見る",
     useOwnGoogleClient: "自分の Google OAuth クライアントを使用:",
     copyCommand: "コマンドをコピー",
@@ -766,7 +759,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
     localDevFullOptions: "전체 로그인 옵션 보기",
     openSource: "100% 무료 오픈 소스",
-    newToApp: "{appName}이(가) 처음이신가요?",
     learnMore: "자세히 알아보기",
     useOwnGoogleClient: "내 Google OAuth 클라이언트 사용:",
     copyCommand: "명령 복사",
@@ -845,7 +837,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "O login de desenvolvimento local não está disponível.",
     localDevFullOptions: "Mostrar todas as opções de login",
     openSource: "100% grátis e open source",
-    newToApp: "Novo no {appName}?",
     learnMore: "Saiba mais",
     useOwnGoogleClient: "Use seu próprio cliente Google OAuth:",
     copyCommand: "Copiar comando",
@@ -926,7 +917,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
     localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
     openSource: "100% मुफ्त और open source",
-    newToApp: "{appName} पर नए हैं?",
     learnMore: "और जानें",
     useOwnGoogleClient: "अपना Google OAuth client उपयोग करें:",
     copyCommand: "कमांड कॉपी करें",
@@ -1004,7 +994,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
     localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
     openSource: "مجاني ومفتوح المصدر 100%",
-    newToApp: "هل أنت جديد على {appName}؟",
     learnMore: "معرفة المزيد",
     useOwnGoogleClient: "استخدم عميل Google OAuth الخاص بك:",
     copyCommand: "نسخ الأمر",
@@ -1204,7 +1193,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
-  const appHomePath = resolveAppHomePath(getAppConfig().app);
+  const appHomePath = resolveAppHomePath(
+    getAppConfig().app,
+    getAppConfig().workspace,
+  );
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
     getAppConfig().app.slug ??
@@ -2560,12 +2552,22 @@ ${marketingStyles}
     color: var(--auth-marketing-muted);
     font: 400 1.25rem/1.35 "Geist", system-ui, sans-serif;
   }
+  .auth-marketing-home .auth-marketing-description-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+    white-space: nowrap;
+  }
+  .auth-marketing-home .auth-marketing-description-link:hover {
+    color: var(--auth-marketing-foreground);
+  }
   .auth-marketing-home .marketing-actions {
     margin-top: 3rem;
   }
   .auth-marketing-home .oss-badge {
     display: inline-flex;
     align-items: center;
+    gap: 0.5rem;
     min-height: 2.125rem;
     padding: 0.5rem 0.75rem;
     border: 1px solid var(--auth-marketing-border);

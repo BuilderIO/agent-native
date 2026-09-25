@@ -20,6 +20,12 @@ export const organizations = table("organizations", {
   /** Stable Dispatch identity used to match this org across app databases. */
   identityAuthority: text("identity_authority"),
   identityId: text("identity_id"),
+  /** Canonical versioned IconValue JSON; null means no workspace override. */
+  iconJson: text("icon_json"),
+  /** Monotonic authority revision used when identity is copied across apps. */
+  iconRevision: bigint("icon_revision", { mode: "number" })
+    .notNull()
+    .default(0),
   /** Set after the identity authority has accepted the initial member roster. */
   federationRosterInitializedAt: bigint("federation_roster_initialized_at", {
     mode: "number",

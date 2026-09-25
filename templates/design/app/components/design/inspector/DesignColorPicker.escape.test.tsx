@@ -122,7 +122,10 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
         }),
       ),
     );
-    expect(container.textContent).toContain("DEDCF9");
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Color"]')!
+        .value,
+    ).toBe("DEDCF9");
     expect(onChange).not.toHaveBeenCalled();
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenCalledWith("#dedcf9");
@@ -136,7 +139,10 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
       ),
     );
     expect(document.querySelector('input[aria-label="Hex"]')).toBeNull();
-    expect(container.textContent).toContain("DEDCF9");
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Color"]')!
+        .value,
+    ).toBe("DEDCF9");
     expect(onChange).not.toHaveBeenCalled();
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCanvasEscape).not.toHaveBeenCalled();
@@ -164,7 +170,10 @@ describe("Escape ordering — DesignColorPicker popover vs canvas hotkeys", () =
         }),
       ),
     );
-    expect(container.textContent).toContain("DEDCF9");
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Color"]')!
+        .value,
+    ).toBe("DEDCF9");
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCanvasEscape).not.toHaveBeenCalled();
   });
@@ -379,6 +388,84 @@ describe("DesignColorPicker Hex commit callbacks", () => {
     expect(layers[1]).toBe(secondSibling);
     expect(parseGradientLayer(layers[2])?.stops[0]?.color).toBe("#ec4899");
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("commits one solid value when a native vector gradient has no CSS layer stack", async () => {
+    const gradient =
+      "linear-gradient(90deg, rgba(255, 0, 0, 0.5) 0%, #0000ff 100%)";
+    const onChange = vi.fn();
+    const onBackgroundImageChange = vi.fn();
+
+    await act(() =>
+      root.render(
+        <TooltipProvider>
+          <ColorInput
+            label="Fill"
+            value={gradient}
+            onChange={onChange}
+            open
+            singlePaint
+            onBackgroundImageChange={onBackgroundImageChange}
+          />
+        </TooltipProvider>,
+      ),
+    );
+
+    await act(() =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Solid"]')!
+        .click(),
+    );
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0]?.[0]).toBe("rgba(255, 0, 0, 0.5)");
+    expect(onChange.mock.calls[0]?.[1]).toMatchObject({ phase: "commit" });
+    expect(onBackgroundImageChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps a native vector gradient as the paint source across a solid round trip", async () => {
+    const writes: string[] = [];
+    function NativeVectorPaint() {
+      const [value, setValue] = useState("#ef4444");
+      return (
+        <TooltipProvider>
+          <ColorInput
+            label="Fill"
+            value={value}
+            open
+            singlePaint
+            supportedPaintTypes={["solid", "linear", "radial"]}
+            onChange={(next) => {
+              writes.push(next);
+              setValue(next);
+            }}
+            onSolidToGradientChange={(patch) => {
+              writes.push(patch.backgroundImage);
+              setValue(patch.backgroundImage);
+            }}
+          />
+        </TooltipProvider>
+      );
+    }
+
+    await act(() => root.render(<NativeVectorPaint />));
+    await act(() =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Linear"]')!
+        .click(),
+    );
+    expect(writes[0]).toMatch(/^linear-gradient\(/);
+    expect(document.querySelector('[aria-label="Solid"]')).not.toBeNull();
+
+    await act(() =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Solid"]')!
+        .click(),
+    );
+
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toBe("#ef4444");
+    expect(writes[1]).not.toBe("#000000");
   });
 
   it("commits the displayed color after selecting another gradient stop", async () => {

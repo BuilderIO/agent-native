@@ -3,6 +3,34 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-23
+
+### Added
+
+- Every page in the sidebar now has a "…" menu to rename, duplicate, move, copy its link, open it in a new tab, or move it to Trash, and it shows who last edited the page. Duplicate copies sub-pages too, and Move can take a page and its sub-pages to another workspace after warning you that its sharing will change.
+
+### Improved
+
+- The sidebar is easier to scan: the page you're on is highlighted wherever it appears, nested pages show guide lines and Trash stays in reach below the page list.
+
+### Fixed
+
+- Tables inserted in the visual editor now let you resize columns.
+- Markdown tables with aligned columns now open as editable tables in pages, keeping column alignment and all cell content.
+- The Trash view no longer highlights a document that is not in Trash.
+
+## 2026-09-22
+
+### Fixed
+
+- Comments, replies, and suggested-edit decisions now appear immediately without leaving duplicate text in the composer while they save.
+
+## 2026-09-21
+
+### Improved
+
+- Search now ranks exact and partial title matches above incidental matches in document bodies.
+
 ## 2026-09-16
 
 ### Fixed

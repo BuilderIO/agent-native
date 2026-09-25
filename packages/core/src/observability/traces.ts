@@ -4,7 +4,10 @@ import type {
 } from "../agent/production-agent.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { captureError } from "../server/capture-error.js";
-import { getRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+} from "../server/request-context.js";
 import {
   MAX_AI_CONTENT_BYTES,
   MAX_AI_SPANS_PER_RUN,
@@ -15,6 +18,13 @@ import {
   toAiErrorDetail,
   toPostHogMessages,
 } from "./posthog-ai.js";
+import {
+  redactToolErrorMessage as redactToolErrorMessageText,
+  sanitizeToolErrorMessage,
+  TOOL_ERROR_CAPTURE_METADATA_KEY,
+} from "./trace-error.js";
+import { redactSensitiveFields } from "./trace-redaction.js";
+export { redactSensitiveFields } from "./trace-redaction.js";
 import {
   type AgentSpan,
   endAgentSpan,
@@ -121,11 +131,7 @@ const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
  * across this line changes what the error rate means, so move it deliberately.
  */
 const EXPECTED_CONTINUATION_REASONS = new Set(["run_timeout", "auto_continue"]);
-const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
 const HTTP_STATUS_OK = 200;
-
-const STANDALONE_API_KEY_PATTERN =
-  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
 
 type GenerationToolCall = {
   name: string;
@@ -136,30 +142,8 @@ type GenerationToolCall = {
   error_message?: string;
 };
 
-function truncateToolErrorMessage(value: string): string {
-  return value.length > MAX_TOOL_ERROR_MESSAGE_LENGTH
-    ? `${value.slice(0, MAX_TOOL_ERROR_MESSAGE_LENGTH)}…`
-    : value;
-}
-
 function redactToolErrorMessage(value: string): string {
-  const credentialName =
-    "authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token";
-  const labeledCredential = `(["']?\\b(?:${credentialName})\\b["']?\\s*[:=]\\s*["']?)`;
-  return value
-    .replace(
-      new RegExp(
-        `${labeledCredential}(?:Bearer|Basic)\\s+[^"'\\s,;)}\\]]+`,
-        "gi",
-      ),
-      "$1[REDACTED]",
-    )
-    .replace(
-      new RegExp(`${labeledCredential}[^"'\\s,;)}\\[\\]]+`, "gi"),
-      "$1[REDACTED]",
-    )
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
-    .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
+  return redactToolErrorMessageText(value);
 }
 
 /**
@@ -492,42 +476,6 @@ function buildGenerationContent(args: {
   };
 }
 
-/** Keys whose values are stripped from persisted tool inputs when
- *  `captureToolArgs` is enabled. Matched case-insensitively and tolerant
- *  of `_` / `-` separators. M14 in the MCP/A2A audit: tool calls
- *  routinely receive credentials verbatim (db-exec INSERTs, fetchTool
- *  Authorization headers, ad-hoc bearer tokens) — keeping those values
- *  out of agent_trace_spans.metadata avoids long-term storage of
- *  short-lived secrets. */
-const SENSITIVE_FIELD_PATTERN =
-  /^(authorization|cookie|api[_-]?key|password|secret|token|access[_-]?token|refresh[_-]?token|bearer)$/i;
-
-/** Recursively walk a structured value and replace sensitive field
- *  values with the literal string "[REDACTED]". Pure (returns a copy);
- *  the original input is never mutated. Cycles are tolerated via a
- *  small WeakSet seen-tracker that returns "[Circular]" for repeats. */
-export function redactSensitiveFields(value: unknown): unknown {
-  return redactWalk(value, new WeakSet<object>());
-}
-
-function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
-  if (value === null || typeof value !== "object") return value;
-  if (seen.has(value as object)) return "[Circular]";
-  seen.add(value as object);
-  if (Array.isArray(value)) {
-    return value.map((v) => redactWalk(v, seen));
-  }
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (SENSITIVE_FIELD_PATTERN.test(k)) {
-      out[k] = "[REDACTED]";
-    } else {
-      out[k] = redactWalk(v, seen);
-    }
-  }
-  return out;
-}
-
 export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
   const { getAppConfig } = await import("../app-config/store.js");
   const config = getAppConfig().observability;
@@ -622,6 +570,7 @@ export async function instrumentAgentLoop(opts: {
     | undefined;
 }): Promise<AgentLoopUsage> {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
+  const orgId = getRequestOrgId() ?? null;
   const spanName = opts.spanName?.trim() || "agent_run";
   const runStart = Date.now();
   const parentSpanId = spanId();
@@ -1091,6 +1040,11 @@ export async function instrumentAgentLoop(opts: {
           reportedToolFailures++;
         } else successfulTools++;
 
+        const toolErrorMessage =
+          isError && config.captureToolResults
+            ? sanitizeToolErrorMessage(event.result)
+            : null;
+
         if (
           counter !== undefined &&
           counter < MAX_TRACKED_GENERATION_TOOL_CALLS &&
@@ -1106,10 +1060,7 @@ export async function instrumentAgentLoop(opts: {
               : explicitError
                 ? "tool_error"
                 : "legacy_inferred_error",
-            error_message:
-              isError && config.captureToolResults
-                ? truncateToolErrorMessage(redactToolErrorMessage(event.result))
-                : undefined,
+            error_message: toolErrorMessage ?? undefined,
           });
         }
 
@@ -1117,7 +1068,7 @@ export async function instrumentAgentLoop(opts: {
         // we record the result on the entry so its `.then` handler ends it.
         const otelEndResult = {
           status: (isError ? "error" : "success") as "success" | "error",
-          errorMessage: isError ? (event.result as string) : null,
+          errorMessage: toolErrorMessage,
         };
         if (pending?.otelSpan) {
           openOtelToolSpans.delete(pending.otelSpan);
@@ -1146,9 +1097,10 @@ export async function instrumentAgentLoop(opts: {
           config.captureToolResults &&
           typeof event.result === "string"
         ) {
-          spanMetadataFields.output = truncateToolErrorMessage(
-            redactToolErrorMessage(event.result),
-          );
+          spanMetadataFields.output = sanitizeToolErrorMessage(event.result);
+        }
+        if (isError && config.captureToolResults) {
+          spanMetadataFields[TOOL_ERROR_CAPTURE_METADATA_KEY] = 1;
         }
         const spanMetadata = Object.keys(spanMetadataFields).length
           ? spanMetadataFields
@@ -1180,7 +1132,7 @@ export async function instrumentAgentLoop(opts: {
           costCentsX100: 0,
           durationMs: pending ? Math.max(0, finishedAt - pending.startMs) : 0,
           status: isError ? "error" : "success",
-          errorMessage: isError ? event.result : null,
+          errorMessage: toolErrorMessage,
           metadata: spanMetadata,
           // The span's start, not its completion: `durationMs` is measured from
           // here, so stamping the end instead places the tool after the run
@@ -1278,6 +1230,9 @@ export async function instrumentAgentLoop(opts: {
           toolCallCount += 1;
           failedTools += 1;
           const interruptedMessage = "Tool call interrupted before completion";
+          const capturedInterruptedMessage = config.captureToolResults
+            ? interruptedMessage
+            : null;
           toolSpanErrorClass.set(pending.spanId, "interrupted");
           if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
             generationToolCalls.set(counter, {
@@ -1286,23 +1241,28 @@ export async function instrumentAgentLoop(opts: {
               duration_ms: Math.max(0, runEnd - pending.startMs),
               status: "error",
               error_class: "interrupted",
-              error_message: config.captureToolResults
-                ? interruptedMessage
-                : undefined,
+              error_message: capturedInterruptedMessage ?? undefined,
             });
           }
           if (pending.otelSpan) {
             openOtelToolSpans.delete(pending.otelSpan);
             endAgentSpan(pending.otelSpan, {
               status: "error",
-              errorMessage: interruptedMessage,
+              errorMessage: capturedInterruptedMessage,
               attributes: { "tool.name": pending.toolName },
             });
           } else {
             pending.endResult = {
               status: "error",
-              errorMessage: interruptedMessage,
+              errorMessage: capturedInterruptedMessage,
             };
+          }
+          const interruptedMetadata: Record<string, unknown> = {};
+          if (config.captureToolArgs) {
+            interruptedMetadata.input = redactSensitiveFields(pending.input);
+          }
+          if (config.captureToolResults) {
+            interruptedMetadata[TOOL_ERROR_CAPTURE_METADATA_KEY] = 1;
           }
           spans.push({
             id: pending.spanId,
@@ -1319,8 +1279,10 @@ export async function instrumentAgentLoop(opts: {
             costCentsX100: 0,
             durationMs: Math.max(0, runEnd - pending.startMs),
             status: "error",
-            errorMessage: interruptedMessage,
-            metadata: null,
+            errorMessage: capturedInterruptedMessage,
+            metadata: Object.keys(interruptedMetadata).length
+              ? interruptedMetadata
+              : null,
             createdAt: pending.startMs,
           });
         }
@@ -1720,20 +1682,13 @@ export async function instrumentAgentLoop(opts: {
         });
 
         for (const span of emittedToolSpans) {
-          // `span.errorMessage` is the raw tool result. It routinely contains
-          // upstream response bodies with Authorization headers and standalone
-          // API keys, so it gets the same redaction + bounding the generation
-          // event's `tools[].error_message` already applies, and the same
-          // `captureToolResults` gate — exporting it here otherwise reintroduced
-          // the leak that gate exists to prevent. `$ai_is_error` still marks the
-          // failure when the content is withheld.
+          // Tool errors can contain upstream response bodies with credentials,
+          // so gate and sanitize their analytics copy as well as the stored span.
           const toolErrorMessage =
             span.status === "error" &&
             span.errorMessage &&
             config.captureToolResults
-              ? truncateToolErrorMessage(
-                  redactToolErrorMessage(span.errorMessage),
-                )
+              ? sanitizeToolErrorMessage(span.errorMessage)
               : undefined;
           // "Withheld" and "never reported" are different failures to debug,
           // and a span that says only `$ai_is_error` tells the reader neither.
@@ -1742,7 +1697,7 @@ export async function instrumentAgentLoop(opts: {
               ? undefined
               : toolErrorMessage
                 ? toAiErrorDetail(toolErrorMessage)
-                : span.errorMessage
+                : !config.captureToolResults
                   ? {
                       message:
                         "error text withheld: captureToolResults is off for this app",
@@ -1800,6 +1755,7 @@ export async function instrumentAgentLoop(opts: {
         runId,
         threadId,
         userId,
+        orgId,
         totalSpans: spans.length,
         llmCalls: llmCallCount,
         toolCalls: toolCallCount,
@@ -1944,7 +1900,13 @@ async function writeTraceData(
   config: ObservabilityConfig,
 ): Promise<void> {
   const { insertTraceSpan, upsertTraceSummary } = await import("./store.js");
-  await Promise.all(spans.map((s) => insertTraceSpan(s).catch(() => {})));
+  await Promise.all(
+    spans.map((span) =>
+      insertTraceSpan({ ...span, orgId: summary.orgId ?? null }).catch(
+        () => {},
+      ),
+    ),
+  );
   await upsertTraceSummary(summary).catch(() => {});
 
   // Fire automated evals after trace data is persisted

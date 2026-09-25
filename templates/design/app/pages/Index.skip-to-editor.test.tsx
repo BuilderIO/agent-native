@@ -141,6 +141,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/components/editor/PromptDialog", () => ({
+  preloadPromptComposer: vi.fn(),
   default: (props: Record<string, any>) => {
     mocks.promptProps = props;
     return null;

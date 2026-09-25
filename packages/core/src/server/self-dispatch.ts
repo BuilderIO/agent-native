@@ -58,16 +58,47 @@ function readHeader(event: any, name: string): string | undefined {
 }
 
 /**
- * Resolve the base URL to fire a self-dispatch request at. Prefer the URL for
- * this exact deploy before stable app URLs: a preview or in-flight deploy must
- * not send a token minted by its function fleet to a different deploy that
- * happens to serve the same public hostname. Fall back to the inbound request
- * headers and finally localhost in dev.
+ * Resolve the base URL to fire a self-dispatch request at. An explicit
+ * `AGENT_NATIVE_SELF_DISPATCH_URL` wins; otherwise this is
+ * `resolveDeploymentBaseUrl`.
+ *
+ * Only for requests this deployment sends to itself. A URL an outside party
+ * will call must come from `resolveDeploymentBaseUrl`, because the declared
+ * value is typically loopback.
+ */
+export function resolveSelfDispatchBaseUrl(event?: any): string {
+  // A deployment that names where its own processor lives wins outright.
+  // Reaching itself through its public hostname means a round trip through the
+  // provider's edge, which was measured answering 404 to that hairpin for a
+  // deployment's whole life while serving every external request. Loopback
+  // (`http://127.0.0.1:${PORT}`) needs no edge.
+  // config-ok: read raw, like the platform deploy URLs below — it names where
+  // this process answers, which a checked-in app config cannot know (see the
+  // `app.url` docblock).
+  const declared = process.env.AGENT_NATIVE_SELF_DISPATCH_URL?.trim();
+  if (declared) {
+    const parsed = URL.canParse(declared) ? new URL(declared) : null;
+    if (parsed?.protocol !== "http:" && parsed?.protocol !== "https:") {
+      throw new Error(
+        `AGENT_NATIVE_SELF_DISPATCH_URL must be an absolute http(s) URL, got "${declared}".`,
+      );
+    }
+    return withConfiguredAppBasePath(declared);
+  }
+  return resolveDeploymentBaseUrl(event);
+}
+
+/**
+ * Resolve this deployment's own address. Prefer the URL for this exact deploy
+ * before stable app URLs: a preview or in-flight deploy must not send a token
+ * minted by its function fleet to a different deploy that happens to serve the
+ * same public hostname. Fall back to the inbound request headers and finally
+ * localhost in dev.
  *
  * Throws in production / shared deployments when no env var is set — a silent
  * fallback to a bad host there would drop background work invisibly.
  */
-export function resolveSelfDispatchBaseUrl(event?: any): string {
+export function resolveDeploymentBaseUrl(event?: any): string {
   // The first three are platform facts — Netlify sets them per deploy, and
   // they are what makes this resolve to *this* deployment rather than the
   // canonical one. `app.url` is the last rung, not the first, for that reason.

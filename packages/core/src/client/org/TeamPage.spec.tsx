@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   action: { error: null, isPending: false, mutate: vi.fn() },
   changeRole: { error: null, isPending: false, mutate: vi.fn() },
   removeMember: { error: null, isPending: false, mutate: vi.fn() },
+  setOrgDomain: { error: null, isPending: false, mutate: vi.fn() },
 }));
 
 vi.mock("./hooks.js", () => ({
@@ -15,6 +16,7 @@ vi.mock("./hooks.js", () => ({
   useChangeMemberRole: () => mocks.changeRole,
   useRemoveMember: () => mocks.removeMember,
   useSetAppMemberRoles: () => mocks.action,
+  useSetOrgDomain: () => mocks.setOrgDomain,
 }));
 
 vi.mock("../use-action.js", () => ({
@@ -22,34 +24,43 @@ vi.mock("../use-action.js", () => ({
 }));
 
 vi.mock("../i18n.js", () => ({
-  useT: () => (key: string, options?: { count?: number; name?: string }) => {
-    if (key === "org.admin") return "Admin";
-    if (key === "org.member") return "Member";
-    if (key === "org.members") return "Members";
-    if (key === "org.memberCount") return `${options?.count ?? 0} members`;
-    if (key === "org.changeRole") return "Change role";
-    if (key === "org.removeMember") return "Remove member";
-    if (key === "org.searchPeople") return "Search people";
-    if (key === "org.noPeopleFound") return "No people found";
-    if (key === "org.noMembers") return "No members";
-    if (key === "org.inviteMembers") return "Invite members";
-    if (key === "org.appPermissions") return "App permissions";
-    if (key === "org.loading") return "Loading";
-    if (key === "org.newGroup") return "New group";
-    if (key === "org.groups") return "Groups";
-    if (key === "org.groupName") return "Group name";
-    if (key === "org.deleteGroup") return "Delete group?";
-    if (key === "org.deleteGroupAria") {
-      return `Delete group ${options?.name ?? ""}`;
-    }
-    if (key === "org.cancel") return "Cancel";
-    if (key === "org.delete") return "Delete";
-    return key;
-  },
+  useT:
+    () =>
+    (
+      key: string,
+      options?: { count?: number; name?: string; domain?: string },
+    ) => {
+      if (key === "org.admin") return "Admin";
+      if (key === "org.member") return "Member";
+      if (key === "org.members") return "Members";
+      if (key === "org.memberCount") return `${options?.count ?? 0} members`;
+      if (key === "org.changeRole") return "Change role";
+      if (key === "org.removeMember") return "Remove member";
+      if (key === "org.searchPeople") return "Search people";
+      if (key === "org.noPeopleFound") return "No people found";
+      if (key === "org.noMembers") return "No members";
+      if (key === "org.inviteMembers") return "Invite members";
+      if (key === "org.appPermissions") return "App permissions";
+      if (key === "org.loading") return "Loading";
+      if (key === "org.newGroup") return "New group";
+      if (key === "org.groups") return "Groups";
+      if (key === "org.groupName") return "Group name";
+      if (key === "org.deleteGroup") return "Delete group?";
+      if (key === "org.deleteGroupAria") {
+        return `Delete group ${options?.name ?? ""}`;
+      }
+      if (key === "org.cancel") return "Cancel";
+      if (key === "org.delete") return "Delete";
+      if (key === "org.enableDomainJoin") {
+        return `Enable for @${options?.domain ?? ""}`;
+      }
+      return key;
+    },
 }));
 
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import {
+  DomainSettingsSection,
   MemberRow,
   MembersTableCard,
   WorkspaceGroupsCard,
@@ -384,5 +395,60 @@ describe("MemberRow organization controls", () => {
     expect(
       document.querySelector("#workspace-delete-group-name-group-1"),
     ).not.toBeNull();
+  });
+});
+
+describe("DomainSettingsSection", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  function renderSection(domain: string | null, ownerEmail: string) {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <DomainSettingsSection domain={domain} ownerEmail={ownerEmail} />
+        </TooltipProvider>,
+      );
+    });
+  }
+
+  it("offers a one-click enable for an eligible unset domain and calls the mutation directly", () => {
+    renderSection(null, "admin@acme.com");
+
+    const enableButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim() === "Enable for @acme.com");
+    expect(enableButton).not.toBeUndefined();
+
+    // No free-text field ceremony: the only legal value is already known.
+    expect(container.querySelector("input")).toBeNull();
+
+    act(() => enableButton?.click());
+    expect(mocks.setOrgDomain.mutate).toHaveBeenCalledWith("acme.com");
+  });
+
+  it("does not offer the one-click when the owner's own domain is a free email provider", () => {
+    renderSection(null, "admin@gmail.com");
+
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).map((button) => button.textContent?.trim());
+    expect(buttons.some((text) => text?.startsWith("Enable for"))).toBe(false);
+    expect(container.querySelector("input")).toBeNull();
+    expect(mocks.setOrgDomain.mutate).not.toHaveBeenCalled();
   });
 });

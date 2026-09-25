@@ -37,6 +37,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
+import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -86,6 +87,9 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  readAgentNativeBuildConfigMarker,
+  resolveFirstRunOnboardingBuildReplacement,
+  resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import {
   cloneServerBundleForFunction,
@@ -321,7 +325,14 @@ function configureAwsRuntimeOutput(
     ...declaredEnvKeys(),
     ...readEnvExampleKeys(path.join(appDir, ".env.example")),
   ]);
-  for (const key of appScopedRuntimeEnvKeys(env.APP_NAME)) {
+  const appIdentity = [
+    env.AGENT_NATIVE_WORKSPACE_APP_ID,
+    env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,
+    env.APP_NAME,
+  ]
+    .find((value) => value !== undefined && value.trim() !== "")
+    ?.trim();
+  for (const key of appScopedRuntimeEnvKeys(appIdentity)) {
     declaredKeys.add(key);
   }
   const runtimeEnv = [...declaredKeys].sort().flatMap((key) => {
@@ -400,17 +411,21 @@ export function configureAwsLambdaRuntimeOutput(
   configureAwsRuntimeOutput(serverDir, appDir, "aws_lambda", env);
 }
 
-export function generateCloudflareModuleWorkerEntry(): string {
-  return `let handler;
-
-export * from "./index.mjs";
-
-async function loadHandler() {
-  handler ??= (await import("./index.mjs")).default;
-  return handler;
-}
-
-function initializeBindings(env) {
+/**
+ * JS source for a generated Cloudflare Worker entry's `initializeBindings(env)`
+ * helper, shared between the Module (`generateCloudflareModuleWorkerEntry`) and
+ * Pages (`generateWorkerEntry`) entries so they cannot drift apart.
+ *
+ * Setting `globalThis.__env__` is not optional decoration: it is the
+ * framework's canonical "this is a real Cloudflare invocation" signal
+ * (`hasCloudflareRuntime()` in db/client.ts, also read by `isNodeRuntime()` /
+ * `isCloudflareRuntime()` in shared/runtime.ts). The Pages entry used to copy
+ * bindings into `process.env` without ever setting `__env__`, which silently
+ * defeated every one of those checks on every Pages deploy — including the
+ * hosted-database guard, which never refused to open PGlite there.
+ */
+function cloudflareBindingsInitScript(): string {
+  return `function initializeBindings(env) {
   if (!env) return;
   globalThis.__env__ = env;
   globalThis.process = globalThis.process || { env: {} };
@@ -418,7 +433,96 @@ function initializeBindings(env) {
   for (const [key, value] of Object.entries(env)) {
     if (typeof value === "string") globalThis.process.env[key] = value;
   }
+}`;
 }
+
+/**
+ * Global-scope key Module's timer shim (see `cloudflareModuleTimerShimPrefix`
+ * in `buildWithNitro`'s post-build patch) uses to stash the real
+ * `setInterval` before neutering it. Cloudflare Workers loads each server
+ * chunk as its own ES module, so a chunk's own top-level `var` can't be read
+ * back from `worker.mjs` — the original has to be captured on `globalThis`
+ * instead, and only once, since `worker.mjs` always loads (and shims) first.
+ */
+const CF_MODULE_ORIG_SET_INTERVAL_KEY = "__cfModuleOrigSetInterval";
+const CF_MODULE_TIMER_SHIM_MARKER = "__cf_module_timer_shim__";
+
+/**
+ * Restores the real `setInterval`, captured by
+ * `cloudflareModuleTimerShimPrefix`. Callers must invoke this only after the
+ * shimmed dependency graph has actually been evaluated (e.g. after `await
+ * loadHandler()` in the Module entry, or unconditionally in the Pages entry,
+ * whose dependencies are all statically imported and so are already
+ * evaluated by the time any handler body runs) — calling it any earlier is a
+ * no-op on a cold isolate, since nothing has captured the original yet, and
+ * the shim then immediately re-neuters it during that later evaluation with
+ * nothing left to restore it again.
+ */
+function cloudflareModuleTimerRestoreScript(): string {
+  return `function __cfRestoreModuleTimers() {
+  if (typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY} !== "undefined") {
+    globalThis.setInterval = globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY};
+  }
+}`;
+}
+
+/**
+ * Prepended (in `buildWithNitro`'s post-build patch) to every server chunk
+ * that calls `setInterval` at module scope — Cloudflare Workers disallows
+ * timer creation outside a request/handler context. Neuters the call and,
+ * the first time any chunk runs this, stashes the real `setInterval` on
+ * `globalThis` for `__cfRestoreModuleTimers` (see
+ * `cloudflareModuleTimerRestoreScript`) to hand back once a handler runs.
+ */
+function cloudflareModuleTimerShimPrefix(): string {
+  return (
+    `/* ${CF_MODULE_TIMER_SHIM_MARKER} */` +
+    `if(typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY}==="undefined"){globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY}=globalThis.setInterval;}` +
+    `globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};`
+  );
+}
+
+/**
+ * Shims one already-read Cloudflare Pages output file's module-scope
+ * `setInterval` calls, sharing the Module preset's globalThis-keyed capture
+ * (`cloudflareModuleTimerShimPrefix` / `CF_MODULE_ORIG_SET_INTERVAL_KEY`)
+ * instead of a disconnected per-file mechanism.
+ *
+ * Pages used to prepend its own shim keyed on a per-file `var
+ * __origSetInterval`, captured independently by every chunk. Since the
+ * generated entry statically imports routes, actions, and plugins (they
+ * evaluate before the entry's own top-level code runs, same as any ES
+ * module's imports), a dependency chunk's shim neutered
+ * `globalThis.setInterval` before the entry's own `var` ever captured
+ * it — so the entry's "original" was already the neutered stub, and its
+ * restore call restored nothing. Sharing this capture with the Module
+ * preset's `__cfRestoreModuleTimers()` (already emitted into the generated
+ * entry by `cloudflareModuleTimerRestoreScript` — see `generateWorkerEntry`)
+ * fixes both: whichever chunk evaluates first captures the one true
+ * original, and every later chunk (including the entry) sees it's already
+ * captured and skips straight to neutering.
+ */
+export function shimCloudflarePagesModuleTimers(code: string): string {
+  if (
+    code.includes("setInterval") &&
+    !code.includes(CF_MODULE_TIMER_SHIM_MARKER)
+  ) {
+    return cloudflareModuleTimerShimPrefix() + code;
+  }
+  return code;
+}
+
+export function generateCloudflareModuleWorkerEntry(): string {
+  return `let handler;
+
+async function loadHandler() {
+  handler ??= (await import("./index.mjs")).default;
+  return handler;
+}
+
+${cloudflareBindingsInitScript()}
+
+${cloudflareModuleTimerRestoreScript()}
 
 export default {
   async fetch(request, env, ctx) {
@@ -426,27 +530,39 @@ export default {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
     initializeBindings(env);
-    return (await loadHandler()).fetch(request, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).scheduled?.(controller, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.scheduled?.(controller, env, ctx);
   },
   async email(message, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).email?.(message, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.email?.(message, env, ctx);
   },
   async queue(batch, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).queue?.(batch, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.queue?.(batch, env, ctx);
   },
   async tail(traces, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).tail?.(traces, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.tail?.(traces, env, ctx);
   },
   async trace(traces, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).trace?.(traces, env, ctx);
+    const h = await loadHandler();
+    __cfRestoreModuleTimers();
+    return h.trace?.(traces, env, ctx);
   },
 };
 `;
@@ -1840,7 +1956,10 @@ function getAppOriginClientConfigScript() {
       return;
     }
   })();
-  const appHomePath = resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app);
+  const appHomePath = resolveAgentNativeAppHomePath(
+    getAgentNativeAppConfig().app,
+    getAgentNativeAppConfig().workspace,
+  );
   const config = {
     appHomePath,
     ...(appUrl ? { appUrl } : {}),
@@ -1900,7 +2019,10 @@ const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^
 function getAgentNativeAuthRedirectScript() {
   return getAgentNativeSsrAuthRedirectScript(
     SSR_AUTH_REDIRECT_COOKIE_NAME,
-    resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app),
+    resolveAgentNativeAppHomePath(
+      getAgentNativeAppConfig().app,
+      getAgentNativeAppConfig().workspace,
+    ),
     getAgentNativeFrameworkRoutePrefix(),
   );
 }
@@ -2264,21 +2386,23 @@ ${
   return _handler;
 }
 
+${cloudflareBindingsInitScript()}
+
+${cloudflareModuleTimerRestoreScript()}
+
 export default {
   async fetch(request, env, ctx) {
     // Attach the request-scoped continuation hook before any URL rewrite.
     if (typeof ctx?.waitUntil === "function") {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
-    if (env) {
-      globalThis.process = globalThis.process || { env: {} };
-      globalThis.process.env = globalThis.process.env || {};
-      for (const [key, value] of Object.entries(env)) {
-        if (typeof value === "string") {
-          globalThis.process.env[key] = value;
-        }
-      }
-    }
+    initializeBindings(env);
+    // Unlike the Module entry, every dependency here is statically imported
+    // (see routeImports/actionImports above), so patchCloudflareModuleServerOutput's
+    // shim has already run — and already re-neutered setInterval — by the
+    // time this handler body executes. No loadHandler()-style deferred
+    // import to wait on: restoring here is always safe and always needed.
+    __cfRestoreModuleTimers();
 
     // Try serving static assets first (CF Pages advanced mode).
     // Only attempt this for GET/HEAD — the ASSETS binding is a static file
@@ -3116,7 +3240,6 @@ async function buildCloudflarePages() {
   const allJsFiles = getAllJsFiles(workerOutDir);
   for (const jsFile of allJsFiles) {
     let code = fs.readFileSync(jsFile, "utf-8");
-    const isEntry = path.basename(jsFile) === "index.js";
 
     // Strip "node:" prefix from all imports/requires. Cloudflare Pages
     // Functions runs under nodejs_compat v1, which exposes builtins as
@@ -3170,24 +3293,7 @@ async function buildCloudflarePages() {
     );
 
     // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
-    // Some dependencies (e.g. Anthropic SDK rate limiter) call setInterval at module init.
-    // With code splitting, chunks evaluate before the entry, so the shim must be in every file.
-    // The restore only happens in the entry's fetch() handler.
-    if (!code.includes("__origSetInterval")) {
-      const timerShim = [
-        "var __origSetInterval=globalThis.setInterval;",
-        "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};",
-      ].join("");
-      code = timerShim + code;
-    }
-    if (isEntry) {
-      const timerRestore =
-        "if(__origSetInterval)globalThis.setInterval=__origSetInterval;";
-      code = code.replace(
-        /async fetch\(request,\s*env,\s*ctx\)\s*\{/,
-        (match) => match + timerRestore,
-      );
-    }
+    code = shimCloudflarePagesModuleTimers(code);
 
     assertNoCloudflareWorkerStubDynamicImports(code, jsFile);
 
@@ -4758,6 +4864,89 @@ function walkServerJavaScriptFiles(
   }
 }
 
+const CF_MODULE_NODE_BUILTINS = [
+  "fs",
+  "path",
+  "os",
+  "crypto",
+  "http",
+  "https",
+  "stream",
+  "url",
+  "util",
+  "events",
+  "buffer",
+  "console",
+  "querystring",
+  "zlib",
+  "net",
+  "tls",
+  "assert",
+  "timers",
+  "child_process",
+  "module",
+  "process",
+  "worker_threads",
+  "string_decoder",
+  "diagnostics_channel",
+  "async_hooks",
+  "perf_hooks",
+  "inspector",
+  "vm",
+];
+
+/**
+ * Post-build patches for `cloudflare_module` server output. Recurses (via
+ * `walkServerJavaScriptFiles`) because esbuild/Nitro can emit a dependency at
+ * a nested path (e.g. `_libs/@agent-native/core.mjs`) — a flat `readdirSync`
+ * silently skips it, leaving its module-scope `setInterval` call unpatched,
+ * which Cloudflare rejects with error 10021.
+ */
+export function patchCloudflareModuleServerOutput(serverDir: string): void {
+  if (!fs.existsSync(serverDir)) return;
+
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    let code = fs.readFileSync(filePath, "utf-8");
+    let changed = false;
+
+    // 1. Rewrite bare Node.js imports to node: prefixed.
+    // CF Workers requires the node: prefix for built-in modules.
+    for (const mod of CF_MODULE_NODE_BUILTINS) {
+      // Match: from"fs" or from "fs" (but not from"node:fs")
+      const re = new RegExp(`from\\s*["']${mod}["']`, "g");
+      if (re.test(code)) {
+        code = code.replace(re, `from"node:${mod}"`);
+        changed = true;
+      }
+    }
+
+    // 2. Patch import.meta.url for createRequire().
+    // React Router's server build uses createRequire(import.meta.url)
+    // but import.meta.url is undefined on CF Workers.
+    if (code.includes("import.meta.url")) {
+      code = code.replace(/import\.meta\.url/g, '"file:///worker.mjs"');
+      changed = true;
+    }
+
+    // 3. Patch setInterval/setTimeout at global scope.
+    // CF Workers disallows timers in global scope. Shim every matching
+    // chunk; only worker.mjs restores the real function, from inside its
+    // own handlers (baked into generateCloudflareModuleWorkerEntry), never
+    // via an immediate per-chunk restore — a chunk loaded ahead of
+    // worker.mjs's handlers running would otherwise leave setInterval
+    // neutered for the rest of the request.
+    if (
+      code.includes("setInterval") &&
+      !code.includes(CF_MODULE_TIMER_SHIM_MARKER)
+    ) {
+      code = cloudflareModuleTimerShimPrefix() + code;
+      changed = true;
+    }
+
+    if (changed) fs.writeFileSync(filePath, code);
+  });
+}
+
 /**
  * Nitro receives the React Router SSR build as prebuilt chunks, so its normal
  * dependency resolver cannot reliably fold the preserved bare `yjs` imports
@@ -5947,6 +6136,8 @@ export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
+  firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
+  harnessMode: string = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6023,6 +6214,17 @@ export function resolveNitroBuildReplacements(
       JSON.stringify(
         env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || "",
       ),
+    // org/context.ts's eligibility-marker write must not read
+    // agent-native.json at runtime (not shipped into the deployed function),
+    // so embed the mode resolved from the full app config. "" is unknown.
+    "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
+      firstRunOnboardingMode,
+    ),
+    // hosted-harness-policy.ts's config read has the same problem: apps set
+    // `harness` only in agent-native.config.ts, which is not shipped into the
+    // deployed function either. "" is "a build recorded nothing"; a recorded
+    // value is always a JSON string (see resolveHarnessBuildReplacement).
+    "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
   };
 }
 
@@ -6083,6 +6285,12 @@ async function buildWithNitro() {
     createAgentNativeConfigContext("build", nitroMode),
     { environment: nitroEnvironment },
   );
+  // `agent-native build` runs the Vite build (which can see config passed
+  // inline to `agentNative()`) and this deploy build as separate processes.
+  // Prefer whatever the Vite step already resolved; only re-resolve from the
+  // config this function loaded above when no marker exists (a build that
+  // skipped the Vite step, or an older core).
+  const buildConfigMarker = readAgentNativeBuildConfigMarker(cwd);
   // Resolve the workspace core (if present) up front so the bundle embeds
   // enterprise-wide AGENTS.md + skills alongside the template's.
   const nitroWorkspaceCore = await getWorkspaceCoreExports(cwd);
@@ -6165,6 +6373,14 @@ export default bundle;
     replace: resolveNitroBuildReplacements(
       nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
+      cwd,
+      buildConfigMarker?.firstRunOnboarding ??
+        resolveFirstRunOnboardingBuildReplacement(
+          nitroAgentConfig,
+          nitroEnvironment,
+        ),
+      buildConfigMarker?.harness ??
+        resolveHarnessBuildReplacement(nitroAgentConfig),
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
@@ -6575,88 +6791,9 @@ export default bundle;
   // Cloudflare-specific post-build patches
   if (preset.startsWith("cloudflare")) {
     const serverDir2 = nitro.options.output.serverDir;
-    const scanDirs = [serverDir2];
-    if (serverDir2) {
-      const chunksDir = path.join(serverDir2, "_chunks");
-      const libsDir = path.join(serverDir2, "_libs");
-      if (fs.existsSync(chunksDir)) scanDirs.push(chunksDir);
-      if (fs.existsSync(libsDir)) scanDirs.push(libsDir);
-    }
 
-    for (const scanDir of scanDirs) {
-      if (!scanDir || !fs.existsSync(scanDir)) continue;
-      for (const file of fs.readdirSync(scanDir)) {
-        if (!file.endsWith(".mjs") && !file.endsWith(".js")) continue;
-        const filePath = path.join(scanDir, file);
-        let code = fs.readFileSync(filePath, "utf-8");
-        let changed = false;
-
-        // 1. Rewrite bare Node.js imports to node: prefixed.
-        // CF Workers requires the node: prefix for built-in modules.
-        const NODE_BUILTINS = [
-          "fs",
-          "path",
-          "os",
-          "crypto",
-          "http",
-          "https",
-          "stream",
-          "url",
-          "util",
-          "events",
-          "buffer",
-          "console",
-          "querystring",
-          "zlib",
-          "net",
-          "tls",
-          "assert",
-          "timers",
-          "child_process",
-          "module",
-          "process",
-          "worker_threads",
-          "string_decoder",
-          "diagnostics_channel",
-          "async_hooks",
-          "perf_hooks",
-          "inspector",
-          "vm",
-        ];
-        for (const mod of NODE_BUILTINS) {
-          // Match: from"fs" or from "fs" (but not from"node:fs")
-          const re = new RegExp(`from\\s*["']${mod}["']`, "g");
-          if (re.test(code)) {
-            code = code.replace(re, `from"node:${mod}"`);
-            changed = true;
-          }
-        }
-
-        // 2. Patch import.meta.url for createRequire().
-        // React Router's server build uses createRequire(import.meta.url)
-        // but import.meta.url is undefined on CF Workers.
-        if (code.includes("import.meta.url")) {
-          code = code.replace(/import\.meta\.url/g, '"file:///worker.mjs"');
-          changed = true;
-        }
-
-        // 3. Patch setInterval/setTimeout at global scope.
-        // CF Workers disallows timers in global scope.
-        if (code.includes("setInterval") && !code.includes("__timer_shim__")) {
-          const shim =
-            "/* __timer_shim__ */" +
-            "var __origSetInterval=globalThis.setInterval;" +
-            "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};";
-          const restore =
-            ";(function(){if(typeof __origSetInterval!=='undefined')globalThis.setInterval=__origSetInterval})();";
-          code = shim + code + "\n" + restore;
-          changed = true;
-        }
-
-        if (changed) fs.writeFileSync(filePath, code);
-      }
-    }
-    // 3. Create stub modules in _libs/ for native deps that Nitro's rolldown
+    if (serverDir2) patchCloudflareModuleServerOutput(serverDir2);
+    // Create stub modules in _libs/ for native deps that Nitro's rolldown
     // bundler references but can't resolve on CF Workers, and rewrite
     // bare imports to point to the stub files.
     const libsDir2 = path.join(

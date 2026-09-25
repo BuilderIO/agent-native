@@ -66,13 +66,14 @@ export function MissingDeckAccessPane({
   onBack: () => void;
 }) {
   const t = useT();
-  const privateDeck = Boolean(
-    accessStatus?.exists &&
-    !accessStatus.hasAccess &&
-    accessStatus.visibility === "private",
+  const deckAccessDenied = Boolean(
+    accessStatus?.exists && !accessStatus.hasAccess,
   );
+  const privateDeck =
+    deckAccessDenied && accessStatus?.visibility === "private";
+  const accessRequestAvailable = !deckAccessDenied || privateDeck;
   const accessCheckFailed = accessStatusError || orgError;
-  const noAccess = privateDeck || accessCheckFailed;
+  const noAccess = deckAccessDenied || accessCheckFailed;
   const checkingAccess = !noAccess && (accessStatusLoading || orgLoading);
   const Icon =
     noAccess || (!hasTeamJoinOption && !checkingAccess)
@@ -81,14 +82,18 @@ export function MissingDeckAccessPane({
   const title = checkingAccess
     ? t("deckEditor.lookingForDeck")
     : noAccess
-      ? t("deckEditor.privateDeckTitle")
+      ? privateDeck || !deckAccessDenied
+        ? t("deckEditor.privateDeckTitle")
+        : t("deckEditor.deckUnavailable")
       : hasTeamJoinOption
         ? t("deckEditor.joinTeamToOpen")
         : t("deckEditor.deckUnavailable");
   const description = checkingAccess
     ? t("deckEditor.checkingSharedAccess")
     : noAccess
-      ? t("deckEditor.privateDeckDescription")
+      ? privateDeck || !deckAccessDenied
+        ? t("deckEditor.privateDeckDescription")
+        : t("deckEditor.deckUnavailableDescription")
       : hasTeamJoinOption
         ? t("deckEditor.joinTeamDescription")
         : t("deckEditor.deckUnavailableDescription");
@@ -114,7 +119,7 @@ export function MissingDeckAccessPane({
             </span>
           </div>
         ) : null}
-        {noAccess && accessRequestSent ? (
+        {noAccess && accessRequestAvailable && accessRequestSent ? (
           <div className="mt-3 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
             {t(
               accessRequestNotified
@@ -124,7 +129,7 @@ export function MissingDeckAccessPane({
           </div>
         ) : null}
         <div className="mt-5 flex flex-col gap-2">
-          {noAccess && !signedIn ? (
+          {noAccess && accessRequestAvailable && !signedIn ? (
             <>
               <Button type="button" onClick={onSignIn}>
                 <IconLogin2 className="size-4" />
@@ -142,7 +147,7 @@ export function MissingDeckAccessPane({
                   : t("deckEditor.requestAccess")}
               </Button>
             </>
-          ) : noAccess ? (
+          ) : noAccess && accessRequestAvailable ? (
             <Button
               type="button"
               onClick={onRequestAccess}

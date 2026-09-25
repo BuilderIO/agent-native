@@ -259,7 +259,9 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
                           <span aria-hidden="true">·</span>
                           <span className="inline-flex items-center gap-1 tabular-nums">
                             <IconClock className="size-3" aria-hidden="true" />
-                            {msToClock(hit.matchMs)}
+                            {t("searchBar.matchAt", {
+                              time: msToClock(hit.matchMs),
+                            })}
                           </span>
                         </>
                       ) : null}

@@ -1,10 +1,10 @@
 import { data } from "react-router";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 import NotFound from "@/pages/NotFound";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.notFound }];
+  return [{ title: enUSMessages.routeTitles.notFound }];
 }
 
 // The splat route matches every unmatched path, so React Router's "no routes

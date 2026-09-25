@@ -14,6 +14,7 @@ import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import {
   buildMcpAppCsp,
   clampMcpAppHeight,
+  createReadOnlyMcpAppSrcDoc,
   DEFAULT_MCP_APP_IFRAME_HEIGHT,
   isMcpAppReadyMessage,
   MCP_APP_INITIALIZE_TIMEOUT_MS,
@@ -200,6 +201,63 @@ describe("McpAppRenderer security helpers", () => {
     expect(container.textContent).not.toContain(
       "MCP App did not finish initializing.",
     );
+  });
+
+  it("renders saved app markup as a sanitized non-scripted snapshot", async () => {
+    const payload = mcpAppPayload({
+      resourceHtml:
+        '<!doctype html><script>window.leak = true</script><html><head><meta http-equiv="refresh" content="0;url=https://tracker.example"></head><body onload="window.leak = true"><a href="https://tracker.example">Saved app</a><img src="https://tracker.example/image.png"></body></html>',
+      openUrl: "https://plan.agent-native.com/plans/plan-123",
+    });
+    payload.resource!._meta = {
+      ui: { csp: { resourceDomains: ["https://untrusted-cdn.example.com"] } },
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(McpAppRenderer, {
+          app: payload,
+          readOnly: true,
+        }),
+      );
+    });
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Loading MCP App",
+    );
+    expect(container.querySelector("iframe")).toBeNull();
+    await vi.waitFor(() =>
+      expect(container.querySelector("iframe")).not.toBeNull(),
+    );
+    const renderedIframe = container.querySelector("iframe");
+    expect(renderedIframe?.getAttribute("sandbox")).toBe("");
+    await vi.waitFor(() =>
+      expect(renderedIframe?.srcdoc).toContain("connect-src 'none'"),
+    );
+    expect(renderedIframe?.srcdoc).toContain("script-src 'none'");
+    expect(renderedIframe?.srcdoc).toContain("navigate-to 'none'");
+    expect(
+      renderedIframe?.srcdoc?.indexOf("Content-Security-Policy"),
+    ).toBeLessThan(renderedIframe?.srcdoc?.indexOf("<body") ?? -1);
+    expect(renderedIframe?.srcdoc).toContain("Saved app");
+    expect(renderedIframe?.srcdoc).not.toContain("window.leak");
+    expect(renderedIframe?.srcdoc).not.toContain("tracker.example");
+    expect(renderedIframe?.srcdoc).not.toContain("untrusted-cdn.example.com");
+    expect(container.querySelector("button")).toBeNull();
+  });
+
+  it("places the read-only policy before any replayed markup", async () => {
+    const parseFromString = vi.spyOn(DOMParser.prototype, "parseFromString");
+    const srcDoc = await createReadOnlyMcpAppSrcDoc(
+      "<script>window.early = true</script><p>Replay</p>",
+    );
+
+    expect(parseFromString).not.toHaveBeenCalled();
+    expect(srcDoc.indexOf("Content-Security-Policy")).toBeLessThan(
+      srcDoc.indexOf("<body"),
+    );
+    expect(srcDoc).not.toContain("window.early");
+    expect(srcDoc).toContain("Replay");
   });
 });
 

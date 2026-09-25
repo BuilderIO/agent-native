@@ -3,6 +3,35 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-23
+
+### Improved
+
+- Calendar opens faster by loading translated catalogs only when you need them.
+
+### Fixed
+
+- Bookings no longer confirm without their configured Zoom meeting
+- Release a booking slot when Zoom creation never starts
+- Zoom booking timeouts keep the slot reserved to prevent duplicate meetings.
+
+## 2026-09-22
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Calendar shows an app-shaped skeleton while the calendar workspace loads.
+
+### Fixed
+
+- Opening Calendar signed out inside an embedded tab now shows sign-in instead of a page whose actions all fail.
+
+## 2026-09-21
+
+### Fixed
+
+- Events stay editable when their calendar is connected through multiple Google accounts
+
 ## 2026-09-18
 
 ### Fixed

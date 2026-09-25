@@ -129,6 +129,7 @@ export interface CrmDuplicateCandidate {
   connectionId: string;
   signals: CrmDuplicateSignal[];
   confidence: number;
+  semanticReview?: { sameEntityProbability: number };
 }
 
 export interface CrmDuplicateSeed {

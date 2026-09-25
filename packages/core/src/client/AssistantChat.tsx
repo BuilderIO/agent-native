@@ -104,13 +104,15 @@ import { AgentActivityTrace } from "./chat/agent-activity-trace.js";
 import {
   DownscalingImageAttachmentAdapter,
   BinaryDocumentAttachmentAdapter,
+  MAX_PDF_BYTES,
   MAX_ESTIMATED_BODY_BYTES,
   AGGRESSIVE_MAX_IMAGE_DIMENSION,
   AGGRESSIVE_JPEG_QUALITY,
   transcodeImageToDataURL,
   createAgentImageAttachments,
   serializeQueuedAttachments,
-  estimateAttachmentBodyBytes,
+  getSubmittedPromptBodyStrings,
+  measureJsonStringBytes,
   getAttachmentBodyStrings,
   type QueuedAttachment,
 } from "./chat/attachment-adapters.js";
@@ -332,6 +334,10 @@ export interface AssistantChatSendOptions {
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
+  /** See `AgentChatMessage.approvedToolCalls`. */
+  approvedToolCalls?: string[];
+  /** Send as a protocol continuation that stays out of visible history. */
+  hideUserMessage?: boolean;
 }
 
 export function createUserMessageRunConfig(
@@ -2522,45 +2528,48 @@ export function clearChatStorage(tabId?: string) {
  * `lastMessage.status.type` without null-checking, so server-constructed
  * messages missing these fields crash.
  */
-function ensureMessageMetadata(repo: any): any {
+export function ensureMessageMetadata(repo: any): any {
   // Drop duplicate message ids before import — assistant-ui's MessageRepository
   // throws "performOp/link: A message with the same id already exists in the
   // parent tree" (Sentry AGENT-NATIVE-BROWSER-2Q) when fed repeated ids. No-op
   // for the normal no-duplicate case. See dedupeRepoMessagesById.
   repo = dropEmptyAssistantMessages(dedupeRepoMessagesById(repo));
   if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
-  for (const entry of repo.messages) {
+  // Copy before changing anything. The periodic in-run save passes
+  // `threadRuntime.export()`, whose messages are the live objects assistant-ui
+  // keeps streaming into. Forcing the live assistant message to "complete"
+  // there makes the thread report not-running mid-turn, and settling its
+  // content marks in-flight tool calls as interrupted.
+  const messages = repo.messages.map((entry: any) => {
     // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats
     const msg = entry?.message ?? entry;
-    if (!msg) continue;
-    if (!msg.metadata) {
-      msg.metadata = {};
-    }
-    if (msg.role === "assistant") {
+    if (!msg) return entry;
+    const next = { ...msg, metadata: msg.metadata ?? {} };
+    if (next.role === "assistant") {
       const statusType =
-        msg.status && typeof msg.status === "object"
-          ? (msg.status as { type?: unknown }).type
+        next.status && typeof next.status === "object"
+          ? (next.status as { type?: unknown }).type
           : undefined;
       const isTerminal =
         statusType === "complete" || statusType === "incomplete";
       if (!isTerminal) {
         const runError =
-          msg.metadata?.custom?.runError ?? msg.metadata?.runError;
-        msg.status = runError
+          next.metadata?.custom?.runError ?? next.metadata?.runError;
+        next.status = runError
           ? { type: "incomplete", reason: "error" }
           : { type: "complete", reason: "stop" };
       }
-      if (
-        Array.isArray(msg.content) &&
-        (isTerminal ||
-          msg.status?.type === "complete" ||
-          msg.status?.type === "incomplete")
-      ) {
-        settleInterruptedToolCalls(msg.content);
+      if (Array.isArray(next.content)) {
+        // Settling only writes top-level fields of tool-call parts.
+        next.content = next.content.map((part: any) =>
+          part?.type === "tool-call" ? { ...part } : part,
+        );
+        settleInterruptedToolCalls(next.content);
       }
     }
-  }
-  return repo;
+    return entry?.message ? { ...entry, message: next } : next;
+  });
+  return { ...repo, messages };
 }
 
 // Re-export for backwards compatibility
@@ -5168,7 +5177,10 @@ const AssistantChatInner = forwardRef<
       // tool cards or a second Thinking/Stop state.
       clearReconnectReaderForTerminalError();
       setRunErrorInfo({
-        message: detail.message,
+        message:
+          detail.errorCode === "request_too_large"
+            ? t("agentChat.composer.requestTooLarge")
+            : detail.message,
         ...(detail.details ? { details: detail.details } : {}),
         ...(detail.errorCode ? { errorCode: detail.errorCode } : {}),
         ...(detail.runId ? { runId: detail.runId } : {}),
@@ -5188,6 +5200,7 @@ const AssistantChatInner = forwardRef<
     clearReconnectReaderForTerminalError,
     forceStopped,
     latestAssistantRunId,
+    t,
     tabId,
     threadId,
   ]);
@@ -5939,15 +5952,21 @@ const AssistantChatInner = forwardRef<
         ];
 
         // ── Body-size guard (Fix 3) ─────────────────────────────────────
-        // Estimate the total serialized attachment payload. If it exceeds the
-        // Vercel/Netlify body limit, progressively re-compress images until
-        // the payload fits, then reject the largest remaining file if still over.
+        // Estimate the prompt and attachment payload. Recompress images before
+        // rejecting a request that still exceeds the Vercel/Netlify body budget.
         let messageAttachments = allAttachments;
         {
-          const allPayloadStrings = getAttachmentBodyStrings(allAttachments);
+          // Continuation requests serialize the prompt once more in history.
+          const promptPayloadStrings = getSubmittedPromptBodyStrings(
+            submittedText,
+            continuationTurnId !== undefined,
+          );
+          const allPayloadStrings = [
+            ...getAttachmentBodyStrings(allAttachments),
+            ...promptPayloadStrings,
+          ];
           if (
-            estimateAttachmentBodyBytes(allPayloadStrings) >
-            MAX_ESTIMATED_BODY_BYTES
+            measureJsonStringBytes(allPayloadStrings) > MAX_ESTIMATED_BODY_BYTES
           ) {
             // Re-compress image attachments more aggressively.
             const recompressed: typeof allAttachments = [];
@@ -5987,36 +6006,21 @@ const AssistantChatInner = forwardRef<
               recompressed.push(att);
             }
             // Re-estimate after recompression.
-            const recompressedPayloadStrings =
-              getAttachmentBodyStrings(recompressed);
+            const recompressedPayloadStrings = [
+              ...getAttachmentBodyStrings(recompressed),
+              ...promptPayloadStrings,
+            ];
             if (
-              estimateAttachmentBodyBytes(recompressedPayloadStrings) >
+              measureJsonStringBytes(recompressedPayloadStrings) >
               MAX_ESTIMATED_BODY_BYTES
             ) {
-              // Find the largest attachment and reject it.
-              let largestIdx = -1;
-              let largestSize = 0;
-              for (let i = 0; i < recompressed.length; i++) {
-                const attachmentSize = estimateAttachmentBodyBytes(
-                  getAttachmentBodyStrings([recompressed[i]]),
-                );
-                if (attachmentSize > largestSize) {
-                  largestSize = attachmentSize;
-                  largestIdx = i;
-                }
-              }
-              if (largestIdx >= 0) {
-                const rejected = recompressed[largestIdx];
-                setComposerError(
-                  `"${rejected.name}" makes the message too large to send (combined attachments must be under ${(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024).toFixed(1)} MB). Remove it or use a smaller file.`,
-                );
-                reportAgentChatSubmitResult(
-                  submitMessageId,
-                  false,
-                  "attachment-too-large",
-                );
-                return false;
-              }
+              setComposerError(t("agentChat.composer.requestTooLarge"));
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "attachment-too-large",
+              );
+              return false;
             }
             messageAttachments = recompressed;
           }
@@ -6349,9 +6353,9 @@ const AssistantChatInner = forwardRef<
           false,
           options?.trackInRunsTray === true,
           false,
-          false,
+          options?.hideUserMessage === true,
           options?.submitMessageId,
-          undefined,
+          options?.approvedToolCalls,
           undefined,
           options?.usageLabel,
           options?.actionScope,
@@ -7510,6 +7514,7 @@ const AssistantChatInner = forwardRef<
                                   <ComposerAttachmentPreviewStrip />
                                   <TiptapComposer
                                     focusRef={tiptapRef}
+                                    maxDocumentAttachmentBytes={MAX_PDF_BYTES}
                                     initialText={
                                       initialComposerText ?? undefined
                                     }

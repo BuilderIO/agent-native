@@ -8,8 +8,35 @@ const deckEditorSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "DeckEditor.tsx"),
   "utf8",
 );
+const editorSidebarSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../components/editor/EditorSidebar.tsx",
+  ),
+  "utf8",
+);
+const actionClusterSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../components/editor/EditorActionCluster.tsx",
+  ),
+  "utf8",
+);
 
 describe("DeckEditor keyboard shortcuts", () => {
+  it("defers and prefetches the Add Slide composer from user intent", () => {
+    expect(editorSidebarSource).not.toContain(
+      'from "@/components/editor/AddSlidePopover"',
+    );
+    expect(editorSidebarSource).toContain("<DeferredAddSlidePopover");
+    expect(editorSidebarSource).toContain("<LazyChunkErrorBoundary");
+    expect(actionClusterSource).toContain(
+      "onPointerEnter={preloadAddSlidePopover}",
+    );
+    expect(actionClusterSource).toContain("onFocus={preloadAddSlidePopover}");
+    expect(deckEditorSource).toContain("preloadAddSlidePopover();");
+  });
+
   it("inserts a same-layout slide from the active slide with Control+M", () => {
     const shortcutStart = deckEditorSource.indexOf(
       "const handleNewSlideShortcut",

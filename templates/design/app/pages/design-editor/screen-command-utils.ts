@@ -112,6 +112,12 @@ export function applyInlineStylesToHtml(
     const element = queryUniqueSelector(doc, selector) as HTMLElement | null;
     if (!element) return null;
     Object.entries(styles).forEach(([property, value]) => {
+      // Custom properties are only reachable through setProperty.
+      if (property.startsWith("--")) {
+        if (value) element.style.setProperty(property, value);
+        else element.style.removeProperty(property);
+        return;
+      }
       (element.style as any)[property] = value;
     });
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;

@@ -11,6 +11,7 @@
 import { createRequire } from "node:module";
 
 import { getAppConfig } from "../../app-config/index.js";
+import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
 import { getUserLabs } from "../../labs/store.js";
 import {
   BUILDER_OAUTH_SCOPE,
@@ -23,6 +24,7 @@ import {
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
+  isTrustedSelfHostedRuntime,
   prefetchSecrets,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
@@ -41,12 +43,17 @@ import {
   CHATGPT_SUBSCRIPTION_ENGINE_NAME,
   CHATGPT_SUBSCRIPTION_LAB_KEY,
 } from "../chatgpt-subscription-contract.js";
+import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
+  OLLAMA_DEFAULT_BASE_URL,
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
   isCustomOpenAiBaseUrl,
 } from "./openai-compatible-endpoint.js";
-import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
+import {
+  isLocalNetworkOllamaEndpoint,
+  validateProviderBaseUrl,
+} from "./provider-endpoint-validation.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -465,7 +472,7 @@ export async function resolveEnginePreservesCustomModels(
   if (entry.name !== "ai-sdk:openai") return false;
   try {
     return isCustomOpenAiBaseUrl(
-      await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR),
+      (await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR))?.baseUrl,
     );
   } catch {
     return false;
@@ -854,9 +861,15 @@ function engineCreateConfig(
   };
 }
 
+interface ResolvedProviderBaseUrl {
+  baseUrl: string;
+  allowedPrivateOrigin?: string;
+}
+
 async function resolveProviderBaseUrl(
   envVar: string,
-): Promise<string | undefined> {
+): Promise<ResolvedProviderBaseUrl | undefined> {
+  const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
   const raw = await resolveSecret(envVar);
   const deployValue = canUseDeployCredentialFallbackForRequest(envVar)
     ? readDeployCredentialEnv(envVar)
@@ -864,23 +877,35 @@ async function resolveProviderBaseUrl(
 
   if (!raw) {
     if (!deployValue) return undefined;
-    return validateProviderBaseUrl(deployValue, {
+    const baseUrl = await validateProviderBaseUrl(deployValue, {
       allowPrivate: true,
+      isOllama,
     });
+    return {
+      baseUrl,
+      allowedPrivateOrigin: (await isBlockedExtensionUrlWithDns(baseUrl))
+        ? new URL(baseUrl).origin
+        : undefined,
+    };
   }
 
-  return raw
-    ? validateProviderBaseUrl(raw, {
-        // Deployment configuration is operator-owned. `resolveSecret` may
-        // return that fallback directly, so preserve the same private-network
-        // allowance as the explicit deploy-only branch above without extending
-        // it to user-, org-, or workspace-scoped endpoint values.
-        allowPrivate: deployValue !== undefined && raw === deployValue,
-        allowLocalOllama:
-          envVar === OLLAMA_BASE_URL_ENV_VAR &&
-          process.env.NODE_ENV !== "production",
-      })
-    : undefined;
+  // Deployment configuration is operator-owned. `resolveSecret` may return
+  // that fallback directly, so preserve the same private-network allowance
+  // without extending it to user-, org-, or workspace-scoped endpoint values.
+  const isDeployValue = deployValue !== undefined && raw === deployValue;
+  const allowLocalOllama = isOllama && isTrustedSelfHostedRuntime();
+  const baseUrl = await validateProviderBaseUrl(raw, {
+    allowPrivate: isDeployValue,
+    allowLocalOllama,
+    isOllama,
+  });
+  const allowedPrivateOrigin =
+    (isDeployValue ||
+      (allowLocalOllama && isLocalNetworkOllamaEndpoint(baseUrl))) &&
+    (await isBlockedExtensionUrlWithDns(baseUrl))
+      ? new URL(baseUrl).origin
+      : undefined;
+  return { baseUrl, allowedPrivateOrigin };
 }
 
 /**
@@ -1089,21 +1114,58 @@ async function engineCreateConfigForEntry(
           : undefined;
     }
   }
-  if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
-    if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
-      safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
-        allowLocalOllama:
-          entry.name === "ai-sdk:ollama" &&
-          process.env.NODE_ENV !== "production",
-      });
-    }
-    if (safeExtra.baseUrl == null) {
-      const baseUrl = await resolveProviderBaseUrl(
-        entry.name === "ai-sdk:ollama"
+  const aiSdkProvider = entry.name.startsWith("ai-sdk:")
+    ? entry.name.slice("ai-sdk:".length)
+    : undefined;
+  if (aiSdkProvider) {
+    const isOllama = aiSdkProvider === "ollama";
+    const allowLocalOllama = isOllama && isTrustedSelfHostedRuntime();
+    let resolvedEndpoint: ResolvedProviderBaseUrl | undefined;
+    if (safeExtra.baseUrl == null && typeof safeExtra.baseURL !== "string") {
+      const envVar =
+        aiSdkProvider === "ollama"
           ? OLLAMA_BASE_URL_ENV_VAR
-          : OPENAI_BASE_URL_ENV_VAR,
+          : aiSdkProvider === "openai"
+            ? OPENAI_BASE_URL_ENV_VAR
+            : undefined;
+      if (envVar) resolvedEndpoint = await resolveProviderBaseUrl(envVar);
+      if (resolvedEndpoint) safeExtra.baseUrl = resolvedEndpoint.baseUrl;
+    }
+
+    if (safeExtra.baseUrl == null && typeof safeExtra.baseURL === "string") {
+      safeExtra.baseUrl = safeExtra.baseURL;
+    }
+
+    if (typeof safeExtra.baseUrl === "string") {
+      const baseUrl = safeExtra.baseUrl;
+      const validatedBaseUrl =
+        resolvedEndpoint?.baseUrl ??
+        (await validateProviderBaseUrl(baseUrl, {
+          allowLocalOllama,
+          isOllama,
+        }));
+      safeExtra.baseUrl = validatedBaseUrl;
+      const allowedPrivateOrigin =
+        resolvedEndpoint?.allowedPrivateOrigin ??
+        (allowLocalOllama &&
+        isLocalNetworkOllamaEndpoint(validatedBaseUrl) &&
+        (await isBlockedExtensionUrlWithDns(validatedBaseUrl))
+          ? new URL(validatedBaseUrl).origin
+          : undefined);
+      safeExtra.requestFetch = createProviderEndpointFetch(
+        validatedBaseUrl,
+        allowedPrivateOrigin ? [allowedPrivateOrigin] : [],
       );
-      if (baseUrl) safeExtra.baseUrl = baseUrl;
+    } else if (isOllama) {
+      const allowedPrivateOrigins =
+        isTrustedSelfHostedRuntime() &&
+        isLocalNetworkOllamaEndpoint(OLLAMA_DEFAULT_BASE_URL)
+          ? [new URL(OLLAMA_DEFAULT_BASE_URL).origin]
+          : [];
+      safeExtra.requestFetch = createProviderEndpointFetch(
+        OLLAMA_DEFAULT_BASE_URL,
+        allowedPrivateOrigins,
+      );
     }
   }
   if (

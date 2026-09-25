@@ -460,6 +460,8 @@ interface VerifiedIdentity {
   orgId?: string;
   orgName?: string;
   orgRole?: "owner" | "admin" | "member";
+  orgIcon?: import("../icons/index.js").IconValue | null;
+  orgIconRevision?: number;
   authProvider?: "google" | `sso:${string}`;
   sub: string;
   jti: string;
@@ -514,6 +516,20 @@ async function verifyIdentityAssertion(
       payload.org_role === "member"
         ? payload.org_role
         : undefined;
+    let orgIcon: import("../icons/index.js").IconValue | null | undefined;
+    const orgIconRevision = payload.org_icon_revision;
+    if (payload.org_icon !== undefined) {
+      const { safeParseIconValue } = await import("../icons/index.js");
+      const parsedIcon = safeParseIconValue(payload.org_icon);
+      if (!parsedIcon.success) return null;
+      orgIcon = parsedIcon.data;
+      if (
+        !Number.isSafeInteger(orgIconRevision) ||
+        Number(orgIconRevision) < 0
+      ) {
+        return null;
+      }
+    }
     if ((orgId || orgName || orgRole) && (!orgId || !orgName || !orgRole)) {
       return null;
     }
@@ -538,6 +554,9 @@ async function verifyIdentityAssertion(
       ...(orgId ? { orgId } : {}),
       ...(orgName ? { orgName } : {}),
       ...(orgRole ? { orgRole } : {}),
+      ...(orgIcon !== undefined
+        ? { orgIcon, orgIconRevision: Number(orgIconRevision) }
+        : {}),
       ...(authProvider ? { authProvider } : {}),
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
       jti,
@@ -1118,6 +1137,12 @@ export async function handleIdentitySso(
           name: identity.orgName,
           role: identity.orgRole,
           email: identity.email,
+          ...(identity.orgIcon !== undefined
+            ? {
+                icon: identity.orgIcon,
+                iconRevision: identity.orgIconRevision,
+              }
+            : {}),
         });
       }
     } catch {

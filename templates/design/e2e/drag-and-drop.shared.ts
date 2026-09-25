@@ -90,12 +90,17 @@ export async function newDesign(
   });
   const id = created?.id ?? created?.data?.id;
   if (!id) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "index.html",
-    content,
-    fileType: "html",
-  });
+  try {
+    await postAction(page, "create-file", {
+      designId: id,
+      filename: "index.html",
+      content,
+      fileType: "html",
+    });
+  } catch (error) {
+    await postAction(page, "delete-design", { id });
+    throw error;
+  }
   return id;
 }
 

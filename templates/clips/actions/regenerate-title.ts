@@ -191,7 +191,7 @@ export default defineAction({
     // Full-video mode needs the agent to watch the clip; skip the transcript-
     // only text-model fast path so we don't generate titles from audio alone.
     if (includeFullVideoInAi) {
-      await queueTitleRegenerationRequest({
+      const queuedRequest = await queueTitleRegenerationRequest({
         recordingId: args.recordingId,
         currentTitle: rec.title,
         currentDescription: rec.description,
@@ -207,6 +207,8 @@ export default defineAction({
       );
       return {
         queued: true,
+        kind: queuedRequest.kind,
+        requestedAt: queuedRequest.requestedAt,
         recordingId: args.recordingId,
         includeFullVideoInAi: true,
       };
@@ -350,7 +352,7 @@ export default defineAction({
           })
           .where(eq(schema.recordings.id, args.recordingId));
         await writeAppState("refresh-signal", { ts: Date.now() });
-        await queueTitleRegenerationRequest({
+        const queuedRequest = await queueTitleRegenerationRequest({
           recordingId: args.recordingId,
           currentTitle: fallbackTitle,
           currentDescription: rec.description,
@@ -368,6 +370,8 @@ export default defineAction({
         return {
           updated: true,
           queued: true,
+          kind: queuedRequest.kind,
+          requestedAt: queuedRequest.requestedAt,
           recordingId: args.recordingId,
           title: fallbackTitle,
           provider: "local",
@@ -385,7 +389,7 @@ export default defineAction({
       };
     }
 
-    await queueTitleRegenerationRequest({
+    const queuedRequest = await queueTitleRegenerationRequest({
       recordingId: args.recordingId,
       currentTitle: rec.title,
       currentDescription: rec.description,
@@ -400,6 +404,8 @@ export default defineAction({
     console.log(`Delegation queued: regenerate-title for ${args.recordingId}`);
     return {
       queued: true,
+      kind: queuedRequest.kind,
+      requestedAt: queuedRequest.requestedAt,
       recordingId: args.recordingId,
     };
   },

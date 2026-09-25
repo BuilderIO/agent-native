@@ -52,6 +52,14 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../db/client.js");
     vi.doUnmock("../../org/context.js");
     vi.unstubAllEnvs();
+    // Hosted markers are opt-in here; shared CI runners may set these globally.
+    vi.stubEnv("FUSION_ENVIRONMENT", undefined);
+    vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
+    vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", undefined);
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON", undefined);
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
     delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
@@ -1173,6 +1181,8 @@ describe("AgentEngine registry", () => {
     ]);
   });
 
+  // Deploy credentials are allowed in local/self-hosted runtimes, not hosted
+  // multi-tenant production apps.
   describe("Builder-credits env pair", () => {
     const registerBuilderAndAnthropic = (
       registerAgentEngine: (entry: any) => void,
@@ -1229,12 +1239,12 @@ describe("AgentEngine registry", () => {
         };
       });
       vi.doMock("../../db/client.js", () => ({
-        isLocalDatabase: () => false,
+        isLocalDatabase: () => true,
         getDbExec: () => ({
           execute: async () => ({ rows: [] }),
         }),
       }));
-      // A hosted visitor has no org, and the membership read must answer
+      // A visitor has no org, and the membership read must answer
       // cleanly — an unreadable one is a different case with its own tests.
       vi.doMock("../../org/context.js", () => ({
         resolveOrgIdForEmail: vi.fn().mockResolvedValue(null),
@@ -1245,7 +1255,7 @@ describe("AgentEngine registry", () => {
       vi.doUnmock("../../server/credential-provider.js");
     });
 
-    it("selects builder from the Builder-credits pair alone on a hosted app", async () => {
+    it("selects builder from the Builder-credits pair alone on a self-hosted app", async () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
       process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
@@ -1259,6 +1269,27 @@ describe("AgentEngine registry", () => {
 
       expect(detectEngineFromEnv()?.name).toBe("builder");
       expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
+    });
+
+    it("does not select builder from the Builder-credits pair in hosted production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
+      vi.doMock("../../db/client.js", () => ({
+        isLocalDatabase: () => false,
+        getDbExec: () => ({ execute: async () => ({ rows: [] }) }),
+      }));
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()).toBeNull();
+      expect(await detectEngineFromEnvForRequest()).toBeNull();
     });
 
     it("lets synthetic requests resolve a user engine when the env engine is unusable", async () => {
@@ -1582,11 +1613,9 @@ describe("AgentEngine registry", () => {
       ).resolves.toBe(true);
     });
 
-    it("reports the builder engine as runnable in a Fusion preview", async () => {
+    it("does not report Builder usable from deploy credentials in a Fusion preview", async () => {
       // The preview pod is a hosted workspace runtime with a signed-in app
-      // user, which blocks the identity-lane env fallback. The credits pair
-      // still has to resolve, or the composer's model picker has nothing
-      // selectable in the one place the gateway is the only credential.
+      // user, so deployment-level model credentials must not be exposed there.
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token"; // guard:allow-env-credential — fixture: the preview pod's Builder-credits pair is the credential under test
@@ -1602,7 +1631,7 @@ describe("AgentEngine registry", () => {
 
       await expect(
         isStoredEngineUsableForRequest({ engine: "builder" }, entry),
-      ).resolves.toBe(true);
+      ).resolves.toBe(false);
     });
 
     it("runs the builder engine on OAuth custody with no key pair stored", async () => {
@@ -3046,8 +3075,46 @@ describe("AgentEngine registry", () => {
         apiKey: undefined,
         allowEnvFallback: true,
         baseUrl: "https://gateway.example/v1",
+        requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
+    });
+
+    it("replaces caller-supplied fetch for a configured provider endpoint", async () => {
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const customFetch = vi.fn();
+      const create = vi.fn().mockReturnValue({
+        name: "ai-sdk:openai",
+        stream: vi.fn(),
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create,
+      });
+
+      await resolveEngine({
+        engineOption: {
+          name: "ai-sdk:openai",
+          config: {
+            baseUrl: "https://93.184.216.34/v1",
+            requestFetch: customFetch,
+          },
+        },
+      });
+
+      const requestFetch = create.mock.calls[0][0].requestFetch as typeof fetch;
+      expect(requestFetch).not.toBe(customFetch);
+      await expect(
+        requestFetch("https://other.example/v1/chat/completions"),
+      ).rejects.toThrow(/escaped its configured origin/);
+      expect(customFetch).not.toHaveBeenCalled();
     });
 
     it("allows an operator-provided private OpenAI-compatible endpoint", async () => {
@@ -3077,8 +3144,131 @@ describe("AgentEngine registry", () => {
         apiKey: undefined,
         allowEnvFallback: true,
         baseUrl: "http://127.0.0.1:43123/v1",
+        requestFetch: expect.any(Function),
       });
+      const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", fetchMock);
+      const requestFetch = openAiCreate.mock.calls[0][0]
+        .requestFetch as typeof fetch;
+      try {
+        await requestFetch("http://127.0.0.1:43123/v1/chat/completions");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        await expect(
+          requestFetch("http://127.0.0.1:43124/v1/chat/completions"),
+        ).rejects.toThrow(/escaped its configured origin/);
+      } finally {
+        vi.unstubAllGlobals();
+      }
       expect(resolved).toBe(openAiEngine);
+    });
+
+    it("reuses the shared dispatcher for a public deployment endpoint", async () => {
+      process.env.OPENAI_API_KEY = "sk-operator-test"; // guard:allow-env-credential — verifies operator-owned endpoint classification
+      process.env.OPENAI_BASE_URL = "https://provider.example.invalid/v1"; // guard:allow-env-credential — public endpoint should use the shared dispatcher
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn().mockReturnValue({
+        name: "ai-sdk:openai",
+        stream: vi.fn(),
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+      await resolveEngine({ engineOption: "ai-sdk:openai" });
+
+      const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", fetchMock);
+      const requestFetch = create.mock.calls[0][0].requestFetch as typeof fetch;
+      const url = "https://provider.example.invalid/v1/chat/completions";
+      try {
+        await requestFetch(url);
+        await requestFetch(url);
+
+        const dispatcher = (
+          fetchMock.mock.calls[0]?.[1] as
+            | (RequestInit & { dispatcher?: unknown })
+            | undefined
+        )?.dispatcher;
+        expect(dispatcher).toBeDefined();
+        expect(
+          (
+            fetchMock.mock.calls[1]?.[1] as
+              | (RequestInit & { dispatcher?: unknown })
+              | undefined
+          )?.dispatcher,
+        ).toBe(dispatcher);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("rejects a private camelCase provider endpoint before engine creation", async () => {
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn();
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create,
+      });
+
+      await expect(
+        resolveEngine({
+          engineOption: {
+            name: "ai-sdk:openai",
+            config: { baseUrl: "http://127.0.0.1:43123/v1" },
+          },
+        }),
+      ).rejects.toThrow(/private\/internal address/);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("guards Ollama's implicit loopback endpoint outside trusted self-hosted runtimes", async () => {
+      vi.stubEnv("OLLAMA_BASE_URL", "");
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import("../../server/credential-provider.js")
+          >()),
+          isTrustedSelfHostedRuntime: () => false,
+        }),
+      );
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn().mockReturnValue({
+        name: "ai-sdk:ollama",
+        stream: vi.fn(),
+      });
+      registerAgentEngine({
+        name: "ai-sdk:ollama",
+        label: "Ollama",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "llama3.2",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create,
+      });
+
+      await resolveEngine({ engineOption: "ai-sdk:ollama" });
+      const requestFetch = create.mock.calls[0][0].requestFetch as typeof fetch;
+      await expect(
+        requestFetch("http://127.0.0.1:11434/api/chat"),
+      ).rejects.toThrow(/private\/internal address/);
     });
 
     it("does not treat the first-party OpenAI endpoint as a custom gateway", async () => {
@@ -3126,6 +3316,7 @@ describe("AgentEngine registry", () => {
         apiKey: "sk-e2e",
         allowEnvFallback: true,
         baseUrl: "https://api.openai.com/v1",
+        requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
     });
@@ -3217,9 +3408,9 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(googleEngine);
     });
 
-    it("auto-detects app-provided deploy-level provider env keys for signed-in production shared-database users", async () => {
+    it("does not auto-detect deploy-level provider env keys for signed-in production users", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: app-provided LLM key should power this hosted app
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies hosted resolution ignores this key
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue(null),
       }));
@@ -3242,8 +3433,11 @@ describe("AgentEngine registry", () => {
         }),
       }));
 
-      const { registerAgentEngine, resolveEngine } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        resolveEngine,
+        isResolvedEngineUsableForRequest,
+      } = await import("./registry.js");
 
       const openAiEngine = {
         name: "ai-sdk:openai",
@@ -3276,17 +3470,20 @@ describe("AgentEngine registry", () => {
 
       const resolved = await resolveEngine({});
 
-      expect(openAiCreate).toHaveBeenCalledWith({
+      expect(openAiCreate).not.toHaveBeenCalled();
+      expect(anthropicCreate).toHaveBeenCalledWith({
         apiKey: undefined,
-        allowEnvFallback: true,
+        allowEnvFallback: false,
       });
-      expect(anthropicCreate).not.toHaveBeenCalled();
-      expect(resolved).toBe(openAiEngine);
+      expect(resolved).toBe(anthropicEngine);
+      await expect(isResolvedEngineUsableForRequest(resolved)).resolves.toBe(
+        false,
+      );
     });
 
-    it("allows deploy env fallback for explicitly selected app-level LLM engines in signed-in production shared-database requests", async () => {
+    it("disables deploy env fallback for explicitly selected LLM engines in hosted requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: explicit app-level LLM engine selection can inherit hosted env
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies explicit hosted selection ignores this key
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
@@ -3326,7 +3523,7 @@ describe("AgentEngine registry", () => {
 
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
-        allowEnvFallback: true,
+        allowEnvFallback: false,
       });
       expect(resolved).toBe(openAiEngine);
     });

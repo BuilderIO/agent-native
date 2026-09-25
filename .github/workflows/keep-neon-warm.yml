@@ -21,6 +21,7 @@ on:
 permissions:
   issues: write
   contents: read
+  actions: read
 
 concurrency:
   group: keep-neon-warm
@@ -45,6 +46,36 @@ jobs:
           set -o pipefail
           node scripts/keep-warm.mjs --strict 2>&1 | tee /tmp/keep-warm.log
 
+      - name: Read previous scheduled health result
+        id: previous-run
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          history_read=unavailable
+          previous_conclusion=unknown
+          previous_updated_at=
+          latest_failure_updated_at=
+          if schedule_history="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/keep-neon-warm.yml/runs?event=schedule&per_page=100")" && \
+            run_history="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/keep-neon-warm.yml/runs?per_page=100")"; then
+            if jq -e '.workflow_runs | type == "array"' <<<"$schedule_history" >/dev/null && \
+              jq -e '.workflow_runs | type == "array"' <<<"$run_history" >/dev/null; then
+              history_read=ok
+              previous_conclusion="$(jq -r '[.workflow_runs[] | select(.status == "completed")] | sort_by(.updated_at) | last // {} | .conclusion // "unknown"' <<<"$schedule_history")"
+              previous_updated_at="$(jq -r '[.workflow_runs[] | select(.status == "completed")] | sort_by(.updated_at) | last // {} | .updated_at // empty' <<<"$schedule_history")"
+              latest_failure_updated_at="$(jq -r '[.workflow_runs[] | select(.status == "completed" and .conclusion == "failure")] | sort_by(.updated_at) | last // {} | .updated_at // empty' <<<"$run_history")"
+            fi
+          fi
+          if [[ "$history_read" == "unavailable" ]]; then
+            echo "::warning::Run history is unavailable; paging fails open, while scheduled recovery waits for verified post-incident samples."
+          fi
+          echo "history_read=$history_read" >>"$GITHUB_OUTPUT"
+          echo "conclusion=$previous_conclusion" >>"$GITHUB_OUTPUT"
+          echo "updated_at=$previous_updated_at" >>"$GITHUB_OUTPUT"
+          echo "latest_failure_updated_at=$latest_failure_updated_at" >>"$GITHUB_OUTPUT"
+
       # One rolling issue, and it means something: open == currently failing.
       #
       # The previous version posted "Scheduled audit failed: <run url>" on every
@@ -57,6 +88,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          history_read='${{ steps.previous-run.outputs.history_read }}'
+          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            if [[ "$history_read" == "unavailable" ]]; then
+              echo "Run history is unavailable; paging this failure to avoid hiding an ongoing outage."
+            elif [[ "$previous_conclusion" != "failure" ]]; then
+              echo "No preceding completed scheduled failure; keeping details in Actions and waiting for confirmation before paging."
+              exit 0
+            fi
+          fi
           ISSUE_TITLE="Production health check failing"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILING="$(grep -E '^\s*(✗|!) ' /tmp/keep-warm.log || true)"
@@ -122,6 +163,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          history_read='${{ steps.previous-run.outputs.history_read }}'
+          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+          previous_updated_at='${{ steps.previous-run.outputs.updated_at }}'
+          latest_failure_updated_at='${{ steps.previous-run.outputs.latest_failure_updated_at }}'
+          post_failure_sample=0
+          # GitHub returns UTC ISO-8601 timestamps, so lexical order is chronological.
+          if [[ -n "$previous_updated_at" && -n "$latest_failure_updated_at" ]] && \
+            [[ "$previous_updated_at" > "$latest_failure_updated_at" ]]; then
+            post_failure_sample=1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            if [[ "$history_read" != "ok" || "$previous_conclusion" != "success" || \
+              "$post_failure_sample" != "1" ]]; then
+              echo "Recovery needs two clean scheduled audits after the latest failed workflow run; previous result was ${previous_conclusion:-unknown}."
+              exit 0
+            fi
+          fi
           ISSUE_TITLE="Production health check failing"
           pagerduty_status=0
           if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then

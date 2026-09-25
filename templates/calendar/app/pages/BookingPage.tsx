@@ -300,12 +300,14 @@ export default function BookingPage() {
           setConfirmedBooking(booking);
           setStep("confirmed");
         },
-        onError: (error) =>
+        onError: (error) => {
+          const message = error instanceof Error ? error.message : undefined;
           toast.error(
-            error instanceof Error
-              ? error.message
-              : t("bookingLinks.failedToCreateBooking"),
-          ),
+            !message || message === "Failed to create booking"
+              ? t("bookingLinks.failedToCreateBooking")
+              : message,
+          );
+        },
       },
     );
   }

@@ -142,7 +142,6 @@ const messages = {
     createFolderError: "Falha ao criar",
     folderCreated: "Pasta criada",
     folderNamePlaceholder: "Nome da pasta",
-    breadcrumbBack: "Voltar para {{label}}",
   },
   empty: {
     library: {
@@ -1236,6 +1235,7 @@ const messages = {
     transcript: "Transcrição",
     comment: "Comentário",
     titleOrDescription: "Título ou descrição",
+    matchAt: "Correspondência em {{time}} do vídeo",
   },
   organizationSwitcher: {
     noOrganization: "Sem organização",

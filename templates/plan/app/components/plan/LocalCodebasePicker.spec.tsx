@@ -182,6 +182,47 @@ describe("LocalCodebasePicker", () => {
     ).toBeNull();
   });
 
+  it("prevents unlinking while a codebase sync is in progress", async () => {
+    const sync = deferred<{ summary: { id: string; name: string } }>();
+    collectLocalCodebaseSnapshotMock.mockResolvedValue({
+      controlResources: {},
+    });
+    syncLocalCodebaseSnapshotMock.mockReturnValue(sync.promise);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <LocalCodebasePicker />
+        </QueryClientProvider>,
+      );
+    });
+
+    const resyncButton = container.querySelector(
+      'button[aria-label="raw.localCodebase.syncCodebase"]',
+    ) as HTMLButtonElement | null;
+    const clearButton = container.querySelector(
+      'button[aria-label="raw.localCodebase.clearCodebase"]',
+    ) as HTMLButtonElement | null;
+    expect(resyncButton).not.toBeNull();
+    expect(clearButton).not.toBeNull();
+
+    await act(async () => {
+      resyncButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(clearButton?.disabled).toBe(true);
+    clearButton?.click();
+    expect(deleteLocalCodebaseResourcesMock).not.toHaveBeenCalled();
+    expect(deleteLocalControlResourcesMock).not.toHaveBeenCalled();
+    expect(clearLocalCodebaseSelectionMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      sync.reject(new Error("finish pending sync"));
+      await sync.promise.catch(() => undefined);
+    });
+  });
+
   it("keeps the selection and exposes a retry when cleanup fails", async () => {
     const cleanupError = new Error("snapshot cleanup failed");
     deleteLocalCodebaseResourcesMock

@@ -55,6 +55,7 @@ const messages = {
     emptyState: "Posez-moi vos questions sur vos présentations",
     thisSlide: "Cette diapositive",
     currentSelection: "Sélection actuelle",
+    slideNumber: "Diapositive {{number}}",
     suggestionPitch: "Créer un pitch de 10 diapositives à partir de ce doc",
     suggestionBrand: "Appliquer notre marque à ce deck",
     suggestionHero: "Générer une image héro pour cette diapositive",
@@ -187,6 +188,12 @@ const messages = {
     emptyTitle: "Configurer votre identité de marque",
     emptyDescription:
       "Créez un système de design avec les couleurs, la typographie et les logos de votre marque. Chaque nouvelle présentation suivra votre identité visuelle.",
+    tierLimitTitle: "Limite de systèmes de design atteinte",
+    tierLimitDescription:
+      "Vous avez atteint la limite de systèmes de design de votre forfait Builder. Passez à un forfait Builder supérieur pour en créer un autre.",
+    tierLimitDescriptionWithCount:
+      "Vous utilisez {{current}} sur {{max}} systèmes de design de votre forfait Builder {{plan}}. Passez à un forfait supérieur pour en créer un autre.",
+    tierLimitUpgrade: "Changer de forfait Builder",
   },
   editorToolbar: {
     layoutTitle: "Titre",
@@ -713,6 +720,8 @@ const messages = {
       "Si vous quittez ou rechargez maintenant, vous risquez de perdre les modifications qui ne sont pas encore enregistrées. Voulez-vous vraiment quitter ?",
     keepEditing: "Continuer à modifier",
     leaveWithoutSaving: "Quitter sans enregistrer",
+    editorMarkupNotSaved:
+      "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
   },
   designSystemSetup: {
     importedBrand: "Marque importée",
@@ -773,6 +782,8 @@ const messages = {
     websitePlaceholder: "example.com ou Nike",
     add: "Ajouter",
     githubRepository: "Connecter le code : dépôt GitHub",
+    codeIndexingEnterpriseOnly:
+      "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
     githubRef: "Branche, tag ou commit (facultatif)",
     githubPaths: "Fichiers ou dossiers, séparés par des virgules (facultatif)",
     codeFiles: "Connecter des fichiers de code",
@@ -846,10 +857,6 @@ const messages = {
     continue: "Continuer",
     continueToGenerate: "Continuer pour générer",
     designSystem: "Système de design",
-    designSystemIndexing: "Indexation…",
-    designSystemUnavailable: "Indisponible",
-    designSystemIndexingNotice:
-      "Ce système de design est toujours en cours d'indexation. Choisissez-en un autre ou attendez la fin de l'indexation avant de continuer.",
     referenceDeck: "Deck de référence",
     referenceDeckPlaceholder: "Reprendre le style d'un deck existant",
     referenceDeckNone: "Ne pas en utiliser",

@@ -2,7 +2,10 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
-import { importFigmaClipboardFromBuffer } from "../server/lib/figma-clipboard-local-decode.js";
+import {
+  importFigmaClipboardFromBuffer,
+  type ClipboardLayerPlacement,
+} from "../server/lib/figma-clipboard-local-decode.js";
 import {
   buildFigmaNodeCandidates,
   extractVisibleTexts,
@@ -21,10 +24,13 @@ import {
 } from "../server/lib/figma-node-import.js";
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
 import {
+  FRAME_GAP,
   resolveImportDesignId,
   saveImportedDesignFiles,
+  type ImportedDesignFile,
 } from "../server/lib/import-design-files.js";
 import { parseVisibleClipboardHtml } from "../server/lib/visible-clipboard-html.js";
+import { planFigmaPaste } from "../shared/figma-paste-plan.js";
 import { parseFigmaFileKey } from "../shared/figma-url.js";
 
 const NODE_STRUCTURE_DEPTH = 3;
@@ -96,6 +102,70 @@ function describeOmittedBuffer(bytes: number | undefined): string | null {
 
 const KEY_MISSING_GUIDANCE =
   "Connect your Figma access token (Settings > Integrations > API keys) to import this paste as exact, editable Figma nodes.";
+function convertedLayers(
+  files: ImportedDesignFile[],
+  placements?: ClipboardLayerPlacement[],
+) {
+  return files.map((file, index) => ({
+    title: file.preferredFrame?.title ?? file.filename.replace(/\.html$/, ""),
+    width: file.preferredFrame?.width ?? null,
+    height: file.preferredFrame?.height ?? null,
+    content: file.content,
+    wrapsLooseNode: placements?.[index]?.wrapsLooseNode ?? false,
+    origin: placements?.[index]?.origin ?? null,
+    sourceOffset: placements?.[index]?.sourceOffset ?? null,
+  }));
+}
+
+function restNodePlacements(
+  nodesById: Record<
+    string,
+    { absoluteBoundingBox?: { x: number; y: number }; type?: string }
+  >,
+): ClipboardLayerPlacement[] {
+  return Object.values(nodesById).map((node) => ({
+    wrapsLooseNode: ![
+      "FRAME",
+      "SECTION",
+      "COMPONENT",
+      "INSTANCE",
+      "SLICE",
+    ].includes(node.type ?? ""),
+    origin: {
+      x: node.absoluteBoundingBox?.x ?? 0,
+      y: node.absoluteBoundingBox?.y ?? 0,
+    },
+    sourceOffset: null,
+  }));
+}
+
+/** Keep the copied arrangement, moved so its top-left lands on `placeAt`. */
+function placeFilesAt(
+  files: ImportedDesignFile[],
+  placeAt: { x: number; y: number } | undefined,
+  placements?: ClipboardLayerPlacement[],
+): ImportedDesignFile[] {
+  if (!placeAt) return files;
+  const origins = placements?.map((placement) => placement.origin);
+  const minX = origins ? Math.min(...origins.map((o) => o.x)) : 0;
+  const minY = origins ? Math.min(...origins.map((o) => o.y)) : 0;
+  let stackedX = placeAt.x;
+  return files.map((file, index) => {
+    const origin = origins?.[index];
+    const x = origin ? placeAt.x + origin.x - minX : stackedX;
+    const y = origin ? placeAt.y + origin.y - minY : placeAt.y;
+    stackedX += (file.preferredFrame?.width ?? 0) + FRAME_GAP;
+    return { ...file, preferredFrame: { ...file.preferredFrame, x, y } };
+  });
+}
+
+const pasteRect = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+
 const SELECTION_TRUNCATED_GUIDANCE =
   "Figma copied more than 100 selected nodes. Imported the first 100; split larger selections into smaller pastes so every layer is included.";
 
@@ -153,6 +223,25 @@ export default defineAction({
         "Decoded size of a clipboard buffer the client could not transport (see app/lib/figma-clipboard.ts). Present instead of clipboardBuffer for oversized selections so this action can name the reason rather than importing nothing.",
       ),
     originalName: z.string().optional(),
+    pasteScene: z
+      .object({
+        container: z
+          .object({
+            fileId: z.string(),
+            selector: z.string().nullable(),
+            width: z.number(),
+            height: z.number(),
+            visible: pasteRect.nullable(),
+            autoLayout: z.boolean(),
+          })
+          .nullable(),
+        viewport: pasteRect.nullable(),
+        screens: z.array(pasteRect.extend({ fileId: z.string() })).max(5000),
+      })
+      .optional()
+      .describe(
+        "The editor's selection, visible canvas, and screen frames at paste time. When set, the paste is placed like Figma: layers bound for an existing screen, frame, or the board come back as `layers` + `plan` (unsaved) for the editor to insert; new screens are saved at the viewport centre. Omit to save each pasted frame as a new screen.",
+      ),
   }),
   run: async (
     {
@@ -164,9 +253,23 @@ export default defineAction({
       clipboardBuffer,
       clipboardBufferOmittedBytes,
       originalName,
+      pasteScene,
     },
     context,
   ) => {
+    // One conversion decides both where the paste goes and whether it is saved
+    // here (new screens) or handed back for the editor to insert.
+    const placePaste = (
+      files: ImportedDesignFile[],
+      placements?: ClipboardLayerPlacement[],
+    ) => {
+      if (!pasteScene) return { save: files };
+      const layers = convertedLayers(files, placements);
+      const plan = planFigmaPaste(layers, pasteScene);
+      return plan.kind === "screens"
+        ? { save: placeFilesAt(files, plan.placeAt ?? undefined, placements) }
+        : { layers, plan };
+    };
     const fileKey = parseFigmaFileKey(figmetaFileKey);
     if (!fileKey) {
       failFigmaImport(
@@ -197,15 +300,27 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, selectedNodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
+        const placements = restNodePlacements(nodesById);
+        const selectionWarnings = selectedNodeIdsTruncated
+          ? [SELECTION_TRUNCATED_GUIDANCE]
+          : [];
+        const placed = placePaste(files, placements);
+        if (!placed.save) {
+          return {
+            designId: resolvedDesignId,
+            files: [],
+            layers: placed.layers,
+            plan: placed.plan,
+            warnings: [...selectionWarnings, ...omissionWarnings],
+            strategy: "restNodes" as const,
+          };
+        }
         await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
         const saved = await saveImportedDesignFiles({
           designId: resolvedDesignId,
           sourceType: "figma-clipboard-rest",
-          files,
+          files: placed.save,
         });
-        const selectionWarnings = selectedNodeIdsTruncated
-          ? [SELECTION_TRUNCATED_GUIDANCE]
-          : [];
         return {
           ...saved,
           warnings: [
@@ -247,11 +362,22 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, nodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
+        const placed = placePaste(files, restNodePlacements(nodesById));
+        if (!placed.save) {
+          return {
+            designId: resolvedDesignId,
+            files: [],
+            layers: placed.layers,
+            plan: placed.plan,
+            warnings: omissionWarnings,
+            strategy: "restNodes" as const,
+          };
+        }
         await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
         const saved = await saveImportedDesignFiles({
           designId: resolvedDesignId,
           sourceType: "figma-clipboard-rest",
-          files,
+          files: placed.save,
         });
         return {
           ...saved,
@@ -313,12 +439,28 @@ export default defineAction({
           fileKey,
           originalName,
         });
-        if (localResult.files.length > 0) {
+        const placed =
+          localResult.files.length > 0
+            ? placePaste(localResult.files, localResult.layers)
+            : null;
+        if (placed && !placed.save) {
+          return {
+            designId: resolvedDesignId,
+            files: [],
+            layers: placed.layers,
+            plan: placed.plan,
+            warnings: localResult.warnings,
+            strategy: "localKiwi" as const,
+            figmaApiKeyMissing,
+            unresolvedImages: localResult.unresolvedImageRefs.length,
+          };
+        }
+        if (placed?.save) {
           await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
           const saved = await saveImportedDesignFiles({
             designId: resolvedDesignId,
             sourceType: "figma-clipboard-local-kiwi",
-            files: localResult.files,
+            files: placed.save,
           });
           return {
             ...saved,

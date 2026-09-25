@@ -33,6 +33,15 @@ const messages: AgentChatTranslation = {
   "commands.mention": "파일, 에이전트 또는 리소스 멘션",
   "commands.new": "/clear와 동일",
   "commands.plan": "읽기 전용 계획 모드로 전환",
+  "observability.viewDetails": "세부 정보 보기",
+  "observability.hideDetails": "세부 정보 숨기기",
+  "observability.input": "입력",
+  "observability.output": "출력",
+  "observability.error": "오류",
+  "observability.metadata": "메타데이터",
+  "observability.notCaptured": "캡처되지 않음",
+  "observability.openFullConversation": "전체 대화 열기",
+  "observability.learnAboutTab": "이 탭 알아보기",
   "onboarding.back": "뒤로",
   "onboarding.chooseRole": "역할 선택",
   "onboarding.customizeRole": "맞춤 설정을 시작해 보세요.",
@@ -50,8 +59,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
-  "onboarding.builderActivateCredits": "Builder.io 무료 크레딧 활성화",
-  "onboarding.builderConnectCredits": "Builder.io 무료 크레딧 연결",
+  "onboarding.builderCreateAccount": "Builder.io 계정 만들기",
+  "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
@@ -277,6 +286,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "만들려는 스킬을 설명하세요...",
   "composer.documentTooLarge":
     '"{{name}}"의 크기는 {{size}}MB입니다. 메시지 제한을 지키기 위해 {{label}}는 {{maxSize}}MB로 제한됩니다. 파일 크기를 줄이거나 더 작은 파일로 나누세요.',
+  "composer.requestTooLarge":
+    "이 메시지와 첨부 파일은 너무 커서 보낼 수 없습니다. 첨부 파일을 삭제하거나 메시지를 줄이세요.",
   "composer.file": "파일",
   "composer.imageModel": "이미지 모델",
   "composer.imagePreview": "이미지 미리보기",
@@ -480,7 +491,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AI 제공업체가 이 요청을 일시적으로 거부했습니다. 보통 1분 이내에 해결되니 다시 시도하세요.",
   "errorMessages.startNewChat": "새 채팅 시작",
-  "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
+  "errorMessages.addCreditsInBuilder": "Builder에서 크레딧 추가",
   "feedback.inaccurate": "부정확함",
   "feedback.keyboardHint": "보내려면 {{shortcut}} Enter",
   "feedback.notHelpful": "도움이 되지 않음",
@@ -813,6 +824,21 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "확인 메일을 보내지 못했습니다.",
   "settings.emailNewLabel": "새 이메일",
   "settings.emailNewPlaceholder": "새 이메일 입력",
+  "usage.builderCredits": "Builder 크레딧",
+  "usage.creditBalance": "워크스페이스 잔액",
+  "usage.monthlyPlan": "월간 플랜",
+  "usage.dailyFreeLimit": "무료 일일 한도",
+  "usage.creditUsedOfLimit": "{{limit}} 중 {{used}} 사용",
+  "usage.creditRemaining": "{{amount}} 남음",
+  "usage.creditUsageUnavailable":
+    "Builder 크레딧 사용량을 불러오지 못했습니다.",
+  "usage.estimatedBuilderCredits": "~{{amount}} 예상 크레딧",
+  "usage.otherUsdSpend": "{{amount}} 기타 USD",
+  "usage.noBuilderCredits": "Builder 크레딧 0",
+  "usage.otherUnclassifiedSpend": "기타 또는 분류되지 않은 USD 사용액",
+  "usage.providerSpendDetail": "Builder 청구 외 제공업체 사용 또는 이전 호출",
+  "usage.providerSpendToday": "오늘 기타 또는 분류되지 않은 사용량: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder 크레딧 / USD",
 };
 
 export default messages;

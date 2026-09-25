@@ -80,7 +80,6 @@ const messages = {
     createFolderError: "Create failed",
     folderCreated: "Folder created",
     folderNamePlaceholder: "Folder name",
-    breadcrumbBack: "Back to {{label}}",
   },
   empty: {
     library: {
@@ -1146,6 +1145,7 @@ const messages = {
     transcript: "Transcript",
     comment: "Comment",
     titleOrDescription: "Title or description",
+    matchAt: "Match at {{time}} in video",
   },
   organizationSwitcher: {
     noOrganization: "No organization",

@@ -333,7 +333,7 @@ export function getOversizedDocumentAttachmentError(
         ? candidate.name
         : file.name;
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    const maxMb = (maxBytes / 1024 / 1024).toFixed(0);
+    const maxMb = Number((maxBytes / 1024 / 1024).toFixed(1)).toString();
     return (
       t?.("agentChat.composer.documentTooLarge", {
         defaultValue:
@@ -1090,22 +1090,33 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "claude-cli": "Claude Code",
   "pi-cli": "Pi",
   "opencode-cli": "OpenCode",
-  "claude-fable-5": "Fable 5",
+  "claude-fable-5": "Claude Fable 5",
   "kimi-k2-5": "Kimi K2.5",
-  "deepseek-v3-1": "DeepSeek v3.1",
+  "deepseek-v4-pro": "DeepSeek V4 Pro",
   "z-ai/glm-5.2": "GLM 5.2",
-  "openai/gpt-6-astra": "Astra",
-  "openai/gpt-6-astra-pro": "Astra Pro",
+  "openai/gpt-6-astra": "GPT-6 Astra",
+  "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
   "gpt-6-sol": "GPT-6 Sol",
   "gpt-6-luna": "GPT-6 Luna",
   "openai/gpt-6-sol": "GPT-6 Sol",
   "openai/gpt-6-luna": "GPT-6 Luna",
-  "anthropic/claude-opus-5.5": "Opus 5.5",
-  "anthropic/claude-fable-5.1": "Fable 5.1",
+  "anthropic/claude-opus-5.5": "Claude Opus 5.5",
+  "anthropic/claude-fable-5.1": "Claude Fable 5.1",
   "google/gemini-3.8-flash": "Gemini 3.8 Flash",
   "qwen/qwen3.8-max-0902": "Qwen 3.8 Max",
   "meta/muse-spark-1.3": "Muse Spark 1.3",
   "inception/mercury-2.5": "Mercury 2.5",
+  "claude-opus-5-5": "Claude Opus 5.5",
+  "claude-opus-4-8": "Claude Opus 4.8",
+  "claude-sonnet-5": "Claude Sonnet 5",
+  "claude-haiku-4-5": "Claude Haiku 4.5",
+  "gemini-3-5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "gemini-3-1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "grok-code-fast": "Grok Code Fast",
+  "qwen3-coder": "Qwen3 Coder",
+  "deepseek-v3-1": "DeepSeek v3.1",
+  "z-ai-glm-4-5": "Z-AI GLM 4.5",
+  "z-ai-glm-5-1": "Z-AI GLM 5.1",
 };
 
 const LOCAL_RUNTIME_ENGINES = new Set([
@@ -1206,44 +1217,40 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
     );
   }
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
-  // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD] → Tier Major[.Minor]
-  const claude = model.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8,})?$/,
+  const normalizedModel = model.replace(/^(?:anthropic|openai|google)\//, "");
+  // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD].
+  const claude = normalizedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
-    return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
+    return `Claude ${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
-  // GPT: gpt-{major}-{minor}[-suffix] or gpt-{major}.{minor}[-suffix]
-  if (isOpenAiModelId(model)) {
-    const normalizedModel = model.replace(/^openai\//i, "");
-    const rest = normalizedModel.slice(4);
-    const gpt = rest.match(/^(\d+)[.-](\d+)(?:[.-](.+))?$/);
-    if (gpt?.[3]) {
-      return gpt[3]
-        .split("-")
-        .map((s) => s[0].toUpperCase() + s.slice(1))
-        .join(" ");
-    }
-    if (gpt) {
-      return `GPT-${gpt[1]}.${gpt[2]}`;
-    }
-    return `GPT-${rest}`;
+  // GPT: gpt-{major}[-minor][-variant] → GPT-Major[.Minor] Variant.
+  const gpt = normalizedModel.match(/^gpt-(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
+  if (gpt) {
+    const version = `${gpt[1]}${gpt[2] ? `.${gpt[2]}` : ""}`;
+    const variant = gpt[3]
+      ?.split("-")
+      .map((part) => part[0].toUpperCase() + part.slice(1))
+      .join(" ");
+    return `GPT-${version}${variant ? ` ${variant}` : ""}`;
   }
-  if (/^o\d/.test(model)) return model;
-  // Gemini: gemini-{major}-{minor}-{variant}[-preview] → Gemini Major.Minor Variant
-  const geminiVersioned = model.match(
-    /^gemini-(\d+)-(\d+)-(.+?)(?:-preview)?$/,
+  if (/^o\d/.test(normalizedModel)) return normalizedModel;
+  // Gemini: gemini-{version.parts}-{variant}[-preview] → Gemini Version Variant.
+  const geminiVersioned = normalizedModel.match(
+    /^gemini-(\d+(?:[-.]\d+)+)-(.+?)(?:-preview)?$/,
   );
   if (geminiVersioned) {
-    const variant = geminiVersioned[3]
+    const variant = geminiVersioned[2]
       .split("-")
       .map((s) => s[0].toUpperCase() + s.slice(1))
       .join(" ");
-    return `Gemini ${geminiVersioned[1]}.${geminiVersioned[2]} ${variant}`;
+    const version = geminiVersioned[1].replace(/-/g, ".");
+    return `Gemini ${version} ${variant}`.replace("Flash Lite", "Flash-Lite");
   }
   // Gemini: gemini-{version.parts}[-preview] → Gemini Version Parts
-  const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
+  const gemini = normalizedModel.match(/^gemini-(.+?)(?:-preview)?$/);
   if (gemini) {
     const parts = gemini[1]
       .split("-")
@@ -1258,7 +1265,20 @@ export function compactComposerModelName(
   model: string,
   t?: ComposerTranslate,
 ): string {
-  return friendlyModelName(model, t);
+  const fullName = friendlyModelName(model, t);
+  if (model === "auto" || LOCAL_RUNTIME_ENGINES.has(model)) return fullName;
+  const shortName = fullName
+    .replace(/^GPT-\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^Claude\s+/i, "")
+    .replace(/^Qwen\s*\d*(?:\.\d+)?\s*/i, "")
+    .replace(/^DeepSeek\s+v?\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^Z-AI\s*/i, "")
+    .replace(/^Grok\s*/i, "")
+    .replace(/\s+[a-z]*\d+(?:\.\d+)*$/i, "")
+    .trim();
+  if (shortName) return shortName;
+  return /^deepseek-/i.test(model) ? "DeepSeek" : fullName;
 }
 
 export function compactComposerReasoningEffortLabel(
@@ -1316,32 +1336,63 @@ function localizedReasoningEffortLabel(
   }
 }
 
-/**
- * Deduplicate models to only the latest version per family.
- * e.g. [opus-4-7, opus-4-6, opus-4-5] → [opus-4-7]
- */
+function versionedModelFamily(
+  model: string,
+): { family: string; version: number[] } | undefined {
+  const id = model.replace(/^(?:anthropic|openai|google)\//i, "");
+  const claude = id.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?/,
+  );
+  if (claude) {
+    return {
+      family: `claude-${claude[1]}`,
+      version: [Number(claude[2]), Number(claude[3] ?? 0)],
+    };
+  }
+  const gpt = id.match(/^gpt-(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
+  if (gpt?.[3]) {
+    return {
+      family: `gpt-${gpt[3]}`,
+      version: [Number(gpt[1]), Number(gpt[2] ?? 0)],
+    };
+  }
+  const gemini = id.match(/^gemini-(\d+)(?:[.-](\d+))?-(.+?)(?:-preview)?$/);
+  if (gemini) {
+    return {
+      family: `gemini-${gemini[3]}`,
+      version: [Number(gemini[1]), Number(gemini[2] ?? 0)],
+    };
+  }
+  return undefined;
+}
+
+function compareModelVersions(
+  left: readonly number[],
+  right: readonly number[],
+) {
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/** Keep the newest version of each Claude, Gemini, and GPT tier. */
 function latestModelsOnly(models: readonly string[]): string[] {
-  const seen = new Set<string>();
-  return models.filter((m) => {
-    // Claude: family = tier (opus/sonnet/haiku)
-    const claude = m.match(/^claude-(opus|sonnet|haiku)-/);
-    if (claude) {
-      if (seen.has(claude[1])) return false;
-      seen.add(claude[1]);
-      return true;
+  const latest = new Map<string, { id: string; version: number[] }>();
+  for (const id of models) {
+    const candidate = versionedModelFamily(id);
+    if (!candidate) continue;
+    const current = latest.get(candidate.family);
+    if (
+      !current ||
+      compareModelVersions(candidate.version, current.version) > 0
+    ) {
+      latest.set(candidate.family, { id, version: candidate.version });
     }
-    // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
-    // OpenAI effort: each is its own family
-    // Gemini: family = gemini-{major} + variant
-    const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
-    if (gemini) {
-      const family = gemini[2]; // flash, pro, etc.
-      if (seen.has(`gemini-${family}`)) return false;
-      seen.add(`gemini-${family}`);
-      return true;
-    }
-    return true;
-  });
+  }
+  const latestIds = new Set([...latest.values()].map(({ id }) => id));
+  return models.filter((id) => !versionedModelFamily(id) || latestIds.has(id));
 }
 
 /**
@@ -1636,7 +1687,7 @@ function ModelSelector({
   const selectedModelName = selectedModelNeedsConnection
     ? t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
     : friendlyModelName(model, t);
-  const selectedModelLabel = selectedModelName.replace(/^GPT-/, "");
+  const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
     ? selectedModelLabel
     : compactComposerModelName(model, t);

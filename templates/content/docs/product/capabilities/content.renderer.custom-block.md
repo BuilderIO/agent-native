@@ -67,7 +67,7 @@ Given a page-owned Artifact has no catalog record, when its owner chooses Save a
 
 ## Current evidence
 
-`app/components/editor/extensions/LocalMdxComponentNode.tsx`, `actions/list-local-component-files.ts`, `actions/write-local-component-file.ts`, and `app/blocks/contentBlockRegistry.tsx` are donors, not a hosted catalog.
+`app/components/editor/extensions/LocalMdxComponentNode.tsx`, `actions/list-local-component-files.ts`, `actions/write-local-component-file.ts`, and `app/blocks/contentBlockRegistry.tsx` are donors, not a hosted catalog. `app/components/editor/registrySlashItems.ts` separately curates which built-in renderers appear in slash discovery; registry membership alone does not make a renderer an authoring command. Builder source formats remain registered for existing content but are hidden from insertion until new blocks can receive valid source sidecars.
 
 ## Proof plan
 

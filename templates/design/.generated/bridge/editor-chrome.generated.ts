@@ -912,6 +912,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
     var designCanvasContentOffsetX = Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
     var designCanvasContentOffsetY = Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+    function clipboardScreenContext() {
+      return !designCanvasBoardSurface && designCanvasScreenId ? { screenId: designCanvasScreenId } : {};
+    }
     var previousEditorChromeBridge = window.__anEditorChromeBridge;
     var previousEditorChromeHost = window.__anEditorChromeBridgeHost || (previousEditorChromeBridge && typeof previousEditorChromeBridge === "object" ? previousEditorChromeBridge.host : null);
     var previousEditorChromeBridgeInstance = window.__anEditorChromeBridgeInstance;
@@ -944,7 +947,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.parent.postMessage(
         {
           type: "agent-native:editor-chrome-ready",
-          routePath: window.location.pathname + window.location.search
+          routePath: window.location.pathname + window.location.search,
+          documentId: runtimeDocumentId
         },
         "*"
       );
@@ -972,6 +976,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       host.style.zIndex = readOnly ? "2147483000" : "2147483647";
       host.style.pointerEvents = "none";
       host.style.overflow = "visible";
+      var themeVars = window.__anEditorBridgeThemeVars;
+      if (themeVars && typeof themeVars === "object") {
+        Object.keys(themeVars).forEach(function(name) {
+          if (typeof themeVars[name] === "string") {
+            host.style.setProperty(name, themeVars[name]);
+          }
+        });
+      }
     }
     function appendEditorChromeNode(node) {
       if (editorChromeNodes.indexOf(node) === -1) {
@@ -1089,7 +1101,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -1262,7 +1274,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (signature) {
           var existing = findHeadNodeBySignature(signature);
           if (existing) {
+            var nextAnchor = existing.nextSibling;
             document.head.replaceChild(document.importNode(node, true), existing);
+            if (anchor === existing) anchor = nextAnchor;
             return;
           }
         }
@@ -1903,7 +1917,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var runtimeLayerSnapshotTimer = null;
     var runtimeLayerSnapshotMaxTimer = null;
+    var runtimeLayerSnapshotReservationRequestId = 0;
+    var runtimeLayerSnapshotReservationInFlight = false;
+    var runtimeLayerSnapshotReservationDirty = false;
     var lastRuntimeLayerSnapshotHtml = "";
+    var lastRuntimeLayerSnapshotReservationToken = "";
     var runtimeDocumentId = "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
     function runtimeLayerHash(value) {
       var hash = 2166136261;
@@ -2170,7 +2188,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot() {
+    function postRuntimeLayerSnapshot(reservationToken) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2190,12 +2208,40 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         return;
       }
-      if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+      var snapshotReservationToken = reservationToken || "";
+      if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+        return;
+      }
       lastRuntimeLayerSnapshotHtml = snapshot.html;
+      lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+      if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot",
           payload: snapshot
+        },
+        "*"
+      );
+    }
+    function requestRuntimeLayerSnapshot() {
+      if (runtimeLayerSnapshotTimer !== null) {
+        window.clearTimeout(runtimeLayerSnapshotTimer);
+        runtimeLayerSnapshotTimer = null;
+      }
+      if (runtimeLayerSnapshotMaxTimer !== null) {
+        window.clearTimeout(runtimeLayerSnapshotMaxTimer);
+        runtimeLayerSnapshotMaxTimer = null;
+      }
+      if (runtimeLayerSnapshotReservationInFlight) {
+        runtimeLayerSnapshotReservationDirty = true;
+        return;
+      }
+      runtimeLayerSnapshotReservationInFlight = true;
+      runtimeLayerSnapshotReservationRequestId += 1;
+      window.parent.postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot-reservation-request",
+          requestId: runtimeLayerSnapshotReservationRequestId
         },
         "*"
       );
@@ -2205,12 +2251,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
       runtimeLayerSnapshotTimer = window.setTimeout(
-        postRuntimeLayerSnapshot,
+        requestRuntimeLayerSnapshot,
         300
       );
       if (runtimeLayerSnapshotMaxTimer === null) {
         runtimeLayerSnapshotMaxTimer = window.setTimeout(
-          postRuntimeLayerSnapshot,
+          requestRuntimeLayerSnapshot,
           1500
         );
       }
@@ -2305,6 +2351,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         root = root.ownerSVGElement;
       }
       return root;
+    }
+    function pastedSvgShapeForHit(hit, svgRoot) {
+      if (!svgRoot.getAttribute || svgRoot.getAttribute("data-an-primitive") !== "pasted-svg") {
+        return null;
+      }
+      var target = hit;
+      while (target && target !== svgRoot) {
+        var tag = (target.tagName || "").toLowerCase();
+        if (tag === "path" || tag === "polygon" || tag === "polyline" || tag === "ellipse" || tag === "circle" || tag === "rect" || tag === "line" || tag === "use") {
+          return target;
+        }
+        target = target.parentElement;
+      }
+      return null;
     }
     function isBoardRootMarqueeSurface(el) {
       if (!designCanvasBoardSurface || !el) return false;
@@ -2503,7 +2563,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function selectionTargetForHit(hit, descendIntoGroup = false) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
-      if (svgRoot) return svgRoot;
+      if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
       var target = unwrapTextOverlay(hit);
       var textPrimitive = nativeTextPrimitiveForHit(target);
       if (textPrimitive) target = textPrimitive;
@@ -2535,9 +2595,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       var scope = selectionContainerScope;
       if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved)) {
         selectionContainerScope = null;
-        scope = document.body;
+        scope = topLevelBoardFrameOwning(resolved) || document.body;
       }
       return containerScopeAncestor(resolved, scope);
+    }
+    function topLevelBoardFrameOwning(el) {
+      if (!designCanvasBoardSurface) return null;
+      var node = el;
+      while (node && node.parentElement && node.parentElement !== document.body) {
+        node = node.parentElement;
+      }
+      return node && node !== el && node.parentElement === document.body && node.getAttribute("data-an-primitive") === "frame" ? node : null;
     }
     function plainClickSelectionTarget(hit) {
       if (!designCanvasBoardSurface) {
@@ -2553,7 +2621,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (collectMoveGroupMembers(selectedEl).length > 1) return null;
       if (!hit || isDocumentRootElement(hit)) return null;
-      var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+      var svgRoot = outermostSvgAncestor(hit);
+      var raw = svgRoot && pastedSvgShapeForHit(hit, svgRoot) || svgRoot || unwrapTextOverlay(hit);
       raw = nativeTextPrimitiveForHit(raw) || raw;
       if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
         return null;
@@ -3601,6 +3670,138 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
+    var PORTABLE_TEXT_PROPERTIES = {
+      color: true,
+      font: true,
+      fontFamily: true,
+      fontSize: true,
+      fontStyle: true,
+      fontWeight: true,
+      letterSpacing: true,
+      lineHeight: true,
+      textAlign: true,
+      textDecoration: true,
+      textDecorationColor: true,
+      textDecorationLine: true,
+      textDecorationStyle: true,
+      textShadow: true,
+      textTransform: true,
+      whiteSpace: true,
+      wordBreak: true
+    };
+    function portableBorderSidePaints(cs, side) {
+      var style = cs.getPropertyValue("border-" + side + "-style");
+      return style !== "none" && style !== "hidden" && parseFloat(cs.getPropertyValue("border-" + side + "-width")) > 0;
+    }
+    function portableValueRendersNothing(el, property, cs) {
+      var sides = ["top", "right", "bottom", "left"];
+      if (/^border(Top|Right|Bottom|Left)?(Color|Style|Width)?$/.test(property)) {
+        var sideMatch = /^border(Top|Right|Bottom|Left)/.exec(property);
+        var checked = sideMatch ? [sideMatch[1].toLowerCase()] : sides;
+        return !checked.some(function(side) {
+          return portableBorderSidePaints(cs, side);
+        });
+      }
+      if (/^outline(Color|Style|Width|Offset)?$/.test(property)) {
+        return cs.outlineStyle === "none" || !(parseFloat(cs.outlineWidth) > 0);
+      }
+      if (property === "boxSizing") {
+        return !sides.some(function(side) {
+          return portableBorderSidePaints(cs, side);
+        }) && !sides.some(function(side) {
+          return parseFloat(cs.getPropertyValue("padding-" + side)) > 0;
+        });
+      }
+      if (property === "display") {
+        return cs.display === "block" && (cs.position === "absolute" || cs.position === "fixed");
+      }
+      if (property === "transformOrigin") {
+        return cs.transform === "none" && (cs.rotate || "none") === "none" && (cs.scale || "none") === "none";
+      }
+      if (!PORTABLE_TEXT_PROPERTIES[property]) return false;
+      var tag = el.tagName.toLowerCase();
+      if (tag === "img") return true;
+      if (!(el instanceof SVGElement) || /^(text|tspan|textpath)$/.test(tag)) {
+        return false;
+      }
+      if (property !== "color") return true;
+      return !/currentcolor/i.test(
+        (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
+      );
+    }
+    function typedStyleValue(el, property) {
+      var typedElement = el;
+      if (typeof typedElement.computedStyleMap !== "function") {
+        return { status: "available", value: void 0 };
+      }
+      try {
+        return {
+          status: "available",
+          value: typedElement.computedStyleMap().get(property)?.toString().trim()
+        };
+      } catch (error) {
+        return { status: "failed", error };
+      }
+    }
+    function dimensionHasAutoMargin(el, property) {
+      var margins = property === "width" ? ["margin-left", "margin-right"] : ["margin-top", "margin-bottom"];
+      return margins.some(function(margin) {
+        var value = typedStyleValue(el, margin);
+        return value.status === "failed" || value.value === void 0 || value.value.toLowerCase() === "auto";
+      });
+    }
+    function flexMainAxisDimension(parentStyle) {
+      var inlineAxis = /^(vertical|sideways)/.test(parentStyle.writingMode) ? "height" : "width";
+      if (!/^column/.test(parentStyle.flexDirection)) return inlineAxis;
+      return inlineAxis === "width" ? "height" : "width";
+    }
+    function gridItemDimensionIsStretched(el, property, cs, parentStyle, typedSize) {
+      if (typedSize.status === "failed" || typedSize.value?.toLowerCase() !== "auto" || dimensionHasAutoMargin(el, property)) {
+        return false;
+      }
+      var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
+      if (alignment === "auto") {
+        alignment = property === "width" ? parentStyle.justifyItems : parentStyle.alignItems;
+      }
+      if (alignment === "stretch") return true;
+      if (alignment !== "normal" || cs.aspectRatio !== "auto") return false;
+      return !/^(audio|canvas|embed|iframe|img|object|video)$/.test(
+        el.tagName.toLowerCase()
+      );
+    }
+    function flexItemDimensionIsStretched(el, property, cs, parentStyle) {
+      var mainAxis = flexMainAxisDimension(parentStyle);
+      if (property === mainAxis || dimensionHasAutoMargin(el, property)) {
+        return false;
+      }
+      var alignment = cs.alignSelf === "auto" ? parentStyle.alignItems : cs.alignSelf;
+      return alignment === "normal" || alignment === "stretch";
+    }
+    function portableSizeIsLayoutResolved(el, property, cs, typedSize) {
+      if (el.style?.getPropertyValue(property)) return false;
+      if (typedSize !== cs[property]) return false;
+      if (cs.position === "absolute" || cs.position === "fixed") return false;
+      var parent = el.parentElement;
+      if (!parent) return false;
+      var parentStyle = window.getComputedStyle(parent);
+      if (/^(inline-)?flex$/.test(parentStyle.display)) {
+        var mainAxis = flexMainAxisDimension(parentStyle);
+        return property === mainAxis ? cs.flexBasis !== "auto" && cs.flexBasis !== "content" : flexItemDimensionIsStretched(el, property, cs, parentStyle);
+      }
+      if (/^(inline-)?grid$/.test(parentStyle.display)) {
+        return gridItemDimensionIsStretched(
+          el,
+          property,
+          cs,
+          parentStyle,
+          typedSize
+        );
+      }
+      if (property !== "width") return false;
+      if (cs.display !== "block" && cs.display !== "flow-root") return false;
+      var parentContentWidth = parent.clientWidth - parseFloat(parentStyle.paddingLeft || "0") - parseFloat(parentStyle.paddingRight || "0");
+      return parentContentWidth > 0 && Math.abs(el.getBoundingClientRect().width - parentContentWidth) < 1;
+    }
     function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
       var cacheSafe = !cache || canReusePortableComputedStyles(el, cache);
@@ -3622,32 +3823,42 @@ export const editorChromeBridgeScript: string = `"use strict";
       var hostStyle = el.style;
       var styles = {};
       var typedElement = el;
+      var typedStyles = null;
       if (typeof typedElement.computedStyleMap !== "function") {
         dndLog("style:typed-om-unavailable", { tag: el.tagName });
-        return cacheFailure();
+      } else {
+        try {
+          typedStyles = typedElement.computedStyleMap();
+        } catch (_error) {
+          dndLog("style:typed-om-read-failed", { tag: el.tagName });
+          return cacheFailure();
+        }
+        if (!typedStyles) return cacheFailure();
       }
-      try {
-        var typedStyles = typedElement.computedStyleMap();
+      if (typedStyles) {
         for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
           var typedValue = typedStyles.get(property);
-          if (typedValue == null || !String(typedValue).trim()) {
-            dndLog("style:typed-om-value-missing", { property });
+          if (typedValue == null) {
+            dndLog("style:typed-om-value-unavailable", {
+              tag: el.tagName,
+              property
+            });
             return cacheFailure();
           }
           var size = String(typedValue).trim();
-          if (size !== "auto" || hostStyle?.getPropertyValue(property)) {
+          var preservesSizingMode = /%|calc\\(|clamp\\(|(?:min|max)\\(|(?:fit|fill)-content|(?:min|max)-content/i.test(
+            size
+          );
+          if (size && (size !== "auto" || hostStyle?.getPropertyValue(property)) && (!portableSizeIsLayoutResolved(el, property, cs, size) || preservesSizingMode)) {
             styles[property] = size;
           }
         }
-      } catch (_error) {
-        dndLog("style:typed-om-read-failed", { tag: el.tagName });
-        return cacheFailure();
       }
       PORTABLE_STYLE_PROPERTIES.forEach(function(property2) {
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property2]) return;
         var value = cs[property2] || cs.getPropertyValue(property2);
         var inlineValue = hostStyle && hostStyle.getPropertyValue(property2);
-        if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property2])) {
+        if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property2] && !portableValueRendersNothing(el, property2, cs))) {
           styles[property2] = value;
         }
       });
@@ -3753,6 +3964,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       "paddingRight",
       "paddingBottom",
       "paddingLeft",
+      "marginTop",
+      "marginRight",
+      "marginBottom",
+      "marginLeft",
       "alignItems",
       "alignContent",
       "justifyItems",
@@ -3764,10 +3979,36 @@ export const editorChromeBridgeScript: string = `"use strict";
       "--agent-native-truncate-original-overflow",
       "--an-vector-start-point",
       "--an-vector-end-point",
+      "--an-vector-fill-gradient",
+      "--an-vector-stroke-gradient",
+      "--an-css-border-gradient",
+      "--an-css-border-solid-color",
+      "border",
+      "borderWidth",
+      "borderStyle",
+      "borderColor",
+      "borderTop",
+      "borderRight",
+      "borderBottom",
+      "borderLeft",
+      "borderTopWidth",
+      "borderRightWidth",
+      "borderBottomWidth",
+      "borderLeftWidth",
+      "borderTopStyle",
+      "borderRightStyle",
+      "borderBottomStyle",
+      "borderLeftStyle",
+      "borderTopColor",
+      "borderRightColor",
+      "borderBottomColor",
+      "borderLeftColor",
+      "borderImageSource",
       "whiteSpace",
       "backgroundImage",
       "backgroundColor",
       "color",
+      "objectFit",
       "fill",
       "borderRadius",
       "borderTopLeftRadius",
@@ -3779,8 +4020,54 @@ export const editorChromeBridgeScript: string = `"use strict";
       var styles = {};
       var inline = el.style;
       if (!inline) return styles;
+      var authoredProperties = /* @__PURE__ */ new Set();
+      var styleText = el.getAttribute("style") || "";
+      var declarationStart = 0;
+      var propertyEnd = -1;
+      var quote = "";
+      var nesting = 0;
+      var escaped = false;
+      for (var index = 0; index <= styleText.length; index++) {
+        var character = styleText.charAt(index);
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (quote) {
+          if (character === "\\\\") escaped = true;
+          else if (character === quote) quote = "";
+          continue;
+        }
+        if (character === "\\\\") {
+          escaped = true;
+          continue;
+        }
+        if (character === '"' || character === "'") {
+          quote = character;
+          continue;
+        }
+        if (character === "(" || character === "[") nesting++;
+        else if ((character === ")" || character === "]") && nesting > 0)
+          nesting--;
+        else if (character === ":" && nesting === 0 && propertyEnd < 0)
+          propertyEnd = index;
+        if (character === ";" && nesting === 0 || index === styleText.length) {
+          if (propertyEnd >= declarationStart) {
+            authoredProperties.add(
+              styleText.slice(declarationStart, propertyEnd).trim().toLowerCase()
+            );
+          }
+          declarationStart = index + 1;
+          propertyEnd = -1;
+        }
+      }
       INLINE_STYLE_PROPERTIES.forEach(function(property) {
-        var cssProperty = property === "webkitBoxOrient" ? "-webkit-box-orient" : property === "webkitLineClamp" ? "-webkit-line-clamp" : property;
+        var cssProperty = property === "webkitBoxOrient" ? "-webkit-box-orient" : property === "webkitLineClamp" ? "-webkit-line-clamp" : normalizeInteractionStateProperty(property);
+        if (/^border(?:Top|Right|Bottom|Left)(?:Width|Style|Color)?$/.test(
+          property
+        ) && !authoredProperties.has(cssProperty.toLowerCase())) {
+          return;
+        }
         var value = property.indexOf("--") === 0 || property.indexOf("webkit") === 0 ? inline.getPropertyValue(cssProperty) : inline[property];
         if (typeof value === "string" && value !== "") {
           styles[property] = value;
@@ -3831,6 +4118,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function chromeContrastColorForElement(el) {
       return elementLooksLikeComponent(el) ? "var(--design-editor-component-contrast-color)" : "var(--design-editor-accent-contrast-color)";
+    }
+    function marginValueIsAuto(el, side, computedValue) {
+      var typedElement = el;
+      if (typeof typedElement.computedStyleMap === "function") {
+        var typedValue = typedElement.computedStyleMap().get("margin-" + side);
+        if (String(typedValue).trim().toLowerCase() === "auto") return true;
+      }
+      var inlineValue = el.style.getPropertyValue(
+        "margin-" + side
+      );
+      return inlineValue.trim().toLowerCase() === "auto" || computedValue.trim().toLowerCase() === "auto";
     }
     function collectComputedStyles(cs, paintCs, strokeCs = paintCs) {
       var backgroundClip = cs.backgroundClip;
@@ -3905,6 +4203,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         borderWidth: cs.borderWidth,
         borderStyle: cs.borderStyle,
         borderColor: cs.borderColor,
+        borderTopWidth: cs.borderTopWidth,
+        borderRightWidth: cs.borderRightWidth,
+        borderBottomWidth: cs.borderBottomWidth,
+        borderLeftWidth: cs.borderLeftWidth,
+        borderTopStyle: cs.borderTopStyle,
+        borderRightStyle: cs.borderRightStyle,
+        borderBottomStyle: cs.borderBottomStyle,
+        borderLeftStyle: cs.borderLeftStyle,
+        borderTopColor: cs.borderTopColor,
+        borderRightColor: cs.borderRightColor,
+        borderBottomColor: cs.borderBottomColor,
+        borderLeftColor: cs.borderLeftColor,
         borderRadius: cs.borderRadius,
         borderTopLeftRadius: cs.borderTopLeftRadius,
         borderTopRightRadius: cs.borderTopRightRadius,
@@ -4120,6 +4430,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
       var computed = collectComputedStyles(cs, paintCs, strokeCs);
+      var paintTarget = vectorPaintTarget(el) || (el.tagName.toLowerCase() === "path" && el.hasAttribute("data-an-pen-nodes") ? el : null);
+      var penNodesOwner = paintTarget && paintTarget.hasAttribute("data-an-pen-nodes") ? paintTarget : el;
+      if (paintTarget && paintTarget.getAttribute("fill-opacity") === "0" && (penNodesOwner.getAttribute("data-an-pen-nodes") || "").indexOf("[0") === 0) {
+        computed.fillOpacity = paintTarget.style.getPropertyValue("fill-opacity") || "1";
+      }
+      if (el.tagName.toLowerCase() === "svg" && el.getAttribute("data-an-primitive") === "pasted-svg" && !vectorPaintTarget(el) && !el.hasAttribute("fill") && !el.style.getPropertyValue("fill")) {
+        computed.fill = "";
+      }
       if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
         computed.strokeWidth = strokeTarget.getAttribute("data-an-vector-logical-width") || strokeCs.strokeWidth;
       }
@@ -4140,6 +4458,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           computed.resolvedLineHeightPx = resolvedLineHeightPx;
         }
       }
+      if (marginValueIsAuto(el, "top", cs.marginTop)) computed.marginTop = "auto";
+      if (marginValueIsAuto(el, "right", cs.marginRight))
+        computed.marginRight = "auto";
+      if (marginValueIsAuto(el, "bottom", cs.marginBottom))
+        computed.marginBottom = "auto";
+      if (marginValueIsAuto(el, "left", cs.marginLeft))
+        computed.marginLeft = "auto";
       return {
         ...computed,
         "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || "",
@@ -4487,7 +4812,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var edge = document.createElement("span");
       edge.setAttribute("data-agent-native-edge-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : "ew-resize";
-      edge.style.cssText = "position:absolute;pointer-events:auto;cursor:" + cursor + ";background:transparent;";
+      edge.style.cssText = "position:absolute;z-index:2;pointer-events:auto;cursor:" + cursor + ";background:transparent;";
       if (pos === "n") {
         edge.style.left = "0";
         edge.style.right = "0";
@@ -4814,6 +5139,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       removeRepeatInstanceOverlays();
     }
     var selectedEl = null;
+    var runtimeStructureInsertTransactionKey = /* @__PURE__ */ Symbol(
+      "agent-native-runtime-structure-transaction"
+    );
     var selectionContainerScope = null;
     var selectionGeneration = 0;
     var selectionChromeHidden = false;
@@ -4917,6 +5245,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenSourceHtml = void 0;
+    var activeCrossScreenComputedSize;
+    var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
     var spacingDrag = null;
     var lockedSelectors = [];
@@ -5997,10 +6327,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var scale = chromeLineScale();
       return "repeating-linear-gradient(" + angle + ", " + stripe + " 0 " + 1 * scale + "px, " + tint + " " + 1 * scale + "px " + 4 * scale + "px, transparent " + 4 * scale + "px " + 7 * scale + "px)";
     }
-    function clampSpacingValue(value) {
+    function clampSpacingValue(value, allowNegative) {
       var rounded = Math.round(value);
       if (!Number.isFinite(rounded)) return 0;
-      return Math.max(0, Math.min(999, rounded));
+      return Math.max(allowNegative ? -999 : 0, Math.min(999, rounded));
     }
     var PADDING_HANDLE_HIT_TOLERANCE_BASE = 4;
     function hitRectForPaddingHandle(line, region, tolerance) {
@@ -6020,6 +6350,35 @@ export const editorChromeBridgeScript: string = `"use strict";
         height: Math.max(1, hitBottom - hitY)
       };
     }
+    function hitRectForMarginHandle(line, tolerance, side, elementRect) {
+      var hit = {
+        x: line.x - tolerance,
+        y: line.y - tolerance,
+        width: line.width + tolerance * 2,
+        height: line.height + tolerance * 2
+      };
+      var inwardReach = side === "top" || side === "bottom" ? clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.height) : clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.width);
+      if (side === "top") {
+        var bottom = Math.min(hit.y + hit.height, inwardReach);
+        hit.y = Math.min(hit.y, bottom - 1);
+        hit.height = Math.max(1, bottom - hit.y);
+      } else if (side === "bottom") {
+        var originalBottom = hit.y + hit.height;
+        var top = Math.max(hit.y, elementRect.height - inwardReach);
+        hit.y = top;
+        hit.height = Math.max(1, originalBottom - top);
+      } else if (side === "left") {
+        var right = Math.min(hit.x + hit.width, inwardReach);
+        hit.x = Math.min(hit.x, right - 1);
+        hit.width = Math.max(1, right - hit.x);
+      } else if (side === "right") {
+        var originalRight = hit.x + hit.width;
+        var left = Math.max(hit.x, elementRect.width - inwardReach);
+        hit.x = left;
+        hit.width = Math.max(1, originalRight - left);
+      }
+      return hit;
+    }
     function makeSpacingHandle(config) {
       var region = config.region;
       if (!region || region.width <= 0 || region.height <= 0) return null;
@@ -6033,6 +6392,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         config.line,
         roundedRegion,
         PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale()
+      ) : config.kind === "margin" ? hitRectForMarginHandle(
+        config.line,
+        PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
+        config.side || "",
+        config.elementRect || { width: 0, height: 0 }
       ) : roundedRegion;
       return {
         key: config.key,
@@ -6042,7 +6406,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         oppositeProperty: config.oppositeProperty || "",
         side: config.side || "",
         orientation: config.orientation,
-        value: clampSpacingValue(config.value),
+        value: clampSpacingValue(config.value, config.kind === "margin"),
+        valueLabel: config.valueLabel || "",
         region: roundedRegion,
         hit,
         line: config.line
@@ -6183,6 +6548,109 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return handles.filter(Boolean);
     }
+    function buildMarginSpacingHandles(el, rect, cs) {
+      var line = chromeLineScale();
+      var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
+      var marginHandleClearance = 6 * Math.max(1, line);
+      var top = clampSpacingValue(readPx(cs.marginTop), true);
+      var right = clampSpacingValue(readPx(cs.marginRight), true);
+      var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
+      var left = clampSpacingValue(readPx(cs.marginLeft), true);
+      return [
+        makeSpacingHandle({
+          key: "margin:top",
+          kind: "margin",
+          property: "marginTop",
+          oppositeProperty: "marginBottom",
+          side: "top",
+          orientation: "horizontal",
+          value: top,
+          valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+          elementRect: rect,
+          region: {
+            x: 0,
+            y: Math.min(0, -top),
+            width: rect.width,
+            height: Math.max(1, Math.abs(top))
+          },
+          line: {
+            x: rect.width / 2 - tickLength / 2,
+            y: (top >= 0 ? -1 : 1) * Math.max(marginHandleClearance, Math.abs(top) / 2) - line / 2,
+            width: tickLength,
+            height: line
+          }
+        }),
+        makeSpacingHandle({
+          key: "margin:right",
+          kind: "margin",
+          property: "marginRight",
+          oppositeProperty: "marginLeft",
+          side: "right",
+          orientation: "vertical",
+          value: right,
+          valueLabel: marginValueIsAuto(el, "right", cs.marginRight) ? "auto" : "",
+          elementRect: rect,
+          region: {
+            x: rect.width + Math.min(0, right),
+            y: 0,
+            width: Math.max(1, Math.abs(right)),
+            height: rect.height
+          },
+          line: {
+            x: rect.width + (right >= 0 ? 1 : -1) * Math.max(marginHandleClearance, Math.abs(right) / 2) - line / 2,
+            y: rect.height / 2 - tickLength / 2,
+            width: line,
+            height: tickLength
+          }
+        }),
+        makeSpacingHandle({
+          key: "margin:bottom",
+          kind: "margin",
+          property: "marginBottom",
+          oppositeProperty: "marginTop",
+          side: "bottom",
+          orientation: "horizontal",
+          value: bottom,
+          valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom) ? "auto" : "",
+          elementRect: rect,
+          region: {
+            x: 0,
+            y: rect.height + Math.min(0, bottom),
+            width: rect.width,
+            height: Math.max(1, Math.abs(bottom))
+          },
+          line: {
+            x: rect.width / 2 - tickLength / 2,
+            y: rect.height + (bottom >= 0 ? 1 : -1) * Math.max(marginHandleClearance, Math.abs(bottom) / 2) - line / 2,
+            width: tickLength,
+            height: line
+          }
+        }),
+        makeSpacingHandle({
+          key: "margin:left",
+          kind: "margin",
+          property: "marginLeft",
+          oppositeProperty: "marginRight",
+          side: "left",
+          orientation: "vertical",
+          value: left,
+          valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+          elementRect: rect,
+          region: {
+            x: Math.min(0, -left),
+            y: 0,
+            width: Math.max(1, Math.abs(left)),
+            height: rect.height
+          },
+          line: {
+            x: (left >= 0 ? -1 : 1) * Math.max(marginHandleClearance, Math.abs(left) / 2) - line / 2,
+            y: rect.height / 2 - tickLength / 2,
+            width: line,
+            height: tickLength
+          }
+        })
+      ].filter(Boolean);
+    }
     function buildGapSpacingHandles(el, rect, cs) {
       var children = visibleLayoutChildren(el);
       if (children.length < 2) return [];
@@ -6267,14 +6735,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     function buildSpacingHandles(el) {
       if (!el || !document.documentElement.contains(el)) return [];
       if (Math.abs(currentRotation(el)) > 0.01) return [];
-      var children = visibleLayoutChildren(el);
-      if (children.length === 0) return [];
       var rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return [];
       var cs = window.getComputedStyle(el);
-      return buildPaddingSpacingHandles(el, rect, cs).concat(
-        buildGapSpacingHandles(el, rect, cs)
-      );
+      return buildPaddingSpacingHandles(el, rect, cs).concat(buildMarginSpacingHandles(el, rect, cs)).concat(buildGapSpacingHandles(el, rect, cs));
     }
     function showSpacingBadgeForHandle(handle, value, cursorPoint) {
       if (!selectedEl || !handle) {
@@ -6293,7 +6757,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         x = rect.left + handle.region.x + handle.region.width / 2;
         y = rect.top + handle.region.y + handle.region.height / 2;
       }
-      spacingBadge.textContent = String(clampSpacingValue(value)) + "px";
+      spacingBadge.textContent = handle.kind === "margin" && handle.valueLabel === "auto" && value === handle.value ? "auto" : String(clampSpacingValue(value, handle.kind === "margin")) + "px";
       spacingBadge.style.display = "block";
       spacingBadge.style.background = spacingColor(handle.kind);
       spacingBadge.style.fontSize = 10 * line + "px";
@@ -6321,7 +6785,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       lineNode.style.background = spacingColor(handle.kind);
       spacingOverlay.appendChild(lineNode);
       var hatchTile = 6 * chromeLineScale() + "px";
-      if (handle.kind === "padding") {
+      if (handle.kind === "padding" || handle.kind === "margin") {
         var hatchNode = document.createElement("span");
         hatchNode.setAttribute("data-agent-native-spacing-hatch", handle.kind);
         hatchNode.style.position = "absolute";
@@ -6345,15 +6809,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       regionNode.style.display = "block";
       regionNode.style.boxSizing = "border-box";
       regionNode.style.pointerEvents = "auto";
+      regionNode.style.zIndex = handle.kind === "padding" ? "3" : handle.kind === "margin" ? "1" : "0";
       regionNode.style.backgroundSize = hatchTile + " " + hatchTile;
       regionNode.style.cursor = handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
-      var hitRect = handle.kind === "padding" ? handle.hit : handle.region;
+      var hitRect = handle.kind === "padding" || handle.kind === "margin" ? handle.hit : handle.region;
       regionNode.style.left = hitRect.x + "px";
       regionNode.style.top = hitRect.y + "px";
       regionNode.style.width = hitRect.width + "px";
       regionNode.style.height = hitRect.height + "px";
-      regionNode.style.background = handle.kind !== "padding" && active ? spacingFill(handle.kind, handle.orientation) : "transparent";
-      regionNode.style.outline = handle.kind !== "padding" && active ? "1px solid " + spacingColor(handle.kind) : "0";
+      regionNode.style.background = handle.kind !== "padding" && handle.kind !== "margin" && active ? spacingFill(handle.kind, handle.orientation) : "transparent";
+      regionNode.style.outline = handle.kind !== "padding" && handle.kind !== "margin" && active ? "1px solid " + spacingColor(handle.kind) : "0";
       regionNode.style.outlineOffset = "-1px";
       regionNode.addEventListener(
         "pointerdown",
@@ -6380,7 +6845,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var hovered = Boolean(hoverGroupKeys[handle.groupKey]);
         var regionNode = spacingHandleNodesByKey[handle.key];
         if (regionNode) {
-          var gapHighlighted = handle.kind !== "padding" && active;
+          var gapHighlighted = handle.kind !== "padding" && handle.kind !== "margin" && active;
           regionNode.style.background = gapHighlighted ? spacingFill(handle.kind, handle.orientation) : "transparent";
           regionNode.style.outline = gapHighlighted ? "1px solid " + spacingColor(handle.kind) : "0";
         }
@@ -6394,7 +6859,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var activeGroupKeys = {};
       if (!activeHandle) return activeGroupKeys;
       activeGroupKeys[activeHandle.groupKey] = true;
-      if (spacingDrag && spacingDrag.mirrorOpposite && activeHandle.kind === "padding" && activeHandle.oppositeProperty) {
+      if (spacingDrag && spacingDrag.mirrorOpposite && (activeHandle.kind === "padding" || activeHandle.kind === "margin") && activeHandle.oppositeProperty) {
         handles.forEach(function(handle) {
           if (!handle) return;
           if (handle.property === activeHandle.oppositeProperty) {
@@ -7714,108 +8179,107 @@ export const editorChromeBridgeScript: string = `"use strict";
       measurementOverlay.style.display = "none";
       measurementOverlay.innerHTML = "";
     }
-    function addMeasurementLine(x1, y1, x2, y2, label) {
-      var horizontal = Math.abs(x2 - x1) >= Math.abs(y2 - y1);
+    function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
+      var horizontal = y1 === y2;
       var line = document.createElement("div");
-      var labelEl = document.createElement("div");
       var scale = chromeLineScale();
-      var lineWidth = 1 * chromeLineScale();
-      var labelChrome = "transform-origin:center;border-radius:" + 3 * scale + "px;background:var(--design-editor-measure-color);color:white;padding:" + 1 * scale + "px " + 4 * scale + "px;font-size:" + 11 * scale + "px;";
+      var border = scale + "px " + (dashed ? "dashed" : "solid") + " var(--design-editor-measure-color);";
       if (horizontal) {
         var left = Math.min(x1, x2);
-        var width = Math.max(1, Math.abs(x2 - x1));
-        line.style.cssText = "position:fixed;left:" + left + "px;top:" + y1 + "px;width:" + width + "px;border-top:" + lineWidth + "px dashed var(--design-editor-measure-color);";
-        labelEl.style.cssText = "position:fixed;left:" + (left + width / 2) + "px;top:" + (y1 - 9 * scale) + "px;transform:translateX(-50%);" + labelChrome;
+        var width = Math.abs(x2 - x1);
+        line.style.cssText = "position:fixed;left:" + left + "px;top:" + y1 + "px;width:" + width + "px;border-top:" + border;
       } else {
         var top = Math.min(y1, y2);
-        var height = Math.max(1, Math.abs(y2 - y1));
-        line.style.cssText = "position:fixed;left:" + x1 + "px;top:" + top + "px;height:" + height + "px;border-left:" + lineWidth + "px dashed var(--design-editor-measure-color);";
-        labelEl.style.cssText = "position:fixed;left:" + (x1 + 5 * scale) + "px;top:" + (top + height / 2) + "px;transform:translateY(-50%);" + labelChrome;
+        var height = Math.abs(y2 - y1);
+        line.style.cssText = "position:fixed;left:" + x1 + "px;top:" + top + "px;height:" + height + "px;border-left:" + border;
       }
-      labelEl.textContent = label;
       measurementOverlay.appendChild(line);
+      if (!label) return;
+      var labelEl = document.createElement("div");
+      labelEl.style.cssText = "position:fixed;left:" + (horizontal ? (x1 + x2) / 2 : x1 + 8 * scale) + "px;top:" + (horizontal ? y1 + 7 * scale : (y1 + y2) / 2) + "px;transform:" + (horizontal ? "translateX(-50%)" : "translateY(-50%)") + ";border-radius:" + 3 * scale + "px;background:var(--design-editor-measure-color);color:white;padding:" + 1 * scale + "px " + 4 * scale + "px;font-size:" + 11 * scale + "px;";
+      labelEl.textContent = label;
       measurementOverlay.appendChild(labelEl);
+    }
+    function measurementSegments(s, t) {
+      var segments = [];
+      function add(x1, y1, x2, y2, dashed) {
+        var length = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+        if (length < 0.5) return;
+        segments.push({
+          x1,
+          y1,
+          x2,
+          y2,
+          label: dashed ? "" : String(Math.round(length)),
+          dashed
+        });
+      }
+      var apartX = t.left >= s.right || t.right <= s.left;
+      var apartY = t.top >= s.bottom || t.bottom <= s.top;
+      var intersect = !apartX && !apartY;
+      var sCx = (s.left + s.right) / 2;
+      var sCy = (s.top + s.bottom) / 2;
+      var y = intersect ? (Math.max(s.top, t.top) + Math.min(s.bottom, t.bottom)) / 2 : sCy;
+      var x = intersect ? (Math.max(s.left, t.left) + Math.min(s.right, t.right)) / 2 : sCx;
+      var tNearY = t.top >= sCy ? t.top : t.bottom;
+      var tNearX = t.left >= sCx ? t.left : t.right;
+      var yMissesT = y < t.top || y > t.bottom;
+      var xMissesT = x < t.left || x > t.right;
+      if (apartX) {
+        var gapEdge = t.left >= s.right ? t.left : t.right;
+        add(t.left >= s.right ? s.right : s.left, y, gapEdge, y, false);
+        if (yMissesT) add(gapEdge, y, gapEdge, tNearY, true);
+      } else {
+        var sFarY = tNearY === t.top ? s.top : s.bottom;
+        if (intersect || t.left < s.left) {
+          add(t.left, y, s.left, y, false);
+          if (!intersect) add(t.left, sFarY, t.left, tNearY, true);
+        }
+        if (intersect || t.right > s.right) {
+          add(s.right, y, t.right, y, false);
+          if (!intersect) add(t.right, sFarY, t.right, tNearY, true);
+        }
+      }
+      if (apartY) {
+        var gapEdgeY = t.top >= s.bottom ? t.top : t.bottom;
+        add(x, t.top >= s.bottom ? s.bottom : s.top, x, gapEdgeY, false);
+        if (xMissesT) add(x, gapEdgeY, tNearX, gapEdgeY, true);
+      } else {
+        var sFarX = tNearX === t.left ? s.left : s.right;
+        if (intersect || t.top < s.top) {
+          add(x, t.top, x, s.top, false);
+          if (!intersect) add(sFarX, t.top, tNearX, t.top, true);
+        }
+        if (intersect || t.bottom > s.bottom) {
+          add(x, s.bottom, x, t.bottom, false);
+          if (!intersect) add(sFarX, t.bottom, tNearX, t.bottom, true);
+        }
+      }
+      return segments;
     }
     function showMeasurements(a, b) {
       if (!a || !b || a === b) {
         hideMeasurements();
         return;
       }
-      var selectedRect = a.getBoundingClientRect();
-      var hoverRect = b.getBoundingClientRect();
       if (!measurementOverlay.isConnected) {
         appendEditorChromeNode(measurementOverlay);
       }
       measurementOverlay.innerHTML = "";
       measurementOverlay.style.display = "block";
-      if (hoverRect.right <= selectedRect.left) {
-        var yLeft = Math.max(
-          hoverRect.top,
-          Math.min(hoverRect.bottom, selectedRect.top + selectedRect.height / 2)
-        );
+      measurementSegments(
+        a.getBoundingClientRect(),
+        b.getBoundingClientRect()
+      ).forEach(function(segment) {
         addMeasurementLine(
-          hoverRect.right,
-          yLeft,
-          selectedRect.left,
-          yLeft,
-          Math.round(selectedRect.left - hoverRect.right) + "px"
+          segment.x1,
+          segment.y1,
+          segment.x2,
+          segment.y2,
+          segment.label,
+          segment.dashed
         );
-        return;
-      }
-      if (selectedRect.right <= hoverRect.left) {
-        var yRight = Math.max(
-          selectedRect.top,
-          Math.min(selectedRect.bottom, hoverRect.top + hoverRect.height / 2)
-        );
-        addMeasurementLine(
-          selectedRect.right,
-          yRight,
-          hoverRect.left,
-          yRight,
-          Math.round(hoverRect.left - selectedRect.right) + "px"
-        );
-        return;
-      }
-      if (hoverRect.bottom <= selectedRect.top) {
-        var xTop = Math.max(
-          hoverRect.left,
-          Math.min(hoverRect.right, selectedRect.left + selectedRect.width / 2)
-        );
-        addMeasurementLine(
-          xTop,
-          hoverRect.bottom,
-          xTop,
-          selectedRect.top,
-          Math.round(selectedRect.top - hoverRect.bottom) + "px"
-        );
-        return;
-      }
-      if (selectedRect.bottom <= hoverRect.top) {
-        var xBottom = Math.max(
-          selectedRect.left,
-          Math.min(selectedRect.right, hoverRect.left + hoverRect.width / 2)
-        );
-        addMeasurementLine(
-          xBottom,
-          selectedRect.bottom,
-          xBottom,
-          hoverRect.top,
-          Math.round(hoverRect.top - selectedRect.bottom) + "px"
-        );
-        return;
-      }
-      addMeasurementLine(
-        selectedRect.left + selectedRect.width / 2,
-        selectedRect.top + selectedRect.height / 2,
-        hoverRect.left + hoverRect.width / 2,
-        hoverRect.top + hoverRect.height / 2,
-        Math.round(
-          Math.hypot(
-            hoverRect.left + hoverRect.width / 2 - (selectedRect.left + selectedRect.width / 2),
-            hoverRect.top + hoverRect.height / 2 - (selectedRect.top + selectedRect.height / 2)
-          )
-        ) + "px"
-      );
+      });
     }
     function dragEventNames(e) {
       var pointerGesture = e && e.type && e.type.indexOf("pointer") === 0;
@@ -8121,25 +8585,27 @@ export const editorChromeBridgeScript: string = `"use strict";
         active.blur();
       }
     }
+    function syncShieldPointerEvents() {
+      shieldOverlay.style.pointerEvents = interactionMode || textEditPointerState ? "none" : "auto";
+    }
     function setTextEditingPointerPassthrough(enabled) {
       if (enabled) {
         if (!textEditPointerState) {
           textEditPointerState = {
-            shield: shieldOverlay.style.pointerEvents,
             selection: selectionOverlay.style.pointerEvents,
             highlight: highlightOverlay.style.pointerEvents
           };
         }
-        shieldOverlay.style.pointerEvents = "none";
+        syncShieldPointerEvents();
         selectionOverlay.style.pointerEvents = "none";
         highlightOverlay.style.pointerEvents = "none";
         return;
       }
       if (!textEditPointerState) return;
-      shieldOverlay.style.pointerEvents = textEditPointerState.shield;
       selectionOverlay.style.pointerEvents = textEditPointerState.selection;
       highlightOverlay.style.pointerEvents = textEditPointerState.highlight;
       textEditPointerState = null;
+      syncShieldPointerEvents();
     }
     function hasTextContent(el) {
       return !!(el && el.textContent && el.textContent.trim().length > 0);
@@ -8155,6 +8621,55 @@ export const editorChromeBridgeScript: string = `"use strict";
         node.style.display = visible ? "" : "none";
       });
     }
+    var textCaretOverlay = null;
+    function hideTextCaretOverlay(target) {
+      target.removeAttribute("data-agent-native-drawn-caret");
+      if (textCaretOverlay) textCaretOverlay.style.display = "none";
+    }
+    function positionTextCaretOverlay(target) {
+      var selection = window.getSelection ? window.getSelection() : null;
+      var range = selection && selection.isCollapsed && selectionBelongsToElement(selection, target) ? selection.getRangeAt(0) : null;
+      var rect = range ? range.getClientRects()[0] : void 0;
+      if (!range || !rect || rect.height <= 0) {
+        hideTextCaretOverlay(target);
+        return;
+      }
+      if (!textCaretOverlay) {
+        textCaretOverlay = document.createElement("div");
+        textCaretOverlay.setAttribute(
+          "data-agent-native-edit-overlay",
+          "text-caret"
+        );
+        textCaretOverlay.style.cssText = "position:fixed;pointer-events:none;z-index:99999;display:none;";
+        appendEditorChromeNode(textCaretOverlay);
+      }
+      var caretHost = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement || target;
+      var width = chromeLineScale();
+      var moved = textCaretOverlay.style.display === "none" || textCaretOverlay.style.left !== rect.left - width / 2 + "px" || textCaretOverlay.style.top !== rect.top + "px";
+      textCaretOverlay.style.left = rect.left - width / 2 + "px";
+      textCaretOverlay.style.top = rect.top + "px";
+      textCaretOverlay.style.width = width + "px";
+      textCaretOverlay.style.height = rect.height + "px";
+      textCaretOverlay.style.background = window.getComputedStyle(caretHost).color;
+      textCaretOverlay.style.display = "block";
+      if (!target.hasAttribute("data-agent-native-drawn-caret")) {
+        target.setAttribute("data-agent-native-drawn-caret", "");
+      }
+      if (moved && textCaretOverlay.animate) {
+        textCaretOverlay.getAnimations().forEach(function(animation) {
+          animation.cancel();
+        });
+        textCaretOverlay.animate(
+          [
+            { opacity: 1 },
+            { opacity: 1, offset: 0.5 },
+            { opacity: 0, offset: 0.5 },
+            { opacity: 0 }
+          ],
+          { duration: 1060, iterations: Infinity, delay: 500 }
+        );
+      }
+    }
     function updateTextEditingChrome(target, originalMinWidth, originalMinHeight) {
       target.style.outline = "none";
       target.style.outlineStyle = "none";
@@ -8169,8 +8684,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.style.minHeight = originalMinHeight;
         positionOverlay(selectionOverlay, target);
         setSelectionOverlayResizeChromeVisible(false);
+        positionTextCaretOverlay(target);
         return;
       }
+      hideTextCaretOverlay(target);
       target.style.minWidth = originalMinWidth || "1px";
       target.style.minHeight = originalMinHeight || "1em";
       document.documentElement.setAttribute(
@@ -8935,6 +9452,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         return false;
       }
+      if (typeof requestId === "string" && requestId) {
+        restorePendingRuntimeDeleteStyle(target, requestId);
+      }
       if (typeof requestId === "string" && requestId && target.parentElement) {
         pendingStructureMoves[requestId] = {
           requestId,
@@ -8973,6 +9493,86 @@ export const editorChromeBridgeScript: string = `"use strict";
       hideMeasurements();
       refreshOverlays();
       return true;
+    }
+    function restorePendingRuntimeDeleteStyle(target, requestId) {
+      if (!(target instanceof HTMLElement || target instanceof SVGElement)) {
+        return;
+      }
+      var attribute = "data-agent-native-pending-delete-style";
+      var encoded = target.getAttribute(attribute);
+      if (!encoded) return;
+      var snapshot;
+      try {
+        snapshot = JSON.parse(encoded);
+      } catch (error) {
+        console.warn("[design:bridge] pending delete style is invalid", error);
+        return;
+      }
+      if (!snapshot.properties || typeof snapshot.requestId !== "string") {
+        console.warn("[design:bridge] pending delete style is incomplete");
+        return;
+      }
+      if (snapshot.requestId !== requestId) return;
+      var originalTransition = snapshot.properties.transition;
+      target.style.setProperty("transition", "none", "important");
+      Object.entries(snapshot.properties).forEach(([property, original]) => {
+        if (property === "transition") return;
+        if (original.value) {
+          target.style.setProperty(property, original.value, original.priority);
+        } else {
+          target.style.removeProperty(property);
+        }
+      });
+      target.removeAttribute(attribute);
+      target.getBoundingClientRect();
+      requestAnimationFrame(function() {
+        if (originalTransition.value) {
+          target.style.setProperty(
+            "transition",
+            originalTransition.value,
+            originalTransition.priority
+          );
+        } else {
+          target.style.removeProperty("transition");
+        }
+      });
+    }
+    function concealPendingRuntimeDelete(selector, selectorCandidates, requestId) {
+      if (typeof requestId !== "string" || !requestId) return;
+      var target = findRuntimeTarget(selector, selectorCandidates);
+      if (!(target instanceof HTMLElement || target instanceof SVGElement))
+        return;
+      var attribute = "data-agent-native-pending-delete-style";
+      var encoded = target.getAttribute(attribute);
+      if (encoded) {
+        try {
+          var existing = JSON.parse(encoded);
+          if (existing.requestId === requestId) return;
+          restorePendingRuntimeDeleteStyle(target, existing.requestId);
+        } catch (error) {
+          console.warn("[design:bridge] pending delete style is invalid", error);
+          target.removeAttribute(attribute);
+        }
+      }
+      var properties = ["opacity", "pointer-events", "transition"];
+      var snapshot = {
+        requestId,
+        properties: Object.fromEntries(
+          properties.map(function(property) {
+            return [
+              property,
+              {
+                value: target.style.getPropertyValue(property),
+                priority: target.style.getPropertyPriority(property)
+              }
+            ];
+          })
+        )
+      };
+      target.setAttribute(attribute, JSON.stringify(snapshot));
+      target.style.setProperty("opacity", "0", "important");
+      target.style.setProperty("pointer-events", "none", "important");
+      target.style.setProperty("transition", "none", "important");
     }
     function readPx(value) {
       var num = parseFloat(value);
@@ -9514,10 +10114,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function spacingValueFromPointer(handle, originValue, startX, startY, clientX, clientY) {
       var delta = handle.orientation === "vertical" ? clientX - startX : clientY - startY;
-      if (handle.kind === "padding" && (handle.side === "right" || handle.side === "bottom")) {
+      if (handle.kind === "padding" && (handle.side === "right" || handle.side === "bottom") || handle.kind === "margin" && (handle.side === "left" || handle.side === "top")) {
         delta = -delta;
       }
-      return clampSpacingValue(originValue + delta);
+      return clampSpacingValue(originValue + delta, handle.kind === "margin");
     }
     var paddingProperties = [
       "paddingTop",
@@ -9525,16 +10125,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       "paddingBottom",
       "paddingLeft"
     ];
-    function applySpacingDragValue(target, handle, value, mirrorOpposite, syncAllPadding) {
+    var marginProperties = [
+      "marginTop",
+      "marginRight",
+      "marginBottom",
+      "marginLeft"
+    ];
+    function propertiesForSpacingHandle(handle) {
+      if (handle.kind === "margin") return marginProperties;
+      if (handle.kind === "padding") return paddingProperties;
+      return [handle.property];
+    }
+    function applySpacingDragValue(target, handle, value, mirrorOpposite, syncAllSides) {
       if (!target || !handle) return;
-      if (handle.kind === "padding" && syncAllPadding) {
-        for (var i = 0; i < 4; i += 1) {
-          target.style[paddingProperties[i]] = value + "px";
+      var properties = propertiesForSpacingHandle(handle);
+      if (syncAllSides) {
+        for (var i = 0; i < properties.length; i += 1) {
+          target.style[properties[i]] = value + "px";
         }
         return;
       }
       target.style[handle.property] = value + "px";
-      if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
+      if ((handle.kind === "padding" || handle.kind === "margin") && mirrorOpposite && handle.oppositeProperty) {
         target.style[handle.oppositeProperty] = value + "px";
       }
     }
@@ -9553,12 +10165,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var dragEl = selectedEl;
       var originValue = handle.value;
-      var originInlinePaddingValues = {};
-      for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-        var paddingProperty = paddingProperties[paddingIndex];
-        originInlinePaddingValues[paddingProperty] = dragEl.style[paddingProperty];
+      var spacingProperties = propertiesForSpacingHandle(handle);
+      var originInlineSpacingValues = {};
+      for (var propertyIndex = 0; propertyIndex < spacingProperties.length; propertyIndex += 1) {
+        var spacingProperty = spacingProperties[propertyIndex];
+        originInlineSpacingValues[spacingProperty] = dragEl.style[spacingProperty];
       }
-      var syncAllPadding = !!e.shiftKey;
+      var syncAllSides = !!e.shiftKey;
       var startX = e.clientX;
       var startY = e.clientY;
       lastSpacingPointerPoint = { x: startX, y: startY };
@@ -9567,39 +10180,34 @@ export const editorChromeBridgeScript: string = `"use strict";
         handle,
         currentValue: originValue,
         mirrorOpposite: !!e.altKey,
-        syncAllPadding,
-        touchedAllPadding: syncAllPadding
+        syncAllSides
       };
-      applySpacingDragValue(
-        dragEl,
-        handle,
-        originValue,
-        !!e.altKey,
-        syncAllPadding
-      );
+      if (syncAllSides) {
+        applySpacingDragValue(dragEl, handle, originValue, !!e.altKey, true);
+      }
       updateSpacingOverlay(selectedEl);
       showSpacingBadgeForHandle(handle, originValue);
-      function updateSpacingDragState(mirrorOpposite, syncAllPadding2) {
+      function updateSpacingDragState(mirrorOpposite, syncAllSides2) {
         if (!spacingDrag) return;
-        if (spacingDrag.mirrorOpposite === mirrorOpposite && spacingDrag.syncAllPadding === syncAllPadding2) {
+        if (spacingDrag.mirrorOpposite === mirrorOpposite && spacingDrag.syncAllSides === syncAllSides2) {
           return;
         }
-        var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding2;
-        if (syncAllPadding2) {
-          applySpacingDragValue(
-            dragEl,
-            handle,
-            spacingDrag.currentValue,
-            mirrorOpposite,
-            true
-          );
+        for (var propertyIndex2 = 0; propertyIndex2 < spacingProperties.length; propertyIndex2 += 1) {
+          var spacingProperty2 = spacingProperties[propertyIndex2];
+          dragEl.style[spacingProperty2] = originInlineSpacingValues[spacingProperty2];
         }
+        applySpacingDragValue(
+          dragEl,
+          handle,
+          spacingDrag.currentValue,
+          mirrorOpposite,
+          syncAllSides2
+        );
         spacingDrag = {
           handle,
           currentValue: spacingDrag.currentValue,
           mirrorOpposite,
-          syncAllPadding: syncAllPadding2,
-          touchedAllPadding
+          syncAllSides: syncAllSides2
         };
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -9613,9 +10221,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function restoreSpacingDragValue() {
         if (dragEl && document.documentElement.contains(dragEl)) {
-          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
-            var paddingProperty2 = paddingProperties[paddingIndex2];
-            dragEl.style[paddingProperty2] = originInlinePaddingValues[paddingProperty2];
+          for (var propertyIndex2 = 0; propertyIndex2 < spacingProperties.length; propertyIndex2 += 1) {
+            var spacingProperty2 = spacingProperties[propertyIndex2];
+            dragEl.style[spacingProperty2] = originInlineSpacingValues[spacingProperty2];
           }
           selectedEl = dragEl;
           positionOverlay(selectionOverlay, dragEl);
@@ -9647,14 +10255,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           ev.clientX,
           ev.clientY
         );
-        var syncAllPadding2 = !!ev.shiftKey;
-        var touchedAllPadding = spacingDrag && spacingDrag.touchedAllPadding || syncAllPadding2;
+        var syncAllSides2 = !!ev.shiftKey;
         spacingDrag = {
           handle,
           currentValue: nextValue,
           mirrorOpposite: !!ev.altKey,
-          syncAllPadding: syncAllPadding2,
-          touchedAllPadding
+          syncAllSides: syncAllSides2
         };
         lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
         applySpacingDragValue(
@@ -9662,7 +10268,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           handle,
           nextValue,
           !!ev.altKey,
-          syncAllPadding2
+          syncAllSides2
         );
         positionOverlay(selectionOverlay, dragEl);
         showSpacingBadgeForHandle(handle, nextValue);
@@ -9676,26 +10282,29 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var finalValue = spacingDrag ? spacingDrag.currentValue : originValue;
         var mirrorOpposite = spacingDrag ? spacingDrag.mirrorOpposite : !!ev.altKey;
-        var syncAllPadding2 = spacingDrag ? spacingDrag.syncAllPadding : !!ev.shiftKey;
-        var touchedAllPadding = spacingDrag ? spacingDrag.touchedAllPadding : syncAllPadding2;
-        var commitAllPadding = handle.kind === "padding" && (syncAllPadding2 || touchedAllPadding);
+        var syncAllSides2 = spacingDrag ? spacingDrag.syncAllSides : !!ev.shiftKey;
+        var commitAllSides = (handle.kind === "padding" || handle.kind === "margin") && syncAllSides2;
+        if (finalValue === originValue && !commitAllSides) {
+          restoreSpacingDragValue();
+          return;
+        }
         applySpacingDragValue(
           dragEl,
           handle,
           finalValue,
           mirrorOpposite,
-          commitAllPadding
+          commitAllSides
         );
         selectedEl = dragEl;
         spacingDrag = null;
         var styles = {};
-        if (commitAllPadding) {
-          for (var paddingIndex2 = 0; paddingIndex2 < 4; paddingIndex2 += 1) {
-            styles[paddingProperties[paddingIndex2]] = finalValue + "px";
+        if (commitAllSides) {
+          for (var propertyIndex2 = 0; propertyIndex2 < spacingProperties.length; propertyIndex2 += 1) {
+            styles[spacingProperties[propertyIndex2]] = finalValue + "px";
           }
         } else {
           styles[handle.property] = finalValue + "px";
-          if (handle.kind === "padding" && mirrorOpposite && handle.oppositeProperty) {
+          if ((handle.kind === "padding" || handle.kind === "margin") && mirrorOpposite && handle.oppositeProperty) {
             styles[handle.oppositeProperty] = finalValue + "px";
           }
         }
@@ -9708,7 +10317,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keyup", onKey, true);
       setActiveDragCancel(cancelSpacingDrag);
     }
-    function postTextContentChange(el, value, html, originalValue, originalHtml) {
+    function postTextContentChange(el, value, html, originalValue, originalHtml, relativeOperations) {
       claimContentAsSource(el);
       publishSourceDocumentProvenance(void 0, true);
       window.parent.postMessage(
@@ -9719,6 +10328,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           html,
           originalValue: typeof originalValue === "string" ? originalValue : void 0,
           originalHtml: typeof originalHtml === "string" ? originalHtml : void 0,
+          relativeOperations: relativeOperations && typeof relativeOperations === "object" ? relativeOperations : void 0,
           payload: getElementInfo(el)
         },
         "*"
@@ -10085,8 +10695,35 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (kind === "boolean-operand") {
         return el.querySelector(":scope > rect");
       }
-      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star" && kind !== "rect" && kind !== "rectangle" && kind !== "ellipse" && kind !== "circle") {
+      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star" && kind !== "rect" && kind !== "rectangle" && kind !== "ellipse" && kind !== "circle" && kind !== "pasted-svg") {
         return null;
+      }
+      if (kind === "pasted-svg") {
+        var pendingShapes = Array.from(el.children);
+        var pastedShape = null;
+        while (pendingShapes.length) {
+          var candidate = pendingShapes.pop();
+          if (!candidate) continue;
+          var candidateTag = candidate.tagName.toLowerCase();
+          if ([
+            "path",
+            "polygon",
+            "ellipse",
+            "circle",
+            "rect",
+            "line",
+            "polyline",
+            "use"
+          ].includes(candidateTag)) {
+            if (pastedShape) return null;
+            pastedShape = candidate;
+          } else if (candidateTag === "g") {
+            Array.from(candidate.children).forEach(function(child) {
+              pendingShapes.push(child);
+            });
+          }
+        }
+        return pastedShape;
       }
       return el.querySelector(
         ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline"
@@ -10325,10 +10962,349 @@ export const editorChromeBridgeScript: string = `"use strict";
         style.removeProperty(properties[i]);
       }
     }
+    function pastedSvgPaintShapes(root) {
+      var shapes = [];
+      function visit(parent) {
+        Array.from(parent.children).forEach(function(child) {
+          var tag = child.tagName.toLowerCase();
+          if (tag === "defs") return;
+          if (/^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)) {
+            shapes.push(child);
+          } else if (tag === "g") {
+            visit(child);
+          }
+        });
+      }
+      visit(root);
+      return shapes;
+    }
+    function vectorGradientPaintTargets(el, paintProperty) {
+      var root = el.tagName.toLowerCase() === "svg" ? el : el.closest("svg[data-an-primitive]");
+      if (!root) return null;
+      var target = paintProperty === "stroke" ? vectorStrokeTarget(root) : vectorPaintTarget(root);
+      if (!target && el !== root && /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(el.tagName)) {
+        target = el;
+      }
+      var targets = target ? [target] : [];
+      if (!targets.length && el === root && root.getAttribute("data-an-primitive") === "pasted-svg") {
+        targets = pastedSvgPaintShapes(root);
+      }
+      if (!targets.length) return null;
+      var shapeCount = pastedSvgPaintShapes(root).length;
+      return {
+        root,
+        targets,
+        metadataTarget: shapeCount === 1 || el === root ? root : targets[0]
+      };
+    }
+    function vectorGradientDefAttribute(paintProperty) {
+      return "data-an-vector-" + paintProperty + "-gradient";
+    }
+    function vectorGradientMetadataProperty(paintProperty) {
+      return "--an-vector-" + paintProperty + "-gradient";
+    }
+    function normalizeVectorGradientDefs(root, paintProperty) {
+      var containers = Array.from(
+        root.querySelectorAll(
+          ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]"
+        )
+      );
+      var canonical = containers[0] || null;
+      if (!canonical) return null;
+      var seenIds = /* @__PURE__ */ Object.create(null);
+      Array.from(canonical.children).forEach(function(child) {
+        var id = child.getAttribute("id");
+        if (id) seenIds[id] = true;
+      });
+      containers.slice(1).forEach(function(duplicate) {
+        Array.from(duplicate.children).forEach(function(child) {
+          var id = child.getAttribute("id");
+          if (!id || !seenIds[id]) {
+            canonical.appendChild(child);
+            if (id) seenIds[id] = true;
+          }
+        });
+        duplicate.remove();
+      });
+      return canonical;
+    }
+    function removeVectorGradientPreview(root, targets, paintProperty) {
+      var gradientIds = /* @__PURE__ */ Object.create(null);
+      var metadataProperty = vectorGradientMetadataProperty(paintProperty);
+      var rootMetadata = root.style.getPropertyValue(metadataProperty);
+      targets.forEach(function(target) {
+        var style = target.style.getPropertyValue(paintProperty);
+        var reference = style.match(/^url\\(\\s*['"]?#([^)'"\\s]+)['"]?\\s*\\)$/i);
+        if (reference?.[1]) gradientIds[reference[1]] = true;
+        target.style.removeProperty(metadataProperty);
+      });
+      var defsContainers = Array.from(
+        root.querySelectorAll(
+          ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]"
+        )
+      );
+      defsContainers.forEach(function(defs) {
+        Array.from(defs.children).forEach(function(gradient) {
+          var id = gradient.getAttribute("id");
+          var remainingReferences = id ? Array.from(root.querySelectorAll("[style]")).filter(function(el) {
+            if (targets.indexOf(el) >= 0) return false;
+            var reference = el.style.getPropertyValue(paintProperty).match(/^url\\(\\s*['\\"]?#([^)'\\"\\s]+)['\\"]?\\s*\\)$/i);
+            return reference?.[1] === id;
+          }) : [];
+          if (id && gradientIds[id] && !remainingReferences.length) {
+            gradient.remove();
+          } else if (rootMetadata && gradientIds[id || ""]) {
+            remainingReferences.forEach(function(el) {
+              el.style.setProperty(
+                metadataProperty,
+                rootMetadata
+              );
+            });
+          }
+        });
+      });
+      var normalizedDefs = normalizeVectorGradientDefs(root, paintProperty);
+      if (normalizedDefs && normalizedDefs.children.length === 0) {
+        normalizedDefs.remove();
+      }
+      root.style.removeProperty(metadataProperty);
+    }
+    function appendSvgGradientStops(gradient, stops) {
+      var svgNs = "http://www.w3.org/2000/svg";
+      var appended = 0;
+      stops.forEach(function(stop) {
+        var color = document.createElement("span");
+        color.style.color = stop.color;
+        color.style.position = "absolute";
+        color.style.visibility = "hidden";
+        document.body.appendChild(color);
+        var resolved = window.getComputedStyle(color).color;
+        color.remove();
+        if (!resolved || resolved === "") return;
+        var rgba = resolved.match(/^rgba?\\(([^)]+)\\)$/i);
+        var colorParts = rgba ? rgba[1].split(/[\\s,\\/]+/).filter(Boolean) : [];
+        if (colorParts.length < 3) return;
+        var svgStop = document.createElementNS(svgNs, "stop");
+        svgStop.setAttribute(
+          "offset",
+          String(Math.max(0, Math.min(100, stop.position))) + "%"
+        );
+        svgStop.setAttribute(
+          "stop-color",
+          // guard:allow-raw-color — serialize the resolved user-selected SVG stop color
+          "rgb(" + colorParts.slice(0, 3).join(" ") + ")"
+        );
+        var alpha = colorParts.length > 3 ? Number(colorParts[3]) : 1;
+        if (Number.isFinite(alpha) && alpha < 1) {
+          svgStop.setAttribute("stop-opacity", String(Math.max(0, alpha)));
+        }
+        gradient.appendChild(svgStop);
+        appended += 1;
+      });
+      return appended >= 2;
+    }
+    function applyVectorGradientPreview(el, value, paintProperty) {
+      var paint = vectorGradientPaintTargets(el, paintProperty);
+      if (!paint) return false;
+      var linear = parseLinearGradientCss(value);
+      var radialMatch = String(value || "").trim().match(/^radial-gradient\\s*\\(([\\s\\S]*)\\)$/i);
+      var radialParts = radialMatch ? splitGradientTopLevel(radialMatch[1]) : [];
+      var radialHeader = radialParts[0] || "";
+      var radialStopStart = /^(?:(?:circle|ellipse)\\b|(?:closest|farthest)-(?:side|corner)\\b|(?:[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:px|%)(?:\\s|$))|at\\s)/i.test(
+        radialHeader
+      ) ? 1 : 0;
+      var radialStops = radialParts.slice(radialStopStart).map(function(segment, index, segments2) {
+        var position2 = segment.match(/(-?\\d+(?:\\.\\d+)?)%\\s*$/);
+        return {
+          color: position2 ? segment.slice(0, position2.index).trim() : segment.trim(),
+          position: position2 ? Number(position2[1]) : index / Math.max(1, segments2.length - 1) * 100
+        };
+      }).filter(function(stop) {
+        return !!stop.color;
+      });
+      var isRadial = !!radialMatch && radialStops.length >= 2;
+      if (!linear && !isRadial) return false;
+      var stops = linear ? linear.stops : radialStops;
+      removeVectorGradientPreview(paint.root, paint.targets, paintProperty);
+      var baseId = (paint.root.getAttribute("data-agent-native-node-id") || "vector") + "-" + paintProperty + "-gradient";
+      var gradientId = baseId;
+      var suffix = 2;
+      while (document.getElementById(gradientId)) {
+        gradientId = baseId + "-" + suffix;
+        suffix += 1;
+      }
+      var svgNs = "http://www.w3.org/2000/svg";
+      var gradient;
+      if (linear) {
+        var viewBox = paint.root.viewBox.baseVal;
+        var rect = paint.root.getBoundingClientRect();
+        var width = viewBox.width || rect.width;
+        var height = viewBox.height || rect.height;
+        if (viewBox.width && viewBox.height && rect.width && rect.height) {
+          var scaleX = viewBox.width / rect.width;
+          var scaleY = viewBox.height / rect.height;
+          if (Math.abs(scaleX - scaleY) > Math.max(scaleX, scaleY) * 1e-3) {
+            return false;
+          }
+        }
+        var segments = splitGradientTopLevel(
+          String(value).trim().slice(String(value).indexOf("(") + 1, -1)
+        );
+        var header = segments[0] || "";
+        var angleDegrees = linear.angle;
+        if (/^to\\s+/i.test(header)) {
+          var sides = header.toLowerCase().match(/\\b(top|bottom|left|right)\\b/g) || [];
+          var vertical = sides.find(function(side) {
+            return side === "top" || side === "bottom";
+          });
+          var horizontal = sides.find(function(side) {
+            return side === "left" || side === "right";
+          });
+          if (vertical && horizontal) {
+            var cornerDx = (horizontal === "right" ? 1 : -1) * width;
+            var cornerDy = (vertical === "top" ? -1 : 1) * height;
+            angleDegrees = (Math.atan2(cornerDx, -cornerDy) * 180 / Math.PI + 360) % 360;
+          } else if (vertical) {
+            angleDegrees = vertical === "top" ? 0 : 180;
+          } else if (horizontal) {
+            angleDegrees = horizontal === "right" ? 90 : 270;
+          }
+        } else if (!/^[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:deg)?$/i.test(header)) {
+          angleDegrees = 180;
+        }
+        var angle = angleDegrees * Math.PI / 180;
+        var dx = Math.sin(angle);
+        var dy = -Math.cos(angle);
+        var length = Math.abs(width * dx) + Math.abs(height * dy);
+        var x = viewBox.width ? viewBox.x : 0;
+        var y = viewBox.height ? viewBox.y : 0;
+        var cx = width / 2;
+        var cy = height / 2;
+        gradient = document.createElementNS(svgNs, "linearGradient");
+        gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+        gradient.setAttribute("x1", String(x + cx - dx * length / 2));
+        gradient.setAttribute("y1", String(y + cy - dy * length / 2));
+        gradient.setAttribute("x2", String(x + cx + dx * length / 2));
+        gradient.setAttribute("y2", String(y + cy + dy * length / 2));
+      } else {
+        var viewBox = paint.root.viewBox.baseVal;
+        var rect = paint.root.getBoundingClientRect();
+        var width = viewBox.width || rect.width;
+        var height = viewBox.height || rect.height;
+        if (!(width > 0 && height > 0)) return false;
+        var x = viewBox.width ? viewBox.x : 0;
+        var y = viewBox.height ? viewBox.y : 0;
+        var header = radialStopStart ? radialHeader.trim() : "";
+        var atIndex = header.toLowerCase().indexOf(" at ");
+        var shapeAndSize = (atIndex < 0 ? header : header.slice(0, atIndex)).trim();
+        var position = atIndex < 0 ? "" : header.slice(atIndex + 4).trim();
+        var isCircle = /^circle\\b/i.test(shapeAndSize);
+        shapeAndSize = shapeAndSize.replace(/^(?:circle|ellipse)\\b/i, "").trim();
+        var sizeKeyword = shapeAndSize.match(
+          /^(closest-side|farthest-side|closest-corner|farthest-corner)$/i
+        )?.[1]?.toLowerCase() || "farthest-corner";
+        var explicitSizes = shapeAndSize.match(
+          /^([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:px|%)?)(?:\\s+([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:px|%)?))?$/i
+        );
+        var positionParts = position ? position.split(/\\s+/) : [];
+        var positionValue = function(axis) {
+          var size = axis === "x" ? width : height;
+          var start = axis === "x" ? x : y;
+          var candidates = positionParts.filter(function(part) {
+            return axis === "x" ? /^(left|right|center|[-+\\d.]+%|[-+\\d.]+px)$/i.test(part) : /^(top|bottom|center|[-+\\d.]+%|[-+\\d.]+px)$/i.test(part);
+          });
+          var token = candidates[axis === "x" ? 0 : candidates.length - 1] || "center";
+          if (/^(right|bottom)$/i.test(token)) return start + size;
+          if (/^(left|top)$/i.test(token)) return start;
+          if (/^center$/i.test(token)) return start + size / 2;
+          var number = parseFloat(token);
+          return start + (/%$/.test(token) ? number / 100 * size : number);
+        };
+        var cx = positionValue("x");
+        var cy = positionValue("y");
+        var left = cx - x;
+        var right = x + width - cx;
+        var top = cy - y;
+        var bottom = y + height - cy;
+        var closestX = Math.max(0, Math.min(left, right));
+        var farthestX = Math.max(left, right);
+        var closestY = Math.max(0, Math.min(top, bottom));
+        var farthestY = Math.max(top, bottom);
+        var rx;
+        var ry;
+        if (explicitSizes) {
+          var parseRadius = function(raw, axis) {
+            if (!raw) return 0;
+            var dimension = axis === "x" ? width : height;
+            var number = parseFloat(raw);
+            return /%$/.test(raw) ? number / 100 * dimension : number;
+          };
+          rx = parseRadius(explicitSizes[1], "x");
+          ry = explicitSizes[2] ? parseRadius(explicitSizes[2], "y") : rx;
+        } else if (sizeKeyword === "closest-side" || sizeKeyword === "farthest-side") {
+          var horizontalRadius = sizeKeyword === "closest-side" ? closestX : farthestX;
+          var verticalRadius = sizeKeyword === "closest-side" ? closestY : farthestY;
+          if (isCircle) {
+            rx = ry = sizeKeyword === "closest-side" ? Math.min(horizontalRadius, verticalRadius) : Math.max(horizontalRadius, verticalRadius);
+          } else {
+            rx = horizontalRadius;
+            ry = verticalRadius;
+          }
+        } else if (isCircle) {
+          var cornerX = sizeKeyword === "closest-corner" ? closestX : farthestX;
+          var cornerY = sizeKeyword === "closest-corner" ? closestY : farthestY;
+          rx = ry = Math.hypot(cornerX, cornerY);
+        } else {
+          rx = sizeKeyword === "closest-corner" ? closestX : farthestX;
+          ry = sizeKeyword === "closest-corner" ? closestY : farthestY;
+        }
+        if (!(rx > 0 && ry > 0)) return false;
+        gradient = document.createElementNS(svgNs, "radialGradient");
+        gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+        gradient.setAttribute("cx", String(cx));
+        gradient.setAttribute("cy", String(cy));
+        if (Math.abs(rx - ry) < 1e-3) {
+          gradient.setAttribute("r", String(rx));
+        } else {
+          gradient.setAttribute("r", "1");
+          gradient.setAttribute(
+            "gradientTransform",
+            "translate(" + cx + " " + cy + ") scale(" + rx + " " + ry + ") translate(" + -cx + " " + -cy + ")"
+          );
+        }
+      }
+      gradient.setAttribute("id", gradientId);
+      if (!appendSvgGradientStops(gradient, stops)) return false;
+      var defs = normalizeVectorGradientDefs(paint.root, paintProperty);
+      if (!defs) {
+        defs = document.createElementNS(svgNs, "defs");
+        defs.setAttribute(vectorGradientDefAttribute(paintProperty), "");
+        paint.root.insertBefore(defs, paint.root.firstChild);
+      }
+      defs.appendChild(gradient);
+      recordSourceSubtree(defs);
+      paint.targets.forEach(function(target) {
+        target.style.setProperty(
+          paintProperty,
+          "url(#" + gradientId + ")"
+        );
+      });
+      paint.metadataTarget.style.setProperty(
+        vectorGradientMetadataProperty(paintProperty),
+        value.trim()
+      );
+      return true;
+    }
     function applyInlineStyleProperty(el, property, value) {
       if (!el || !property) return false;
       var cssProperty = normalizeCssPropertyName(property);
       if (!cssProperty) return false;
+      if (cssProperty === "fill" && typeof value === "string") {
+        if (applyVectorGradientPreview(el, value, "fill")) return true;
+      }
+      if (cssProperty === "stroke" && typeof value === "string") {
+        if (applyVectorGradientPreview(el, value, "stroke")) return true;
+      }
       if (cssProperty === "--an-vector-start-point" || cssProperty === "--an-vector-end-point") {
         return applyVectorEndpointProperty(el, cssProperty, value);
       }
@@ -10339,11 +11315,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeOverlay = null;
       var useOverlay = false;
       if (isVectorPaintProperty(cssProperty)) {
+        var vectorRoot = el.tagName.toLowerCase() === "svg" ? el : el.closest(
+          "svg[data-an-primitive]"
+        );
         var shape = vectorPaintTarget(el);
-        if (shape) {
+        var shapes = shape ? [shape] : [];
+        if (!shapes.length && vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg") {
+          shapes = el === vectorRoot ? pastedSvgPaintShapes(vectorRoot) : /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
+            el.tagName
+          ) ? [el] : [];
+        }
+        if (shapes.length && vectorRoot) {
+          if (cssProperty === "fill" || cssProperty === "stroke") {
+            removeVectorGradientPreview(vectorRoot, shapes, cssProperty);
+          }
           strokeOverlay = vectorStrokeTarget(el);
           useOverlay = cssProperty.indexOf("stroke") === 0 && !!strokeOverlay && strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
-          target = useOverlay ? strokeOverlay : shape;
+          target = useOverlay ? strokeOverlay : shapes[0];
           clearVectorWrapperPaint(el);
           if (useOverlay && cssProperty === "stroke-width") {
             var logicalWidth = String(value);
@@ -10358,6 +11346,15 @@ export const editorChromeBridgeScript: string = `"use strict";
               logicalWidth
             );
             value = actualWidth;
+          }
+          if (shapes.length > 1 && !useOverlay) {
+            shapes.forEach(function(shapeTarget) {
+              shapeTarget.style.setProperty(
+                cssProperty,
+                String(value)
+              );
+            });
+            return true;
           }
         }
       }
@@ -10751,7 +11748,95 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
+    function computedSizeInPixels(value) {
+      var match = /^\\s*(\\d+(?:\\.\\d+)?)px\\s*$/i.exec(value);
+      if (!match) return void 0;
+      var size = Number(match[1]);
+      return Number.isFinite(size) ? size : void 0;
+    }
+    function flexItemMainSizeChangesWithoutFlexing(el, property) {
+      var style = el.style;
+      if (!style) return false;
+      var originalSize = el.getBoundingClientRect()[property];
+      var declarations = ["flex-grow", "flex-shrink", "transition"].map(
+        function(name) {
+          return {
+            name,
+            value: style.getPropertyValue(name),
+            priority: style.getPropertyPriority(name)
+          };
+        }
+      );
+      try {
+        style.setProperty("transition", "none", "important");
+        style.setProperty("flex-grow", "0", "important");
+        style.setProperty("flex-shrink", "0", "important");
+        return Math.abs(el.getBoundingClientRect()[property] - originalSize) > 0.5;
+      } finally {
+        declarations.forEach(function(declaration) {
+          if (declaration.value) {
+            style.setProperty(
+              declaration.name,
+              declaration.value,
+              declaration.priority
+            );
+          } else {
+            style.removeProperty(declaration.name);
+          }
+        });
+      }
+    }
+    function crossScreenAutoLayoutSizeFallback(el, snapshot, computed) {
+      if (!el || !computed || computed.position === "absolute" || computed.position === "fixed") {
+        return void 0;
+      }
+      var parent = el.parentElement;
+      if (!parent) return void 0;
+      var parentStyle = window.getComputedStyle(parent);
+      var isFlex = /^(inline-)?flex$/.test(parentStyle.display);
+      var isGrid = /^(inline-)?grid$/.test(parentStyle.display);
+      if (!isFlex && !isGrid) return void 0;
+      var snapshotRoot = snapshot?.nodes?.find(
+        (node) => Array.isArray(node.path) && node.path.length === 0
+      );
+      var styles = snapshotRoot?.styles;
+      if (!styles || typeof styles !== "object") return void 0;
+      var mainAxis = isFlex ? flexMainAxisDimension(parentStyle) : void 0;
+      var flexMainSizeIsResolved = false;
+      if (isFlex && mainAxis) {
+        flexMainSizeIsResolved = computed.flexBasis !== "auto" && computed.flexBasis !== "content" || (Number(computed.flexGrow) > 0 || Number(computed.flexShrink) > 0) && flexItemMainSizeChangesWithoutFlexing(el, mainAxis);
+      }
+      var resolvedByAutoLayout = function(property) {
+        if (isGrid) {
+          return gridItemDimensionIsStretched(
+            el,
+            property,
+            computed,
+            parentStyle,
+            typedStyleValue(el, property)
+          );
+        }
+        if (property === mainAxis) {
+          return flexMainSizeIsResolved;
+        }
+        return flexItemDimensionIsStretched(el, property, computed, parentStyle);
+      };
+      var result = {};
+      ["width", "height"].forEach((property) => {
+        var snapshotSize = styles[property];
+        var snapshotSizeIsAuto = typeof snapshotSize === "string" && snapshotSize.trim().toLowerCase() === "auto";
+        if (Object.prototype.hasOwnProperty.call(styles, property) && !snapshotSizeIsAuto || !resolvedByAutoLayout(property)) {
+          return;
+        }
+        var size = computedSizeInPixels(computed[property]);
+        if (size !== void 0) result[property] = size;
+      });
+      return result.width !== void 0 || result.height !== void 0 ? result : void 0;
+    }
     function eventEpochMilliseconds(ev) {
+      if (ev?.isTrusted === false) {
+        return performance.timeOrigin + performance.now();
+      }
       if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
         return void 0;
       }
@@ -10762,7 +11847,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (phase === "cancel") {
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
+        activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
+        activeCrossScreenDeleteRequestId = void 0;
         window.parent.postMessage(
           { type: "agent-native:cross-screen-drag", phase: "cancel" },
           "*"
@@ -10770,8 +11857,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (phase === "start") {
+        activeCrossScreenDeleteRequestId = \`cross-screen-source-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2)}\`;
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
         activeCrossScreenSourceHtml = el?.outerHTML;
+        var computed = el ? window.getComputedStyle(el) : null;
+        activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
+          el ?? null,
+          activeCrossScreenStyleSnapshot,
+          computed
+        );
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -10798,6 +11892,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           boardSurface: designCanvasBoardSurface,
           selector: dragIdentity?.selector ?? getSelector(el ?? null),
           sourceId: dragIdentity?.sourceId ?? getSourceId(el ?? null),
+          sourceDeleteRequestId: activeCrossScreenDeleteRequestId,
           sourceProvenance: dragIdentity?.sourceProvenance,
           iframeX: ev?.clientX ?? 0,
           iframeY: ev?.clientY ?? 0,
@@ -10811,6 +11906,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           } : void 0,
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
+          sourceComputedSize: activeCrossScreenComputedSize,
           // Explicit sibling flag, not just \`styleSnapshot === null\` — the
           // host must not have to infer capture-failed from a value shape
           // that could change; see collectPortableStyleSnapshot's doc.
@@ -10823,7 +11919,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           // Use the pre-lift snapshot: during a drag the bridge may temporarily
           // add a translate() transform to the source element, and that
           // editor-only transform must never become destination markup.
-          sourceCloneHtml: phase === "end" ? activeCrossScreenSourceHtml : void 0,
+          // Send it from "start": the host can finalize from its own window
+          // mouseup, in which case this iframe never sees the release and no
+          // "end" is posted.
+          sourceCloneHtml: phase === "start" || phase === "end" ? activeCrossScreenSourceHtml : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"
@@ -10832,7 +11931,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         bridgeIgnoreAutoLayoutKeyPressed = false;
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
+        activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
+        activeCrossScreenDeleteRequestId = void 0;
       }
     }
     var BRIDGE_CONTAINER_TAGS = [
@@ -14848,6 +15949,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
         if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
+          var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
           postCrossScreenDrag("end", dragEl, ev, {
             duplicate: duplicatedForDrag,
             modifiers: {
@@ -14866,6 +15968,21 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           } else {
             restoreSourceDragPosition();
+            if (crossScreenClaimedByHost && sourceDeleteRequestId) {
+              var selector = getSelector(dragEl);
+              var sourceId = getSourceId(dragEl);
+              var selectorCandidates = [selector];
+              if (sourceId) {
+                selectorCandidates.push(
+                  '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]'
+                );
+              }
+              concealPendingRuntimeDelete(
+                selector,
+                selectorCandidates,
+                sourceDeleteRequestId
+              );
+            }
           }
           return;
         }
@@ -15268,6 +16385,71 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return [];
     };
+    function scaleSelectionByFactor(factor, anchorX, anchorY) {
+      if (readOnly || !selectedEl || isLayerInteractionBlocked(selectedEl))
+        return;
+      if (!(factor > 0) || factor === 1) return;
+      var el = selectedEl;
+      refreshLiveVisualEditOriginalStyles(el);
+      ensurePositionable(el);
+      var cs = window.getComputedStyle(el);
+      var width = readPx(cs.width);
+      var height = readPx(cs.height);
+      var nextWidth = width * factor;
+      var nextHeight = height * factor;
+      var styles = {
+        left: quantizeToLayoutGrid(
+          readPx(el.style.left || cs.left) - (nextWidth - width) * anchorX
+        ) + "px",
+        top: quantizeToLayoutGrid(
+          readPx(el.style.top || cs.top) - (nextHeight - height) * anchorY
+        ) + "px",
+        width: quantizeToLayoutGrid(nextWidth) + "px",
+        height: quantizeToLayoutGrid(nextHeight) + "px"
+      };
+      if (el.style.position) styles.position = el.style.position;
+      var fontSize = readPx(el.style.fontSize || cs.fontSize);
+      var svgViewBoxScalesFont = el instanceof SVGSVGElement && el.hasAttribute("viewBox") || isInsideScaledSvgViewBox(el);
+      if (fontSize > 0 && !svgViewBoxScalesFont) {
+        styles.fontSize = Math.max(1, Math.round(fontSize * factor * 100) / 100) + "px";
+      }
+      var targets = collectKScaleStyleTargets(el, false);
+      Object.keys(styles).forEach(function(property) {
+        el.style[property] = styles[property];
+      });
+      applyKScaleStyleTargets(targets, factor);
+      var changes = kScaleStyleChanges(targets, factor);
+      var rootSelector = getSelector(el);
+      var rootChange = changes.find(function(change) {
+        return change.selector === rootSelector;
+      });
+      if (rootChange) {
+        rootChange.styles = Object.assign({}, rootChange.styles, styles);
+        rootChange.originalStyles = Object.assign(
+          {},
+          rootChange.originalStyles || {},
+          originalInlineStylesForPatch(el, styles)
+        );
+      } else {
+        changes.unshift({
+          selector: rootSelector,
+          sourceId: getSourceId(el) || void 0,
+          styles,
+          originalStyles: originalInlineStylesForPatch(el, styles),
+          preserveSelection: true
+        });
+      }
+      window.parent.postMessage(
+        { type: "visual-style-batch-change", changes },
+        "*"
+      );
+      recordSourceOwnership(el);
+      targets.forEach(function(target) {
+        recordSourceOwnership(target.el);
+      });
+      releaseLiveVisualEditOriginalStyles(el);
+      refreshOverlays();
+    }
     function startResize(handle, e) {
       if (readOnly) return;
       if (!selectedEl) return;
@@ -16164,6 +17346,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (rawHit && rawHit !== el) return false;
       if (isDocumentRootElement(el)) return false;
       if (outermostSvgAncestor(el) === el) return false;
+      if (!isContainerDropTarget(el)) return false;
       var child = el.firstElementChild;
       if (child && child === el.lastElementChild && child.hasAttribute && child.hasAttribute("data-an-text")) {
         return false;
@@ -16178,6 +17361,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
+      if (activeTextEditEl && isTextEditElConnected() && e.target && activeTextEditEl.contains(e.target)) {
+        return;
+      }
+      if (activeTextEditEl && isTextEditElConnected()) {
+        var textEditToFinish = activeTextEditEl;
+        if (finishActiveTextEdit) finishActiveTextEdit(true);
+        textEditToFinish.blur();
+      }
       stopNativeInteraction(e);
       clearGridProjectionCaches();
       hostIgnoreAutoLayoutAtPointerDown = false;
@@ -16731,46 +17922,109 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (content) {
           stopNativeInteraction(e);
           window.parent.postMessage(
-            { type: "figma-clipboard-paste", content },
+            {
+              type: "figma-clipboard-paste",
+              content,
+              ...clipboardScreenContext()
+            },
             "*"
           );
           return;
         }
-        var imageFiles = Array.from(e.clipboardData?.items ?? []).filter(function(item) {
-          return item.kind === "file" && item.type.startsWith("image/");
+        var svgHtml = e.clipboardData?.getData("text/html") || "";
+        var svgText = e.clipboardData?.getData("text/plain") || "";
+        var svgSource = /<svg\\b/i.test(svgHtml) ? svgHtml : /<svg\\b/i.test(svgText) ? svgText : "";
+        if (svgSource) {
+          stopNativeInteraction(e);
+          window.parent.postMessage(
+            {
+              type: "figma-clipboard-paste",
+              content: "",
+              svg: svgSource,
+              ...clipboardScreenContext()
+            },
+            "*"
+          );
+          return;
+        }
+        var clipboardFiles = Array.from(e.clipboardData?.items ?? []).filter(function(item) {
+          return item.kind === "file";
         }).map(function(item) {
           return item.getAsFile();
-        }).filter(function(f) {
-          return Boolean(f);
+        }).filter(function(file) {
+          return Boolean(file);
         });
-        if (imageFiles.length > 0) {
+        var svgFiles = clipboardFiles.filter(function(file) {
+          return file.type.toLowerCase() === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
+        });
+        var imageFiles = clipboardFiles.filter(function(file) {
+          return !svgFiles.includes(file) && (file.type.startsWith("image/") || file.type.startsWith("video/"));
+        });
+        if (svgFiles.length > 0 || imageFiles.length > 0) {
           stopNativeInteraction(e);
-          var readPromises = imageFiles.map(function(file) {
-            return new Promise(function(resolve) {
-              var reader = new FileReader();
-              reader.onload = function() {
-                resolve({
-                  dataUrl: typeof reader.result === "string" ? reader.result : "",
-                  type: file.type,
-                  name: file.name
-                });
-              };
-              reader.onerror = function() {
-                resolve(null);
-              };
-              reader.readAsDataURL(file);
+          var relayImageFiles = function() {
+            if (imageFiles.length === 0) return;
+            var readPromises = imageFiles.map(function(file) {
+              return new Promise(function(resolve) {
+                var reader = new FileReader();
+                reader.onload = function() {
+                  resolve({
+                    dataUrl: typeof reader.result === "string" ? reader.result : "",
+                    type: file.type,
+                    name: file.name
+                  });
+                };
+                reader.onerror = function() {
+                  resolve(null);
+                };
+                reader.readAsDataURL(file);
+              });
             });
-          });
-          void Promise.all(readPromises).then(function(results) {
-            var valid = results.filter(function(r) {
-              return r && r.dataUrl;
+            void Promise.all(readPromises).then(function(results) {
+              var valid = results.filter(function(r) {
+                return r && r.dataUrl;
+              });
+              if (valid.length > 0) {
+                window.parent.postMessage(
+                  {
+                    type: "canvas-image-paste",
+                    files: valid,
+                    ...clipboardScreenContext()
+                  },
+                  "*"
+                );
+              }
             });
-            if (valid.length > 0) {
+          };
+          void Promise.all(
+            svgFiles.map(function(file) {
+              if (file.size > 1e6) {
+                return Promise.resolve({ error: "too-large" });
+              }
+              return file.text().then(function(source) {
+                return { source };
+              }).catch(function() {
+                return { error: "unreadable" };
+              });
+            })
+          ).then(function(results) {
+            for (var result of results) {
               window.parent.postMessage(
-                { type: "canvas-image-paste", files: valid },
+                result.source ? {
+                  type: "figma-clipboard-paste",
+                  content: "",
+                  svg: result.source,
+                  ...clipboardScreenContext()
+                } : {
+                  type: "figma-clipboard-paste",
+                  content: "",
+                  svgFileError: result.error,
+                  ...clipboardScreenContext()
+                },
                 "*"
               );
             }
+            relayImageFiles();
           });
           return;
         }
@@ -16782,7 +18036,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               type: "figma-clipboard-paste",
               content: "",
               html: pastedHtml,
-              text: pastedText
+              text: pastedText,
+              ...clipboardScreenContext()
             },
             "*"
           );
@@ -16800,29 +18055,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       selection.addRange(range);
       return true;
     }
-    function placeTextCaretFromPoint(target, clientX, clientY) {
-      try {
-        var range = null;
-        if (document.caretRangeFromPoint) {
-          range = document.caretRangeFromPoint(clientX, clientY);
-        } else if (document.caretPositionFromPoint) {
-          var position = document.caretPositionFromPoint(clientX, clientY);
-          if (position) {
-            range = document.createRange();
-            range.setStart(position.offsetNode, position.offset);
-          }
-        }
-        if (!range) {
-          range = document.createRange();
-          range.selectNodeContents(target);
-          range.collapse(false);
-        }
-        var selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-      } catch (err) {
-        collapseSelectionIntoContents(target);
-      }
+    function selectAllTextContents(target) {
+      var range = document.createRange();
+      range.selectNodeContents(target);
+      var selection = window.getSelection();
+      if (!selection) return;
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
     function isRejectedRawTextEditTarget(el) {
       if (!el) return true;
@@ -16857,6 +18096,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!target || target.nodeType !== 1) {
         if (!programmaticFlag) {
           var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
+          if (descendHit && selectedEl && selectedEl.hasAttribute("data-an-pen-nodes") && selectedEl.contains(descendHit)) {
+            postDesignHotkey({ key: "Enter", code: "Enter" });
+            return;
+          }
           if (descendHit && descendHit !== document.body && descendHit !== document.documentElement && !isLayerInteractionBlocked(descendHit)) {
             var previousSelectedElForDescend = selectedEl;
             if (previousSelectedElForDescend && document.documentElement.contains(previousSelectedElForDescend) && previousSelectedElForDescend.contains(descendHit)) {
@@ -16969,10 +18212,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.removeEventListener("input", onInput, true);
         target.removeEventListener("keyup", onKeyUp, true);
         target.removeEventListener("mouseup", onMouseUp, true);
+        target.removeEventListener("mousedown", onMouseDownInSelection, true);
+        target.removeEventListener("dragstart", preventTextDrag, true);
         document.removeEventListener("selectionchange", onSelectionChange);
         window.removeEventListener("blur", onWindowBlur, true);
         target.removeAttribute("contenteditable");
         target.removeAttribute("data-agent-native-text-editing");
+        hideTextCaretOverlay(target);
         document.documentElement.removeAttribute(
           "data-agent-native-empty-text-editing"
         );
@@ -17139,6 +18385,28 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         scheduleTextEditingChromeUpdate();
       }
+      function onMouseDownInSelection(ev) {
+        if (ev.button !== 0 || ev.shiftKey || ev.detail !== 1) return;
+        var selection = window.getSelection ? window.getSelection() : null;
+        if (!selection || selection.isCollapsed) return;
+        var point = document.caretPositionFromPoint ? (function() {
+          var position = document.caretPositionFromPoint(
+            ev.clientX,
+            ev.clientY
+          );
+          if (!position) return null;
+          var range = document.createRange();
+          range.setStart(position.offsetNode, position.offset);
+          range.collapse(true);
+          return range;
+        })() : document.caretRangeFromPoint ? document.caretRangeFromPoint(ev.clientX, ev.clientY) : null;
+        if (!point || !rangeBelongsToElement(point, target)) return;
+        selection.removeAllRanges();
+        selection.addRange(point);
+      }
+      function preventTextDrag(ev) {
+        ev.preventDefault();
+      }
       function onMouseUp() {
         captureActiveTextEditRange(target);
         clearActiveTextEditRangeIfCollapsed(target);
@@ -17150,6 +18418,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       target.addEventListener("input", onInput, true);
       target.addEventListener("keyup", onKeyUp, true);
       target.addEventListener("mouseup", onMouseUp, true);
+      target.addEventListener("mousedown", onMouseDownInSelection, true);
+      target.addEventListener("dragstart", preventTextDrag, true);
       document.addEventListener("selectionchange", onSelectionChange);
       window.addEventListener("blur", onWindowBlur, true);
       target.focus();
@@ -17165,7 +18435,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       } else if (programmaticTextEdit) {
         collapseSelectionIntoContents(target);
       } else {
-        placeTextCaretFromPoint(target, e.clientX, e.clientY);
+        selectAllTextContents(target);
       }
       captureActiveTextEditRange(target);
       postTextEditingState(target, true);
@@ -17493,6 +18763,18 @@ export const editorChromeBridgeScript: string = `"use strict";
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
+      if (e.data.type === "measurement-modifier-release") {
+        hideMeasurements();
+        lastHoverInfoPostedEl = hoveredEl;
+        window.parent.postMessage(
+          {
+            type: "element-hover",
+            payload: hoveredEl ? getLightElementInfo(hoveredEl) : null
+          },
+          "*"
+        );
+        return;
+      }
       if (e.data.type === "agent-native:editor-chrome-ready-probe") {
         sendEditorChromeReady();
         return;
@@ -17554,9 +18836,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "set-read-only") {
         var nextReadOnly = !!e.data.readOnly;
-        if (readOnly === nextReadOnly) return;
         readOnly = nextReadOnly;
-        textEditingEnabled = !readOnly && textEditingEnabledFlag;
+        textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (readOnly) {
           if (activeTextEditEl) {
             activeTextEditEl.blur();
@@ -17564,28 +18845,44 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
           setSelectionOverlayResizeChromeVisible(false);
-          shieldOverlay.style.pointerEvents = "auto";
-        } else {
-          setSelectionOverlayResizeChromeVisible(true);
-          shieldOverlay.style.pointerEvents = "auto";
         }
+        syncShieldPointerEvents();
+        setSelectionOverlayResizeChromeVisible(
+          !readOnly && !interactionMode && !activeTextEditEl
+        );
+        if (interactionMode) hideSelectionOverlay();
+        else if (selectedEl?.isConnected)
+          positionOverlay(selectionOverlay, selectedEl);
         return;
       }
       if (e.data.type === "set-interaction-mode") {
         var nextInteractionMode = e.data.interact === true;
-        if (interactionMode === nextInteractionMode) return;
         interactionMode = nextInteractionMode;
         if (interactionMode) {
+          var releaseSpacePan = bridgeSpaceKeyPressed;
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
+          if (releaseSpacePan) {
+            bridgeSpaceKeyPressed = false;
+            bridgeSpaceKeyConsumedByDrag = false;
+            window.parent.postMessage(
+              { type: "design-hotkey-up", key: " ", code: "Space" },
+              "*"
+            );
+          }
           if (activeTextEditEl) activeTextEditEl.blur();
+          textEditingEnabled = false;
           setSelectionOverlayResizeChromeVisible(false);
+          hideSelectionOverlay();
           highlightOverlay.style.display = "none";
           marqueeSelectionOverlay.style.display = "none";
-          shieldOverlay.style.pointerEvents = "none";
+          syncShieldPointerEvents();
         } else {
+          textEditingEnabled = !readOnly && textEditingEnabledFlag;
           setSelectionOverlayResizeChromeVisible(!readOnly);
-          shieldOverlay.style.pointerEvents = "auto";
+          syncShieldPointerEvents();
+          if (selectedEl?.isConnected)
+            positionOverlay(selectionOverlay, selectedEl);
           scheduleRuntimeLayerSnapshot();
         }
         return;
@@ -17594,7 +18891,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var nextTextEditingEnabledFlag = !!e.data.enabled;
         if (textEditingEnabledFlag === nextTextEditingEnabledFlag) return;
         textEditingEnabledFlag = nextTextEditingEnabledFlag;
-        var nextTextEditingEnabled = !readOnly && textEditingEnabledFlag;
+        var nextTextEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (textEditingEnabled === nextTextEditingEnabled) return;
         textEditingEnabled = nextTextEditingEnabled;
         if (!textEditingEnabled && activeTextEditEl) {
@@ -17796,6 +19093,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:set-space-held") {
         bridgeSpaceKeyPressed = Boolean(e.data.held);
+        return;
+      }
+      if (e.data.type === "agent-native:scale-selection") {
+        if (!selectedEl || getSelector(selectedEl) !== e.data.selector) return;
+        scaleSelectionByFactor(
+          Number(e.data.factor),
+          Number(e.data.anchorX),
+          Number(e.data.anchorY)
+        );
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {
@@ -18269,6 +19575,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
           return;
         }
+        var insertTransactionId = typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+        if (insertTransactionId) {
+          parsedInsertEl[runtimeStructureInsertTransactionKey] = insertTransactionId;
+        }
         if (replaceInsertAnchor) {
           var replaceParent = insertAnchor.parentElement;
           if (!replaceParent) {
@@ -18457,13 +19767,38 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         return;
       }
+      if (e.data.type === "pending-delete-element") {
+        concealPendingRuntimeDelete(
+          e.data.selector,
+          e.data.selectorCandidates,
+          e.data.requestId
+        );
+        return;
+      }
+      if (e.data.type === "cancel-pending-delete-element") {
+        var pendingDeleteTarget = findRuntimeTarget(
+          e.data.selector,
+          e.data.selectorCandidates
+        );
+        if (pendingDeleteTarget) {
+          restorePendingRuntimeDeleteStyle(pendingDeleteTarget, e.data.requestId);
+        }
+        return;
+      }
       if (e.data.type === "runtime-structure-rollback-insert") {
         var rollbackRequestId = String(e.data.requestId || "");
-        var rollbackTarget = findUniqueRuntimeStructureTarget(
-          String(e.data.selector || ""),
-          typeof e.data.sourceId === "string" ? e.data.sourceId : ""
-        );
-        if (!rollbackRequestId || !rollbackTarget || !rollbackTarget.parentElement) {
+        var rollbackTransactionId = typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+        var rollbackTargets = rollbackTransactionId ? Array.from(document.querySelectorAll("*")).filter(
+          (element) => element[runtimeStructureInsertTransactionKey] === rollbackTransactionId
+        ) : [];
+        if (rollbackTargets.length === 0) {
+          var rollbackTarget = findUniqueRuntimeStructureTarget(
+            String(e.data.selector || ""),
+            typeof e.data.sourceId === "string" ? e.data.sourceId : ""
+          );
+          if (rollbackTarget) rollbackTargets = [rollbackTarget];
+        }
+        if (!rollbackRequestId || rollbackTargets.length === 0) {
           window.parent.postMessage(
             {
               type: "runtime-structure-rollback-result",
@@ -18476,7 +19811,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           return;
         }
-        rollbackTarget.parentElement.removeChild(rollbackTarget);
+        for (var rollbackTarget of rollbackTargets) {
+          if (rollbackTarget === selectedEl || rollbackTarget.contains(selectedEl)) {
+            selectedEl = null;
+          }
+          if (rollbackTarget === hoveredEl || rollbackTarget.contains(hoveredEl)) {
+            hoveredEl = null;
+          }
+          rollbackTarget.parentElement?.removeChild(rollbackTarget);
+        }
         publishSourceDocumentProvenance(void 0, true);
         refreshOverlays();
         window.parent.postMessage(
@@ -18507,7 +19850,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "request-runtime-layer-snapshot") {
-        postRuntimeLayerSnapshot();
+        requestRuntimeLayerSnapshot();
+        return;
+      }
+      if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
+        if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+        runtimeLayerSnapshotReservationInFlight = false;
+        if (runtimeLayerSnapshotReservationDirty) {
+          runtimeLayerSnapshotReservationDirty = false;
+          requestRuntimeLayerSnapshot();
+          return;
+        }
+        postRuntimeLayerSnapshot(
+          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0
+        );
         return;
       }
       if (e.data.type === "runtime-layer-rename") {
@@ -18570,7 +19926,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           textEditStyleTarget.textContent || "",
           textEditStyleTarget.innerHTML || "",
           void 0,
-          void 0
+          void 0,
+          prop && e.data.relativeOperation ? { [prop]: e.data.relativeOperation } : void 0
         );
         postTextEditingState(
           textEditStyleTarget,
@@ -18798,26 +20155,29 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!next || typeof next !== "object") return;
         var nextReadOnly = typeof next.readOnly === "boolean" ? next.readOnly : readOnly;
         var nextTextEditingEnabledFlag = typeof next.textEditingEnabled === "boolean" ? next.textEditingEnabled : textEditingEnabledFlag;
-        var wasTextEditingEnabled = textEditingEnabled;
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
-          textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
           if (readOnly) {
-            if (activeTextEditEl) activeTextEditEl.blur();
             clearPendingShieldDrag();
             cancelActiveBridgeDrag();
-            setSelectionOverlayResizeChromeVisible(false);
-            shieldOverlay.style.pointerEvents = "auto";
-          } else {
-            setSelectionOverlayResizeChromeVisible(true);
-            shieldOverlay.style.pointerEvents = "auto";
           }
-        } else {
-          textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
         }
         textEditingEnabledFlag = nextTextEditingEnabledFlag;
-        if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
+        textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
+        if (activeTextEditEl && (readOnly || !textEditingEnabled)) {
           activeTextEditEl.blur();
+        }
+        if (interactionMode) {
+          setSelectionOverlayResizeChromeVisible(false);
+          hideSelectionOverlay();
+          highlightOverlay.style.display = "none";
+          marqueeSelectionOverlay.style.display = "none";
+          syncShieldPointerEvents();
+        } else {
+          setSelectionOverlayResizeChromeVisible(!readOnly && !activeTextEditEl);
+          syncShieldPointerEvents();
+          if (selectedEl?.isConnected)
+            positionOverlay(selectionOverlay, selectedEl);
         }
         if (typeof next.screenId === "string") {
           designCanvasScreenId = next.screenId;

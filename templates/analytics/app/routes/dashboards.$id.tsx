@@ -1,8 +1,8 @@
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 import AdhocRouter from "@/pages/adhoc/AdhocRouter";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.dashboard }];
+  return [{ title: enUSMessages.routeTitles.dashboard }];
 }
 
 export default function DashboardRoute() {

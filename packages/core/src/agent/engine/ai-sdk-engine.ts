@@ -12,6 +12,7 @@
  * so the core package remains installable without the AI SDK.
  */
 
+import { ssrfSafeFetch } from "../../extensions/url-safety.js";
 import {
   clearProviderCredentialAuthFailure,
   readDeployCredentialEnv,
@@ -23,6 +24,7 @@ import {
   normalizeReasoningEffortForModel,
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
+import { isNodeRuntime } from "../../shared/runtime.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -240,6 +242,68 @@ export interface AISDKEngineConfig {
   appUrl?: string;
 }
 
+export function createProviderEndpointFetch(
+  endpoint: string,
+  allowedPrivateOrigins: readonly string[] = [],
+): typeof fetch {
+  return async (input, init) => {
+    const endpointOrigin = new URL(endpoint).origin;
+    const request = input instanceof Request ? new Request(input, init) : null;
+    const url =
+      request?.url ??
+      (typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url);
+    const targetOrigin = new URL(url).origin;
+    if (targetOrigin !== endpointOrigin) {
+      throw new Error(
+        `SSRF blocked: provider request escaped its configured origin (${targetOrigin}).`,
+      );
+    }
+
+    const requestInit = request
+      ? ({
+          ...(init ?? {}),
+          method: request.method,
+          headers: request.headers,
+          body: request.body ?? undefined,
+          signal: request.signal,
+          cache: request.cache,
+          credentials: request.credentials,
+          integrity: request.integrity,
+          keepalive: request.keepalive,
+          mode: request.mode,
+          redirect: request.redirect,
+          referrer: request.referrer,
+          referrerPolicy: request.referrerPolicy,
+          ...(request.body ? { duplex: "half" as const } : {}),
+        } as RequestInit)
+      : init;
+
+    const response = await ssrfSafeFetch(url, requestInit, {
+      allowedPrivateOrigins,
+      assertUrlAllowed(candidate) {
+        if (new URL(candidate).origin !== endpointOrigin) {
+          throw new Error(
+            `SSRF blocked: provider endpoint redirected outside its configured origin (${candidate}).`,
+          );
+        }
+      },
+      followRedirects: false,
+      requireDispatcher: isNodeRuntime(),
+    });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel().catch(() => {});
+      throw new Error(
+        "SSRF blocked: provider endpoint redirects are disabled.",
+      );
+    }
+    return response;
+  };
+}
+
 class AISDKEngine implements AgentEngine {
   readonly name: string;
   readonly label: string;
@@ -283,7 +347,9 @@ class AISDKEngine implements AgentEngine {
     this.baseUrl = config.baseUrl;
     this.appName = config.appName;
     this.appUrl = config.appUrl;
-    this.requestFetch = config.requestFetch;
+    this.requestFetch =
+      config.requestFetch ??
+      (this.baseUrl ? createProviderEndpointFetch(this.baseUrl) : undefined);
     this.forceResponses = config.forceResponses === true;
     this.omitMaxOutputTokens = config.omitMaxOutputTokens === true;
     this.skipCredentialFailureTracking =

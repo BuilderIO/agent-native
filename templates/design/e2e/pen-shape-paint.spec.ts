@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Locator,
   type Page,
 } from "@playwright/test";
 
@@ -250,6 +251,13 @@ function inspectorSection(page: Page, title: RegExp) {
     .first();
 }
 
+function addStrokeButton(section: Locator) {
+  return section
+    .locator("[data-design-inspector-section-header]")
+    .getByRole("button", { name: "Add stroke" })
+    .last();
+}
+
 /** Draws a closed triangle with the pen tool and selects it with the move tool. */
 async function drawClosedTriangle(page: Page, designId: string) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
@@ -279,7 +287,7 @@ async function drawClosedTriangle(page: Page, designId: string) {
   return { centroid: { x: card.x + 127, y: card.y + 207 } };
 }
 
-test("a closed pen path commits filled and unstroked, like a drawn rectangle", async ({
+test("a closed pen path starts with a stroke and no fill, like Figma", async ({
   page,
   request,
 }) => {
@@ -289,9 +297,15 @@ test("a closed pen path commits filled and unstroked, like a drawn rectangle", a
 
     const paint = await vectorPaint(page);
     expect(paint).not.toBeNull();
-    expect(paint!.fillAttribute).toBe("rgb(218 218 218)");
-    expect(paint!.strokeAttribute).toBe("none");
-    expect(paint!.shapeStroke).toBe("none");
+    expect(paint!.fillAttribute).toBe("none");
+    expect(paint!.strokeAttribute).toBe("#000000");
+    expect(paint!.shapeStroke).toBe("rgb(0, 0, 0)");
+
+    const fillSection = inspectorSection(page, /^Fill$/i);
+    await fillSection.getByRole("button", { name: "Add fill" }).last().click();
+    await expect
+      .poll(async () => (await vectorPaint(page))?.shapeFill)
+      .toBe("rgb(217, 217, 217)");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -312,13 +326,14 @@ test("fill and stroke edits paint the pen shape, not its selection bounds", asyn
 
     const fillSection = inspectorSection(page, /^Fill$/i);
     await expect(fillSection).toBeVisible();
+    await fillSection.getByRole("button", { name: "Add fill" }).last().click();
     await fillSection.locator('button[aria-label="Hide layer"]').click();
     await expect
       .poll(async () => (await vectorPaint(page))?.shapeFill)
-      .toBe("rgba(218, 218, 218, 0)");
+      .toMatch(/(?:\/|,)\s*0(?:\.0+)?\s*\)$/);
 
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await strokeSection.locator('button[aria-label="Add stroke"]').click();
+    await addStrokeButton(strokeSection).click();
     await expect
       .poll(async () => (await vectorPaint(page))?.shapeStroke)
       .toBe("rgb(0, 0, 0)");
@@ -346,10 +361,12 @@ test("closed vector strokes render inside, center, and outside", async ({
     await page.mouse.click(centroid.x, centroid.y);
 
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    const addStroke = strokeSection.getByRole("button", { name: "Add stroke" });
+    const addStroke = addStrokeButton(strokeSection);
     await expect(addStroke).toBeVisible();
     await addStroke.click();
-    const position = strokeSection.getByRole("combobox");
+    const position = strokeSection.getByRole("combobox", {
+      name: "Position",
+    });
     await expect(position).toBeVisible();
     await expect(position).toHaveAccessibleName("Position");
 
@@ -434,8 +451,10 @@ test("outside vector strokes clear the SVG viewport and restore overflow", async
     const bounds = (await vector.boundingBox())!;
     await page.mouse.click(bounds.x + 50, bounds.y + 50);
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await strokeSection.getByRole("button", { name: "Add stroke" }).click();
-    const position = strokeSection.getByRole("combobox");
+    await addStrokeButton(strokeSection).click();
+    const position = strokeSection.getByRole("combobox", {
+      name: "Position",
+    });
     await expect(position).toHaveAccessibleName("Position");
     await position.click();
     await page.getByRole("option", { name: "Outside" }).click();
@@ -542,9 +561,7 @@ test("closed rect, ellipse, and circle SVG wrappers expose Position while open v
         bounds.y + bounds.height / 2,
       );
       const strokeSection = inspectorSection(page, /^Stroke$/i);
-      const addStroke = strokeSection.getByRole("button", {
-        name: "Add stroke",
-      });
+      const addStroke = addStrokeButton(strokeSection);
       await expect(addStroke).toBeVisible();
       await addStroke.click();
       const position = strokeSection.getByRole("combobox", {
@@ -583,9 +600,6 @@ test("closed rect, ellipse, and circle SVG wrappers expose Position while open v
           ":scope > use[data-an-vector-stroke-overlay]",
         );
         await expect(overlay).toHaveAttribute("style", /opacity: 0.5/);
-        await overlay.evaluate((element) => {
-          (element as SVGUseElement).style.removeProperty("opacity");
-        });
         await position.click();
         await page.getByRole("option", { name: "Center" }).click();
         await expect

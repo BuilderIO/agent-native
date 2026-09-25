@@ -7,6 +7,7 @@ import {
   resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import { fetchOllamaModels } from "./agent-engine-key.js";
 import {
   buildChatModelGroups,
   type ChatModelEngineEntry,
@@ -309,6 +310,40 @@ export function useChatModels({
           const nextDefaultModel = currentModel ?? DEFAULT_MODEL;
           setAvailableModels(groups);
           setDefaultModel(nextDefaultModel);
+
+          // The static catalog only has the curated suggestion models for
+          // Ollama. Once the engine list is in, ask the configured Ollama
+          // server what it actually has installed and swap those in — a
+          // second, later render, so it never blocks the picker's first
+          // paint on a local network round trip. Gated on Ollama actually
+          // being the current engine (not merely present in the catalog,
+          // which it always is): every app registers it by default, so an
+          // unconditional probe would 502 on every chat load for the vast
+          // majority of setups that never touched Ollama.
+          if (currentEngineName === "ai-sdk:ollama") {
+            void fetchOllamaModels()
+              .then((liveModels) => {
+                if (!isCurrentRefresh() || liveModels.length === 0) return;
+                const liveEngines = enginesData.engines.map((engine) =>
+                  engine.name === "ai-sdk:ollama"
+                    ? { ...engine, supportedModels: liveModels }
+                    : engine,
+                );
+                setAvailableModels(
+                  buildChatModelGroups({
+                    engines: liveEngines,
+                    configuredKeys,
+                    builderConnected,
+                    currentEngineName,
+                    currentModel,
+                  }),
+                );
+              })
+              .catch(() => {
+                // No local Ollama server reachable — keep the static
+                // suggestion list already rendered above.
+              });
+          }
 
           const selection = selectionRef.current;
 

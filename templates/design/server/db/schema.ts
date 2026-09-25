@@ -1,4 +1,5 @@
 import {
+  bigint,
   table,
   text,
   integer,
@@ -6,7 +7,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
-import { boolean } from "drizzle-orm/pg-core";
+import { boolean, primaryKey } from "drizzle-orm/pg-core";
 
 export const designs = table("designs", {
   id: text("id").primaryKey(),
@@ -329,3 +330,56 @@ export const designReviewSnapshot = table("design_review_snapshot", {
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
 });
+
+/**
+ * Latest DOM-only visual-edit handoff for a design. This is intentionally
+ * separate from design data: it is a short-lived source prompt published by
+ * the browser so an external coding agent can pull it without the Design tab.
+ */
+export const designVisualEditPending = table("design_visual_edit_pending", {
+  designId: text("design_id").primaryKey(),
+  pendingEditCount: integer("pending_edit_count").notNull().default(0),
+  status: text("status", { enum: ["ready", "empty"] })
+    .notNull()
+    .default("empty"),
+  prompt: text("prompt").notNull().default(""),
+  revision: bigint("revision", { mode: "number" }).notNull().default(0),
+  publisherId: text("publisher_id").notNull().default(""),
+  clientRevision: bigint("client_revision", { mode: "number" })
+    .notNull()
+    .default(0),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
+
+export const designVisualEditSnapshots = table(
+  "design_visual_edit_snapshots",
+  {
+    designId: text("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fileId: text("file_id")
+      .notNull()
+      .references(() => designFiles.id, { onDelete: "cascade" }),
+    // Kept only for pre-blob rows; new snapshots store an opaque private-blob handle.
+    html: text("html").notNull(),
+    blobHandle: text("blob_handle"),
+    captureRevision: bigint("capture_revision", { mode: "bigint" })
+      .notNull()
+      .default(0n),
+    publishedRevision: bigint("published_revision", { mode: "bigint" })
+      .notNull()
+      .default(0n),
+    updatedAt: text("updated_at").default(now()),
+    ...ownableColumns(),
+  },
+  (t) => [primaryKey({ columns: [t.designId, t.fileId] })],
+);
+
+export const designVisualEditSnapshotBlobCleanup = table(
+  "design_visual_edit_snapshot_blob_cleanup",
+  {
+    blobHandle: text("blob_handle").primaryKey(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);

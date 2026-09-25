@@ -3,7 +3,64 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-23
+
+### Improved
+
+- Clip share sidebars stay expanded in stacked layouts and use a floating, borderless control when collapsed.
+- Clip viewers can collapse the comments, transcript, and Agent sidebar
+- Search results clarify where a match appears in the video.
+- Search results show where a transcript or comment match appears
+- Insights charts load only when opened, keeping the recording library faster.
+
+### Fixed
+
+- Comment fields grow as you type so longer messages stay visible
+- New recordings stay loading until their share is available
+- Playback errors no longer cover the video player controls
+- Trash recordings are excluded from search results.
+- Opening a trashed recording now links its breadcrumb back to Trash.
+- Long recording menus scroll within the visible space so every action stays reachable.
+
+## 2026-09-22
+
+### Added
+
+- Clips can import Loom links in a dialog and upload videos by dropping them into the library.
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Refine empty-state copy across Shared with me, Spaces, and Meetings.
+- Member lists and mentions load faster in large workspaces.
+- Dictation lists focus on the transcript, with time and duration available from a compact info popover in the expanded toolbar.
+
+### Fixed
+
+- Stopped Clips AI actions now clear the in-progress status.
+- Clips keeps uploaded videos visible while the library refreshes and localizes Loom import failures.
+- Clips recovers dropped uploads after a lost finalization response and clears saving feedback after successful saves.
+- The desktop app stops re-checking flags and meetings every few seconds after your session expires, and resumes when you sign in again.
+- Dictation capture stays controllable in every supported environment.
+- Dictation cleanup keeps its recognizable button after processing, with a green success state and an accessible “AI cleaned” tooltip.
+- Dictionary stays available before your first dictation so you can add preferred spellings before recording.
+- Dictation cards expand from a single-line preview to the full transcript with aligned action controls, keeping the expand control in place without flashing duplicate text when collapsing.
+- Rewind keeps its rolling screen history within a smaller default storage limit.
+- Shared recordings play reliably when the player seeks through the video.
+
 ## 2026-09-21
+
+### Improved
+
+- Dictate makes it clearer how to start and what happens to your notes afterward.
+- The Dictate empty state now centers within the page content area and keeps its primary action text-only.
+- Dictate starts with a clear empty state and a single New Dictation action.
+- Dictate history now uses meeting-style day sections with individual list cards, in-place progressive disclosure, compact source badges, AI-cleaned status badges, and explicit cleanup success or error feedback.
+- Dictation cards now toggle from the card itself and collapse when you click outside.
+- The empty Dictate view now keeps duplicate toolbar actions out of the way until there is dictation history.
+- Empty states now share a responsive layout with outcome-led titles, non-repetitive descriptions, comfortable text wrapping, and direct calls to action.
+- Empty Library, Spaces, and Dictate views now keep the toolbar focused on navigation while the empty state owns the primary action.
+- Clips empty states now explain what belongs in each view and surface the most relevant next action without adding unnecessary controls.
 
 ### Fixed
 

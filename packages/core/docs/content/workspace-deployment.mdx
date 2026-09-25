@@ -140,7 +140,7 @@ Hosted workspace builds require `A2A_SECRET` in the deploy provider environment.
 
 Wiring up a provider build command instead of deploying by hand? Add `--build-only` to the same command, for example `npx @agent-native/core@latest deploy --preset vercel --build-only`. It writes the output directly, so no `vercel.json` is required for workspace routing.
 
-Prefer a separate domain per app instead of one shared origin? Every app in the workspace is still independently deployable. Run `cd apps/<name> && npx @agent-native/core@latest build` like a standalone scaffold.
+Prefer a separate domain per app instead of one shared origin? Every app in the workspace is still independently deployable. Run `cd apps/<name> && pnpm build` like a standalone scaffold.
 
 </Callout>
 
@@ -217,7 +217,7 @@ A **reverse proxy** is that single entry point in the picture above: it receives
 The base path is a build-time input for the client bundle and a runtime input for the server. Build each app with the same path the proxy will route to it:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

@@ -47,6 +47,10 @@ export default defineAction({
         schema.documents,
         eq(schema.documents.id, schema.contentDatabaseItems.documentId),
       )
+      .leftJoin(
+        schema.contentSpaces,
+        eq(schema.contentSpaces.filesDatabaseId, schema.contentDatabases.id),
+      )
       .where(
         and(
           itemId
@@ -55,7 +59,14 @@ export default defineAction({
           isNull(schema.contentDatabases.deletedAt),
           isNull(schema.documents.trashedAt),
         ),
-      );
+      )
+      // A Page can belong to several collections (Files, personal pins, other
+      // collections). When only the Page is named, duplicate it in its own
+      // space's Files rather than whichever membership the database returns.
+      .orderBy(
+        sql`case when ${schema.contentSpaces.filesDatabaseId} is not null and ${schema.contentDatabases.spaceId} = ${schema.documents.spaceId} then 0 else 1 end`,
+      )
+      .limit(1);
 
     if (!row) throw new Error("Database row not found.");
     if (!row.database.spaceId) {
@@ -127,6 +138,13 @@ export default defineAction({
         title?.trim() ||
         `Copy of ${lockedRow.document.title.trim() || "Untitled"}`;
       const nextPosition = lockedRow.item.position + 1;
+      // The copy sits beside its original: collection rows keep the collection
+      // page as parent, and Files pages keep their place in the page tree
+      // (including top-level pages, whose parent is null).
+      const duplicateParentId =
+        row.database.systemRole === "files"
+          ? lockedRow.document.parentId
+          : row.database.documentId;
       const values = await tx
         .select()
         .from(schema.documentPropertyValues)
@@ -173,7 +191,20 @@ export default defineAction({
         .where(
           and(
             eq(schema.documents.ownerEmail, lockedRow.document.ownerEmail),
-            eq(schema.documents.parentId, row.database.documentId),
+            duplicateParentId === null
+              ? and(
+                  // Top-level siblings are the same space and root section.
+                  isNull(schema.documents.parentId),
+                  eq(schema.documents.spaceId, row.database.spaceId!),
+                  eq(
+                    schema.documents.visibility,
+                    lockedRow.document.visibility,
+                  ),
+                  lockedRow.document.orgId
+                    ? eq(schema.documents.orgId, lockedRow.document.orgId)
+                    : isNull(schema.documents.orgId),
+                )
+              : eq(schema.documents.parentId, duplicateParentId),
             gte(schema.documents.position, nextPosition),
           ),
         );
@@ -183,7 +214,7 @@ export default defineAction({
         spaceId: row.database.spaceId,
         ownerEmail: lockedRow.document.ownerEmail,
         orgId: lockedRow.document.orgId,
-        parentId: row.database.documentId,
+        parentId: duplicateParentId,
         title: nextTitle,
         content: lockedRow.document.content,
         icon: lockedRow.document.icon,

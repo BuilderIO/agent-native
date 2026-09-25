@@ -1,4 +1,4 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { AgentToggleButton } from "@agent-native/core/client/AgentSidebar";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
@@ -56,6 +56,8 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+
+import { ContentIcon } from "../icons/ContentIcon";
 
 function IconSuggestEdits(props: SVGProps<SVGSVGElement>) {
   return (
@@ -276,7 +278,7 @@ export function ToolbarBreadcrumb({
         const content = (
           <>
             {item.icon ? (
-              <span className="shrink-0 text-sm leading-none">{item.icon}</span>
+              <ContentIcon value={item.icon} size={14} className="shrink-0" />
             ) : item.iconKind === "folder" ? (
               <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
             ) : null}
@@ -343,12 +345,12 @@ export function ToolbarBreadcrumb({
 export interface ToolbarBreadcrumbItem {
   id?: string;
   title: string;
-  icon?: string | null;
+  icon?: Document["icon"];
   iconKind?: "folder";
   menuItems?: Array<{
     id: string;
     title: string;
-    icon?: string | null;
+    icon?: Document["icon"];
     iconKind?: "folder";
   }>;
 }
@@ -517,7 +519,7 @@ function ToolbarBreadcrumbMenu({
                 {menuItem.id === currentDocumentId ? (
                   <IconCheck className="size-3.5" />
                 ) : menuItem.icon ? (
-                  <span className="text-sm leading-none">{menuItem.icon}</span>
+                  <ContentIcon value={menuItem.icon} size={14} />
                 ) : menuItem.iconKind === "folder" ? (
                   <IconFolder className="size-3.5 text-muted-foreground" />
                 ) : (
@@ -1727,12 +1729,16 @@ export function DocumentToolbar({
                                             className="animate-spin text-muted-foreground"
                                           />
                                         ) : (
-                                          page.icon || (
-                                            <IconFileText
-                                              size={14}
-                                              className="text-muted-foreground"
-                                            />
-                                          )
+                                          <ContentIcon
+                                            value={page.icon}
+                                            size={14}
+                                            fallback={
+                                              <IconFileText
+                                                size={14}
+                                                className="text-muted-foreground"
+                                              />
+                                            }
+                                          />
                                         )}
                                       </span>
                                       <div className="min-w-0 flex-1">

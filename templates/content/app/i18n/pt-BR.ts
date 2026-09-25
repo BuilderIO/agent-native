@@ -460,8 +460,9 @@ const editor = {
   pageBodySyncing: "O conteúdo desta página ainda está sincronizando",
   pageBodySyncingDescription:
     "A edição fica pausada até o conteúdo da página terminar de sincronizar, para não sobrescrever o conteúdo existente.",
+  createCollection: "Criar coleção",
   creatingDatabase: "Criando coleção embutida...",
-  databaseCreated: "Coleção embutida criada",
+  databaseCreated: "Coleção criada",
   emptyBlockPlaceholder: "Pressione “/” para comandos",
   describeWhatToGenerate: "Descreva o que gerar...",
   enterToSubmit: "Entre para enviar",
@@ -713,6 +714,10 @@ const editor = {
     collapsibleBlockDescription: "Bloco dobrável",
     database: "Coleção",
     databaseDescription: "Coleção embutida nesta página",
+    collectionInline: "Coleção — embutida",
+    collectionInlineDescription: "Adicione uma coleção nesta página",
+    collectionFullPage: "Coleção — página inteira",
+    collectionFullPageDescription: "Crie uma coleção filha e vincule-a aqui",
     divider: "Divisor",
     dividerDescription: "Regra horizontal",
     generate: "Gerar",
@@ -824,6 +829,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     suggestionCreateFailed: "Não foi possível criar a sugestão",
     suggestionsCount: "{{count}} sugestões",
     acceptSuggestion: "Aceitar",
@@ -867,7 +879,37 @@ const rawLiterals = {
     contentSpace: "Espaço do Content",
     addChild: "Adicionar filho",
     addChildTo: "Adicionar filho a {{title}}",
+    collapseItem: "Recolher {{title}}",
+    removeFromRecent: "Remover de Recentes",
+    copyLink: "Copiar link",
+    openInNewTab: "Abrir em nova aba",
+    rename: "Renomear",
+    duplicate: "Duplicar",
+    moveTo: "Mover para",
+    moveToTrash: "Mover para a lixeira",
+    lastEditedBy: "Última edição por {{name}}",
+    lastEdited: "Última edição",
+    pageName: "Nome da página",
+    movePageTo: "Mover “{{title}}” para",
+    topLevel: "Nível superior",
+    noMatchingPages: "Nenhuma página correspondente",
+    failedRenamePage: "Não foi possível renomear a página",
+    failedDuplicatePage: "Não foi possível duplicar a página",
+    duplicatedFromLastSave:
+      "A última versão salva foi copiada; edições recentes não salvas não foram incluídas.",
+    chooseSpace: "Escolha um espaço de trabalho",
+    moveToSpaceTitle: "Mover para {{space}}?",
+    moveToSpaceWarningShared:
+      "Todos em {{space}} poderão ver “{{title}}” e suas subpáginas. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” e suas subpáginas ficarão privadas para você em {{space}}. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    back: "Voltar",
+    movePage: "Mover",
+    movedToSpace: "“{{title}}” movida para {{space}}",
+    failedRemoveFromRecent: "Não foi possível remover de Recentes",
+    expandItem: "Expandir {{title}}",
     database: "Coleção",
+    collection: "Coleção",
     databasePermanentlyDeleted: "Coleção excluída permanentemente",
     databaseRestored: "Coleção restaurada",
     deleteDatabaseNamedPermanently: "Excluir {{title}} permanentemente",
@@ -1007,6 +1049,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     suggestionAmendmentEmpty:
       "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
@@ -1239,6 +1288,18 @@ const overrides = {
     labCreativeContext: "Contexto criativo",
     labCreativeContextDescription:
       "Conecte e reutilize contexto de referência regulado no Content.",
+    labSlashAdvancedCode: "Blocos de código avançados",
+    labSlashAdvancedCodeDescription:
+      "Adiciona blocos de código e abas de código ao menu de comandos.",
+    labSlashLayouts: "Blocos de layout",
+    labSlashLayoutsDescription:
+      "Adiciona blocos de HTML personalizado e abas ao menu de comandos.",
+    labSlashVisuals: "Blocos visuais",
+    labSlashVisualsDescription:
+      "Adiciona diagramas, Mermaid e wireframes ao menu de comandos.",
+    labSlashDeveloperDocs: "Blocos de documentação técnica",
+    labSlashDeveloperDocsDescription:
+      "Adiciona blocos de API e documentação técnica ao menu de comandos.",
   },
   chat: {
     publicEmptyState: "Pergunte qualquer coisa sobre este documento",
@@ -1259,6 +1320,13 @@ const overrides = {
     genericError: "Algo deu errado",
   },
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Componente de origem",

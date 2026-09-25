@@ -105,7 +105,11 @@ export function RecordingOptionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className={showCustomItems ? "w-64" : "w-44"}
+          className={
+            showCustomItems
+              ? "w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto"
+              : "w-44"
+          }
           onCloseAutoFocus={(event) => {
             // Opening the AlertDialog while this menu is still tearing down
             // leaves `pointer-events: none` stuck on <body>: two dismissable

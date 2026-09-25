@@ -89,7 +89,6 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
@@ -140,6 +139,7 @@ import {
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
 
+import { ContentIcon } from "../icons/ContentIcon";
 import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
@@ -149,6 +149,7 @@ import {
   upsertDatabaseSort,
 } from "./database/filter-sort";
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
+import { EmojiPicker } from "./EmojiPicker";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 type TFunction = ReturnType<typeof useT>;
@@ -197,6 +198,25 @@ export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
   last_edited_time: IconClockFilled,
   last_edited_by: IconUserCircle,
 };
+
+function PropertyDefinitionIcon({
+  property,
+  className,
+}: {
+  property: DocumentProperty;
+  className?: string;
+}) {
+  const FallbackIcon = TYPE_ICONS[property.definition.type];
+  return property.definition.icon ? (
+    <ContentIcon
+      value={property.definition.icon}
+      size={16}
+      className={className}
+    />
+  ) : (
+    <FallbackIcon className={className} />
+  );
+}
 
 export const OPTION_COLOR_CLASSES: Record<DocumentPropertyOptionColor, string> =
   {
@@ -752,7 +772,7 @@ export function createPropertyOptionUpdateQueue(
 
 type PropertyMetadataSnapshot = Pick<
   DocumentProperty["definition"],
-  "name" | "type" | "description" | "visibility" | "options"
+  "name" | "type" | "description" | "visibility" | "options" | "icon"
 >;
 
 /**
@@ -989,7 +1009,6 @@ function HiddenPropertiesMenu({
         container={popoverContainer}
       >
         {properties.map((property) => {
-          const Icon = TYPE_ICONS[property.definition.type];
           return (
             <DropdownMenuItem
               key={property.definition.id}
@@ -999,7 +1018,10 @@ function HiddenPropertiesMenu({
                 void showProperty(property);
               }}
             >
-              <Icon className="mr-2 size-4 text-muted-foreground" />
+              <PropertyDefinitionIcon
+                property={property}
+                className="mr-2 size-4 text-muted-foreground"
+              />
               <span className="min-w-0 flex-1 truncate">
                 {property.definition.name}
               </span>
@@ -1053,7 +1075,10 @@ function PropertyRow({
         />
       ) : (
         <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-          <Icon className="size-4 shrink-0" />
+          <PropertyDefinitionIcon
+            property={property}
+            className="size-4 shrink-0"
+          />
           {property.definition.description ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1117,7 +1142,6 @@ export function PropertyManagementPopover({
   databaseId,
   icon: Icon,
   triggerClassName,
-  onTriggerPointerDown,
   triggerTrailing,
   sourceField,
   sourceAttached = false,
@@ -1138,7 +1162,6 @@ export function PropertyManagementPopover({
   databaseId: string;
   icon: Icon;
   triggerClassName?: string;
-  onTriggerPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   triggerTrailing?: ReactNode;
   sourceField?: ContentDatabaseSource["fields"][number] | null;
   sourceAttached?: boolean;
@@ -1246,6 +1269,8 @@ export function PropertyManagementPopover({
     blocksFieldCount,
   });
   const [open, setOpen] = useState(false);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const propertyMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [view, setView] = useState<"quick" | "edit">(
     hasColumnMenu ? "quick" : "edit",
   );
@@ -1269,6 +1294,7 @@ export function PropertyManagementPopover({
         description: property.definition.description,
         visibility: property.definition.visibility,
         options: property.definition.options,
+        icon: property.definition.icon ?? null,
       },
       (metadata) => persistMetadataSnapshotRef.current(metadata),
     ),
@@ -1292,6 +1318,7 @@ export function PropertyManagementPopover({
       description: property.definition.description,
       visibility: property.definition.visibility,
       options: property.definition.options,
+      icon: property.definition.icon ?? null,
     });
   }
 
@@ -1318,6 +1345,7 @@ export function PropertyManagementPopover({
     visibility?: DocumentPropertyVisibility;
     options?: DocumentProperty["definition"]["options"];
     description?: string;
+    icon?: DocumentProperty["definition"]["icon"];
   }) {
     await metadataUpdateQueueRef.current.enqueue((current) => ({
       name: next.name?.trim() || current.name,
@@ -1325,6 +1353,7 @@ export function PropertyManagementPopover({
       description: next.description ?? current.description,
       visibility: next.visibility ?? current.visibility,
       options: next.options ?? current.options,
+      icon: next.icon === undefined ? current.icon : next.icon,
     }));
   }
 
@@ -1450,6 +1479,7 @@ export function PropertyManagementPopover({
     <>
       <DropdownMenu
         open={open}
+        modal={false}
         onOpenChange={(nextOpen) => {
           if (nextOpen) {
             resetDraft();
@@ -1460,6 +1490,7 @@ export function PropertyManagementPopover({
       >
         <DropdownMenuTrigger asChild>
           <button
+            ref={propertyMenuTriggerRef}
             type="button"
             aria-label={t("editor.properties.propertyMenuFor", {
               name: property.definition.name,
@@ -1469,19 +1500,11 @@ export function PropertyManagementPopover({
               "flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               triggerClassName,
             )}
-            onPointerDown={onTriggerPointerDown}
-            onClick={
-              onTriggerPointerDown
-                ? (event) => {
-                    event.preventDefault();
-                    resetDraft();
-                    setView(hasColumnMenu ? "quick" : "edit");
-                    setOpen(true);
-                  }
-                : undefined
-            }
           >
-            <Icon className="size-4 shrink-0" />
+            <PropertyDefinitionIcon
+              property={property}
+              className="size-4 shrink-0"
+            />
             <span className="truncate">{property.definition.name}</span>
             {triggerTrailing}
           </button>
@@ -1499,6 +1522,7 @@ export function PropertyManagementPopover({
                 {property.definition.name}
               </DropdownMenuLabel>
               <DropdownMenuItem
+                onPointerDown={(event) => event.preventDefault()}
                 onSelect={(event) => {
                   event.preventDefault();
                   setView("edit");
@@ -1672,7 +1696,20 @@ export function PropertyManagementPopover({
                 className="flex items-center gap-2 p-1"
                 onKeyDown={(event) => event.stopPropagation()}
               >
-                <IconEdit className="size-4 shrink-0 text-muted-foreground" />
+                <button
+                  type="button"
+                  aria-label={t("editor.emojiChangeIcon")}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
+                  onClick={() => {
+                    setOpen(false);
+                    setIconPickerOpen(true);
+                  }}
+                >
+                  <PropertyDefinitionIcon
+                    property={property}
+                    className="size-4"
+                  />
+                </button>
                 <Input
                   ref={propertyNameInputRef}
                   value={name}
@@ -1979,6 +2016,17 @@ export function PropertyManagementPopover({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <EmojiPicker
+        icon={property.definition.icon ?? null}
+        open={iconPickerOpen}
+        onOpenChange={setIconPickerOpen}
+        anchored
+        anchorElement={propertyMenuTriggerRef.current}
+        container={popoverContainer}
+        contentClassName="z-[310]"
+        onSelect={(icon) => configureProperty({ icon })}
+      />
 
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent className="max-w-sm gap-0 rounded-lg p-5">

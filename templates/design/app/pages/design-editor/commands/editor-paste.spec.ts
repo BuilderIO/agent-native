@@ -11,6 +11,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { runEditorPaste, type EditorPasteArgs } from "./editor-paste";
+import { parsePastedSvg } from "./pasted-svg";
 
 const FIGMA_HTML =
   '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)ZXhhbXBsZQ==(/figma)-->';
@@ -23,13 +24,16 @@ interface Harness {
   args: EditorPasteArgs;
   imported: string[];
   pasted: number;
+  svgs: string[];
 }
 
 function harness(): Harness {
   const imported: string[] = [];
+  const svgs: string[] = [];
   const state = { pasted: 0 };
   return {
     imported,
+    svgs,
     get pasted() {
       return state.pasted;
     },
@@ -39,7 +43,11 @@ function harness(): Harness {
       handlePasteSelection: async () => {
         state.pasted += 1;
       },
-      handlePastedImageFiles: () => false,
+      handlePastedFiles: () => {},
+      handlePastedSvg: (source) => {
+        svgs.push(source);
+        return true;
+      },
       hasCanvasClipboard: false,
       importFigmaClipboardIntoDesign: async (content) => {
         imported.push(content);
@@ -117,9 +125,9 @@ describe("runEditorPaste", () => {
 
   it("routes image files to the immediate image insertion path", () => {
     const file = new File(["image"], "pasted.png", { type: "image/png" });
-    const handlePastedImageFiles = vi.fn(() => true);
+    const handlePastedFiles = vi.fn();
     const h = harness();
-    h.args.handlePastedImageFiles = handlePastedImageFiles;
+    h.args.handlePastedFiles = handlePastedFiles;
     const event = pasteEvent({}, document.body, [
       {
         kind: "file",
@@ -130,8 +138,91 @@ describe("runEditorPaste", () => {
 
     runEditorPaste(h.args, event);
 
-    expect(handlePastedImageFiles).toHaveBeenCalledWith([file]);
+    expect(handlePastedFiles).toHaveBeenCalledWith([file]);
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("inserts SVG code copied as text instead of dropping the paste", async () => {
+    const h = harness();
+    const handlePastedSvg = vi.fn(() => true);
+    h.args.handlePastedSvg = handlePastedSvg;
+    const svg = '<svg viewBox="0 0 24 24"><path d="M0 0H1"/></svg>';
+    const event = pasteEvent({ "text/plain": `\n${svg}\n` });
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedSvg).toHaveBeenCalledWith(`\n${svg}\n`);
+    expect(event.defaultPrevented).toBe(true);
+    expect(h.pasted).toBe(0);
+  });
+
+  it("routes video files to the immediate media insertion path", () => {
+    const file = new File(["video"], "pasted.mp4", { type: "video/mp4" });
+    const handlePastedFiles = vi.fn();
+    const h = harness();
+    h.args.handlePastedFiles = handlePastedFiles;
+    const event = pasteEvent({}, document.body, [
+      {
+        kind: "file",
+        type: "video/mp4",
+        getAsFile: () => file,
+      } as unknown as DataTransferItem,
+    ]);
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedFiles).toHaveBeenCalledWith([file]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("consumes SVG file paste while the host validates it asynchronously", () => {
+    const file = new File(
+      ['<svg width="17" height="9"><path d="M0 0h17"/></svg>'],
+      "pasted.svg",
+      { type: "image/svg+xml" },
+    );
+    const handlePastedFiles = vi.fn();
+    const h = harness();
+    h.args.handlePastedFiles = handlePastedFiles;
+    const event = pasteEvent({}, document.body, [
+      {
+        kind: "file",
+        type: "image/svg+xml",
+        getAsFile: () => file,
+      } as unknown as DataTransferItem,
+    ]);
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedFiles).toHaveBeenCalledWith([file]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("routes ordinary SVG clipboard markup to editable-layer insertion", () => {
+    const h = harness();
+    const source = '<svg width="17" height="9"><path d="M0 0h17"/></svg>';
+    const event = pasteEvent({ "text/plain": source });
+
+    runEditorPaste(h.args, event);
+
+    expect(h.svgs).toEqual([source]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("leaves malformed SVG-looking clipboard HTML to native paste", () => {
+    const h = harness();
+    const malformedSvg = '<svg width="17" height="9"><path d="M0 0"></svg>';
+    const handlePastedSvg = vi.fn(
+      (source: string) => parsePastedSvg(source) !== null,
+    );
+    h.args.handlePastedSvg = handlePastedSvg;
+    const event = pasteEvent({ "text/html": malformedSvg });
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedSvg).toHaveBeenCalledWith(malformedSvg);
+    expect(event.defaultPrevented).toBe(false);
+    expect(h.pasted).toBe(0);
   });
 
   it("says why a Figma link paste produced no screen", () => {

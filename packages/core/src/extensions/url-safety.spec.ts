@@ -16,19 +16,160 @@ describe("createSsrfSafeDispatcher", () => {
     });
   });
 
+  it("reuses private-origin dispatchers for each configured destination origin", async () => {
+    const origin = "http://127.0.0.1:43123";
+    const otherOrigin = "http://127.0.0.1:43124";
+    const first = await createSsrfSafeDispatcher([origin], `${origin}/first`, {
+      required: true,
+    });
+    const sameDestination = await createSsrfSafeDispatcher(
+      [origin, otherOrigin],
+      `${origin}/second`,
+      { required: true },
+    );
+    const otherDestination = await createSsrfSafeDispatcher(
+      [origin, otherOrigin],
+      `${otherOrigin}/third`,
+      { required: true },
+    );
+    const publicDestination = await createSsrfSafeDispatcher(
+      [origin, otherOrigin],
+      "https://provider.example.invalid/fourth",
+      { required: true },
+    );
+
+    expect(sameDestination).toBe(first);
+    expect(otherDestination).not.toBe(first);
+    expect(publicDestination).not.toBe(first);
+  });
+
+  it("reuses one dispatcher for required requests without private-origin exceptions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await ssrfSafeFetch(
+        "https://93.184.216.34/first",
+        {},
+        {
+          requireDispatcher: true,
+        },
+      );
+      await ssrfSafeFetch(
+        "https://93.184.216.34/second",
+        {},
+        {
+          requireDispatcher: true,
+        },
+      );
+
+      const first = (
+        fetchMock.mock.calls[0]?.[1] as RequestInit & {
+          dispatcher?: unknown;
+        }
+      )?.dispatcher;
+      const second = (
+        fetchMock.mock.calls[1]?.[1] as RequestInit & {
+          dispatcher?: unknown;
+        }
+      )?.dispatcher;
+      expect(first).toBeDefined();
+      expect(second).toBe(first);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("blocks a public hostname that resolves privately at connect time", async () => {
+    let requestCount = 0;
+    const server = createServer((_request, response) => {
+      requestCount += 1;
+      response.end("unexpected request");
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+
+    const preflightLookup = vi
+      .fn()
+      .mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
+    const connectLookup = vi.fn(
+      (
+        _hostname: string,
+        _options: unknown,
+        callback: (
+          error: NodeJS.ErrnoException | null,
+          addresses: { address: string; family: number }[],
+        ) => void,
+      ) => callback(null, [{ address: "127.0.0.1", family: 4 }]),
+    );
+    vi.doMock("node:dns", () => ({ lookup: connectLookup }));
+    vi.doMock("node:dns/promises", () => ({ lookup: preflightLookup }));
+    vi.resetModules();
+
+    try {
+      const mod = await import("./url-safety.js");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Test server did not expose a TCP port.");
+      }
+
+      const error = await mod
+        .ssrfSafeFetch(
+          `http://rebind.example.com:${address.port}/secret`,
+          {},
+          { requireDispatcher: true },
+        )
+        .then(
+          () => null,
+          (cause: unknown) => cause,
+        );
+
+      const messages: string[] = [];
+      for (let cause = error; cause instanceof Error; cause = cause.cause) {
+        messages.push(cause.message);
+      }
+      expect(messages.join("\n")).toContain(
+        "rebind.example.com resolved to private address 127.0.0.1",
+      );
+      expect(preflightLookup).toHaveBeenCalledTimes(1);
+      expect(connectLookup).toHaveBeenCalledTimes(1);
+      expect(requestCount).toBe(0);
+    } finally {
+      vi.doUnmock("node:dns");
+      vi.doUnmock("node:dns/promises");
+      vi.resetModules();
+      await new Promise<void>((resolve, reject) =>
+        server.close((closeError) =>
+          closeError ? reject(closeError) : resolve(),
+        ),
+      );
+    }
+  });
+
   it("preserves optional dispatcher behavior when Node DNS is unavailable", async () => {
     vi.doMock("node:dns", () => {
       throw new Error("node:dns unavailable");
     });
     vi.resetModules();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     try {
       const mod = await import("./url-safety.js");
       await expect(mod.createSsrfSafeDispatcher()).resolves.toBeNull();
       await expect(
         mod.createSsrfSafeDispatcher([], undefined, { required: true }),
       ).rejects.toThrow(/dispatcher could not be loaded/);
+      await expect(
+        mod.ssrfSafeFetch(
+          "https://93.184.216.34/data",
+          {},
+          { requireDispatcher: true },
+        ),
+      ).rejects.toThrow(/dispatcher could not be loaded/);
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.doUnmock("node:dns");
+      vi.unstubAllGlobals();
       vi.resetModules();
     }
   });
@@ -231,6 +372,20 @@ describe("ssrfSafeFetch per-hop policies", () => {
     ).resolves.toBe(redirectResponse);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(redirectResponse.bodyUsed).toBe(false);
+  });
+
+  it("rejects a redirect to a private literal before making the second request", async () => {
+    const redirectResponse = new Response(null, {
+      status: 302,
+      headers: { location: "http://127.0.0.1:43123/secret" },
+    });
+    const fetchMock = vi.fn(async () => redirectResponse);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(ssrfSafeFetch(httpsOrigin)).rejects.toThrow(
+      /SSRF blocked: refusing to fetch private\/internal address/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("allows configured loopback aliases without allowing an unconfigured port", async () => {

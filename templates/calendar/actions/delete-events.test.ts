@@ -92,6 +92,7 @@ vi.mock("../server/lib/ical-fetcher.js", () => ({
   fetchICalEvents: fetchICalEventsMock,
 }));
 
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./delete-events";
 
 const OWNER = "owner@example.com";
@@ -156,6 +157,27 @@ describe("delete-events", () => {
         scope: "single",
       }),
     ).rejects.toThrow("Shared Google calendar events are read-only");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicit account that conflicts with an opaque event id", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "alpha@example.com" }, { email: "zulu@example.com" }],
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "alpha@example.com",
+      googleEventId: "same-provider-id",
+    });
+
+    await expect(
+      run({
+        ids: [id],
+        accountEmail: "zulu@example.com",
+        dryRun: true,
+        scope: "single",
+      }),
+    ).rejects.toThrow("does not match");
 
     expect(deleteEventMock).not.toHaveBeenCalled();
   });
@@ -916,6 +938,10 @@ describe("delete-events", () => {
     ]);
     expect(result.deleted).toBe(2);
     expect(result.failed).toBe(0);
+    expect(result.events.map((event) => event.id)).toEqual([
+      "google-a",
+      "google-b",
+    ]);
   });
 
   it("leaves an event that started before the range even if it ends inside it", async () => {

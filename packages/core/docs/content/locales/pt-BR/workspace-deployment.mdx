@@ -140,7 +140,7 @@ Builds de espaço de trabalho hospedado exigem `A2A_SECRET` no ambiente do prove
 
 Está configurando um comando de build de provedor em vez de implantar manualmente? Adicione `--build-only` ao mesmo comando, por exemplo `npx @agent-native/core@latest deploy --preset vercel --build-only`. Isso grava a saída diretamente, então nenhum `vercel.json` é necessário para o roteamento do espaço de trabalho.
 
-Prefere um domínio separado por app em vez de uma origem compartilhada? Todo app no espaço de trabalho ainda pode ser implantado de forma independente. Execute `cd apps/<name> && npx @agent-native/core@latest build` como um scaffold independente.
+Prefere um domínio separado por app em vez de uma origem compartilhada? Todo app no espaço de trabalho ainda pode ser implantado de forma independente. Execute `cd apps/<name> && pnpm build` como um scaffold independente.
 
 </Callout>
 
@@ -219,7 +219,7 @@ Um **proxy reverso** é esse ponto de entrada único na imagem acima: ele recebe
 O caminho base é uma entrada em tempo de build para o bundle do cliente e uma entrada em tempo de execução para o servidor. Compile cada app com o mesmo caminho para o qual o proxy vai rotear:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

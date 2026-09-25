@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
+import type { IconValue } from "../../icons/index.js";
 import {
   canInviteOrgMembers,
   canManageOrg,
@@ -298,6 +299,50 @@ export function useUpdateOrg() {
         method: "PATCH",
         body: JSON.stringify({ name }),
       }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
+export function useSetOrgVisualIdentity() {
+  const qc = useQueryClient();
+  return useMutation<
+    {
+      orgId: string;
+      icon: IconValue | null;
+      iconRevision: number;
+      syncPending: boolean;
+    },
+    Error,
+    IconValue | null,
+    { previous: OrgInfo | undefined }
+  >({
+    mutationFn: (icon) =>
+      apiFetch(`${ORG_BASE}/visual-identity`, {
+        method: "PUT",
+        body: JSON.stringify({ icon }),
+      }),
+    onMutate: async (icon) => {
+      await qc.cancelQueries({ queryKey: ["org-me"] });
+      const previous = qc.getQueryData<OrgInfo>(["org-me"]);
+      if (previous) {
+        qc.setQueryData<OrgInfo>(["org-me"], {
+          ...previous,
+          icon,
+          orgs: previous.orgs.map((organization) =>
+            organization.orgId === previous.orgId
+              ? { ...organization, icon }
+              : organization,
+          ),
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _icon, context) => {
+      if (context?.previous) qc.setQueryData(["org-me"], context.previous);
+      void qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-me"] });
     },

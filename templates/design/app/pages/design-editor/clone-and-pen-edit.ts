@@ -1,6 +1,7 @@
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
+  PEN_CORNER_RADIUS_ATTRIBUTE,
   type CodeLayerNode,
   type CodeLayerSource,
 } from "@shared/code-layer";
@@ -21,8 +22,12 @@ import {
   createCornerNode,
   createSmoothNode,
   getPenPathGeometry,
-  serializePenNodes,
+  penCornerRadiusFromAttribute,
   serializePenPath,
+  serializePenNodes,
+  scalePenPathToGeometry,
+  serializeRoundedPenPath,
+  translatePenPath,
   type PenPath,
 } from "@shared/pen-path";
 
@@ -30,6 +35,8 @@ import {
   DEFAULT_LINE_STROKE,
   DEFAULT_SHAPE_FILL,
 } from "@/components/design/canvas-primitive-style";
+
+import { hidePenPathFill, restoreClosedPenPathFill } from "./pen-path-paint";
 
 /** Marks a stroke this module added so a reopened path stays visible. */
 const AUTO_OPEN_STROKE_MARKER = "data-an-auto-open-stroke";
@@ -51,6 +58,16 @@ import {
   elementAtPortableStylePath,
   styleHost,
 } from "./portable-style";
+
+function restoreClosedPenPathPaint(path: SVGPathElement): void {
+  restoreClosedPenPathFill(path);
+  if (!path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) return;
+  if (path.getAttribute("fill") === "none") {
+    path.setAttribute("fill", DEFAULT_SHAPE_FILL);
+  }
+  path.setAttribute("stroke", "none");
+  path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
+}
 
 /**
  * Vector-edit foundations: stamps `data-an-pen-nodes` (the compact
@@ -111,12 +128,41 @@ export function writeBackVectorEditedPenPath(
     const svgElement = doc.querySelector(
       `[data-agent-native-node-id="${safeNodeId}"]`,
     );
-    if (svgElement?.tagName.toLowerCase() !== "svg") return null;
+    if (!svgElement) return null;
+    if (svgElement.tagName.toLowerCase() === "path") {
+      const path = svgElement as SVGPathElement;
+      const svg = path.ownerSVGElement;
+      if (
+        !svg ||
+        svg.getAttribute("data-an-primitive") !== "pasted-svg" ||
+        !path.hasAttribute("data-an-pen-nodes")
+      ) {
+        return null;
+      }
+
+      const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
+      path.setAttribute("d", serializePenPath(penPath));
+      if (isClosed) {
+        restoreClosedPenPathPaint(path);
+      } else {
+        hidePenPathFill(path);
+        if (path.getAttribute("stroke") === "none") {
+          path.setAttribute("stroke", DEFAULT_LINE_STROKE);
+          path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
+        }
+      }
+      path.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
+      svg.style.overflow = "visible";
+      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    }
+    if (svgElement.tagName.toLowerCase() !== "svg") return null;
     const svg = svgElement as SVGSVGElement;
     const path = svg.querySelector("path");
     if (!path) return null;
 
-    const d = serializePenPath(penPath);
+    const cornerRadiusAttribute = svg.getAttribute(PEN_CORNER_RADIUS_ATTRIBUTE);
+    const cornerRadius = penCornerRadiusFromAttribute(cornerRadiusAttribute);
+    const d = serializeRoundedPenPath(penPath, cornerRadius);
     const geometry = getPenPathGeometry(penPath);
     const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
     const oldViewBox = parseViewBox(svg.getAttribute("viewBox"));
@@ -137,17 +183,9 @@ export function writeBackVectorEditedPenPath(
 
     path.setAttribute("d", d);
     if (isClosed) {
-      if (path.getAttribute("fill") === "none") {
-        path.setAttribute("fill", DEFAULT_SHAPE_FILL);
-      }
-      // Reopening added that stroke to keep the path visible; closing again
-      // must not leave it behind as if the user had chosen it.
-      if (path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) {
-        path.setAttribute("stroke", "none");
-        path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
-      }
+      restoreClosedPenPathPaint(path);
     } else {
-      path.setAttribute("fill", "none");
+      hidePenPathFill(path);
       if (strokeOverlay) {
         const overlayStyle = strokeOverlay.style;
         for (const property of [
@@ -176,8 +214,8 @@ export function writeBackVectorEditedPenPath(
         svg.removeAttribute("data-an-vector-stroke-original-overflow");
         svg.removeAttribute("data-an-vector-stroke-original-overflow-priority");
       }
-      // An open path is only its stroke, and a path drawn closed commits
-      // with stroke:none — reopening it without this paints nothing at all.
+      // An open path is only its stroke; a filled shape (a converted
+      // rectangle or an older closed path) has stroke:none and would vanish.
       if (path.getAttribute("stroke") === "none") {
         path.setAttribute("stroke", DEFAULT_LINE_STROKE);
         path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
@@ -225,35 +263,114 @@ export function writeBackVectorEditedPenPath(
   }
 }
 
-/**
- * Returns the translation between an SVG PenPath's authored coordinates and
- * its current screen-content position. Vector edit handles use screen-content
- * coordinates; CSS moves and reparenting change the SVG CTM without rewriting
- * the path data or its viewBox.
- */
-export function penPathScreenContentOffset(svg: SVGSVGElement): {
-  x: number;
-  y: number;
+/** Axis-aligned scale plus the authored-to-screen-content translation. */
+function penPathScreenContentMapping(svg: SVGSVGElement): {
+  scaleX: number;
+  scaleY: number;
+  offset: { x: number; y: number };
+  viewBox: { x: number; y: number; width: number; height: number };
 } | null {
   const viewBox = parseViewBox(svg.getAttribute("viewBox"));
   const matrix = svg.getScreenCTM();
   if (!viewBox || !matrix) return null;
   if (
-    Math.abs(matrix.a - 1) > 0.001 ||
     Math.abs(matrix.b) > 0.001 ||
     Math.abs(matrix.c) > 0.001 ||
-    Math.abs(matrix.d - 1) > 0.001
+    !(matrix.a > 0) ||
+    !(matrix.d > 0)
   ) {
     return null;
   }
   const view = svg.ownerDocument.defaultView;
-  const x = matrix.a * viewBox.x + matrix.c * viewBox.y + matrix.e;
-  const y = matrix.b * viewBox.x + matrix.d * viewBox.y + matrix.f;
   const offset = {
-    x: x + (view?.scrollX ?? 0) - viewBox.x,
-    y: y + (view?.scrollY ?? 0) - viewBox.y,
+    x: matrix.a * viewBox.x + matrix.e + (view?.scrollX ?? 0) - viewBox.x,
+    y: matrix.d * viewBox.y + matrix.f + (view?.scrollY ?? 0) - viewBox.y,
   };
-  return Number.isFinite(offset.x) && Number.isFinite(offset.y) ? offset : null;
+  if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y)) return null;
+  return { scaleX: matrix.a, scaleY: matrix.d, offset, viewBox };
+}
+
+/**
+ * Returns the translation between an SVG PenPath's authored coordinates and
+ * its current screen-content position. Vector edit handles use screen-content
+ * coordinates; CSS moves and reparenting change the SVG CTM without rewriting
+ * the path data or its viewBox. Non-translation transforms remain unsupported:
+ * the editor currently stores edited anchors in screen-content coordinates,
+ * while writeBackVectorEditedPenPath expects authored SVG coordinates. Accepting
+ * scale/rotation/skew here without carrying the inverse matrix through commit
+ * would serialize displaced anchors and change the rendered geometry.
+ */
+export function penPathScreenContentOffset(svg: SVGSVGElement): {
+  x: number;
+  y: number;
+} | null {
+  const mapping = penPathScreenContentMapping(svg);
+  if (
+    !mapping ||
+    Math.abs(mapping.scaleX - 1) > 0.001 ||
+    Math.abs(mapping.scaleY - 1) > 0.001
+  ) {
+    return null;
+  }
+  return mapping.offset;
+}
+
+/**
+ * A drawn vector's nodes in screen-content space for vector edit. A resize or
+ * K-scale leaves the viewBox behind, so the SVG draws at a scale; scaling the
+ * nodes about the viewBox origin lets writeBackVectorEditedPenPath re-base the
+ * SVG at 1:1 on commit, where `sourceOffset` maps them back.
+ */
+export function penPathForVectorEdit(
+  svg: SVGSVGElement,
+  path: PenPath,
+  renderOffset: { x: number; y: number },
+): { path: PenPath; sourceOffset: { x: number; y: number } } | null {
+  const mapping = penPathScreenContentMapping(svg);
+  if (!mapping) return null;
+  const { viewBox, scaleX, scaleY } = mapping;
+  // Only the box-vs-viewBox stretch is re-based; a CSS transform survives
+  // write-back, so baking its scale into the nodes would apply it twice.
+  const boxStretchMatches = (scale: number, box: string, extent: number) => {
+    const size = parsePixelValue(box);
+    if (size === null) return false;
+    return extent === 0 || Math.abs(scale - size / extent) <= 0.001;
+  };
+  if (
+    !boxStretchMatches(scaleX, svg.style.width, viewBox.width) ||
+    !boxStretchMatches(scaleY, svg.style.height, viewBox.height)
+  ) {
+    return null;
+  }
+  const sourceOffset = {
+    x: mapping.offset.x - renderOffset.x,
+    y: mapping.offset.y - renderOffset.y,
+  };
+  const unscaled = scalePenPathToGeometry(path, viewBox, {
+    ...viewBox,
+    width: viewBox.width * scaleX,
+    height: viewBox.height * scaleY,
+  });
+  return {
+    path: translatePenPath(unscaled, sourceOffset.x, sourceOffset.y),
+    sourceOffset,
+  };
+}
+
+/**
+ * The board surface renders its window by translating each body-level root
+ * (`body > [data-agent-native-node-id]`); board coordinates exclude it.
+ */
+export function boardRenderOffset(element: Element): { x: number; y: number } {
+  let root = element;
+  while (root.parentElement && root.parentElement !== root.ownerDocument.body) {
+    root = root.parentElement;
+  }
+  const view = root.ownerDocument.defaultView;
+  const translate = view?.getComputedStyle(root).translate ?? "none";
+  if (translate === "none") return { x: 0, y: 0 };
+  const [x = 0, y = 0] = translate.split(/\s+/).map((part) => parseFloat(part));
+  return { x, y };
 }
 
 export function penPathForPrimitive(
@@ -475,7 +592,7 @@ export function writeBackPrimitiveAsVector(
     style.width = `${Math.max(1, geometry.width)}px`;
     style.height = `${Math.max(1, geometry.height)}px`;
     const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", serializePenPath(penPath));
+    path.setAttribute("d", serializeRoundedPenPath(penPath, 0));
     path.setAttribute("fill", fill);
     path.setAttribute("stroke", "none");
     svg.appendChild(path);

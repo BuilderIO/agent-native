@@ -180,6 +180,8 @@ function expectedDataChunksForFinalPost(
 
 function trackUploadBlockingFailure(
   ownerEmail: string,
+  recordingId: string,
+  attemptId: string | null,
   properties: Record<string, unknown>,
 ): void {
   try {
@@ -189,6 +191,14 @@ function trackUploadBlockingFailure(
         app: "clips",
         template: "clips",
         surface: "server_upload",
+        output_id: recordingId,
+        output_type: "clip",
+        recording_id: recordingId,
+        // Keep this stable for the recording lifecycle; upload_attempt_id
+        // disambiguates resumable retries without breaking the join to start.
+        recording_attempt_id: recordingId,
+        ...(attemptId ? { upload_attempt_id: attemptId } : {}),
+        failure_code: properties.failure_code ?? properties.failure_type,
         ...properties,
       },
       { userId: ownerEmail },
@@ -693,7 +703,7 @@ export async function handleRecordingChunk(
         });
         if ((result as any)?.status === "failed") {
           const failure = finalizeResultFailure(result);
-          trackUploadBlockingFailure(ownerEmail, {
+          trackUploadBlockingFailure(ownerEmail, recordingId, attemptId, {
             stage: "finalize_recording",
             outcome: failure.outcome,
             failure_type: failure.failure_type,
@@ -812,7 +822,7 @@ export async function handleRecordingChunk(
             return acceptedProcessingResponse(event, recordingId, pendingState);
           }
         }
-        trackUploadBlockingFailure(ownerEmail, {
+        trackUploadBlockingFailure(ownerEmail, recordingId, attemptId, {
           stage: "finalize_recording",
           outcome: "failed",
           failure_type: classifyTrackingFailure(err),
@@ -1273,7 +1283,7 @@ async function handleResumableChunk(
     );
     if ((result as any)?.status === "failed") {
       const failure = finalizeResultFailure(result);
-      trackUploadBlockingFailure(ownerEmail, {
+      trackUploadBlockingFailure(ownerEmail, recordingId, attemptId, {
         stage: "finalize_recording",
         outcome: failure.outcome,
         failure_type: failure.failure_type,
@@ -1380,7 +1390,7 @@ async function handleResumableChunk(
       }
     }
 
-    trackUploadBlockingFailure(ownerEmail, {
+    trackUploadBlockingFailure(ownerEmail, recordingId, attemptId, {
       stage: "finalize_recording",
       outcome: "failed",
       failure_type: classifyTrackingFailure(err),

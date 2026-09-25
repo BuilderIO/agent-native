@@ -50,6 +50,7 @@ const messages = {
     emptyState: "可以询问我任何关于演示文稿的问题",
     thisSlide: "此幻灯片",
     currentSelection: "当前选择",
+    slideNumber: "第 {{number}} 张幻灯片",
     suggestionPitch: "根据这份文档制作 10 页推介幻灯片",
     suggestionBrand: "将我们的品牌应用到这份幻灯片",
     suggestionHero: "为这页幻灯片生成主视觉图片",
@@ -179,6 +180,12 @@ const messages = {
     emptyTitle: "设置你的品牌标识",
     emptyDescription:
       "使用你的品牌颜色、字体和徽标创建设计系统。每个新演示文稿都会遵循你的视觉标识。",
+    tierLimitTitle: "已达到设计系统数量上限",
+    tierLimitDescription:
+      "您已达到当前 Builder 套餐的设计系统数量上限。升级 Builder 套餐以创建更多。",
+    tierLimitDescriptionWithCount:
+      "您在 Builder {{plan}} 套餐中已使用 {{current}}/{{max}} 个设计系统。升级 Builder 套餐以创建更多。",
+    tierLimitUpgrade: "升级套餐",
   },
   editorToolbar: {
     layoutTitle: "标题",
@@ -677,6 +684,7 @@ const messages = {
       "如果现在离开或刷新，可能会丢失尚未保存的更改。确定要退出吗？",
     keepEditing: "继续编辑",
     leaveWithoutSaving: "不保存退出",
+    editorMarkupNotSaved: "此编辑未保存，因为它会向幻灯片添加编辑器标记。",
   },
   designSystemSetup: {
     importedBrand: "导入的品牌",
@@ -731,6 +739,7 @@ const messages = {
     websitePlaceholder: "example.com 或 Nike",
     add: "添加",
     githubRepository: "连接代码：GitHub 仓库",
+    codeIndexingEnterpriseOnly: "代码和仓库索引需要 Builder 企业版套餐",
     githubRef: "分支、标签或提交（可选）",
     githubPaths: "文件或文件夹，以逗号分隔（可选）",
     codeFiles: "连接代码文件",
@@ -797,10 +806,6 @@ const messages = {
     continue: "继续",
     continueToGenerate: "继续生成",
     designSystem: "设计系统",
-    designSystemIndexing: "正在索引…",
-    designSystemUnavailable: "不可用",
-    designSystemIndexingNotice:
-      "该设计系统仍在索引中。请选择其他设计系统，或等待索引完成后再继续。",
     referenceDeck: "参考幻灯片",
     referenceDeckPlaceholder: "参照现有幻灯片的风格",
     referenceDeckNone: "不使用参考",

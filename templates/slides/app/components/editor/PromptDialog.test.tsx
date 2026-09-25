@@ -136,12 +136,13 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
   ),
 }));
 
-import PromptPopover, {
+import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import {
   addInlineImageFallbacks,
-  createPromptChatAttachments,
-  isInsidePortaledLayer,
   uploadPromptFiles,
-} from "./PromptDialog";
+} from "@/lib/prompt-file-uploads";
+
+import PromptPopover, { createPromptChatAttachments } from "./PromptDialog";
 
 describe("createPromptChatAttachments", () => {
   it("keeps PDFs and pasted text as display-only chat descriptors", async () => {
