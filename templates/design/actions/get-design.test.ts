@@ -8,16 +8,23 @@ const mocks = vi.hoisted(() => {
   };
   selectChain.from.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);
+  const select = vi.fn(() => selectChain);
 
   return {
     asc: vi.fn((column) => ({ asc: column })),
     and: vi.fn((...conditions) => ({ conditions })),
     eq: vi.fn((left, right) => ({ left, right })),
-    getDb: vi.fn(() => ({
-      select: vi.fn(() => selectChain),
-    })),
+    getDb: vi.fn(() => ({ select })),
     resolveAccess: vi.fn(),
+    select,
     selectChain,
+    sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const query = { strings: [...strings], values };
+      return {
+        ...query,
+        as: vi.fn((alias: string) => ({ ...query, alias })),
+      };
+    }),
     track: vi.fn(),
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
       id,
@@ -38,7 +45,7 @@ vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   asc: mocks.asc,
   eq: mocks.eq,
-  sql: vi.fn((strings, ...values) => ({ strings, values })),
+  sql: mocks.sql,
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -182,6 +189,15 @@ describe("get-design", () => {
     });
 
     expect(mocks.selectChain.orderBy).toHaveBeenCalled();
+    expect(mocks.select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          strings: ["NULL::text"],
+          values: [],
+          alias: "content",
+        }),
+      }),
+    );
     expect(result.files).toEqual([
       expect.objectContaining({
         id: "file_123",
