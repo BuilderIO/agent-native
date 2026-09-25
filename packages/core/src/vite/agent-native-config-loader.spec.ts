@@ -168,11 +168,26 @@ describe("resolveFirstRunOnboardingBuildReplacement", () => {
     ).toBe("off");
   });
 
-  it("defaults to off for a project with no onboarding config", () => {
+  it("reports unknown for a project that does not configure onboarding", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
     temporaryRoots.push(root);
 
-    expect(resolveFirstRunOnboardingBuildReplacement(root, {})).toBe("off");
+    expect(resolveFirstRunOnboardingBuildReplacement(root, {})).toBe("");
+  });
+
+  it("reports unknown when a TS config could override agent-native.json", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
+    temporaryRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "agent-native.json"),
+      JSON.stringify({ onboarding: { firstRun: "off" } }),
+    );
+    fs.writeFileSync(
+      path.join(root, "agent-native.config.ts"),
+      `export default ${JSON.stringify({ onboarding: { firstRun: "connect" } })};\n`,
+    );
+
+    expect(resolveFirstRunOnboardingBuildReplacement(root, {})).toBe("");
   });
 
   it("lets the client's env override win over the configured mode", () => {

@@ -143,34 +143,42 @@ export async function loadResolvedAgentNativeConfig(
 }
 
 /**
- * Resolves the first-run onboarding mode to embed into a server bundle at
- * build time (see `vite/client.ts`'s Nitro `replace` map and
- * `deploy/build.ts`'s `resolveNitroBuildReplacements`). Deliberately narrower
- * than `loadResolvedAgentNativeConfig`: every template that configures
- * `onboarding.firstRun` today does so in its own `agent-native.json`
- * (never a workspace config or `agent-native.config.ts`), and staying
- * synchronous keeps this callable from Vite's eager, pre-config-hook plugin
- * setup as well as from the deploy build. Any resolution failure (malformed
- * JSON, invalid mode) returns "" — unknown — rather than guessing "off" and
- * risking a build that silently stops onboarding for an enabled app.
+ * Resolves the first-run onboarding mode to embed into the Nitro server bundle
+ * at build time (`vite/client.ts` Nitro `replace`, `deploy/build.ts`
+ * `resolveNitroBuildReplacements`). Synchronous so both callers can use it.
+ * Returns "" (unknown) whenever it cannot see the whole config, so the server
+ * keeps writing the eligibility marker rather than silently turning onboarding
+ * off for an app configured somewhere this reader does not look.
  */
 export function resolveFirstRunOnboardingBuildReplacement(
   cwd: string,
   env: Record<string, string | undefined> = process.env,
 ): AgentNativeFirstRunOnboardingMode | "" {
   try {
+    const envOverride = env[FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY];
+    if (envOverride !== undefined) {
+      return resolveEffectiveFirstRunOnboardingMode(envOverride, undefined);
+    }
+    // A TS config is merged after agent-native.json and cannot be loaded
+    // synchronously, so it could enable onboarding without this reader seeing
+    // it. Claim a mode only when agent-native.json plus config env vars are the
+    // last word; otherwise report unknown so the server keeps writing the marker.
+    if (findConfigPath(cwd)) return "";
     const mode = env.NODE_ENV === "development" ? "development" : "production";
     const config = resolveAgentNativeConfig(
-      readAgentNativeJsonConfig(cwd),
+      mergeAgentNativeConfigs(
+        readAgentNativeJsonConfig(cwd),
+        readAgentNativeConfigEnv(env),
+        { arrayStrategy: "replace" },
+      ),
       createAgentNativeConfigContext("build", mode),
     );
-    return resolveEffectiveFirstRunOnboardingMode(
-      env[FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY],
-      config.onboarding?.firstRun as
-        | AgentNativeFirstRunOnboardingMode
-        | undefined,
-    );
-    // coercion-ok: "" is a distinct "unknown" sentinel, not a guessed "off" — see the doc comment above.
+    const configured = config.onboarding?.firstRun as
+      | AgentNativeFirstRunOnboardingMode
+      | undefined;
+    if (configured === undefined) return "";
+    return resolveEffectiveFirstRunOnboardingMode(undefined, configured);
+    // coercion-ok: "" is a distinct "unknown" sentinel, not a guessed "off".
   } catch {
     return "";
   }
