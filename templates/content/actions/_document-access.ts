@@ -1,8 +1,13 @@
+import type { DbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  currentAccess,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -14,6 +19,7 @@ import {
 export async function accessibleDocumentIds(
   ids: string[],
   authorizedOrgIds?: string[],
+  db: ReturnType<typeof getDb> = getDb(),
 ) {
   if (ids.length === 0) return new Set<string>();
   const userEmail = getRequestUserEmail();
@@ -31,7 +37,7 @@ export async function accessibleDocumentIds(
     { userEmail: userEmail ?? undefined },
     ...orgIds.map((orgId) => ({ userEmail: userEmail ?? undefined, orgId })),
   ];
-  const rows = await getDb()
+  const rows = await db
     .select({ id: schema.documents.id })
     .from(schema.documents)
     .where(
@@ -54,8 +60,13 @@ export async function accessibleDocumentIds(
   return new Set(rows.map((row) => row.id));
 }
 
-export async function resolveDocumentAccess(id: string) {
-  const current = await resolveAccess("document", id);
+export async function resolveDocumentAccess(
+  id: string,
+  transaction?: DbExec,
+  db: ReturnType<typeof getDb> = getDb(),
+) {
+  const context = transaction ? { ...currentAccess(), transaction } : undefined;
+  const current = await resolveAccess("document", id, context);
   if (current) {
     return {
       ...current,
@@ -65,7 +76,7 @@ export async function resolveDocumentAccess(id: string) {
       },
     };
   }
-  const [reference] = await getDb()
+  const [reference] = await db
     .select({ spaceId: schema.documents.spaceId })
     .from(schema.documents)
     .where(eq(schema.documents.id, id))
@@ -73,7 +84,9 @@ export async function resolveDocumentAccess(id: string) {
   if (!reference?.spaceId) return null;
   let spaceAccess;
   try {
-    spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
+    spaceAccess = await resolveContentSpaceAccess(reference.spaceId, "viewer", {
+      db,
+    });
   } catch (error) {
     if (
       error instanceof Error &&
@@ -85,8 +98,10 @@ export async function resolveDocumentAccess(id: string) {
     throw error;
   }
   const granted = await resolveAccess("document", id, {
+    ...currentAccess(),
     userEmail: spaceAccess.authority.userEmail,
     orgId: spaceAccess.authority.orgId ?? undefined,
+    transaction,
   });
   if (!granted) return null;
   return {

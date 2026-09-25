@@ -19,7 +19,10 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
-import { resolveDocumentAccess } from "../../actions/_document-access.js";
+import {
+  accessibleDocumentIds,
+  resolveDocumentAccess,
+} from "../../actions/_document-access.js";
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
@@ -381,7 +384,7 @@ async function assertSuggestionBodyTarget(
   const row = (
     await transaction.execute({
       sql: `SELECT
-              EXISTS (SELECT 1 FROM content_databases d WHERE d.document_id = ? AND d.deleted_at IS NULL) AS is_database,
+              EXISTS (SELECT 1 FROM content_databases d WHERE d.document_id = ?) AS is_database,
               EXISTS (SELECT 1 FROM content_database_items i INNER JOIN content_databases d ON d.id = i.database_id WHERE i.document_id = ? AND d.deleted_at IS NULL) AS has_membership`,
       args: [documentId, documentId],
     })
@@ -406,16 +409,25 @@ async function assertSuggestionBodyTarget(
   const ordinaryMemberships = memberships.filter(
     (membership) => membership.system_role === null,
   );
-  let hasAccessiblePrimary = false;
-  for (const membership of ordinaryMemberships) {
-    if (
-      membership.primary_id &&
-      (await resolveDocumentAccess(String(membership.database_document_id)))
-    ) {
-      hasAccessiblePrimary = true;
-      break;
-    }
-  }
+  const eligibleDocumentIds = ordinaryMemberships
+    .filter((membership) => membership.primary_id)
+    .map((membership) => String(membership.database_document_id));
+  const identityDb = drizzleTransactionForExec(transaction);
+  const accessibleIds = await accessibleDocumentIds(
+    eligibleDocumentIds,
+    [],
+    identityDb,
+  );
+  const remainingIds = eligibleDocumentIds.filter(
+    (id) => !accessibleIds.has(id),
+  );
+  const spaceAccess = await Promise.all(
+    remainingIds.map((id) =>
+      resolveDocumentAccess(id, transaction, identityDb),
+    ),
+  );
+  let hasAccessiblePrimary =
+    accessibleIds.size > 0 || spaceAccess.some(Boolean);
   if (!hasAccessiblePrimary && !ordinaryMemberships.length) {
     hasAccessiblePrimary = memberships.some(
       (membership) =>
@@ -661,6 +673,11 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       );
     }
     const identityTx = drizzleTransactionForExec(tx);
+    // Lock the parent row before reading memberships so a concurrent child insert cannot escape reconciliation.
+    await tx.execute({
+      sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+      args: [context.resourceId],
+    });
     const primaryBlocksFields = await lockPrimaryBlocksFields(
       identityTx,
       context.resourceId,

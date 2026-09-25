@@ -274,6 +274,32 @@ async function accept(
 }
 
 describe("Content suggested edits Blocks transaction", () => {
+  it("keeps a soft-deleted collection Page excluded at proposal and acceptance", async () => {
+    const { databaseId, databaseDocumentId } =
+      await seedMetadataOnlyDatabasePage();
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(schema.contentDatabases.id, databaseId));
+
+    await expect(
+      getDbExec().transaction!(async (tx) =>
+        runWithRequestContext({ userEmail: ownerEmail }, () =>
+          adapter.validateProposal({
+            resourceType: "document",
+            resourceId: databaseDocumentId,
+            baseRevision: "rev-1",
+            operations: [operation],
+            ctx: { transaction: tx },
+          }),
+        ),
+      ),
+    ).rejects.toThrow(/Collection Pages/);
+    await expect(
+      getDbExec().transaction!(async (tx) => accept(databaseDocumentId, tx)),
+    ).rejects.toThrow(/Collection Pages/);
+  });
+
   it("rejects metadata-only collection items and collection Pages at proposal and acceptance", async () => {
     const { documentId, databaseDocumentId } =
       await seedMetadataOnlyDatabasePage();

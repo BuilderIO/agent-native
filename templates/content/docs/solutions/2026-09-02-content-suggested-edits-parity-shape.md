@@ -1428,3 +1428,13 @@ In a fresh collection-row preview, an unsaved suggestion remained recoverable
 after its only Blocks property was deleted in a second Chromium tab. The open
 preview displayed Copy my unsaved text and Discard draft; Discard exited
 Suggesting. The disposable collection and row were moved to local Trash.
+
+The final review pass also identified sequential membership access during
+proposal and acceptance, a membership insert race during acceptance, and a
+soft-deleted collection Page that could appear standalone. Eligibility now
+batches direct access checks within the transaction and uses transaction-aware
+resolution for remaining Content-space cases. Acceptance locks the Page before
+capturing the memberships whose primary fields it reconciles, while proposal
+and acceptance both exclude soft-deleted collection containers. A targeted
+database regression covers the deleted-container case; the three affected
+Content database suites pass (68 tests), along with Content typechecking.
