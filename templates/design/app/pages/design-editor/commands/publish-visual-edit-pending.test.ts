@@ -42,7 +42,13 @@ describe("runPublishVisualEditPending", () => {
     expect(args.showHandoffErrorToast).not.toHaveBeenCalled();
     expect(args.fetchImpl).toHaveBeenCalledWith(
       "http://127.0.0.1:7331/live-edit-pending",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          designId: "design-1",
+          pending: args.pending.pending,
+        }),
+      }),
     );
   });
 
@@ -91,5 +97,24 @@ describe("runPublishVisualEditPending", () => {
     await runPublishVisualEditPending(args);
 
     expect(args.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("includes the design ID when clearing the bridge handoff", async () => {
+    const args = makeArgs({
+      canPublishDurableHandoff: false,
+      pending: {
+        ...makeArgs().pending,
+        pending: null,
+      },
+    });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:7331/live-edit-pending",
+      expect.objectContaining({
+        body: JSON.stringify({ designId: "design-1", pending: null }),
+      }),
+    );
   });
 });

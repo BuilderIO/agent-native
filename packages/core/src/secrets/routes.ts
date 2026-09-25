@@ -81,12 +81,12 @@ import {
  * `workspace` rows were saved from an app's Keys section; `vault` rows were
  * synced from the Dispatch workspace Vault and are managed there.
  */
-export type SecretSource = "personal" | "workspace" | "vault" | "env";
+export type SecretSource = "personal" | "workspace" | "vault";
 
 function secretSource(
   scope: SecretScope,
   description: string | null | undefined,
-): Exclude<SecretSource, "env"> {
+): SecretSource {
   if (scope === "user") return "personal";
   return description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
     ? "vault"
@@ -132,8 +132,8 @@ export interface SecretStatusPayload {
    * failed; "unknown" = the credential store could not be read.
    */
   status: "set" | "unset" | "invalid" | "unknown";
-  /** Exact storage scope supplying the runtime value, without exposing its id. */
-  effectiveScope?: SecretScope | "env";
+  /** Exact stored scope supplying the runtime value, without exposing its id. */
+  effectiveScope?: SecretScope;
   /** Where the effective value comes from — only when status === "set". */
   source?: SecretSource;
   /**
@@ -143,7 +143,7 @@ export interface SecretStatusPayload {
    */
   managedHere?: boolean;
   /** A shared value this row overrides; removing the row falls back to it. */
-  overrides?: Exclude<SecretSource, "personal" | "env">;
+  overrides?: Exclude<SecretSource, "personal">;
   /** Scope of a shared value hidden by this user's personal row. */
   overriddenScope?: Exclude<SecretScope, "user">;
   /** Last 4 chars — only populated when status === "set" for api-key kind. */
@@ -270,10 +270,8 @@ export function createListSecretsHandler() {
         continue;
       }
 
-      // api-key: report the value the runtime resolves, not only the row this
-      // UI writes. A key synced from the Dispatch Vault or supplied by the
-      // deployment environment is "set" even though no registered-scope row
-      // exists; reporting it as unset is what made people re-enter it.
+      // api-key: report saved user/workspace values and Vault values, but keep
+      // deploy environment configuration out of user key settings.
       const { scopeId } = await resolveScopeId(event, secret.scope);
       const effective = resolved.get(secret.key) ?? NOT_RESOLVED;
       if (!effective.value) {
@@ -284,19 +282,19 @@ export function createListSecretsHandler() {
         payload.push(base);
         continue;
       }
-      base.status = "set";
       if (
         !effective.source ||
         effective.source === "env" ||
         !effective.scopeId
       ) {
-        base.source = "env";
-        base.effectiveScope = "env";
-        base.managedHere = false;
-        base.last4 = last4(effective.value);
+        if (effective.lookupFailed) {
+          base.status = "unknown";
+          base.error = "Could not read the credential store";
+        }
         payload.push(base);
         continue;
       }
+      base.status = "set";
       const hit = {
         key: secret.key,
         scope: effective.source,

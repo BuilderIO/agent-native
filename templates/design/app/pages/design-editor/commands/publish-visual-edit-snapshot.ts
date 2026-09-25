@@ -5,6 +5,7 @@ export interface VisualEditSnapshotPublicationState {
   latest: Map<string, string>;
   latestReservationTokens: Map<string, string>;
   published: Map<string, string>;
+  generations: Map<string, number>;
   queue: Promise<void>;
 }
 
@@ -14,6 +15,7 @@ export function createVisualEditSnapshotPublicationState(): VisualEditSnapshotPu
     latest: new Map(),
     latestReservationTokens: new Map(),
     published: new Map(),
+    generations: new Map(),
     queue: Promise.resolve(),
   };
 }
@@ -50,6 +52,7 @@ export function runScheduleVisualEditSnapshotPublication(
   }
 
   state.latest.set(fileId, html);
+  const generation = state.generations.get(fileId) ?? 0;
   if (args.reservationToken) {
     state.latestReservationTokens.set(fileId, args.reservationToken);
   } else {
@@ -64,6 +67,7 @@ export function runScheduleVisualEditSnapshotPublication(
       state.queue = state.queue
         .catch(() => {})
         .then(async () => {
+          if ((state.generations.get(fileId) ?? 0) !== generation) return;
           const latestHtml = state.latest.get(fileId);
           if (!latestHtml || state.published.get(fileId) === latestHtml) return;
 
@@ -82,7 +86,12 @@ export function runScheduleVisualEditSnapshotPublication(
             html: latestHtml,
             reservationToken,
           });
-          if (result.published) state.published.set(fileId, latestHtml);
+          if (
+            result.published &&
+            (state.generations.get(fileId) ?? 0) === generation
+          ) {
+            state.published.set(fileId, latestHtml);
+          }
           args.setFailed(false);
         })
         .catch((error) => {
@@ -96,9 +105,29 @@ export function runScheduleVisualEditSnapshotPublication(
 export function runClearVisualEditSnapshotPublications(
   state: VisualEditSnapshotPublicationState,
 ): void {
+  for (const fileId of new Set([
+    ...state.timers.keys(),
+    ...state.latest.keys(),
+    ...state.published.keys(),
+  ])) {
+    state.generations.set(fileId, (state.generations.get(fileId) ?? 0) + 1);
+  }
   state.timers.forEach((timer) => clearTimeout(timer));
   state.timers.clear();
   state.latest.clear();
   state.latestReservationTokens.clear();
   state.published.clear();
+}
+
+export function runInvalidateVisualEditSnapshotPublication(
+  state: VisualEditSnapshotPublicationState,
+  fileId: string,
+): void {
+  state.generations.set(fileId, (state.generations.get(fileId) ?? 0) + 1);
+  const timer = state.timers.get(fileId);
+  if (timer !== undefined) clearTimeout(timer);
+  state.timers.delete(fileId);
+  state.latest.delete(fileId);
+  state.latestReservationTokens.delete(fileId);
+  state.published.delete(fileId);
 }

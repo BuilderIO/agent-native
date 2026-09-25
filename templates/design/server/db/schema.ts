@@ -373,3 +373,11 @@ export const designVisualEditSnapshots = table(
   },
   (t) => [primaryKey({ columns: [t.designId, t.fileId] })],
 );
+
+export const designVisualEditSnapshotBlobCleanup = table(
+  "design_visual_edit_snapshot_blob_cleanup",
+  {
+    blobHandle: text("blob_handle").primaryKey(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);

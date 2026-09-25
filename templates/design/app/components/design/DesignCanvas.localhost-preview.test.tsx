@@ -81,6 +81,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         fileId: "screen-account",
         html: '<!doctype html><html><head><script>top.alert("unsafe-snapshot")</script></head><body><main onclick="unsafe()"><a href="javascript:unsafe()">Shared screen</a><img src="http://localhost:5173/private.png"></main></body></html>',
         updatedAt: "2026-09-24T00:00:00.000Z",
+        publishedRevision: "4",
       },
     });
     const fetchMock = vi.fn().mockResolvedValue(
@@ -131,7 +132,16 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       {
         designId: "design-one",
         fileId: "screen-account",
-        knownUpdatedAt: null,
+        knownPublishedRevision: null,
+      },
+      { refetchInterval: 2_000 },
+    );
+    expect(useActionQueryMock).toHaveBeenCalledWith(
+      "get-visual-edit-snapshot",
+      {
+        designId: "design-one",
+        fileId: "screen-account",
+        knownPublishedRevision: "4",
       },
       { refetchInterval: 2_000 },
     );
@@ -144,6 +154,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         fileId: "screen-account",
         html: null,
         updatedAt: null,
+        publishedRevision: null,
       },
     });
 
@@ -173,6 +184,66 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(
       container.querySelector("[data-design-live-canvas-waiting]"),
     ).not.toBeNull();
+    expect(container.innerHTML).not.toContain("localhost:5173");
+  });
+
+  it("clears a cached snapshot when a newer published revision is empty", async () => {
+    let data: {
+      designId: string;
+      fileId: string;
+      html: string | null;
+      updatedAt: string | null;
+      publishedRevision: string | null;
+      unchanged: boolean;
+    } = {
+      designId: "design-one",
+      fileId: "screen-account",
+      html: "<html><body>Old snapshot</body></html>",
+      updatedAt: "2026-09-24T00:00:00.000Z",
+      publishedRevision: "4",
+      unchanged: false,
+    };
+    useActionQueryMock.mockImplementation(() => ({ data }));
+    const renderSnapshotCanvas = () => (
+      <DesignCanvas
+        content="http://localhost:5173/account"
+        contentKey="screen-account"
+        screenId="screen-account"
+        designId="design-one"
+        sourceType="localhost"
+        snapshotOnly
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    await act(async () => root.render(renderSnapshotCanvas()));
+    expect(
+      container
+        .querySelector<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+        ?.getAttribute("srcdoc"),
+    ).toContain("Old snapshot");
+
+    data = {
+      ...data,
+      html: null,
+      updatedAt: null,
+      publishedRevision: "5",
+    };
+    await act(async () => root.render(renderSnapshotCanvas()));
+
+    expect(
+      container.querySelector("iframe[data-design-preview-iframe]"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-design-live-canvas-waiting]"),
+    ).not.toBeNull();
+    expect(container.innerHTML).not.toContain("Old snapshot");
     expect(container.innerHTML).not.toContain("localhost:5173");
   });
 

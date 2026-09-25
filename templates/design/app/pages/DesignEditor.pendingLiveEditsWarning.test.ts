@@ -120,7 +120,7 @@ describe("DesignEditor pending live edits", () => {
     expect(deps).toContain("isLiveCanvasShareLink,");
   });
 
-  it("blocks per-frame Interact entry the same way runModeChange blocks it, but always allows leaving", () => {
+  it("uses the shared guard for frame entry and close path for re-clicking the focused screen", () => {
     const source = readFileSync(
       new URL("./DesignEditor.tsx", import.meta.url),
       "utf8",
@@ -129,22 +129,30 @@ describe("DesignEditor pending live edits", () => {
       "const handleOverviewFrameAction = useCallback(",
     );
     expect(handlerStart).toBeGreaterThan(-1);
-    const handlerEnd = source.indexOf("\n  );", handlerStart);
-    expect(handlerEnd).toBeGreaterThan(handlerStart);
-    const handler = source.slice(handlerStart, handlerEnd);
-    // Leaving (re-clicking the already-interacting frame) is unconditional —
-    // checked, and returned from, before the pending-edit guard below.
-    const leaveIndex = handler.indexOf(
+    const handler = source.slice(
+      handlerStart,
+      source.indexOf("// Escape is the standard", handlerStart),
+    );
+    const focusedFrameIndex = handler.indexOf(
       "overviewInteractScreenIdRef.current === screenId",
     );
-    const guardIndex = handler.indexOf(
-      "pendingVisualStyleEditsRef.current.length > 0",
+    const closeIndex = handler.indexOf("handleExitResponsiveInteract();");
+    const enterIndex = handler.indexOf(
+      'handleModeChange("interact", { targetFileId: screenId })',
     );
-    expect(leaveIndex).toBeGreaterThan(-1);
-    expect(guardIndex).toBeGreaterThan(leaveIndex);
-    expect(handler).toContain("pendingLiveNonStyleEditsRef.current.length > 0");
-    expect(handler).toContain(
-      'toast.error(t("designEditor.pendingVisualStyles.interactBlocked"))',
+    expect(focusedFrameIndex).toBeGreaterThan(-1);
+    expect(closeIndex).toBeGreaterThan(focusedFrameIndex);
+    expect(enterIndex).toBeGreaterThan(closeIndex);
+
+    const modeChangeStart = source.indexOf(
+      "const handleModeChange = useCallback(",
     );
+    const modeChangeEnd = source.indexOf("\n  );", modeChangeStart);
+    expect(modeChangeStart).toBeGreaterThan(-1);
+    expect(modeChangeEnd).toBeGreaterThan(modeChangeStart);
+    const modeChange = source.slice(modeChangeStart, modeChangeEnd);
+    expect(modeChange).toContain("blockInteraction:");
+    expect(modeChange).toContain("remoteVisualEditPending");
+    expect(modeChange).toContain('designAccessRole !== "owner"');
   });
 });

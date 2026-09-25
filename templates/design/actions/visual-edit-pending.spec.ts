@@ -311,10 +311,11 @@ describe("visual-edit pending handoff", () => {
       }),
     );
     const update = mocks.insertChain.onConflictDoUpdate.mock.calls[0]?.[0];
-    expect(update?.setWhere.strings.join(" ")).toContain(
+    const samePublisherCondition = update?.setWhere.values[0];
+    expect(samePublisherCondition.strings.join(" ")).toContain(
       "= excluded.publisher_id AND",
     );
-    expect(update?.setWhere.values).toEqual([
+    expect(samePublisherCondition.values).toEqual([
       "pending.publisherId",
       "pending.clientRevision",
     ]);
@@ -363,6 +364,10 @@ describe("visual-edit pending handoff", () => {
 
   it("lets an owner clear a ready handoff published by another collaborator", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "owner",
+      resource: design,
+    });
     mocks.insertChain.returning.mockResolvedValueOnce([{ revision: 3 }]);
 
     await expect(
@@ -381,6 +386,30 @@ describe("visual-edit pending handoff", () => {
       "pending.status",
     );
     expect(mocks.selectChain.limit).not.toHaveBeenCalled();
+  });
+
+  it("does not let a non-owner clear another publisher's ready handoff", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.assertAccess.mockResolvedValue({ role: "viewer", resource: design });
+    mocks.insertChain.returning.mockResolvedValueOnce([]);
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      { status: "ready", publisherId: "22222222-2222-4222-8222-222222222222" },
+    ]);
+
+    await expect(
+      publishPendingAction.run(
+        { designId: "design_public", publisherId, revision: 3, pending: null },
+        { caller: "frontend", requestHeaders: new Headers() },
+      ),
+    ).resolves.toMatchObject({ status: "stale", revision: null });
+
+    const update = mocks.insertChain.onConflictDoUpdate.mock.calls[0]?.[0];
+    const otherPublisherCondition = update?.setWhere.values[1];
+    expect(otherPublisherCondition.values[0].strings.join(" ")).toContain(
+      "IS DISTINCT FROM excluded.publisher_id",
+    );
+    expect(otherPublisherCondition.values[1]).toBe("pending.status");
+    expect(mocks.selectChain.limit).toHaveBeenCalled();
   });
 
   it("returns an explicit stale result when a browser publication is out of order", async () => {

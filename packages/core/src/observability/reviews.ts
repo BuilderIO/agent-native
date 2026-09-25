@@ -9,6 +9,7 @@ import {
 import type {
   FeedbackEntry,
   InstructionUpdate,
+  OutputReviewDetail,
   OutputReviewListRow,
   TraceSummary,
 } from "./types.js";
@@ -203,6 +204,30 @@ export async function getOutputReviewAppForRun(opts: {
   return {
     found: true,
     app: getInlineAppForRun(summary, thread.threadData ?? null),
+  };
+}
+
+export async function getOutputReviewDetailForRun(opts: {
+  runId: string;
+  userId: string;
+}): Promise<{ found: false } | ({ found: true } & OutputReviewDetail)> {
+  const summary = await getTraceSummary(opts.runId, { userId: opts.userId });
+  if (!summary) return { found: false };
+  if (!summary.threadId) {
+    return { found: true, app: null, messages: [] };
+  }
+
+  const threads = await resolveThreadsAccess(opts.userId, [summary.threadId]);
+  const thread = threads.get(summary.threadId);
+  if (!thread) return { found: false };
+
+  const threadMessages = thread.threadData
+    ? readThreadMessages(thread.threadData)
+    : [];
+  return {
+    found: true,
+    app: getInlineAppForRun(summary, thread.threadData ?? null),
+    messages: threadMessages.map(({ role, text }) => ({ role, text })),
   };
 }
 

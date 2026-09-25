@@ -113,6 +113,7 @@ export default defineAction({
     const design = access.resource as typeof schema.designs.$inferSelect;
     const now = new Date().toISOString();
     const canEditDesign = ["owner", "admin", "editor"].includes(access.role);
+    const canClearOtherPublisher = access.role === "owner";
     const values = {
       designId,
       revision: 1,
@@ -148,13 +149,13 @@ export default defineAction({
           orgId: values.orgId,
         },
         setWhere:
-          pending === null && !canEditDesign
-            ? samePublisherIsNewer
-            : sql`(${samePublisherIsNewer} OR ${pending === null && canEditDesign ? fromNewPublisher : fromNewPublisherToReady})`,
+          pending === null
+            ? sql`(${samePublisherIsNewer} OR ${canClearOtherPublisher ? fromNewPublisher : fromNewPublisherToReady})`
+            : sql`(${samePublisherIsNewer} OR ${fromNewPublisherToReady})`,
       })
       .returning({ revision: schema.designVisualEditPending.revision });
 
-    if (!updated.length && pending !== null) {
+    if (!updated.length && (pending !== null || !canEditDesign)) {
       const [current] = await getDb()
         .select({
           status: schema.designVisualEditPending.status,
@@ -165,6 +166,15 @@ export default defineAction({
         .limit(1);
 
       if (current?.status === "ready" && current.publisherId !== publisherId) {
+        if (pending === null) {
+          return {
+            designId,
+            pendingEditCount: null,
+            status: "stale" as const,
+            revision: null,
+            updatedAt: null,
+          };
+        }
         fail(
           "Another collaborator has visual edits waiting to be applied. Apply or clear those edits before publishing new ones.",
           {

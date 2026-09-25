@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { designScreenSourceTypeFromData } from "../../shared/source-mode.js";
 import { schema } from "../db/index.js";
 import type { DesignDataMutationTransaction } from "./design-data-mutation.js";
+import { queueVisualEditSnapshotBlobCleanupInTransaction } from "./visual-edit-snapshot-blobs.js";
 
 const MAX_CAPTURE_REVISION = 9_223_372_036_854_775_807n;
 
@@ -47,6 +48,10 @@ export async function retireVisualEditSnapshotInTransaction(args: {
   if (snapshot.captureRevision >= MAX_CAPTURE_REVISION) {
     throw new Error("The visual-edit snapshot revision is exhausted.");
   }
+
+  await queueVisualEditSnapshotBlobCleanupInTransaction(args.tx, [
+    snapshot.blobHandle,
+  ]);
 
   const nextRevision = snapshot.captureRevision + 1n;
   const retired = await args.tx

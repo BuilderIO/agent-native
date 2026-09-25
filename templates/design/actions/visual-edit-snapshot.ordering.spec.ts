@@ -94,6 +94,13 @@ vi.mock("../server/db/index.js", async () => {
     },
     (table) => [pgCore.primaryKey({ columns: [table.designId, table.fileId] })],
   );
+  const designVisualEditSnapshotBlobCleanup = pgCore.pgTable(
+    "design_visual_edit_snapshot_blob_cleanup",
+    {
+      blobHandle: pgCore.text("blob_handle").primaryKey(),
+      createdAt: pgCore.text("created_at").notNull(),
+    },
+  );
   const pglite = await PGlite.create("memory://");
   await pglite.exec(`
     CREATE TABLE designs (
@@ -123,11 +130,20 @@ vi.mock("../server/db/index.js", async () => {
       org_id TEXT,
       PRIMARY KEY (design_id, file_id)
     );
+    CREATE TABLE design_visual_edit_snapshot_blob_cleanup (
+      blob_handle TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     INSERT INTO design_files (id, design_id, content, file_type)
     VALUES ('screen-one', 'design-one', 'http://localhost:5173/', 'html');
   `);
   localDb.pglite = pglite;
-  const schema = { designs, designFiles, designVisualEditSnapshots };
+  const schema = {
+    designs,
+    designFiles,
+    designVisualEditSnapshots,
+    designVisualEditSnapshotBlobCleanup,
+  };
   const db = drizzle(pglite, { schema });
   localDb.getDb.mockReturnValue(db);
   return { getDb: () => db, schema };
@@ -179,6 +195,9 @@ beforeEach(async () => {
     ],
   );
   await localDb.pglite?.query("DELETE FROM design_visual_edit_snapshots");
+  await localDb.pglite?.query(
+    "DELETE FROM design_visual_edit_snapshot_blob_cleanup",
+  );
 });
 
 afterAll(async () => {

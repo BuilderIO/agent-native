@@ -17,7 +17,10 @@ import {
   snapshotDesignBeforeAgentEditInVersionLock,
   withDesignVersionLock,
 } from "../server/lib/design-versions.js";
-import { deleteVisualEditSnapshotBlobs } from "../server/lib/visual-edit-snapshot-blobs.js";
+import {
+  deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction,
+} from "../server/lib/visual-edit-snapshot-blobs.js";
 import {
   affectedRowCount,
   designSourceMutationLockKey,
@@ -566,6 +569,10 @@ export default defineAction({
             ),
           )
           .for("update");
+        await queueVisualEditSnapshotBlobCleanupInTransaction(
+          tx,
+          snapshotRows.map((row) => row.blobHandle),
+        );
         const deleteResult = await tx
           .delete(schema.designFiles)
           .where(

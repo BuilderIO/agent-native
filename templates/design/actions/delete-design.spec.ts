@@ -34,6 +34,11 @@ const mocks = vi.hoisted(() => {
     deleteVisualEditSnapshotBlobs: vi.fn(async () => {
       events.push("cleanup");
     }),
+    queueVisualEditSnapshotBlobCleanupInTransaction: vi.fn(
+      async (_tx: unknown, _handles: string[]) => {
+        events.push("queue-cleanup");
+      },
+    ),
   };
 });
 
@@ -49,6 +54,8 @@ vi.mock("drizzle-orm", () => ({
 }));
 vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
   deleteVisualEditSnapshotBlobs: mocks.deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction:
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
 }));
 vi.mock("../server/db/index.js", () => ({
   schema: {
@@ -64,6 +71,7 @@ vi.mock("../server/db/index.js", () => ({
       designId: "designVisualEditSnapshots.designId",
       blobHandle: "designVisualEditSnapshots.blobHandle",
     },
+    designVisualEditPending: { designId: "designVisualEditPending.designId" },
     designs: { id: "designs.id" },
   },
 }));
@@ -97,6 +105,12 @@ describe("delete-design snapshot cleanup", () => {
     mocks.deleteVisualEditSnapshotBlobs.mockImplementation(async () => {
       mocks.events.push("cleanup");
     });
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction.mockReset();
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction.mockImplementation(
+      async () => {
+        mocks.events.push("queue-cleanup");
+      },
+    );
   });
 
   it("removes every snapshot blob after the design deletion commits", async () => {
@@ -108,7 +122,13 @@ describe("delete-design snapshot cleanup", () => {
     expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
       "serialized-handle",
     ]);
-    expect(mocks.events).toEqual(["commit", "cleanup"]);
+    expect(
+      mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
+    ).toHaveBeenCalledWith(mocks.tx, ["serialized-handle"]);
+    expect(mocks.tx.delete).toHaveBeenCalledWith({
+      designId: "designVisualEditPending.designId",
+    });
+    expect(mocks.events).toEqual(["queue-cleanup", "commit", "cleanup"]);
   });
 
   it("does not delete blobs if the SQL deletion fails", async () => {

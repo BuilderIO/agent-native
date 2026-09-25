@@ -79,7 +79,10 @@ export async function runPublishVisualEditPending(
           "content-type": "application/json",
           "x-design-preview-token": activeScreenPreviewToken,
         },
-        body: JSON.stringify(pending.pending),
+        body: JSON.stringify({
+          designId: pending.designId,
+          pending: pending.pending,
+        }),
       },
     );
     if (!response.ok) {

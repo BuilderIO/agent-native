@@ -4,7 +4,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
-import { deleteVisualEditSnapshotBlobs } from "../server/lib/visual-edit-snapshot-blobs.js";
+import {
+  deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction,
+} from "../server/lib/visual-edit-snapshot-blobs.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 
 export default defineAction({
@@ -26,6 +29,15 @@ export default defineAction({
           .from(schema.designVisualEditSnapshots)
           .where(eq(schema.designVisualEditSnapshots.designId, id))
           .for("update");
+
+        await queueVisualEditSnapshotBlobCleanupInTransaction(
+          tx,
+          snapshots.map((snapshot) => snapshot.blobHandle),
+        );
+
+        await tx
+          .delete(schema.designVisualEditPending)
+          .where(eq(schema.designVisualEditPending.designId, id));
 
         await tx
           .delete(schema.designShares)

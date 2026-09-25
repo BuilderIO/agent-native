@@ -21,7 +21,14 @@ export default defineAction({
       .string()
       .nullable()
       .optional()
-      .describe("Timestamp of the latest snapshot already held by the viewer."),
+      .describe("Legacy timestamp hint accepted for older viewers."),
+    knownPublishedRevision: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "Published revision of the latest snapshot already held by the viewer.",
+      ),
   }),
   readOnly: true,
   requiresAuth: false,
@@ -30,7 +37,7 @@ export default defineAction({
   capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   maxResultChars: 1_052_000,
-  run: async ({ designId, fileId, knownUpdatedAt }) => {
+  run: async ({ designId, fileId, knownUpdatedAt, knownPublishedRevision }) => {
     const access = await assertAccess("design", designId, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;
 
@@ -65,6 +72,7 @@ export default defineAction({
     const [latest] = await db
       .select({
         updatedAt: table.updatedAt,
+        publishedRevision: table.publishedRevision,
       })
       .from(table)
       .where(where)
@@ -76,15 +84,22 @@ export default defineAction({
         fileId,
         html: null,
         updatedAt: null,
+        publishedRevision: null,
         unchanged: false,
       };
     }
-    if (knownUpdatedAt && latest.updatedAt === knownUpdatedAt) {
+    const latestRevision = latest.publishedRevision.toString();
+    const alreadyHasLatest =
+      knownPublishedRevision != null
+        ? latestRevision === knownPublishedRevision
+        : Boolean(knownUpdatedAt && latest.updatedAt === knownUpdatedAt);
+    if (alreadyHasLatest) {
       return {
         designId,
         fileId,
         html: null,
         updatedAt: latest.updatedAt,
+        publishedRevision: latestRevision,
         unchanged: true,
       };
     }
@@ -94,6 +109,7 @@ export default defineAction({
         html: table.html,
         blobHandle: table.blobHandle,
         updatedAt: table.updatedAt,
+        publishedRevision: table.publishedRevision,
       })
       .from(table)
       .where(where)
@@ -105,15 +121,22 @@ export default defineAction({
         fileId,
         html: null,
         updatedAt: null,
+        publishedRevision: latestRevision,
         unchanged: false,
       };
     }
-    if (snapshot.updatedAt === knownUpdatedAt) {
+    const snapshotRevision = snapshot.publishedRevision.toString();
+    const alreadyHasSnapshot =
+      knownPublishedRevision != null
+        ? snapshotRevision === knownPublishedRevision
+        : Boolean(knownUpdatedAt && snapshot.updatedAt === knownUpdatedAt);
+    if (alreadyHasSnapshot) {
       return {
         designId,
         fileId,
         html: null,
         updatedAt: snapshot.updatedAt,
+        publishedRevision: snapshotRevision,
         unchanged: true,
       };
     }
@@ -140,6 +163,7 @@ export default defineAction({
       fileId,
       html,
       updatedAt: snapshot.updatedAt,
+      publishedRevision: snapshotRevision,
       unchanged: false,
     };
   },

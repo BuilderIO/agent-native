@@ -474,6 +474,14 @@ ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS client_revision 
 ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS capture_revision BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS published_revision BIGINT NOT NULL DEFAULT 0`,
     },
+    {
+      version: 35,
+      name: "design-visual-edit-snapshot-blob-cleanup",
+      sql: `CREATE TABLE IF NOT EXISTS design_visual_edit_snapshot_blob_cleanup (
+    blob_handle TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+    },
   ],
   { table: "design_migrations" },
 );

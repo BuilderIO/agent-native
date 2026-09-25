@@ -107,6 +107,7 @@ const mocks = vi.hoisted(() => {
     ),
     lockDesignFilesTable: vi.fn(),
     deleteVisualEditSnapshotBlobs: vi.fn(),
+    queueVisualEditSnapshotBlobCleanupInTransaction: vi.fn(),
   };
 });
 
@@ -186,6 +187,8 @@ vi.mock("../server/source-workspace.js", () => ({
 }));
 vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
   deleteVisualEditSnapshotBlobs: mocks.deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction:
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
 }));
 
 import action from "./delete-file.js";
@@ -534,6 +537,9 @@ describe("delete-file", () => {
     expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
       blobHandle,
     ]);
+    expect(
+      mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
+    ).toHaveBeenCalledWith(mocks.tx, [blobHandle]);
   });
 
   it("reports an already-missing row without pruning its metadata", async () => {

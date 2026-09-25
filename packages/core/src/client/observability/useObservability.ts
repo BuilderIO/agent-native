@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type {
   InstructionUpdate,
+  OutputReviewDetail,
   OutputReviewListRow,
 } from "../../observability/types.js";
 import { agentNativePath } from "../api-path.js";
@@ -77,16 +78,25 @@ export function useOutputReviews(sinceDays = 7, limit = 100) {
     }),
     [sinceDays, limit],
   );
-  return useActionQuery<OutputReviewListRow[]>(
+  const query = useActionQuery<OutputReviewListRow[]>(
     "list-observability-reviews",
     params,
     { refetchInterval: 30_000 },
   );
+  return query;
 }
 
 export function useOutputReviewApp(runId: string | null) {
   return useActionQuery<AgentMcpAppPayload | null>(
     "get-observability-review-app",
+    { runId: runId ?? "" },
+    { enabled: runId !== null, gcTime: 0 },
+  );
+}
+
+export function useOutputReviewDetail(runId: string | null) {
+  return useActionQuery<OutputReviewDetail>(
+    "get-observability-review-detail",
     { runId: runId ?? "" },
     { enabled: runId !== null, gcTime: 0 },
   );

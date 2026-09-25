@@ -14974,6 +14974,11 @@ it(
         );
       });
 
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) => message.type === "canvas-image-paste",
+        ),
+      );
       const messages = await readBridgeMessages(page);
       const paste = messages.find(
         (message) => message.type === "canvas-image-paste",

@@ -5,11 +5,24 @@ const mocks = vi.hoisted(() => ({
   getAiFilterState: vi.fn(),
   getJevContextCredentials: vi.fn(),
   getUserSetting: vi.fn(),
+  isResolvedEngineUsableForRequest: vi.fn(),
   isJevEnabled: vi.fn(),
   readDeployCredentialEnv: vi.fn(),
+  registerBuiltinEngines: vi.fn(),
+  resolveCredential: vi.fn(),
+  resolveEngine: vi.fn(),
+  resolveAutomationModelSettings: vi.fn(),
   requestJevThroughBuilder: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/agent/engine", () => ({
+  isResolvedEngineUsableForRequest: mocks.isResolvedEngineUsableForRequest,
+  registerBuiltinEngines: mocks.registerBuiltinEngines,
+  resolveEngine: mocks.resolveEngine,
+}));
+vi.mock("@agent-native/core/credentials", () => ({
+  resolveCredential: mocks.resolveCredential,
+}));
 vi.mock("@agent-native/core/server", () => ({
   getRequestContext: () => undefined,
   getJevContextCredentials: mocks.getJevContextCredentials,
@@ -43,9 +56,11 @@ vi.mock("./automation-actions.js", () => ({
   executeActions: vi.fn(),
 }));
 vi.mock("./automation-model.js", () => ({
-  resolveAutomationModelSettings: vi
-    .fn()
-    .mockResolvedValue({ engine: "typesafe", model: "jev-latest" }),
+  resolveAutomationModelSettings:
+    mocks.resolveAutomationModelSettings.mockResolvedValue({
+      engine: "typesafe",
+      model: "jev-latest",
+    }),
   resolveTextAutomationModelSettings: vi.fn(),
   TYPESAFE_AUTOMATION_ENGINE: "typesafe",
   TYPESAFE_AUTOMATION_MODEL: "jev-latest",
@@ -84,6 +99,17 @@ describe("Mail Jev automation routing", () => {
     mocks.isJevEnabled.mockResolvedValue(true);
     mocks.getAiFilterState.mockResolvedValue({ enabled: false, feedback: [] });
     mocks.getUserSetting.mockResolvedValue(null);
+    mocks.resolveCredential.mockResolvedValue(undefined);
+    mocks.resolveEngine.mockImplementation(
+      async (options: { apiKey?: string }) => ({
+        defaultModel: "claude-sonnet-5",
+        stream: vi.fn(),
+        configured: Boolean(options.apiKey),
+      }),
+    );
+    mocks.isResolvedEngineUsableForRequest.mockImplementation(
+      async (engine: { configured?: boolean }) => Boolean(engine.configured),
+    );
     mocks.readDeployCredentialEnv.mockReturnValue(undefined);
     mocks.dbSelect.mockReturnValue({
       from: () => ({
@@ -98,6 +124,24 @@ describe("Mail Jev automation routing", () => {
   });
 
   afterEach(() => vi.unstubAllGlobals());
+
+  it("resolves a saved scoped Anthropic credential for the owner", async () => {
+    mocks.resolveCredential.mockResolvedValue("saved-workspace-key");
+    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
+
+    await previewAutomationRules([], [], "key-owner@example.com", {} as never);
+
+    expect(mocks.resolveCredential).toHaveBeenCalledWith("ANTHROPIC_API_KEY", {
+      userEmail: "key-owner@example.com",
+    });
+    expect(mocks.resolveEngine).toHaveBeenCalledWith({
+      engineOption: "anthropic",
+      apiKey: "saved-workspace-key",
+    });
+  });
 
   it("evaluates Mail AI filters through Builder without a user key", async () => {
     const result = await previewAutomationRules(

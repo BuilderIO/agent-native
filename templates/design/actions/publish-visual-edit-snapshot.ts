@@ -1,6 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
-  deletePrivateBlob,
   putPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
@@ -9,6 +8,10 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction,
+} from "../server/lib/visual-edit-snapshot-blobs.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   assertDesignHtmlCreateIntegrity,
@@ -284,6 +287,10 @@ export default defineAction({
             return null;
           }
 
+          await queueVisualEditSnapshotBlobCleanupInTransaction(tx, [
+            current.blobHandle,
+          ]);
+
           const updated = await tx
             .update(table)
             .set({
@@ -331,23 +338,9 @@ export default defineAction({
 });
 
 async function discardSnapshotBlob(blob: PrivateBlobHandle): Promise<void> {
-  try {
-    await deletePrivateBlob(blob);
-  } catch (error) {
-    console.warn(
-      "[visual-edit] Could not remove a superseded fallback snapshot blob:",
-      error,
-    );
-  }
+  await deleteVisualEditSnapshotBlobs([JSON.stringify(blob)]);
 }
 
 async function discardStoredSnapshotBlob(value: string): Promise<void> {
-  try {
-    await discardSnapshotBlob(JSON.parse(value) as PrivateBlobHandle);
-  } catch (error) {
-    console.warn(
-      "[visual-edit] Could not parse a superseded fallback snapshot blob handle:",
-      error,
-    );
-  }
+  await deleteVisualEditSnapshotBlobs([value]);
 }

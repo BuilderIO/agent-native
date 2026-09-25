@@ -2,6 +2,12 @@ import {
   deletePrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
+import { eq } from "drizzle-orm";
+
+import { getDb, schema } from "../db/index.js";
+import type { DesignDataMutationTransaction } from "./design-data-mutation.js";
+
+const CLEANUP_BATCH_SIZE = 50;
 
 export function parseVisualEditSnapshotBlobHandle(
   value: string,
@@ -34,22 +40,49 @@ export function parseVisualEditSnapshotBlobHandle(
 export async function deleteVisualEditSnapshotBlobs(
   values: readonly (string | null | undefined)[],
 ): Promise<void> {
-  for (const value of new Set(values.filter((value) => value != null))) {
+  const db = getDb();
+  const table = schema.designVisualEditSnapshotBlobCleanup;
+  const handles = [...new Set(values.filter((value) => value != null))];
+  if (handles.length) {
+    await db
+      .insert(table)
+      .values(handles.map((blobHandle) => ({ blobHandle })))
+      .onConflictDoNothing();
+  }
+
+  const pending = await db
+    .select({ blobHandle: table.blobHandle })
+    .from(table)
+    .limit(CLEANUP_BATCH_SIZE);
+  for (const { blobHandle } of pending) {
     try {
       const result = await deletePrivateBlob(
-        parseVisualEditSnapshotBlobHandle(value),
+        parseVisualEditSnapshotBlobHandle(blobHandle),
       );
       if (!result.deleted) {
-        console.warn(
-          "[visual-edit] Could not remove a deleted screen fallback snapshot blob:",
-          result.reason ?? result.provider,
+        throw new Error(
+          result.reason ??
+            `Provider ${result.provider} did not delete the blob.`,
         );
       }
+      await db.delete(table).where(eq(table.blobHandle, blobHandle));
     } catch (error) {
       console.warn(
-        "[visual-edit] Could not remove a deleted screen fallback snapshot blob:",
+        "[visual-edit] Snapshot blob cleanup remains queued for retry:",
         error,
       );
     }
   }
+}
+
+export async function queueVisualEditSnapshotBlobCleanupInTransaction(
+  tx: DesignDataMutationTransaction,
+  values: readonly (string | null | undefined)[],
+): Promise<void> {
+  const handles = [...new Set(values.filter((value) => value != null))];
+  if (!handles.length) return;
+  await tx
+    .insert(schema.designVisualEditSnapshotBlobCleanup)
+    .values(handles.map((blobHandle) => ({ blobHandle })))
+    .onConflictDoNothing();
 }
