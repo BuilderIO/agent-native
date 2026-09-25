@@ -73,6 +73,15 @@ export {
 } from "./InvitationBanner.js";
 export { WorkspaceNotice } from "./WorkspaceNotice.js";
 export { TeamPage, type TeamPageProps } from "./TeamPage.js";
+export { OrgGeneralSection } from "./OrgGeneralSection.js";
+export { MembersSection } from "./MembersSection.js";
+export {
+  GroupsSection,
+  useWorkspaceGroupEditor,
+  type WorkspaceGroupEditorController,
+} from "./GroupsSection.js";
+export { AuthenticationSection } from "./AuthenticationSection.js";
+export { AppsAccessSection } from "./AppsAccessSection.js";
 export {
   RequireActiveOrg,
   type RequireActiveOrgProps,
