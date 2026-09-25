@@ -1373,8 +1373,18 @@ export async function preloadJevContextForPrompt(options: {
   ) {
     for (const id of memoryContext.fallbackIds) selected.add(id);
   }
+  const selectionPriority = {
+    "analytics-reference": 0,
+    memory: 1,
+    skill: 2,
+  } as const;
   let selectedIds = candidates
     .filter((candidate) => selected.has(candidate.id))
+    .sort(
+      (left, right) =>
+        selectionPriority[categoryFor(left)] -
+        selectionPriority[categoryFor(right)],
+    )
     .map((candidate) => candidate.id);
   const rankingStatuses = [...rankings.values()].map((result) => result.status);
   const status = rankingStatuses.includes("selected")

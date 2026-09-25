@@ -192,6 +192,48 @@ describe("preloadJevContextForPrompt", () => {
     expect(mocks.rankJevCandidates).toHaveBeenCalledTimes(2);
   });
 
+  it("injects selected Analytics references before long selected skills", async () => {
+    mocks.getRuntimeSkills.mockReturnValue(
+      ["one", "two", "three"].map((name, index) => ({
+        meta: {
+          name: `large-skill-${name}`,
+          description: "A large skill.",
+          scope: "both",
+        },
+        dir: `.agents/skills/large-skill-${name}`,
+        content: `SKILL_BODY_${index} ${"x".repeat(10_000)}`,
+      })),
+    );
+    mocks.rankJevCandidates.mockImplementation(
+      async (options: { candidateStateKey: string }) =>
+        options.candidateStateKey === "candidate_skill"
+          ? ["context-0", "context-1", "context-2"]
+          : ["analytics-reference-1"],
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      appId: "analytics",
+      apiKey: "jev-test-key",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Approved active users definition.",
+          metadata: { kind: "analytics-reference" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content:
+            "Metric: active users. Query: SELECT COUNT(DISTINCT user_id).",
+        },
+      ],
+    });
+
+    expect(result).toContain("Metric: active users.");
+    expect(result.indexOf("Metric: active users.")).toBeLessThan(
+      result.indexOf("SKILL_BODY_0"),
+    );
+  });
+
   it("keeps a high-similarity reference when Jev returns no match", async () => {
     mocks.rankJevCandidates.mockResolvedValue([]);
 
