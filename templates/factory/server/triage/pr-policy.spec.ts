@@ -241,6 +241,34 @@ describe("pull-request governance", () => {
     ).toBe(true);
     expect(
       hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "CSP allows attacker-controlled inline scripts.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "No content security policy vulnerabilities were found.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body: "No CSP vulnerabilities were found." }],
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      hasActiveCredibleSafetyFinding(
         [{ state: "approved", body: "No XSS or CSRF vulnerabilities found." }],
         [],
       ),
@@ -706,9 +734,49 @@ describe("pull-request governance", () => {
       "templates/factory/actions/get-slack-feedback-context.ts",
       "templates/factory/actions/get-factory-automation-health.ts",
       "templates/factory/actions/list-factory-automation-templates.ts",
+      "templates/factory/server/triage/sentry-client.ts",
+      "templates/factory/server/triage/sentry-client.spec.ts",
+      "templates/factory/server/triage/slack-client.ts",
+      "templates/factory/server/triage/slack-client.spec.ts",
+      "templates/factory/server/triage/slack-poller.ts",
+      "templates/factory/server/triage/slack-poller.spec.ts",
+      "templates/factory/server/triage/babysit-evidence.ts",
+      "templates/factory/server/triage/babysit-evidence.spec.ts",
+      "templates/factory/server/triage/babysit-recommendation.ts",
+      "templates/factory/server/triage/babysit-recommendation.spec.ts",
+      "templates/factory/server/triage/babysit-thread-closure.ts",
+      "templates/factory/server/triage/babysit-thread-closure.spec.ts",
+      "templates/factory/server/triage/pr-babysit-terminal.ts",
+      "templates/factory/server/triage/review-state.ts",
+      "templates/factory/server/triage/review-state.spec.ts",
+      "templates/factory/server/triage/slack-review-window.ts",
+      "templates/factory/server/triage/slack-review-window.spec.ts",
+      "templates/factory/server/triage/contracts.ts",
+      "templates/factory/server/triage/guards.ts",
+      "templates/factory/server/triage/audit.ts",
+      "templates/factory/server/triage/babysit-audit-details.ts",
+      "templates/factory/server/triage/babysit-queue.ts",
+      "templates/factory/server/triage/babysit-queue.spec.ts",
+      "templates/factory/server/triage/metadata.ts",
+      "templates/factory/server/triage/metadata.spec.ts",
+      "templates/factory/server/triage/github-client.spec.ts",
+      "templates/factory/server/triage/github-ingestion.spec.ts",
+      "templates/factory/server/triage/pr-monitor.spec.ts",
       "templates/content/scripts/migrate-production.ts",
       "templates/forms/actions/delete-form.ts",
       "templates/clips/actions/delete-recording-permanent.ts",
+      "templates/tasks/actions/bulk-delete-tasks.ts",
+      "templates/tasks/actions/bulk-delete-tasks.test.ts",
+      "templates/tasks/actions/bulk-delete-inbox-items.ts",
+      "templates/tasks/actions/bulk-delete-inbox-items.test.ts",
+      "templates/content/actions/migrate-content-database-rows.ts",
+      "templates/content/actions/migrate-content-database-rows.db.test.ts",
+      "templates/design/actions/migrate-board-objects-to-file.ts",
+      "templates/design/actions/migrate-board-objects-to-file.spec.ts",
+      ".github/CODEOWNERS",
+      "scripts/guard-no-drizzle-push.mjs",
+      "scripts/guard-trusted-acceptance-workflow.ts",
+      "scripts/guard-trusted-acceptance-workflow.spec.ts",
       "templates/calendar/amplify.yml",
       "packages/creative-context/src/server/safe-native-preview.ts",
       "packages/creative-context/src/connectors/rendered-page.ts",

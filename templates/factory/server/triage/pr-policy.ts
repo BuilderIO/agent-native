@@ -422,7 +422,10 @@ export function isDocsOnly(changedFiles: readonly string[]): boolean {
 
 export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
   return changedFiles.some((file) => {
-    const normalized = normalizePath(file);
+    const normalized = normalizePath(file).replace(
+      /\.(?:spec|test)(?=\.[^.]+$)/,
+      "",
+    );
     const securityPath = file
       .trim()
       .split("\\")
@@ -431,6 +434,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       .replace(/([A-Z])([A-Z][a-z])/g, "$1-$2")
       .toLowerCase();
     const factorySecurityPath =
+      normalized.startsWith("templates/factory/server/triage/") ||
       /^templates\/factory\/(?:server\/lib\/(?:require-factory-automation|factory-automation-(?:resources|caller|config|history|repair)|factory-scope|provider-api|github-repository|pr-babysit-prompt|slack-feedback-prompt|factory-config-reconcile|factory-poll-cursors|factory-audit-report|audit-cursor|source-reaction|safe-http-url)|server\/plugins\/factory-scheduler-job|actions\/(?:run|save|create)-factory-automation|actions\/(?:get|list|restore)-factory-automation-(?:version|versions)|actions\/list-factory-automations|actions\/(?:get-factory-automation-health|list-factory-automation-templates|govern-factory-pull-request|create-factory|(?:save|get)-factory-graph|(?:get|list|restore)-factory-graph-version(?:s)?|(?:get|save)-triage-config|save-triage-rule|get-triage-item|list-triage-items|list-factory-comments|list-triage-rules|evaluate-triage-item|factory-graph-history|provider-api-request|poll-(?:github-sources|slack-channel|sentry-errors)|dispatch-factory-item|list-factory-audit|babysit-factory-pull-request|propose-pr-babysit-status|get-slack-feedback-context))\./.test(
         normalized,
       ) ||
@@ -500,9 +504,12 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       ) ||
       normalized.endsWith("/migrate-production.ts") ||
       /(^|\/)db\/schema(?:-[^/]+)?\.tsx?$/.test(normalized) ||
-      /(^|\/)actions\/(?:delete|remove|purge|erase|destroy|drop|reset)-[^/]+\.(?:ts|tsx)$/.test(
+      /(^|\/)actions\/(?:[a-z0-9]+-)*(?:delete|remove|purge|erase|destroy|drop|reset)-[^/]+\.(?:ts|tsx)$/.test(
         normalized,
       ) ||
+      /(^|\/)actions\/migrate-[^/]+\.(?:ts|tsx)$/.test(normalized) ||
+      /(^|\/)codeowners$/.test(normalized) ||
+      /^scripts\/guard-[^/]+\.(?:ts|tsx|mjs|js)$/.test(normalized) ||
       /(^|\/)(?:amplify|netlify|wrangler|cloudflare|vercel|fly|render)\.(?:ya?ml|toml|jsonc?)$/i.test(
         normalized,
       ) ||
@@ -544,9 +551,9 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
 }
 
 const SAFETY_FINDING_PATTERN =
-  /\b(auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss|xss|cross-site scripting|csrf|cross-site request forgery)\b/i;
+  /\b(auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\b/i;
 const NON_FINDING_PATTERN =
-  /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:(?:xss|cross-site scripting|csrf|cross-site request forgery)\s+(?:or|and)\s+)*(?:(?:xss|cross-site scripting|csrf|cross-site request forgery)\s+)?(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilities?)|vulnerabilities?|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery)\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery)\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
+  /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+(?:or|and)\s+)*(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+)?(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilities?)|vulnerabilities?|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
 
 export function hasActiveCredibleSafetyFinding(
   reviews: readonly {
