@@ -165,6 +165,9 @@ export default {
     bellSound: "पूर्णता ध्वनि",
     bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से बंद।",
     bellSoundSaveFailed: "ध्वनि प्राथमिकता सहेजी नहीं जा सकी।",
+    notificationsTitle: "सूचनाएँ",
+    notificationsEmailGroup: "ईमेल",
+    notificationsSoundGroup: "ध्वनि",
     replayStorage: "सेशन रीप्ले स्टोरेज",
     replayStorageDescription:
       "सेशन रीप्ले रिकॉर्डिंग के लिए एक कॉन्फ़िगर किया गया फ़ाइल-अपलोड प्रोवाइडर ज़रूरी है। फ्री-टियर ऑब्जेक्ट स्टोरेज के लिए Builder.io कनेक्ट करें, या अपना खुद का S3-संगत बकेट इस्तेमाल करें।",

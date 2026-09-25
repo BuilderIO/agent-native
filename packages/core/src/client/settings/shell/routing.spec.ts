@@ -238,6 +238,27 @@ describe("legacy settings links", () => {
         "recordings",
       ]),
     ).toMatchObject({ page: "app", sub: "recordings" });
+    // Today's tab path for an area (Analytics' Alerts tab).
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/alerts", hash: "#alert-rules" },
+        CORE_SETTINGS_PAGES,
+        { appAreaIds: ["alerts"] },
+      ),
+    ).toMatchObject({
+      page: "app",
+      sub: "alerts",
+      anchor: "alert-rules",
+      legacy: true,
+    });
+    // A core page id stays the core page.
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/usage", hash: "" },
+        CORE_SETTINGS_PAGES,
+        { appAreaIds: ["usage"] },
+      ),
+    ).toMatchObject({ page: "usage", legacy: false });
   });
 
   it("prefers the agent panel's section over the hash it navigated to", () => {

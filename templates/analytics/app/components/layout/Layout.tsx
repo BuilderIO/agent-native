@@ -12,8 +12,11 @@ import {
   type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { isSettingsPathname } from "@agent-native/core/client/settings";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
@@ -164,6 +167,13 @@ function InteractiveLayout({ children }: LayoutProps) {
     location.pathname === "/monitoring" ||
     location.pathname.startsWith("/monitoring/");
   const isAskRoute = location.pathname === "/ask";
+  // The redesigned Settings brings its own navigation, header, and agent
+  // toggle, so it renders full width. While the flag loads it shows the
+  // shell's skeleton, which needs the same frame.
+  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  const isRedesignedSettingsRoute =
+    isSettingsPathname(location.pathname) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -210,17 +220,18 @@ function InteractiveLayout({ children }: LayoutProps) {
 
   const contentFrame = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      <MobileNav showNewChat={isAskRoute} />
+      {!isRedesignedSettingsRoute && <MobileNav showNewChat={isAskRoute} />}
       {!isExtensionsRoute &&
         !isAskRoute &&
         !isSessionDetailRoute &&
-        !isMonitoringRoute && <Header />}
+        !isMonitoringRoute &&
+        !isRedesignedSettingsRoute && <Header />}
       <InvitationBanner />
       <main
         className={
           isExtensionsRoute
             ? "agent-native-app-main flex-1 overflow-y-auto"
-            : isAskRoute
+            : isAskRoute || isRedesignedSettingsRoute
               ? "agent-native-app-main flex-1 overflow-hidden p-0"
               : "agent-native-app-main flex-1 overflow-y-auto p-6 pt-2"
         }
@@ -248,9 +259,11 @@ function InteractiveLayout({ children }: LayoutProps) {
       <AgentCompletionSound />
       <HeaderActionsProvider>
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-          <div className="agent-layout-left-drawer hidden shrink-0 md:block">
-            <Sidebar />
-          </div>
+          {!isRedesignedSettingsRoute && (
+            <div className="agent-layout-left-drawer hidden shrink-0 md:block">
+              <Sidebar />
+            </div>
+          )}
           {isAskRoute ? (
             <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
               {contentFrame}

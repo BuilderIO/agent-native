@@ -212,6 +212,12 @@ export function resolveSettingsRoute(
         legacy: segments.length > 2,
       };
     }
+    // Today's tab link to an area that moved onto the app's General page
+    // (`/settings/alerts`). Checked before the redirect table, like
+    // `resolveSettingsTabValue`, because the area id is the template's own.
+    if (options.appAreaIds?.includes(pageId)) {
+      return { page: "app", sub: pageId, anchor: hash || null, legacy: true };
+    }
     const redirect = resolveLegacySettingsId(joined, "tab");
     if (redirect) return redirectRoute(redirect, pages, hash || null);
     const tabPage = pageForTabIds(segments, pages);

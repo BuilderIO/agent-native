@@ -6,12 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   creativeContextEnabled: false,
+  settingsRedesign: false,
+  pageProps: null as Record<string, unknown> | null,
+  mutateAsync: vi.fn(async () => ({ success: true })),
+  // Stable like react-query's structurally shared data.
+  prefs: {},
   useActionQuery: vi.fn(() => ({
-    data: {},
+    data: mocks.prefs,
     isLoading: false,
   })),
-  useActionMutation: vi.fn(() => ({
-    mutateAsync: vi.fn(async () => ({ success: true })),
+  useActionMutation: vi.fn((_name: string) => ({
+    mutateAsync: mocks.mutateAsync,
     isPending: false,
   })),
   useLegacyAuth: vi.fn(() => {
@@ -37,6 +42,13 @@ vi.mock("@agent-native/creative-context", () => ({
 vi.mock("@agent-native/creative-context/client", () => ({
   createCreativeContextAgentTab: vi.fn(),
   useCreativeContextLab: () => mocks.creativeContextEnabled,
+}));
+
+vi.mock("@agent-native/core/client/feature-flags", () => ({
+  useFeatureFlagState: () => ({
+    status: "ready",
+    enabled: mocks.settingsRedesign,
+  }),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -75,35 +87,47 @@ vi.mock("@agent-native/core/client/settings", () => ({
       {control}
     </div>
   ),
-  SettingsTabsPage: ({
-    account,
-    general,
-    extraTabs,
-    labs,
-  }: {
+  SettingsTabsPage: (props: {
     account: React.ReactNode;
-    general: React.ReactNode;
-    extraTabs?: Array<{ content: React.ReactNode }>;
+    general?: React.ReactNode;
+    notifications?: React.ReactNode;
+    appAreas?: Array<{ id: string; content: React.ReactNode }>;
+    extraTabs?: Array<{ id: string; content: React.ReactNode }>;
     labs?: Array<{
       key: string;
       defaultEnabled?: boolean;
       displayName?: string;
       description?: string;
     }>;
-  }) => (
-    <main>
-      {account}
-      {general}
-      {labs?.map((lab) => (
-        <div key={lab.key} data-testid="creative-context-lab">
-          {lab.displayName}
-          {lab.description}
-          <span data-default-enabled={String(lab.defaultEnabled === true)} />
-        </div>
-      ))}
-      {extraTabs?.map((tab) => tab.content)}
-    </main>
-  ),
+  }) => {
+    mocks.pageProps = props;
+    return (
+      <main>
+        {props.account}
+        {props.general}
+        {props.labs?.map((lab) => (
+          <div key={lab.key} data-testid="creative-context-lab">
+            {lab.displayName}
+            {lab.description}
+            <span data-default-enabled={String(lab.defaultEnabled === true)} />
+          </div>
+        ))}
+        {props.extraTabs?.map((tab) => (
+          <div key={tab.id} data-tab={tab.id}>
+            {tab.content}
+          </div>
+        ))}
+        {props.appAreas?.map((area) => (
+          <div key={area.id} data-area={area.id}>
+            {area.content}
+          </div>
+        ))}
+        {props.notifications ? (
+          <div data-page="notifications">{props.notifications}</div>
+        ) : null}
+      </main>
+    );
+  },
   useAgentSettingsTabs: ({
     agentAdditionalContent,
     agentAdditionalTabFactories,
@@ -136,16 +160,26 @@ vi.mock("@/components/ui/switch", () => ({
   Switch: ({
     "aria-label": ariaLabel,
     checked,
+    onCheckedChange,
   }: {
     "aria-label"?: string;
     checked: boolean;
-  }) => <button aria-label={ariaLabel} aria-pressed={checked} />,
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
+    <button
+      aria-label={ariaLabel}
+      aria-pressed={checked}
+      onClick={() => onCheckedChange?.(!checked)}
+    />
+  ),
 }));
 vi.mock("sonner", () => ({
   toast: { error: vi.fn() },
 }));
 vi.mock("./settings/AlertRulesSettingsCard", () => ({
-  AlertRulesSettingsCard: () => null,
+  AlertRulesSettingsCard: ({ embedded }: { embedded?: boolean }) => (
+    <div data-alert-rules={embedded ? "embedded" : "card"} />
+  ),
 }));
 vi.mock("../hooks/use-replay-storage-status", () => ({
   useReplayStorageStatus: mocks.useReplayStorageStatus,
@@ -166,6 +200,8 @@ describe("Analytics Settings", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.creativeContextEnabled = false;
+    mocks.settingsRedesign = false;
+    mocks.pageProps = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -248,5 +284,78 @@ describe("Analytics Settings", () => {
     expect(
       container.querySelector("#creative-context-agent-tab"),
     ).not.toBeNull();
+  });
+  it("keeps today's tabs with the settings redesign off", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(container.querySelector("#language")).not.toBeNull();
+    expect(
+      container.querySelector('[data-tab="alerts"] [data-alert-rules="card"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-tab="agent"] #bell-sound'),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-page="notifications"]')).toBeNull();
+    expect(mocks.pageProps).not.toHaveProperty("team");
+    expect(mocks.pageProps).not.toHaveProperty("appAreas");
+  });
+
+  it("moves rows into the redesigned pages with the flag on", async () => {
+    mocks.settingsRedesign = true;
+
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    const areas = [...container.querySelectorAll("[data-area]")].map((area) =>
+      area.getAttribute("data-area"),
+    );
+    expect(areas).toEqual(["alerts", "data-sources"]);
+    expect(
+      container.querySelector(
+        '[data-area="alerts"] [data-alert-rules="embedded"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-area="data-sources"] #credentials'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[data-page="notifications"] #error-email-notifications',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-page="notifications"] #bell-sound'),
+    ).not.toBeNull();
+    expect(container.querySelector("#language")).toBeNull();
+    expect(container.querySelector('[data-tab="alerts"]')).toBeNull();
+    expect(
+      container.querySelector('[data-tab="agent"] #bell-sound'),
+    ).toBeNull();
+    expect(container.querySelectorAll("#bell-sound")).toHaveLength(1);
+    expect(mocks.pageProps?.general).toBeUndefined();
+    expect(mocks.pageProps).not.toHaveProperty("team");
+  });
+
+  it("saves only the notification preference that changed", async () => {
+    mocks.settingsRedesign = true;
+
+    await act(async () => {
+      root.render(<Settings />);
+    });
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[aria-label="settings.bellSound"]',
+    );
+    await act(async () => {
+      toggle?.click();
+    });
+
+    expect(mocks.useActionMutation).toHaveBeenCalledWith(
+      "update-analytics-notification-preferences",
+    );
+    expect(mocks.mutateAsync).toHaveBeenCalledWith({ bellSoundEnabled: true });
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
   });
 });

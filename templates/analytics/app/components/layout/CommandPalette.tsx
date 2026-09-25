@@ -1,7 +1,9 @@
 import { ChangelogDialog } from "@agent-native/core/client/changelog";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   IconFlask,
   IconTool,
@@ -262,13 +264,18 @@ export function CommandPalette() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const replayStorageStatus = useReplayStorageStatus({ enabled: open });
+  const settingsRedesign = useFeatureFlagState(
+    SETTINGS_REDESIGN_FLAG.key,
+  ).enabled;
   const settingsCommands = useMemo(() => {
     const generalEntries = buildAnalyticsGeneralSettingsSearchEntries(
       t,
       !!replayStorageStatus.data?.configured,
     );
-    return buildAnalyticsSettingsCommandItems(t, generalEntries);
-  }, [replayStorageStatus.data?.configured, t]);
+    return buildAnalyticsSettingsCommandItems(t, generalEntries, {
+      redesign: settingsRedesign,
+    });
+  }, [replayStorageStatus.data?.configured, settingsRedesign, t]);
 
   const savedChartsQuery = useQuery({
     queryKey: ["explorer-configs-palette"],

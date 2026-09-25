@@ -173,6 +173,9 @@ export default {
     bellSoundDescription:
       "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
     bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
+    notificationsTitle: "通知",
+    notificationsEmailGroup: "メール",
+    notificationsSoundGroup: "サウンド",
     replayStorage: "セッションリプレイのストレージ",
     replayStorageDescription:
       "セッションリプレイの録画には、ファイルアップロードプロバイダーの設定が必要です。Builder.io の無料枠オブジェクトストレージを接続するか、独自の S3 互換バケットをご利用ください。",

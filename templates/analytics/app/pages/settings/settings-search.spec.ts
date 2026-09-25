@@ -11,6 +11,10 @@ const translations: Record<string, string> = {
   "sessions.storageSetupTitle": "Replay storage",
   "settings.languageTitle": "Language",
   "settings.alertsTitle": "Alert rules",
+  "settings.errorEmailNotifications": "Email new error alerts",
+  "settings.bellSound": "Bell sound",
+  "settings.notificationsTitle": "Notifications",
+  "navigation.dataSources": "Data Sources",
   "root.whatsNew": "What's new",
 };
 
@@ -76,5 +80,31 @@ describe("Analytics settings command items", () => {
       expect.objectContaining({ href: "/settings/account" }),
       expect.objectContaining({ href: "/settings/general/account-security" }),
     ]);
+  });
+  it("links to the redesigned pages when the settings redesign is on", () => {
+    const items = buildAnalyticsSettingsCommandItems(
+      t,
+      buildAnalyticsGeneralSettingsSearchEntries(t, true),
+      { redesign: true },
+    );
+    const hrefs = items.map((item) => item.href);
+
+    expect(hrefs).toEqual(
+      expect.arrayContaining([
+        "/settings/profile",
+        "/settings/app",
+        "/settings/app/alerts",
+        "/settings/app/data-sources",
+        "/settings/app/data-sources#credentials",
+        "/settings/notifications",
+        "/settings/notifications#error-email-notifications",
+        "/settings/notifications#bell-sound",
+      ]),
+    );
+    expect(hrefs.some((href) => href.startsWith("/settings/general"))).toBe(
+      false,
+    );
+    expect(items.map((item) => item.label)).not.toContain("Replay storage");
+    expect(items.map((item) => item.label)).not.toContain("Language");
   });
 });
