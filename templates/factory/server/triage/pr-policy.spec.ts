@@ -544,6 +544,8 @@ describe("pull-request governance", () => {
       "packages\\core\\src\\client\\ApiKeySettings.tsx",
       "packages/core/src/extensions/url-safety.ts",
       "packages/core/src/extensions/fetch-tool.ts",
+      "packages/core/src/extensions/html-shell.ts",
+      "packages/core/src/extensions/routes.ts",
       "packages/core/src/client/extensions/iframe-bridge.ts",
       "packages/core/src/client/extensions/AgentNativeExtensionFrame.tsx",
       "packages/core/src/client/extensions/InlineExtensionFrame.tsx",
@@ -551,6 +553,11 @@ describe("pull-request governance", () => {
       "packages/core/src/db-admin/operations.ts",
       "packages/core/src/triggers/webhook.ts",
       "packages/core/src/triggers/webhook-store.ts",
+      "packages/core/src/server/prompts/framework-core.ts",
+      "packages/core/src/server/prompts/shared-rules.ts",
+      "packages/creative-context/src/server/safe-native-preview.ts",
+      "packages/creative-context/src/connectors/rendered-page.ts",
+      "packages/recap-cli/src/recap.ts",
     ]) {
       expect(isUltraScaryChange([path])).toBe(true);
       expect(
