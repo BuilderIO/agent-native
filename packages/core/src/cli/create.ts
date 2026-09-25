@@ -2148,6 +2148,15 @@ function postProcessStandalone(
     const sections: Record<string, Record<string, string>> = {
       allowBuilds: {
         esbuild: "true",
+        // ffmpeg-static downloads its binary from a postinstall script, so
+        // leaving it out means the package installs with no ffmpeg in it. The
+        // deploy already expects the binary to be there: bundleFfmpegStatic in
+        // deploy/build.ts copies it into Linux serverless output "only when the
+        // binary exists", so it silently ships without one. Nothing breaks on a
+        // host that happens to have a system ffmpeg, which is why this goes
+        // unnoticed until a slim container, where thumbnails, audio extraction
+        // and the seekable remux all have nothing to run.
+        "ffmpeg-static": "true",
         "node-pty": "true",
         "tesseract.js": "true",
       },

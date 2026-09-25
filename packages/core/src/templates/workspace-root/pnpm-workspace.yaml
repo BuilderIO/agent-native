@@ -90,6 +90,10 @@ onlyBuiltDependencies:
   - canvas
   - electron
   - esbuild
+  # Downloads its binary from a postinstall script. Without this the package
+  # installs empty and the deploy ships with no ffmpeg, which only shows up on
+  # a host that has none of its own.
+  - ffmpeg-static
   - lightningcss
   - node-pty
   - tesseract.js
@@ -99,6 +103,7 @@ allowBuilds:
   canvas: true
   electron: true
   esbuild: true
+  ffmpeg-static: true
   lightningcss: true
   node-pty: true
   tesseract.js: true

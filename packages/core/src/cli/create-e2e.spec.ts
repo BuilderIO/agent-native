@@ -328,6 +328,12 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(workspaceYaml).toContain("node-pty@*:");
     expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
     expect(workspaceYaml).toContain("tesseract.js: true");
+    // ffmpeg-static fetches its binary in a postinstall script. Left out of
+    // this list it installs empty, and the deploy's own ffmpeg bundling copies
+    // the binary "only when the binary exists", so a generated project ships
+    // without one and nothing says so. It goes unnoticed on any host with a
+    // system ffmpeg of its own.
+    expect(workspaceYaml).toContain("ffmpeg-static: true");
     expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
   });
 
