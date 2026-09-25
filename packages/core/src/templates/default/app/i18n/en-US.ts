@@ -225,6 +225,9 @@ const messages = {
       noErrorMessage: "(no error message)",
     },
   },
+  settingsShortcut: {
+    command: "Settings",
+  },
   agentPanel: {
     useBuilder: "Use Builder",
     openDesktopToEditCode: "Open Desktop to edit code",
@@ -240,6 +243,7 @@ const messages = {
     newChat: "New chat",
     newTerminal: "New terminal",
     panelOptions: "Agent panel options",
+    integrations: "Integrations",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",

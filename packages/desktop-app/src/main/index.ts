@@ -272,6 +272,7 @@ import {
 import {
   forwardDesktopNavigationShortcutInput,
   type DesktopNavigationShortcutInput,
+  type DesktopNavigationShortcutSource,
 } from "./desktop-navigation-shortcuts.js";
 import {
   desktopRequestedUserDataPath,
@@ -488,12 +489,18 @@ const pendingOpenRequests: DesktopOpenRequest[] = [];
 function forwardDesktopNavigationShortcut(
   event: { preventDefault(): void },
   input: DesktopNavigationShortcutInput,
+  source: DesktopNavigationShortcutSource,
 ): boolean {
-  return forwardDesktopNavigationShortcutInput(event, input, (payload) => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
-    win.webContents.send("shortcut:keydown", payload);
-  });
+  return forwardDesktopNavigationShortcutInput(
+    event,
+    input,
+    (payload) => {
+      const win = mainWindow;
+      if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+      win.webContents.send("shortcut:keydown", payload);
+    },
+    source,
+  );
 }
 
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -14119,7 +14126,7 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    if (forwardDesktopNavigationShortcut(event, input)) return;
+    if (forwardDesktopNavigationShortcut(event, input, "app-webview")) return;
 
     const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);
 
@@ -14791,7 +14798,7 @@ void app.whenReady().then(async () => {
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
-    if (forwardDesktopNavigationShortcut(_event, input)) return;
+    if (forwardDesktopNavigationShortcut(_event, input, "shell")) return;
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
     const key = input.key.toLowerCase();

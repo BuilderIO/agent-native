@@ -56,6 +56,18 @@ export {
   type StandardSettingsTabId,
 } from "../../navigation/index.js";
 export {
+  getSettingsShortcutHint,
+  isSettingsRoutePath,
+  isSettingsShortcutEvent,
+  OPEN_SETTINGS_PAGE_EVENT,
+  openSettingsPage,
+  SETTINGS_SHORTCUT_PAGE,
+  settingsPagePath,
+  SettingsShortcut,
+  useSettingsShortcut,
+  type OpenSettingsPageDetail,
+} from "../use-settings-shortcut.js";
+export {
   postNavigate,
   isInAgentEmbed,
   AGENT_NAVIGATE_MESSAGE_TYPE,

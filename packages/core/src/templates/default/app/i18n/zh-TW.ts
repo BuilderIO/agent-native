@@ -213,6 +213,9 @@ const messages = {
       noErrorMessage: "（無錯誤訊息）",
     },
   },
+  settingsShortcut: {
+    command: "設定",
+  },
   agentPanel: {
     useBuilder: "使用生成器",
     openDesktopToEditCode: "開啟桌面編輯程式碼",
@@ -228,6 +231,7 @@ const messages = {
     newChat: "新聊天",
     newTerminal: "新航站樓",
     panelOptions: "代理面板選項",
+    integrations: "整合",
     collapseSidebar: "收起側邊欄",
     widenChat: "將聊天視窗加寬",
     returnChatToLayout: "將聊天視窗放回版面配置",

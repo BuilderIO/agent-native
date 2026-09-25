@@ -36,6 +36,7 @@ import {
   IconArrowsHorizontal,
   IconArrowsMaximize,
   IconExternalLink,
+  IconPlugConnected,
   IconShare3,
 } from "@tabler/icons-react";
 import React, {
@@ -76,6 +77,7 @@ const loadMultiTabAssistantChat = () =>
 const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
 import { Link, useLocation, useNavigate } from "react-router";
 
+import { buildSettingsRoute } from "../navigation/index.js";
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
@@ -582,6 +584,19 @@ export function resolveAgentPanelFullViewAction(
   return onFullViewRequest
     ? ({ kind: "callback" } as const)
     : ({ kind: "link", href: agentPageHref } as const);
+}
+
+// Hosts without a Settings route pass no agentPageHref, so it doubles as the
+// signal that an Integrations page exists to link to. Both paths are
+// router-local; <Link> adds the app base path.
+export function resolveAgentPanelIntegrationsHref(
+  agentPageHref: string | undefined,
+  currentPath?: string,
+) {
+  if (!agentPageHref) return null;
+  const href = buildSettingsRoute("integrations");
+  if (currentPath === href || currentPath?.startsWith(`${href}/`)) return null;
+  return href;
 }
 
 export function getAgentPanelShortcutHints(isMac: boolean) {
@@ -1389,6 +1404,10 @@ function AgentPanelInner({
     chatOnly,
     location.pathname,
   );
+  const integrationsHref = resolveAgentPanelIntegrationsHref(
+    agentPageHref,
+    location.pathname,
+  );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1590,8 +1609,17 @@ function AgentPanelInner({
                 </Link>
               </DropdownMenuItem>
             ) : null}
+            {integrationsHref ? (
+              <DropdownMenuItem asChild>
+                <Link to={integrationsHref}>
+                  <IconPlugConnected size={14} className="shrink-0" />
+                  {t("agentPanel.integrations")}
+                </Link>
+              </DropdownMenuItem>
+            ) : null}
             {(onCollapse && mode === "chat" && wideDrawerAction) ||
-            fullViewAction ? (
+            fullViewAction ||
+            integrationsHref ? (
               <DropdownMenuSeparator />
             ) : null}
             {onCollapse &&
@@ -1821,6 +1849,7 @@ function AgentPanelInner({
       newUiTabLabel,
       agentPageHref,
       fullViewAction,
+      integrationsHref,
       onCollapse,
       onFullViewRequest,
       onExitWideDrawer,

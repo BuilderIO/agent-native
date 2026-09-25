@@ -232,6 +232,9 @@ const messages = {
       noErrorMessage: "(aucun message d’erreur)",
     },
   },
+  settingsShortcut: {
+    command: "Paramètres",
+  },
   agentPanel: {
     useBuilder: "Utiliser le générateur",
     openDesktopToEditCode: "Ouvrir le bureau pour modifier le code",
@@ -247,6 +250,7 @@ const messages = {
     newChat: "Nouveau chat",
     newTerminal: "Nouvelle borne",
     panelOptions: "Options du panneau d'agent",
+    integrations: "Intégrations",
     collapseSidebar: "Réduire la barre latérale",
     widenChat: "Élargir le chat",
     returnChatToLayout: "Remettre le chat dans la mise en page",

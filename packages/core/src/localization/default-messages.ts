@@ -643,6 +643,9 @@ const messages = {
       browserConnectFailed: "The browser extension did not connect.",
     },
   },
+  settingsShortcut: {
+    command: "Settings",
+  },
   agentPanel: {
     uiError: {
       title: "Agent panel hit a glitch",
@@ -667,6 +670,7 @@ const messages = {
     newTerminal: "New terminal",
     loadingTerminal: "Loading terminal...",
     panelOptions: "Agent panel options",
+    integrations: "Integrations",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",
