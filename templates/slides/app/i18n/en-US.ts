@@ -796,6 +796,13 @@ const messages = {
     },
     importDeck: "Import Deck",
     context: {
+      createSystem: "Create a design system",
+      noSystems:
+        "You don’t have a design system yet. Create one from website, files, or Figma.",
+      searchSystems: "Search design systems…",
+      searchFrames: "Search Figma frames…",
+      searchDesigns: "Search designs…",
+      searchPresentations: "Search presentations…",
       menu: {
         system: "Use a design system",
         figma: "Attach Figma",

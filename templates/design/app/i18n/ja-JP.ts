@@ -1654,6 +1654,9 @@ export default {
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
   homeContext: {
+    createSystem: "デザインシステムを作成",
+    noSystems:
+      "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
     searchSystems: "デザインシステムを検索…",
     searchFrames: "Figmaフレームを検索…",
     searchDesigns: "デザインを検索…",
@@ -1663,7 +1666,8 @@ export default {
     notReady:
       "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
     search: "コンテキストを検索…",
-    browse: "参照",
+    figmaUrl: "Figmaリンクを貼り付け",
+    browse: "フレームを参照",
     loadFailed: "この参照を読み込めませんでした。",
     retry: "再試行",
     empty: "一致する参照がありません。",

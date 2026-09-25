@@ -1676,6 +1676,9 @@ export default {
       "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
   },
   homeContext: {
+    createSystem: "Designsystem erstellen",
+    noSystems:
+      "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",
     searchSystems: "Designsysteme suchen…",
     searchFrames: "Figma-Frames suchen…",
     searchDesigns: "Designs suchen…",
@@ -1685,7 +1688,8 @@ export default {
     notReady:
       "Die Anfrage ist noch nicht bereit. Prüfe den ausgewählten Kontext und die Verbindung und versuche es erneut.",
     search: "Kontext suchen…",
-    browse: "Durchsuchen",
+    figmaUrl: "Figma-Link einfügen",
+    browse: "Frames durchsuchen",
     loadFailed: "Diese Referenz konnte nicht geladen werden.",
     retry: "Erneut versuchen",
     empty: "Keine passenden Referenzen.",

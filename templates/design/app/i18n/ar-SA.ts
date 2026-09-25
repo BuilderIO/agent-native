@@ -1616,6 +1616,9 @@ export default {
     staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
   },
   homeContext: {
+    createSystem: "إنشاء نظام تصميم",
+    noSystems:
+      "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
     searchSystems: "البحث في أنظمة التصميم…",
     searchFrames: "البحث في إطارات Figma…",
     searchDesigns: "البحث في التصاميم…",
@@ -1625,7 +1628,8 @@ export default {
     notReady:
       "الطلب غير جاهز للإرسال. تحقق من السياق المحدد والاتصال ثم أعد المحاولة.",
     search: "البحث في السياق…",
-    browse: "تصفح",
+    figmaUrl: "ألصق رابط Figma",
+    browse: "تصفح الإطارات",
     loadFailed: "تعذّر تحميل هذا المرجع.",
     retry: "إعادة المحاولة",
     empty: "لا توجد مراجع مطابقة.",

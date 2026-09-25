@@ -68,7 +68,7 @@ describe("New Design start choice", () => {
     expect(blank).toContain("onOpenChange(false);");
     const submit = source.slice(
       source.indexOf("const handleSubmit = "),
-      source.indexOf("const removeSelectedUploadFile"),
+      source.indexOf("const hasLiveVirtualAnchor"),
     );
     expect(submit).toContain("onOpenChange(false);");
     // …and comes back if the work fails, so the typed prompt is not lost.

@@ -1,33 +1,44 @@
+import { IconFile, IconPlus, IconTextRecognition } from "@tabler/icons-react";
 import {
-  IconArrowLeft,
-  IconChevronRight,
-  IconUpload,
-  IconPlus,
-} from "@tabler/icons-react";
-import {
-  forwardRef,
-  Fragment,
   useCallback,
   useEffect,
   useRef,
   useState,
-  type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
 
 import { Button } from "../ui/button.js";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "../ui/command.js";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
+import { ComposerContextMenuSearch } from "./ComposerContextMenuSearch.js";
+import {
+  ComposerContextPicker,
+  type ComposerContextPickerConfig,
+} from "./ComposerContextPicker.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
+
+export {
+  ComposerContextSearchInput,
+  type ComposerContextSearchInputProps,
+} from "./ComposerContextSearchInput.js";
+export type {
+  ComposerContextPickerConfig,
+  ComposerContextPickerItem,
+  ComposerContextPickerRequest,
+  ComposerContextPickerResult,
+  ComposerContextPickerSelection,
+  ComposerContextPickerFooterAction,
+} from "./ComposerContextPicker.js";
 
 interface ComposerContextMenuEntry {
   id: string;
@@ -36,62 +47,39 @@ interface ComposerContextMenuEntry {
   icon?: ReactNode;
   disabled?: boolean;
 }
-
-export interface ComposerContextMenuAction extends ComposerContextMenuEntry {
-  onSelect: () => void | Promise<void>;
-  render?: (controls: ComposerContextPageControls) => ReactNode;
+export type ComposerContextMenuAction = ComposerContextMenuEntry & {
   onDismiss?: () => void;
   children?: never;
-}
-
+} & (
+    | { picker: ComposerContextPickerConfig; render?: never; onSelect?: never }
+    | {
+        onSelect: () => void | Promise<void>;
+        render?: (controls: ComposerContextPageControls) => ReactNode;
+        picker?: never;
+      }
+  );
 export interface ComposerContextPageControls {
   onBack(): void;
   onClose(options?: { restoreFocus?: boolean }): void;
   onResume(): void;
 }
-
-export interface ComposerContextSearchInputProps extends Omit<
-  ComponentPropsWithoutRef<typeof CommandInput>,
-  "leading"
-> {
-  onBack?: () => void;
+export interface ComposerContextMenuCategory extends ComposerContextMenuEntry {
+  children: readonly ComposerContextMenuItem[];
+  searchPlaceholder?: string;
+  onSelect?: never;
+  picker?: never;
+  render?: never;
 }
-
-export const ComposerContextSearchInput = forwardRef<
-  HTMLInputElement,
-  ComposerContextSearchInputProps
->(({ onBack, ...props }, ref) => {
-  const t = useComposerRuntimeAdapters().translate!;
-  return (
-    <CommandInput
-      {...props}
-      ref={ref}
-      leading={
-        onBack ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="-ms-2 size-8 shrink-0"
-            aria-label={t("agentChat.composer.contextBack", {
-              defaultValue: "Back",
-            })}
-            onKeyDown={(event) => {
-              // Keep cmdk from activating the selected row on native button keys.
-              if (event.key === "Enter" || event.key === " ")
-                event.stopPropagation();
-            }}
-            onClick={onBack}
-          >
-            <IconArrowLeft />
-          </Button>
-        ) : undefined
-      }
-    />
-  );
-});
-ComposerContextSearchInput.displayName = "ComposerContextSearchInput";
-
+export type ComposerContextMenuItem =
+  | ComposerContextMenuAction
+  | ComposerContextMenuCategory;
+export interface ComposerContextMenuProps {
+  items: readonly ComposerContextMenuItem[];
+  addAttachment?: (file: File) => Promise<unknown>;
+  attachmentAccept?: string;
+  onAttachmentError?: (message: string) => void;
+  disabled?: boolean;
+}
 interface ComposerContextPage {
   id: string;
   origin: string[];
@@ -106,43 +94,8 @@ function findAction(
     if (item.children) {
       const match = findAction(item.children, id);
       if (match) return match;
-    } else if (item.id === id) {
-      return item;
-    }
+    } else if (item.id === id) return item;
   }
-}
-
-export interface ComposerContextMenuCategory extends ComposerContextMenuEntry {
-  children: readonly ComposerContextMenuItem[];
-  searchPlaceholder?: string;
-  onSelect?: never;
-}
-
-export type ComposerContextMenuItem =
-  | ComposerContextMenuAction
-  | ComposerContextMenuCategory;
-
-export interface ComposerContextMenuProps {
-  items: readonly ComposerContextMenuItem[];
-  addAttachment?: (file: File) => Promise<unknown>;
-  attachmentAccept?: string;
-  onAttachmentError?: (message: string) => void;
-  disabled?: boolean;
-}
-
-function getComposerContextMenuScope(
-  items: readonly ComposerContextMenuItem[],
-  path: readonly string[],
-): { items: readonly ComposerContextMenuItem[]; searchPlaceholder?: string } {
-  let scope = items;
-  let searchPlaceholder: string | undefined;
-  for (const id of path) {
-    const category = scope.find((item) => item.id === id);
-    if (!category?.children || category.disabled) return { items: [] };
-    scope = category.children;
-    searchPlaceholder = category.searchPlaceholder;
-  }
-  return { items: scope, searchPlaceholder };
 }
 
 export function getComposerContextMenuEntries(
@@ -150,7 +103,12 @@ export function getComposerContextMenuEntries(
   path: readonly string[],
   query: string,
 ): ComposerContextMenuItem[] {
-  const { items: scope } = getComposerContextMenuScope(items, path);
+  let scope = items;
+  for (const id of path) {
+    const category = scope.find((item) => item.id === id);
+    if (!category?.children || category.disabled) return [];
+    scope = category.children;
+  }
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return [...scope];
   const matches: ComposerContextMenuItem[] = [];
@@ -161,19 +119,114 @@ export function getComposerContextMenuEntries(
   ) => {
     for (const entry of entries) {
       const searchable = [...ancestors, entry.label, ...(entry.keywords ?? [])];
-      if (entry.children) {
+      if (entry.children)
         visit(entry.children, searchable, disabled || entry.disabled === true);
-      } else if (
+      else if (
         terms.every((term) =>
           searchable.join(" ").toLocaleLowerCase().includes(term),
         )
-      ) {
+      )
         matches.push(disabled ? { ...entry, disabled: true } : entry);
-      }
     }
   };
   visit(scope, []);
   return matches;
+}
+
+function ContextSubmenu({
+  label,
+  icon,
+  disabled,
+  open,
+  onOpenChange,
+  children,
+}: {
+  label: string;
+  icon?: ReactNode;
+  disabled?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const trigger = useRef<HTMLDivElement>(null);
+  return (
+    <DropdownMenuSub open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuSubTrigger ref={trigger} disabled={disabled}>
+        {icon}
+        {label}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent
+        className="w-64"
+        data-agent-native-composer-popover="true"
+        onFocusOutside={(event) => {
+          const target = event.target;
+          // Radix focuses ancestor menus/triggers while a resumed chain mounts.
+          if (
+            target instanceof HTMLElement &&
+            target.closest('[data-agent-native-composer-popover="true"]') &&
+            target.matches(
+              '[role="menu"], [aria-haspopup="menu"][aria-expanded="true"]',
+            )
+          ) {
+            event.preventDefault();
+          }
+        }}
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenChange(false);
+          trigger.current?.focus();
+        }}
+      >
+        {children}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+function ContextMenuPanel({
+  placeholder,
+  children,
+}: {
+  placeholder: string;
+  children: (query: string) => ReactNode;
+}) {
+  const [query, setQuery] = useState("");
+  return (
+    <>
+      <ComposerContextMenuSearch
+        placeholder={placeholder}
+        value={query}
+        onValueChange={setQuery}
+      />
+      {children(query)}
+    </>
+  );
+}
+
+function matchesEntry(entry: ComposerContextMenuItem, query: string): boolean {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const text = [entry.label, ...(entry.keywords ?? [])]
+    .join(" ")
+    .toLocaleLowerCase();
+  return (
+    terms.every((term) => text.includes(term)) ||
+    Boolean(entry.children?.some((child) => matchesEntry(child, query)))
+  );
+}
+
+function LegacyContextPage({ children }: { children: ReactNode }) {
+  const element = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const input = element.current?.querySelector<HTMLElement>(
+        "[data-autofocus], [cmdk-input], input:not([type=hidden]):not(:disabled), textarea:not(:disabled)",
+      );
+      input?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  return <div ref={element}>{children}</div>;
 }
 
 export function ComposerContextMenu({
@@ -185,19 +238,24 @@ export function ComposerContextMenu({
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
   const [open, setOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
   const [path, setPath] = useState<string[]>([]);
+  const pathRef = useRef(path);
   const [page, setPage] = useState<ComposerContextPage | null>(null);
-  const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const restoreFocusOnClose = useRef(true);
+  const pageRef = useRef(page);
   const itemsRef = useRef(items);
   itemsRef.current = items;
-  const pageRef = useRef(page);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const restoreFocusOnClose = useRef(true);
   const label = t("agentChat.composer.addContext", {
     defaultValue: "Add context",
+  });
+  const searchContext = t("agentChat.composer.searchContext", {
+    defaultValue: "Search context…",
+  });
+  const uploadLabel = t("agentChat.composer.menu.uploadFile", {
+    defaultValue: "Upload File",
   });
   const reportError = useCallback(
     (cause: unknown) => {
@@ -218,89 +276,166 @@ export function ComposerContextMenu({
     setPage(null);
     if (!current) return;
     try {
-      const action = findAction(itemsRef.current, current.id);
-      (action?.onDismiss ?? current.onDismiss)?.();
+      (
+        findAction(itemsRef.current, current.id)?.onDismiss ?? current.onDismiss
+      )?.();
     } catch (cause) {
       reportError(cause);
     }
   }, [reportError]);
+  const updatePath = (next: string[]) => {
+    pathRef.current = next;
+    setPath(next);
+  };
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (!next) {
       dismissPage();
-      setPath([]);
-      setQuery("");
+      updatePath([]);
+      setContextOpen(false);
     }
   };
   const selectAction = (action: ComposerContextMenuAction) => {
     setError(null);
     try {
-      void Promise.resolve(action.onSelect()).catch(reportError);
+      void Promise.resolve(action.onSelect?.()).catch(reportError);
     } catch (cause) {
       reportError(cause);
     }
   };
-  const openPage = (target: ComposerContextPage, select = true) => {
-    const action = findAction(itemsRef.current, target.id);
-    if (!action?.render) {
-      reportError(
-        new Error(
-          t("agentChat.composer.contextActionFailed", {
-            defaultValue: "Could not add context.",
-          }),
-        ),
-      );
-      return;
-    }
-    if (select) dismissPage();
-    const next = { ...target, onDismiss: action.onDismiss };
+  const activate = (
+    action: ComposerContextMenuAction,
+    origin: string[],
+    select = true,
+  ) => {
+    dismissPage();
+    const next = { id: action.id, origin, onDismiss: action.onDismiss };
     pageRef.current = next;
     setPage(next);
-    setPath(target.origin);
-    setQuery("");
-    setOpen(true);
-    if (select) selectAction(action);
+    updatePath([...origin, action.id]);
+    if (select && !action.picker) selectAction(action);
   };
   const currentAction = page ? findAction(items, page.id) : undefined;
   useEffect(() => {
-    if (page && !currentAction?.render) {
-      dismissPage();
-      setQuery("");
-    }
+    if (page && !currentAction?.render && !currentAction?.picker) dismissPage();
   }, [page, currentAction, dismissPage]);
-  useEffect(() => {
-    if (!open) return;
-    const content = contentRef.current;
-    const input =
-      content?.querySelector<HTMLElement>("[data-autofocus]") ??
-      content?.querySelector<HTMLElement>("[cmdk-input]") ??
-      content?.querySelector<HTMLElement>(
-        'input:not([type="hidden"]):not(:disabled), textarea:not(:disabled)',
-      );
-    input?.focus();
-  }, [open, page]);
-  const entries = getComposerContextMenuEntries(items, path, query);
-  const { searchPlaceholder } = getComposerContextMenuScope(items, path);
-  const attachLabel = t("agentChat.composer.menu.uploadFile", {
-    defaultValue: "Upload File",
-  });
-  const showAttachment =
-    addAttachment &&
-    path.length === 0 &&
-    (!query.trim() ||
-      attachLabel
-        .toLocaleLowerCase()
-        .includes(query.trim().toLocaleLowerCase()));
+
+  const renderEntries = (
+    entries: readonly ComposerContextMenuItem[],
+    origin: string[],
+  ): ReactNode => (
+    <DropdownMenuGroup>
+      {entries.map((entry) => {
+        const branch = [...origin, entry.id];
+        const expanded = branch.every((id, index) => path[index] === id);
+        if (entry.children || entry.picker || entry.render) {
+          const back = () => {
+            dismissPage();
+            updatePath(origin);
+          };
+          const activePage = page;
+          return (
+            <ContextSubmenu
+              key={entry.id}
+              label={entry.label}
+              icon={entry.icon}
+              disabled={entry.disabled}
+              open={expanded}
+              onOpenChange={(next) => {
+                const isOpen = branch.every(
+                  (id, index) => pathRef.current[index] === id,
+                );
+                if (next === isOpen) return;
+                if (!next) {
+                  back();
+                  return;
+                }
+                setError(null);
+                if (entry.children) {
+                  dismissPage();
+                  updatePath(branch);
+                } else activate(entry, origin);
+              }}
+            >
+              {entry.children ? (
+                <ContextMenuPanel
+                  placeholder={entry.searchPlaceholder ?? searchContext}
+                >
+                  {(query) =>
+                    renderEntries(
+                      entry.children.filter((child) =>
+                        matchesEntry(child, query),
+                      ),
+                      branch,
+                    )
+                  }
+                </ContextMenuPanel>
+              ) : entry.picker ? (
+                <ComposerContextPicker
+                  key={JSON.stringify([entry.id, entry.picker.scopeKey])}
+                  config={entry.picker}
+                  onClose={() => {
+                    if (pageRef.current === activePage) changeOpen(false);
+                  }}
+                />
+              ) : entry.render && expanded ? (
+                <LegacyContextPage>
+                  {entry.render({
+                    onBack: back,
+                    onClose: (options) => {
+                      if (pageRef.current !== activePage) return;
+                      restoreFocusOnClose.current =
+                        options?.restoreFocus !== false;
+                      changeOpen(false);
+                    },
+                    onResume: () => {
+                      const action = findAction(itemsRef.current, entry.id);
+                      if (!action?.render) {
+                        reportError(
+                          new Error(
+                            t("agentChat.composer.contextActionFailed", {
+                              defaultValue: "Could not add context.",
+                            }),
+                          ),
+                        );
+                        return;
+                      }
+                      setOpen(true);
+                      setContextOpen(true);
+                      activate(action, origin, false);
+                    },
+                  })}
+                </LegacyContextPage>
+              ) : null}
+            </ContextSubmenu>
+          );
+        }
+        return (
+          <DropdownMenuItem
+            key={entry.id}
+            disabled={entry.disabled}
+            onSelect={() => {
+              changeOpen(false);
+              selectAction(entry);
+            }}
+          >
+            {entry.icon}
+            {entry.label}
+          </DropdownMenuItem>
+        );
+      })}
+    </DropdownMenuGroup>
+  );
 
   return (
     <>
-      {addAttachment ? (
+      {addAttachment && (
         <input
           ref={inputRef}
           type="file"
           multiple
           accept={attachmentAccept}
-          className="hidden"
+          hidden
           onChange={(event) => {
             const files = Array.from(event.target.files ?? []);
             event.target.value = "";
@@ -312,11 +447,11 @@ export function ComposerContextMenu({
             ).catch(reportError);
           }}
         />
-      ) : null}
-      <Popover open={open} onOpenChange={changeOpen}>
+      )}
+      <DropdownMenu open={open} onOpenChange={changeOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
+            <DropdownMenuTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
@@ -327,116 +462,79 @@ export function ComposerContextMenu({
               >
                 <IconPlus />
               </Button>
-            </PopoverTrigger>
+            </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>{label}</TooltipContent>
         </Tooltip>
-        <PopoverContent
-          ref={contentRef}
+        <DropdownMenuContent
+          align="start"
+          className="w-64"
+          data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
             if (!restoreFocusOnClose.current) event.preventDefault();
             restoreFocusOnClose.current = true;
           }}
-          align="start"
-          className="w-80 max-w-[var(--radix-popover-content-available-width)] p-0"
-          data-agent-native-composer-popover="true"
         >
-          {page && currentAction?.render ? (
-            <Fragment key={page.id}>
-              {currentAction.render({
-                onBack: () => {
-                  dismissPage();
-                  setPath(page.origin);
-                  setQuery("");
-                },
-                onClose: (options) => {
-                  restoreFocusOnClose.current = options?.restoreFocus !== false;
-                  changeOpen(false);
-                },
-                onResume: () => openPage(page, false),
-              })}
-            </Fragment>
-          ) : (
-            <Command key="menu" shouldFilter={false} label={label}>
-              <ComposerContextSearchInput
-                onBack={
-                  path.length
-                    ? () => {
-                        setPath((current) => current.slice(0, -1));
-                        setQuery("");
-                        searchRef.current?.focus();
-                      }
-                    : undefined
-                }
-                ref={searchRef}
-                value={query}
-                onValueChange={setQuery}
-                placeholder={
-                  searchPlaceholder ??
-                  t("agentChat.composer.searchContext", {
-                    defaultValue: "Search context…",
-                  })
-                }
-              />
-              <CommandList>
-                <CommandEmpty>
-                  {t("agentChat.composer.noContextResults", {
-                    defaultValue: "No matching context.",
-                  })}
-                </CommandEmpty>
-                <CommandGroup className="[&_svg]:size-4 [&_svg]:shrink-0">
-                  {showAttachment ? (
-                    <CommandItem
-                      value="native-attach-files"
-                      className="gap-2"
+          <ContextMenuPanel
+            placeholder={t("agentChat.composer.menu.search", {
+              defaultValue: "Search…",
+            })}
+          >
+            {(query) => (
+              <DropdownMenuGroup>
+                {addAttachment &&
+                  uploadLabel
+                    .toLocaleLowerCase()
+                    .includes(query.trim().toLocaleLowerCase()) && (
+                    <DropdownMenuItem
                       onSelect={() => {
                         changeOpen(false);
                         inputRef.current?.click();
                       }}
                     >
-                      <IconUpload />
-                      {attachLabel}
-                    </CommandItem>
-                  ) : null}
-                  {entries.map((entry) => (
-                    <CommandItem
-                      key={entry.id}
-                      value={entry.id}
-                      className="gap-2"
-                      disabled={entry.disabled}
-                      onSelect={() => {
-                        if (entry.children) {
-                          setPath((current) => [...current, entry.id]);
-                          setQuery("");
-                          searchRef.current?.focus();
-                        } else {
-                          if (entry.render)
-                            openPage({ id: entry.id, origin: [...path] });
-                          else {
-                            changeOpen(false);
-                            selectAction(entry);
-                          }
+                      <IconFile size={16} />
+                      {uploadLabel}
+                    </DropdownMenuItem>
+                  )}
+                {items.length > 0 &&
+                  (label
+                    .toLocaleLowerCase()
+                    .includes(query.trim().toLocaleLowerCase()) ||
+                    items.some((item) => matchesEntry(item, query))) && (
+                    <ContextSubmenu
+                      label={label}
+                      icon={<IconTextRecognition size={16} />}
+                      open={contextOpen}
+                      onOpenChange={(next) => {
+                        setContextOpen(next);
+                        if (!next) {
+                          dismissPage();
+                          updatePath([]);
                         }
                       }}
                     >
-                      {entry.icon}
-                      {entry.label}
-                      {entry.children ? (
-                        <IconChevronRight className="ms-auto" />
-                      ) : null}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          )}
-        </PopoverContent>
-      </Popover>
-      {error ? (
+                      <ContextMenuPanel placeholder={searchContext}>
+                        {(contextQuery) =>
+                          renderEntries(
+                            items.filter((item) =>
+                              matchesEntry(item, contextQuery),
+                            ),
+                            [],
+                          )
+                        }
+                      </ContextMenuPanel>
+                    </ContextSubmenu>
+                  )}
+              </DropdownMenuGroup>
+            )}
+          </ContextMenuPanel>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {error && (
         <span role="alert" className="text-xs text-destructive">
           {error}
         </span>
-      ) : null}
+      )}
     </>
   );
 }

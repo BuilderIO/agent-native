@@ -4250,9 +4250,9 @@ export function TiptapComposer({
         className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5"
       >
         {attachButton ??
-          (contextMenuItems !== undefined ? (
+          (contextMenuItems !== undefined || plusMenuMode === "upload-only" ? (
             <ComposerContextMenu
-              items={contextMenuItems}
+              items={contextMenuItems ?? []}
               addAttachment={
                 attachmentsEnabled ? addAttachmentForCurrentScope : undefined
               }

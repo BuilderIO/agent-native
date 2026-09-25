@@ -226,14 +226,81 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 />
 ```
 
-중첩 카테고리는 `children`을 사용합니다. 말단 작업은 `onSelect()`를 사용하며 `render(controls)`로 팝오버 내부 선택기를 제공할 수 있습니다. `ComposerContextMenu`와 `ComposerContextSearchInput`은 공개됩니다. `attachButton`은 앱의 업로드 흐름을 유지합니다.
+컨텍스트 소스는 `ComposerContextMenuItem`의 `picker`에 등록합니다. `ComposerContextMenu`는 기존 화면을 대체하는 패널이 아니라 연결된 shadcn/Radix 계단식 하위 메뉴를 관리합니다. 루트에는 파일 업로드 다음에 컨텍스트 추가 → 호스트 카테고리 → 소스 선택기가 표시됩니다. 호스트 항목이 없으면 컨텍스트 추가를 표시하지 않습니다. 화살표 키와 Escape로 메뉴 계층을 이동합니다. 링크 선택기의 뒤로 가기는 같은 하위 메뉴 안에서 결과에서 링크 입력으로만 돌아갑니다. 공유 선택기가 검색, 목록 행, 로딩·빈 목록·오류 상태, 재시도, 페이지 이동, 링크 입력을 관리합니다. 앱은 자체 선택기 JSX 대신 접근이 확인된 데이터와 선택 콜백을 제공합니다.
 
-카테고리에 번역된 `searchPlaceholder`를 지정할 수 있습니다. 생략하면 루트 검색 자리표시자를 사용합니다. `ComposerContextMenu`에 `addAttachment`를 전달하면 표준 업로드 작업이 맨 앞에 표시되고 호스트의 파일 콜백이 유지됩니다.
+선택기 설정은 다음을 받습니다.
+
+- 앱의 번역된 문구인 `searchPlaceholder`와 선택적 `emptyMessage`. `selectedIds`는 선택된 행을 표시합니다. 항목은 `id`, `title`과 선택적 `disabled`, `url`을 가집니다.
+- 로컬 `items`와 선택적 `loading`, `error`, `onRetry()` 또는 원격 `load(request)`. 두 모드는 함께 사용할 수 없습니다.
+- `load(request)`는 `search`, 1부터 시작하는 `page`, 선택적 `cursor`와 `url`, `AbortSignal`을 받습니다. `{ items, hasMore?, nextCursor? }`를 반환합니다. 실패하면 빈 결과가 아니라 거부된 Promise를 반환해야 합니다.
+- `onSelect(item, request)`는 소스를 준비하며 비동기로 실행할 수 있습니다. `false`를 반환하면 선택기가 열린 상태로 유지됩니다. 오류를 던지면 재시도와 함께 오류가 표시됩니다. 선택적 `clearSelection`은 번역된 `label`과 `onSelect()` 콜백을 제공합니다.
+- 선택적 `link`는 번역된 `placeholder`와 `submitLabel`을 제공합니다. `validate(url)`는 오류 문자열을 반환할 수 있습니다. 공유 양식이 링크 입력과 이동을 담당합니다.
+- `scopeKey`는 신원이나 접근 범위가 변경되면 선택기의 모든 상태를 초기화합니다. `refreshKey`는 소스 또는 버전 토큰이 변경되면 URL을 초기화하지 않고 현재 쿼리를 무효화합니다. 검색이 변경되면 첫 페이지로 돌아갑니다. 에이전트가 소스 데이터를 수정하면 앱은 갱신된 토큰을 전달합니다.
+
+앱은 이미 접근이 확인된 선택지를 등록할 수 있습니다. 여기서 `labels`는 번역된 앱 문구이고 `stageReference`는 호스트의 준비된 컨텍스트를 갱신합니다.
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+검색이나 링크를 사용하는 소스에는 앱이 인증된 로더를 제공합니다. `loadAuthorizedReferences`는 위 요청/결과 계약을 구현하고 접근 검사를 유지하며 중단 신호를 클라이언트 헬퍼에 전달합니다.
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      onSelect: stageReference,
+      link: {
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+선택기 항목에는 `render`나 항목 수준의 `onSelect`를 함께 정의하지 않습니다. 카테고리는 `children`을 사용합니다. 루트와 각 카테고리의 헤더에는 검색 입력이 유지됩니다. 카테고리에 번역된 `searchPlaceholder`를 지정할 수 있으며, 생략하면 공유 컨텍스트 검색 자리표시자를 사용합니다. 소스 목록의 검색 입력에는 `picker.searchPlaceholder`를 사용합니다. 등록은 소스 접근 권한을 부여하지 않습니다. 공유 선택기는 새 요청으로 대체된 로드 응답을 무시합니다.
+
+선택적 `footerAction`은 로딩 중이거나 오류 또는 빈 목록 상태여도 결과 아래에 유지됩니다. 번역된 `label`, 선택적 `icon`과 `disabled`, 그리고 `onSelect()` 또는 `renderLink(children)`를 받습니다. 모달이나 상태가 있는 흐름에는 콜백을 사용합니다. `false`는 메뉴를 열린 상태로 유지하고 `true` 또는 `void`는 닫으며, 거부된 Promise는 오류와 재시도를 표시합니다. 단순 페이지 이동에는 `renderLink`에서 실제 React Router `Link` 또는 HTML 링크를 반환합니다. 공유 메뉴가 `asChild`로 행을 제공하므로 `href`와 브라우저 탐색 동작이 유지됩니다. 임시 작업이 아닌 기존의 권한 확인된 흐름에 연결하세요.
+
+`ComposerContextMenu`에 `addAttachment`를 전달하면 표준 업로드 작업이 맨 앞에 표시되고 호스트의 파일 콜백이 유지됩니다.
+
+`PromptComposer`와 `AgentKitComposer`는 `@assistant-ui/react`의 공개 `AttachmentAdapter` 타입을 사용하는 `attachmentAdapter`를 받습니다. 이 어댑터로 호스트의 허용 파일, 크기 검증, 첨부 준비 정책을 제공합니다. 생략하면 기본 어댑터가 유지됩니다. 업로드 컨트롤, 파일 선택기, 컨텍스트 선택기, 첨부 칩은 계속 공유 컴포저가 관리합니다. 파일 준비를 맞춤 설정하려고 이 컨트롤을 교체하지 마세요.
+
+`PromptComposer`와 `AgentKitComposer`의 `inlineTextAttachments` 기본값은 `true`입니다. 호스트가 일반 텍스트 파일을 이미 추출한다면 `false`로 설정하세요. 컴포저는 파일 내용을 읽어 프롬프트에 추가하지 않고 원본 파일을 호스트에 전달합니다. 붙여넣은 텍스트에서 생성된 첨부는 계속 프롬프트 텍스트가 됩니다. 이 옵션은 허용 파일이나 공유 컨트롤을 바꾸지 않습니다.
 
 ```tsx
 <PromptComposer
   contextItems={contextItems}
-  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
   onRetryContextItem={retryContext}
   onSubmit={submitPrompt}
 />

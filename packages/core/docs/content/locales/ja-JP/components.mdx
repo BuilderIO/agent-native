@@ -230,14 +230,81 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 />
 ```
 
-入れ子のカテゴリには `children` を使います。末端のアクションは `onSelect()` を使い、`render(controls)` でポップオーバー内に選択画面を表示できます。`ComposerContextMenu` と `ComposerContextSearchInput` は公開されています。`attachButton` でアプリ独自のアップロード処理を維持できます。
+コンテキストソースは `ComposerContextMenuItem` の `picker` に登録します。`ComposerContextMenu` は画面を差し替えるパネルではなく、shadcn/Radix の連結したカスケードサブメニューを管理します。ルートにはファイルのアップロード、その後にコンテキストを追加 → ホストのカテゴリ → ソースのピッカーが並びます。ホストの項目がなければコンテキストを追加は表示しません。矢印キーと Escape でメニュー階層を移動します。リンク用ピッカー内の戻る操作は、同じサブメニュー内で結果からリンク入力に戻るためだけに使います。共有ピッカーが検索、一覧の行、読み込み・空・エラー状態、再試行、ページ切り替え、リンク入力を管理します。アプリは独自のピッカー JSX ではなく、アクセス確認済みデータと選択コールバックを提供します。
 
-カテゴリには翻訳済みの `searchPlaceholder` を指定できます。省略したカテゴリではルートの検索プレースホルダーを使用します。`ComposerContextMenu` に `addAttachment` を渡すと、標準のアップロード操作が先頭に表示され、ホストのファイル処理コールバックが維持されます。
+ピッカー設定は次を受け取ります。
+
+- アプリの翻訳済み文言として `searchPlaceholder` と任意の `emptyMessage`。`selectedIds` は選択済みの行を示します。項目は `id`、`title`、任意の `disabled` と `url` を持ちます。
+- ローカルの `items` と任意の `loading`、`error`、`onRetry()`、またはリモートの `load(request)`。両方のモードは併用できません。
+- `load(request)` は `search`、1 始まりの `page`、任意の `cursor` と `url`、`AbortSignal` を受け取ります。戻り値は `{ items, hasMore?, nextCursor? }` です。失敗時は空の結果ではなく Promise を拒否します。
+- `onSelect(item, request)` はソースを準備し、非同期でも実行できます。`false` を返すとピッカーを開いたままにします。例外を投げるとエラーと再試行操作を表示します。任意の `clearSelection` は翻訳済みの `label` と `onSelect()` コールバックを提供します。
+- 任意の `link` は翻訳済みの `placeholder` と `submitLabel` を提供します。`validate(url)` はエラー文字列を返せます。共有フォームがリンク入力と移動を管理します。
+- `scopeKey` は識別情報やアクセス範囲が変わるとピッカーの全状態をリセットします。`refreshKey` はソースやバージョンのトークンが変わると URL をリセットせず現在のクエリを無効化します。検索を変更すると 1 ページ目に戻ります。エージェントの書き込みでソースデータが変わった場合、アプリが更新済みトークンを渡します。
+
+アプリはアクセス確認済みの選択肢を登録できます。ここでは `labels` が翻訳済み文言を持ち、`stageReference` がホストの準備済みコンテキストを更新します。
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+検索やリンクを使うソースには、アプリが認証済みのローダーを提供します。`loadAuthorizedReferences` は上記の要求・結果契約に従い、アクセス検証を維持し、中止シグナルをクライアントヘルパーに渡します。
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      onSelect: stageReference,
+      link: {
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+ピッカー項目には `render` や項目レベルの `onSelect` を併記しません。カテゴリは `children` を使います。ルートと各カテゴリはヘッダーに検索欄を備えます。カテゴリに翻訳済みの `searchPlaceholder` を指定できます。省略した場合は共有のコンテキスト検索プレースホルダーを使います。ソース一覧の検索欄には `picker.searchPlaceholder` を使います。登録はソースへのアクセス権を付与しません。共有ピッカーは新しい要求で置き換えられた読み込み応答を無視します。
+
+任意の `footerAction` は読み込み中、エラー時、一覧が空の場合も結果の下に残ります。翻訳済みの `label`、任意の `icon` と `disabled`、そして `onSelect()` または `renderLink(children)` を指定します。モーダルなどの状態を持つ操作にはコールバックを使います。`false` はメニューを開いたままにし、`true` または `void` は閉じ、拒否された Promise はエラーと再試行を表示します。単純なページ移動には、`renderLink` から実際の React Router の `Link` または HTML リンクを返します。共有メニューが `asChild` で行を提供し、`href` とブラウザ本来の移動操作を維持します。仮の操作ではなく、既存の認可されたフローにつなげてください。
+
+`ComposerContextMenu` に `addAttachment` を渡すと、標準のアップロード操作が先頭に表示され、ホストのファイル処理コールバックが維持されます。
+
+`PromptComposer` と `AgentKitComposer` は、`@assistant-ui/react` の公開型 `AttachmentAdapter` を使う `attachmentAdapter` を受け付けます。このアダプターでホストの受付ファイル形式、サイズ検証、添付準備の方針を提供します。省略すると標準アダプターを維持します。アップロード操作、ファイル選択、コンテキスト選択、添付チップは引き続き共有コンポーザーが管理します。ファイル準備のカスタマイズのためにこれらの操作部品を置き換えないでください。
+
+`PromptComposer` と `AgentKitComposer` の `inlineTextAttachments` は標準で `true` です。ホストが通常のテキストファイルをすでに抽出している場合は `false` にします。コンポーザーは内容を読み込んでプロンプトに追加せず、元のファイルをホストに渡します。貼り付けたテキストから生成された添付は、引き続きプロンプトのテキストになります。この設定は受付ファイル形式や共有操作部品を変更しません。
 
 ```tsx
 <PromptComposer
   contextItems={contextItems}
-  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
   onRetryContextItem={retryContext}
   onSubmit={submitPrompt}
 />

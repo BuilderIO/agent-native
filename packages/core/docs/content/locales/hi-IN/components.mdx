@@ -228,14 +228,81 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 />
 ```
 
-नेस्टेड श्रेणियाँ `children` का उपयोग करती हैं। अंतिम क्रियाएँ `onSelect()` और पॉपओवर में चयन के लिए वैकल्पिक `render(controls)` देती हैं। `ComposerContextMenu` और `ComposerContextSearchInput` सार्वजनिक हैं। `attachButton` ऐप का अपना अपलोड प्रवाह बनाए रखता है।
+संदर्भ स्रोत `ComposerContextMenuItem` पर `picker` रजिस्टर करते हैं। `ComposerContextMenu` एक-दूसरे को बदलने वाले पैनल नहीं, बल्कि जुड़े हुए shadcn/Radix कैस्केडिंग सबमेनू संभालता है: मुख्य मेनू में फ़ाइल अपलोड, फिर संदर्भ जोड़ें → होस्ट श्रेणियाँ → स्रोत पिकर आते हैं। होस्ट एंट्री न होने पर संदर्भ जोड़ें नहीं दिखता। तीर कुंजियाँ और Escape मेनू पदानुक्रम में नेविगेट करते हैं। लिंक पिकर में वापस जाना केवल उसी सबमेनू के परिणामों से लिंक इनपुट पर लौटता है। साझा पिकर खोज, सूची पंक्तियों, लोडिंग, खाली और त्रुटि अवस्थाओं, पुनः प्रयास, पृष्ठों और लिंक इनपुट को संभालता है। ऐप अपना पिकर JSX बनाने के बजाय अधिकृत डेटा और चयन कॉलबैक देते हैं।
 
-श्रेणी स्थानीयकृत `searchPlaceholder` दे सकती है। इसके बिना श्रेणी मुख्य स्तर का खोज प्लेसहोल्डर इस्तेमाल करती है। `ComposerContextMenu` को `addAttachment` देने पर मानक अपलोड क्रिया पहले आती है और होस्ट का फ़ाइल कॉलबैक बना रहता है।
+पिकर कॉन्फ़िगरेशन में ये विकल्प हैं:
+
+- ऐप के स्थानीयकृत पाठ के रूप में `searchPlaceholder` और वैकल्पिक `emptyMessage`। `selectedIds` चुनी गई पंक्तियाँ दिखाता है। आइटम में `id`, `title` और वैकल्पिक `disabled`, `url` होते हैं।
+- या तो स्थानीय `items` के साथ वैकल्पिक `loading`, `error`, `onRetry()`, या दूरस्थ `load(request)`। दोनों मोड एक साथ नहीं दिए जा सकते।
+- `load(request)` को `search`, एक से शुरू होने वाला `page`, वैकल्पिक `cursor`, `url` और `AbortSignal` मिलता है। यह `{ items, hasMore?, nextCursor? }` लौटाता है। विफलता पर खाली परिणाम लौटाने के बजाय Promise अस्वीकार होना चाहिए।
+- `onSelect(item, request)` स्रोत को तैयार करता है और असिंक्रोनस हो सकता है। `false` लौटाने से पिकर खुला रहता है। त्रुटि फेंकने पर पुनः प्रयास के साथ त्रुटि दिखती है। वैकल्पिक `clearSelection` स्थानीयकृत `label` और `onSelect()` कॉलबैक देता है।
+- वैकल्पिक `link` स्थानीयकृत `placeholder` और `submitLabel` देता है। `validate(url)` त्रुटि संदेश लौटा सकता है। साझा फ़ॉर्म लिंक इनपुट और नेविगेशन संभालता है।
+- पहचान या पहुँच का दायरा बदलने पर `scopeKey` पिकर की सभी अवस्थाएँ रीसेट करता है। स्रोत या संस्करण टोकन बदलने पर `refreshKey` URL रीसेट किए बिना मौजूदा क्वेरी को अमान्य करता है। खोज बदलने पर पहला पृष्ठ खुलता है। एजेंट के लिखने से स्रोत डेटा बदले तो ऐप अपडेट किए गए टोकन देते हैं।
+
+ऐप पहले से अधिकृत विकल्प रजिस्टर कर सकता है। यहाँ `labels` में स्थानीयकृत ऐप पाठ है और `stageReference` होस्ट के तैयार संदर्भ को अपडेट करता है:
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+खोजने योग्य या लिंक वाले स्रोत के लिए ऐप प्रमाणित लोडर देता है। `loadAuthorizedReferences` ऊपर दिया गया अनुरोध/परिणाम अनुबंध लागू करता है, पहुँच की जाँच बनाए रखता है और रद्द करने का सिग्नल क्लाइंट हेल्पर को भेजता है:
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      onSelect: stageReference,
+      link: {
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+पिकर एंट्री में साथ-साथ `render` या एंट्री-स्तरीय `onSelect` परिभाषित नहीं होता। श्रेणियाँ `children` का उपयोग करती हैं। मुख्य मेनू और हर श्रेणी के हेडर में खोज फ़ील्ड बनी रहती है। श्रेणियाँ स्थानीयकृत `searchPlaceholder` दे सकती हैं; इसके बिना साझा संदर्भ खोज प्लेसहोल्डर इस्तेमाल होता है। स्रोत सूची के खोज इनपुट का पाठ `picker.searchPlaceholder` देता है। रजिस्ट्रेशन स्रोत तक पहुँच नहीं देता। साझा पिकर नए अनुरोधों से बदले जा चुके लोड उत्तरों को अनदेखा करता है।
+
+वैकल्पिक `footerAction` लोडिंग, त्रुटि या खाली सूची में भी परिणामों के नीचे बना रहता है। इसमें स्थानीयकृत `label`, वैकल्पिक `icon` और `disabled`, तथा `onSelect()` या `renderLink(children)` में से एक होता है। मोडल या अन्य स्थिति वाले कार्यप्रवाह के लिए कॉलबैक इस्तेमाल करें: `false` मेनू खुला रखता है, `true` या `void` उसे बंद करता है, और Promise अस्वीकृत होने पर त्रुटि तथा पुनः प्रयास दिखता है। केवल नेविगेशन के लिए `renderLink` से असली React Router `Link` या HTML लिंक लौटाएँ; साझा मेनू `asChild` से पंक्ति देता है, जिससे `href` और ब्राउज़र का मूल नेविगेशन बना रहता है। पहले से मौजूद अधिकृत कार्यप्रवाह जोड़ें, दिखावटी क्रियाएँ नहीं।
+
+`ComposerContextMenu` को `addAttachment` देने पर मानक अपलोड क्रिया पहले आती है और होस्ट का फ़ाइल कॉलबैक बना रहता है।
+
+`PromptComposer` और `AgentKitComposer`, `@assistant-ui/react` के सार्वजनिक `AttachmentAdapter` प्रकार वाला `attachmentAdapter` स्वीकार करते हैं। इस अडैप्टर से होस्ट की स्वीकार्य फ़ाइलों, आकार जाँच और अटैचमेंट तैयार करने की नीति दें; इसे छोड़ने पर डिफ़ॉल्ट अडैप्टर बने रहते हैं। अपलोड नियंत्रण, फ़ाइल पिकर, संदर्भ पिकर और अटैचमेंट चिप साझा कंपोज़र के अधीन रहते हैं। फ़ाइल तैयारी को अनुकूलित करने के लिए इन नियंत्रणों को न बदलें।
+
+`PromptComposer` और `AgentKitComposer` में `inlineTextAttachments` का डिफ़ॉल्ट `true` है। जब होस्ट सामान्य टेक्स्ट फ़ाइलों का पाठ पहले ही निकालता हो, इसे `false` करें: कंपोज़र फ़ाइलें पढ़कर उनकी सामग्री प्रॉम्प्ट में जोड़ने के बजाय मूल फ़ाइलें होस्ट को देता है। पेस्ट किए गए टेक्स्ट से बने कृत्रिम अटैचमेंट अब भी प्रॉम्प्ट टेक्स्ट बनते हैं। यह विकल्प अटैचमेंट स्वीकृति या साझा नियंत्रण नहीं बदलता।
 
 ```tsx
 <PromptComposer
   contextItems={contextItems}
-  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
   onRetryContextItem={retryContext}
   onSubmit={submitPrompt}
 />

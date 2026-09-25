@@ -25,6 +25,8 @@ const {
   useBuilderConnectFlow,
   agentSubmit,
   callAction,
+  contextOptions,
+  refetchSystems,
 } = vi.hoisted(() => ({
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
@@ -37,6 +39,8 @@ const {
   useBuilderConnectFlow: vi.fn(),
   agentSubmit: vi.fn(),
   callAction: vi.fn().mockResolvedValue(undefined),
+  contextOptions: vi.fn(),
+  refetchSystems: vi.fn(),
 }));
 const translate = (key: string) =>
   ({
@@ -94,17 +98,34 @@ vi.mock("@/hooks/use-agent-generating", () => ({
   clearStartedGenerationAttempt: vi.fn(),
 }));
 vi.mock("@/hooks/use-design-systems", () => ({
-  useDesignSystems: () => ({ designSystems: [], refetch: vi.fn() }),
+  useDesignSystems: () => ({ designSystems: [], refetch: refetchSystems }),
 }));
 vi.mock("@/hooks/use-workspace-defaults", () => ({
   useWorkspaceDefaults: () => ({ refetch: vi.fn() }),
 }));
 vi.mock("@/components/editor/SlidesComposerContext", () => ({
-  useSlidesComposerContext: () => ({
-    props: { contextItems: [], contextMenuItems: [] },
-    beforeSend: vi.fn(),
-    dialogs: null,
-  }),
+  useSlidesComposerContext: (options: unknown) => {
+    contextOptions(options);
+    return {
+      props: { contextItems: [], contextMenuItems: [] },
+      beforeSend: vi.fn(),
+      dialogs: null,
+    };
+  },
+}));
+vi.mock("@/components/design-system/DesignSystemSetup", () => ({
+  DesignSystemSetup: ({
+    onClose,
+    onComplete,
+  }: {
+    onClose: () => void;
+    onComplete: () => void;
+  }) => (
+    <div role="dialog" aria-label="Existing system setup">
+      <button onClick={onClose}>Cancel setup</button>
+      <button onClick={onComplete}>Complete setup</button>
+    </div>
+  ),
 }));
 vi.mock("@/components/deck/DeckCard", () => ({
   default: ({ deck }: { deck: { title: string } }) => (
@@ -196,6 +217,37 @@ afterEach(() => {
 });
 
 describe("Slides prompt-led home", () => {
+  it("opens the existing creator only on selection, keeps the composer mounted on cancel, and refetches on completion", async () => {
+    renderHome();
+    const composer = await screen.findByRole("textbox", {
+      name: "Presentation prompt",
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "Existing system setup" }),
+    ).toBeNull();
+    await act(async () =>
+      contextOptions.mock.lastCall![0].onCreateDesignSystem(),
+    );
+    await screen.findByRole("dialog", { name: "Existing system setup" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel setup" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Existing system setup" }),
+    ).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
+      composer,
+    );
+    expect(refetchSystems).not.toHaveBeenCalled();
+    await act(async () =>
+      contextOptions.mock.lastCall![0].onCreateDesignSystem(),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Complete setup" }),
+    );
+    expect(refetchSystems).toHaveBeenCalledOnce();
+    expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
+      composer,
+    );
+  });
   it("sends the direct-start payload through existing persisted deck generation and chat", async () => {
     createDeck.mockReturnValue({ id: "new-deck" });
     renderHome({

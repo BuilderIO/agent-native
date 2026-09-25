@@ -248,14 +248,81 @@ A host can stage already-authorized context and receive the frozen snapshot on s
 />
 ```
 
-Nested menu categories use `children`. Leaf actions use `onSelect()` and can supply `render(controls)` for an in-popover picker. `ComposerContextMenu` and `ComposerContextSearchInput` are public exports. Apps can retain their own upload flow with `attachButton`.
+Context sources register `picker` on a `ComposerContextMenuItem`. `ComposerContextMenu` owns connected shadcn/Radix cascading submenus, not replacement panels: the root offers file upload, then Add context → host categories → source pickers. Add context is omitted when there are no host entries. Arrow keys and Escape navigate the menu hierarchy. Back within a link picker only returns from results to link entry in the same flyout. The shared picker owns search, list rows, loading, empty and error states, retry, pagination, and link entry. Apps provide authorized data and selection callbacks, not their own picker JSX.
 
-A category can supply a localized `searchPlaceholder`. Categories without it use the root search placeholder. Passing `addAttachment` to `ComposerContextMenu` adds the standard upload action first and preserves the host's file callback.
+The picker configuration accepts:
+
+- `searchPlaceholder` and optional `emptyMessage` as localized app labels. `selectedIds` marks selected rows. Items have `id`, `title`, optional `disabled`, and optional `url`.
+- Either local `items` with optional `loading`, `error`, and `onRetry()`, or remote `load(request)`. These modes cannot be combined.
+- `load(request)` receives `search`, one-based `page`, optional `cursor` and `url`, and an `AbortSignal`. It returns `{ items, hasMore?, nextCursor? }`. Failures must reject, not return an empty result.
+- `onSelect(item, request)` stages the source. It may be asynchronous. Returning `false` keeps the picker open. Throwing shows an error with retry. Optional `clearSelection` supplies a localized `label` and an `onSelect()` callback.
+- Optional `link` supplies localized `placeholder` and `submitLabel` strings. `validate(url)` may return an error string. The shared form owns link input and navigation.
+- `scopeKey` resets all picker state when identity or access scope changes. `refreshKey` invalidates the current query when a source/version token changes without resetting the URL. Search changes return to page one. Apps pass refreshed tokens when agent writes change their source data.
+
+An app can register already-authorized choices. Here, `labels` contains localized app copy and `stageReference` updates the host's staged context:
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+For a searchable or linked source, the app supplies its authenticated loader. `loadAuthorizedReferences` implements the request/result contract above. It preserves access checks and forwards the abort signal to its client helper:
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      onSelect: stageReference,
+      link: {
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+Picker entries do not also define `render` or entry-level `onSelect`. Categories use `children`. The root and every category keep a searchable header. Categories can supply a localized `searchPlaceholder`; without it they use the shared context-search placeholder. `picker.searchPlaceholder` labels the source list's search input. Registration does not grant source access. The shared picker ignores superseded load responses.
+
+Optional `footerAction` stays below the results even during loading, errors, or an empty list. It accepts a localized `label`, optional `icon` and `disabled`, and either `onSelect()` or `renderLink(children)`. Use a callback for a modal or another stateful workflow: `false` keeps the menu open, `true` or `void` closes it, and rejection displays an error with retry. For pure navigation, return a real React Router `Link` or native anchor from `renderLink`; the shared menu supplies the row through `asChild`, preserving its `href` and browser navigation semantics. Wire existing authorized workflows, not placeholder actions.
+
+Passing `addAttachment` to `ComposerContextMenu` adds the standard upload action first and preserves the host's file callback.
+
+`PromptComposer` and `AgentKitComposer` accept `attachmentAdapter`, using the public `AttachmentAdapter` type from `@assistant-ui/react`. Supply the host's file-acceptance, size-validation, and staging policy through this adapter; omit it to retain the default adapters. The shared composer still owns the upload control, file picker, context picker, and attachment chips. Do not replace those controls to customize file staging.
+
+`inlineTextAttachments` defaults to `true` on `PromptComposer` and `AgentKitComposer`. Set it to `false` when the host already extracts ordinary text files: the composer passes the original files to the host without reading and appending their contents to the prompt. Synthetic pasted-text attachments still become prompt text. This opt-out does not change attachment acceptance or the shared controls.
 
 ```tsx
 <PromptComposer
   contextItems={contextItems}
-  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
   onRetryContextItem={retryContext}
   onSubmit={submitPrompt}
 />

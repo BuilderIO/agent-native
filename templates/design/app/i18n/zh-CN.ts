@@ -1582,6 +1582,8 @@ export default {
     staleAnchorDetail: "在画布上已找不到原始元素。",
   },
   homeContext: {
+    createSystem: "创建设计系统",
+    noSystems: "你还没有设计系统。可以从网站、文件或 Figma 创建。",
     searchSystems: "搜索设计系统…",
     searchFrames: "搜索 Figma 画框…",
     searchDesigns: "搜索设计…",
@@ -1590,7 +1592,8 @@ export default {
     useDesignSystem: "使用设计系统",
     notReady: "提示尚未准备好提交。请检查所选上下文和连接，然后重试。",
     search: "搜索上下文…",
-    browse: "浏览",
+    figmaUrl: "粘贴 Figma 链接",
+    browse: "浏览画框",
     loadFailed: "无法加载此参考。",
     retry: "重试",
     empty: "没有匹配的参考。",

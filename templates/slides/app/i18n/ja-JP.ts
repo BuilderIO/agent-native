@@ -801,6 +801,13 @@ const messages = {
     },
     importDeck: "デッキをインポート",
     context: {
+      createSystem: "デザインシステムを作成",
+      noSystems:
+        "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
+      searchSystems: "デザインシステムを検索…",
+      searchFrames: "Figmaフレームを検索…",
+      searchDesigns: "デザインを検索…",
+      searchPresentations: "プレゼンテーションを検索…",
       menu: {
         system: "デザインシステムを使う",
         figma: "Figmaを添付",

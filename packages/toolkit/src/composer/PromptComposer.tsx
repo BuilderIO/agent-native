@@ -129,6 +129,10 @@ export interface PromptComposerProps {
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
+  /** Host-owned file acceptance and staging; the shared composer still owns picker and chips. */
+  attachmentAdapter?: AttachmentAdapter;
+  /** Let hosts extract ordinary uploaded text without also inlining it. */
+  inlineTextAttachments?: boolean;
   /**
    * Controls the shared "+" affordance. Defaults to upload-only for standalone
    * prompt forms; chat surfaces can opt into the full sidebar menu.
@@ -304,6 +308,7 @@ export function shouldGateComposerForMissingEngine(input: {
 export async function buildPromptComposerSubmission(options: {
   text: string;
   attachments?: ReadonlyArray<unknown>;
+  inlineTextAttachments?: boolean;
 }): Promise<{ text: string; files: File[] }> {
   const files: File[] = [];
   const pastedTextBlocks: string[] = [];
@@ -320,7 +325,10 @@ export async function buildPromptComposerSubmission(options: {
           files.push(file);
         }
       } else {
-        if (isInlineableTextFile(file)) {
+        if (
+          options.inlineTextAttachments !== false &&
+          isInlineableTextFile(file)
+        ) {
           try {
             pastedTextBlocks.push(
               formatInlineTextFile(file.name, await file.text()),
@@ -554,6 +562,7 @@ function PromptComposerInner({
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
+  inlineTextAttachments = true,
   plusMenuMode,
   terminalModeControl,
   extensionTools = false,
@@ -723,6 +732,7 @@ function PromptComposerInner({
       const { text: finalText, files } = await buildPromptComposerSubmission({
         text,
         attachments,
+        inlineTextAttachments,
       });
       await onSubmit(finalText, files, references, {
         intent: submitOptions?.intent ?? "immediate",
@@ -735,7 +745,13 @@ function PromptComposerInner({
           : { contextItems: submitOptions.contextItems }),
       });
     },
-    [composerEffort, composerEngine, composerModel, onSubmit],
+    [
+      composerEffort,
+      composerEngine,
+      composerModel,
+      onSubmit,
+      inlineTextAttachments,
+    ],
   );
   return (
     <>
@@ -853,12 +869,13 @@ function PromptComposerRuntime(props: PromptComposerProps) {
     useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
   const attachmentAdapter = useMemo(
     () =>
+      props.attachmentAdapter ??
       new CompositeAttachmentAdapter([
         new RasterImageAttachmentAdapter(),
         new BinaryDocumentAttachmentAdapter(),
         new TextAttachmentAdapter(),
       ]),
-    [],
+    [props.attachmentAdapter],
   );
   const runtime = useLocalRuntime(NOOP_ADAPTER, {
     adapters: { attachments: attachmentAdapter },

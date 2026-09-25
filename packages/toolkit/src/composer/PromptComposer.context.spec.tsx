@@ -32,6 +32,30 @@ afterEach(() => {
 });
 
 describe("controlled composer context", () => {
+  it("uses the shared upload menu without host entries and retains the explicit hidden mode", async () => {
+    await mount();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    expect(trigger).not.toBeNull();
+    await act(async () =>
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+    const menu = document.querySelector('[role="menu"]')!;
+    expect(menu.querySelector('[role="searchbox"]')).not.toBeNull();
+    expect(menu.textContent).toBe("Upload File");
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    await mount({ plusMenuMode: "hidden" });
+    expect(
+      container.querySelector('button[aria-label="Add context"]'),
+    ).toBeNull();
+  });
   async function mount(props: Partial<PromptComposerProps> = {}) {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();
@@ -139,9 +163,17 @@ describe("controlled composer context", () => {
         'button[aria-label="Add context"]',
       )!;
       expect(contextButton.disabled).toBe(false);
-      await act(async () => contextButton.click());
+      await act(async () =>
+        contextButton.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        ),
+      );
+      const contextGroup = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find((element) => element.textContent === "Add context")!;
+      await act(async () => contextGroup.click());
       const option = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="option"]'),
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).find((element) => element.textContent?.includes("Choose brief"))!;
       expect(option).toBeDefined();
       await act(async () => option.click());

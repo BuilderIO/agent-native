@@ -822,6 +822,13 @@ const messages = {
     },
     importDeck: "Importer une présentation",
     context: {
+      createSystem: "Créer un système de design",
+      noSystems:
+        "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
+      searchSystems: "Rechercher des systèmes de design…",
+      searchFrames: "Rechercher des cadres Figma…",
+      searchDesigns: "Rechercher des designs…",
+      searchPresentations: "Rechercher des présentations…",
       menu: {
         system: "Utiliser un système de design",
         figma: "Joindre Figma",

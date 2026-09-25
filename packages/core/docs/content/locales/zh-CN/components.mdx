@@ -226,14 +226,81 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 />
 ```
 
-嵌套分类使用 `children`。叶级操作使用 `onSelect()`，并可通过 `render(controls)` 在弹出层内提供选择器。`ComposerContextMenu` 和 `ComposerContextSearchInput` 均为公开导出。`attachButton` 可保留应用自己的上传流程。
+上下文源通过 `ComposerContextMenuItem` 上的 `picker` 注册。`ComposerContextMenu` 管理相互连接的 shadcn/Radix 级联子菜单，而不是替换当前面板：根菜单先提供文件上传，再提供添加上下文 → 宿主分类 → 源选择器。没有宿主条目时，不显示添加上下文。方向键和 Escape 用于遍历菜单层级。链接选择器中的返回操作仅在同一个子菜单内从结果返回链接输入。共享选择器负责搜索、列表行、加载、空列表和错误状态、重试、分页及链接输入。应用提供已授权数据和选择回调，而不是自行渲染选择器 JSX。
 
-分类可提供本地化的 `searchPlaceholder`。未提供时使用根级搜索占位文本。向 `ComposerContextMenu` 传入 `addAttachment` 会将标准上传操作放在首位，并保留宿主的文件处理回调。
+选择器配置支持：
+
+- `searchPlaceholder` 和可选的 `emptyMessage` 使用应用的本地化文案。`selectedIds` 标记已选行。条目包含 `id`、`title`，以及可选的 `disabled` 和 `url`。
+- 使用本地 `items` 及可选的 `loading`、`error`、`onRetry()`，或使用远程 `load(request)`。两种模式不能混用。
+- `load(request)` 接收 `search`、从一开始的 `page`、可选的 `cursor` 和 `url`，以及 `AbortSignal`。返回 `{ items, hasMore?, nextCursor? }`。失败时必须拒绝 Promise，不能返回空结果。
+- `onSelect(item, request)` 暂存来源，可异步执行。返回 `false` 会保持选择器打开。抛出错误会显示错误和重试操作。可选的 `clearSelection` 提供本地化 `label` 和 `onSelect()` 回调。
+- 可选的 `link` 提供本地化 `placeholder` 和 `submitLabel`。`validate(url)` 可返回错误文本。共享表单负责链接输入和导航。
+- `scopeKey` 在身份或访问范围变化时重置选择器的全部状态。`refreshKey` 在来源或版本标记变化时使当前查询失效，但不重置 URL。搜索变化会回到第一页。智能体写入导致源数据变化时，应用传入更新的标记。
+
+应用可以注册已经获得授权的选项。此处 `labels` 包含本地化文案，`stageReference` 更新宿主暂存的上下文：
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+对于可搜索或通过链接访问的来源，应用提供经过身份验证的加载器。`loadAuthorizedReferences` 实现上述请求和结果契约，保留访问检查，并向客户端辅助函数传递中止信号：
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      onSelect: stageReference,
+      link: {
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+选择器条目不能同时定义 `render` 或条目级 `onSelect`。分类使用 `children`。根菜单和每个分类都保留顶部搜索框。分类可提供本地化的 `searchPlaceholder`；未提供时使用共享的上下文搜索占位文本。源列表的搜索框使用 `picker.searchPlaceholder`。注册不授予源访问权限。共享选择器会忽略已被新请求替代的加载响应。
+
+可选的 `footerAction` 始终保留在结果下方，包括加载中、错误或列表为空时。它接受本地化的 `label`、可选的 `icon` 和 `disabled`，以及 `onSelect()` 或 `renderLink(children)` 二者之一。模态框等有状态流程使用回调：`false` 保持菜单打开，`true` 或 `void` 关闭菜单，Promise 拒绝时显示错误和重试操作。纯导航应由 `renderLink` 返回真正的 React Router `Link` 或 HTML 链接；共享菜单通过 `asChild` 提供菜单行，保留其 `href` 和浏览器原生导航行为。应接入已有且经过授权的流程，不要添加占位操作。
+
+向 `ComposerContextMenu` 传入 `addAttachment` 会将标准上传操作放在首位，并保留宿主的文件处理回调。
+
+`PromptComposer` 和 `AgentKitComposer` 接受 `attachmentAdapter`，使用 `@assistant-ui/react` 的公开类型 `AttachmentAdapter`。通过该适配器提供宿主的文件类型接收、大小校验和附件暂存策略；省略时保留默认适配器。上传控件、文件选择器、上下文选择器和附件标签仍由共享编辑器管理。不要为了定制文件暂存行为而替换这些控件。
+
+`PromptComposer` 和 `AgentKitComposer` 的 `inlineTextAttachments` 默认为 `true`。如果宿主已经提取普通文本文件，请设为 `false`：编辑器将原文件传给宿主，不再读取内容并追加到提示词。由粘贴文本生成的合成附件仍会转换为提示词文本。此选项不会改变附件接收规则或共享控件。
 
 ```tsx
 <PromptComposer
   contextItems={contextItems}
-  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
   onRetryContextItem={retryContext}
   onSubmit={submitPrompt}
 />

@@ -2147,6 +2147,8 @@ export interface AgentKitComposerProps extends Pick<
   | "onInspectContextItem"
   | "onRetryContextItem"
   | "contextMenuItems"
+  | "attachmentAdapter"
+  | "inlineTextAttachments"
 > {
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
   threadId?: string;
@@ -2182,6 +2184,8 @@ export function AgentKitComposer({
   onInspectContextItem,
   onRetryContextItem,
   contextMenuItems,
+  attachmentAdapter,
+  inlineTextAttachments,
   beforeSend,
 }: AgentKitComposerProps) {
   const {
@@ -2384,6 +2388,8 @@ export function AgentKitComposer({
         onInspectContextItem={onInspectContextItem}
         onRetryContextItem={onRetryContextItem}
         contextMenuItems={contextMenuItems}
+        attachmentAdapter={attachmentAdapter}
+        inlineTextAttachments={inlineTextAttachments}
         rootClassName="agentkit-composer"
         layoutVariant="default"
         draftScope={`agentkit:${threadId}`}

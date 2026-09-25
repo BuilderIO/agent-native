@@ -20,6 +20,12 @@ export {
   type ComposerContextMenuCategory,
   type ComposerContextMenuItem,
   type ComposerContextMenuProps,
+  type ComposerContextPickerConfig,
+  type ComposerContextPickerItem,
+  type ComposerContextPickerRequest,
+  type ComposerContextPickerResult,
+  type ComposerContextPickerSelection,
+  type ComposerContextPickerFooterAction,
 } from "./composer/ComposerContextMenu.js";
 export {
   PromptComposer,

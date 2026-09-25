@@ -1653,6 +1653,9 @@ export default {
       "O elemento original não foi mais encontrado na tela de design.",
   },
   homeContext: {
+    createSystem: "Criar um sistema de design",
+    noSystems:
+      "Você ainda não tem um sistema de design. Crie um a partir de um site, arquivos ou Figma.",
     searchSystems: "Buscar sistemas de design…",
     searchFrames: "Buscar quadros do Figma…",
     searchDesigns: "Buscar designs…",
@@ -1662,7 +1665,8 @@ export default {
     notReady:
       "A solicitação ainda não está pronta. Confira o contexto selecionado e a conexão e tente novamente.",
     search: "Buscar contexto…",
-    browse: "Explorar",
+    figmaUrl: "Cole um link do Figma",
+    browse: "Explorar quadros",
     loadFailed: "Não foi possível carregar esta referência.",
     retry: "Tentar novamente",
     empty: "Nenhuma referência correspondente.",

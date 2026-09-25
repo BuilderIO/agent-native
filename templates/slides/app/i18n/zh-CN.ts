@@ -775,6 +775,12 @@ const messages = {
     },
     importDeck: "导入演示文稿",
     context: {
+      createSystem: "创建设计系统",
+      noSystems: "你还没有设计系统。可以从网站、文件或 Figma 创建。",
+      searchSystems: "搜索设计系统…",
+      searchFrames: "搜索 Figma 画框…",
+      searchDesigns: "搜索设计…",
+      searchPresentations: "搜索演示文稿…",
       menu: {
         system: "使用设计系统",
         figma: "附加 Figma",

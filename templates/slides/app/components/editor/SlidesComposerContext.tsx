@@ -1,40 +1,32 @@
 import {
-  useActionQuery,
+  callAction,
+  useChangeVersions,
   useSession,
   actionErrorMessage,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { composerSourceListSchema } from "@agent-native/core/shared";
 import {
-  ComposerContextSearchInput,
   snapshotComposerContextItems,
   type AgentChatContextItem,
   type ComposerContextMenuItem,
-  type ComposerContextPageControls,
+  type ComposerContextPickerConfig,
 } from "@agent-native/toolkit/composer";
 import {
-  IconBrandFigma,
-  IconLayout,
-  IconPalette,
-  IconPresentation,
+  IconComponents,
+  IconLink,
+  IconOmega,
+  IconTextRecognition,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   composerSourceKey,
   formatSlidesComposerContext,
@@ -44,8 +36,6 @@ import {
   type SlidesComposerContext,
 } from "@/lib/composer-context";
 
-type SourceKind = ComposerSource["source"] | "system";
-
 export function useSlidesComposerContext({
   defaultDesignSystemId,
   defaultReferenceDeck,
@@ -53,6 +43,7 @@ export function useSlidesComposerContext({
   systemsError,
   systemsLoading,
   retrySystems,
+  onCreateDesignSystem,
 }: {
   defaultDesignSystemId: string | null;
   defaultReferenceDeck?: { id: string; title: string };
@@ -60,10 +51,17 @@ export function useSlidesComposerContext({
   systemsError?: unknown;
   systemsLoading?: boolean;
   retrySystems?: () => unknown;
+  onCreateDesignSystem: () => void;
 }) {
   const t = useT();
   const { session } = useSession();
   const identity = `${session?.email ?? "guest"}:${session?.orgId ?? "personal"}`;
+  const refreshKey = useChangeVersions([
+    "action",
+    "decks",
+    "slides",
+    "designs",
+  ]);
   const storageKey = `slides-home-context:${identity}`;
   const defaultDeckId = defaultReferenceDeck?.id;
   const defaultDeckTitle = defaultReferenceDeck?.title;
@@ -73,14 +71,6 @@ export function useSlidesComposerContext({
   });
   const [items, setItems] = useState<AgentChatContextItem[]>([]);
   const [error, setError] = useState<string>();
-  const [view, setView] = useState<SourceKind | null>(null);
-  const [search, setSearch] = useState("");
-  const [figmaInput, setFigmaInput] = useState("");
-  const [figmaUrl, setFigmaUrl] = useState("");
-  const [cursors, setCursors] = useState<Array<string | undefined>>([
-    undefined,
-  ]);
-  const [page, setPage] = useState(1);
   const [inspectedKey, setInspectedKey] = useState<string>();
   const version = useRef(0);
   const edited = useRef(false);
@@ -91,7 +81,6 @@ export function useSlidesComposerContext({
 
   useEffect(() => {
     edited.current = false;
-    setView(null);
     setError(undefined);
     version.current++;
   }, [identity]);
@@ -157,7 +146,7 @@ export function useSlidesComposerContext({
   const save = (next: SlidesComposerContext) => {
     if (!slidesComposerContextSchema.safeParse(next).success) {
       setError(t("home.context.tooMany"));
-      return;
+      return false;
     }
     edited.current = true;
     setSelection(next);
@@ -166,7 +155,9 @@ export function useSlidesComposerContext({
       localStorage.setItem(storageKey, JSON.stringify(next));
     } catch {
       setError(t("home.context.saveFailed"));
+      return false;
     }
+    return true;
   };
   const remove = (key: string) => {
     if (key === "context-state") {
@@ -182,175 +173,103 @@ export function useSlidesComposerContext({
       ),
     });
   };
-  const listQuery = useActionQuery(
-    "read-composer-source",
-    {
-      source: view === "design" || view === "figma" ? view : "slides",
-      operation: "list",
-      search,
-      page,
-      ...(cursors[page - 1] ? { cursor: cursors[page - 1] } : {}),
-      ...(view === "figma" ? { figmaUrl } : {}),
-    },
-    {
-      enabled: Boolean(
-        session && view && view !== "system" && (view !== "figma" || figmaUrl),
+  const referencePicker = (
+    source: ComposerSource["source"],
+  ): ComposerContextPickerConfig => ({
+    scopeKey: identity,
+    refreshKey,
+    searchPlaceholder: t(
+      source === "figma"
+        ? "home.context.searchFrames"
+        : source === "slides"
+          ? "home.context.searchPresentations"
+          : "home.context.searchDesigns",
+    ),
+    emptyMessage: t("home.context.empty"),
+    selectedIds: selection.references
+      .filter((reference) => reference.source === source)
+      .map((reference) =>
+        source === "figma"
+          ? `${encodeURIComponent(reference.figmaUrl ?? reference.url ?? "")}:${encodeURIComponent(reference.id)}`
+          : reference.id,
       ),
+    ...(source === "figma"
+      ? {
+          link: {
+            placeholder: t("home.context.figmaUrl"),
+            submitLabel: t("home.context.browse"),
+          },
+        }
+      : {}),
+    load: async ({ search, page, cursor, url, signal }) => {
+      try {
+        const result = composerSourceListSchema.safeParse(
+          await callAction(
+            "read-composer-source",
+            {
+              source,
+              operation: "list",
+              search,
+              page,
+              cursor,
+              ...(source === "figma" ? { figmaUrl: url } : {}),
+            },
+            { method: "GET", signal },
+          ),
+        );
+        if (
+          !result.success ||
+          (source === "slides" &&
+            result.data.hasMore &&
+            !result.data.nextCursor)
+        )
+          throw new Error(t("home.context.loadFailed"));
+        return {
+          ...result.data,
+          items: result.data.items.map((item) => ({
+            ...item,
+            id:
+              source === "figma"
+                ? `${encodeURIComponent(item.url ?? url ?? "")}:${encodeURIComponent(item.id)}`
+                : item.id,
+          })),
+        };
+      } catch (error) {
+        throw new Error(
+          actionErrorMessage(error) ?? t("home.context.loadFailed"),
+        );
+      }
     },
-  );
-  const open = (kind: SourceKind) => {
-    setView(kind);
-    setSearch("");
-    setPage(1);
-    setCursors([undefined]);
-    setFigmaInput("");
-    setFigmaUrl("");
-  };
-  const renderPicker = (controls: ComposerContextPageControls) => {
-    const enteringFigma = view === "figma" && !figmaUrl;
-    const parsed =
-      listQuery.data === undefined
-        ? undefined
-        : composerSourceListSchema.safeParse(listQuery.data);
-    const result = parsed?.success ? parsed.data : undefined;
-    const queryError = view === "system" ? systemsError : listQuery.error;
-    const listError = queryError
-      ? (actionErrorMessage(queryError) ?? t("home.context.loadFailed"))
-      : view !== "system" && parsed?.success === false
-        ? t("home.context.loadFailed")
-        : undefined;
-    const list: Array<{ id: string; title: string; url?: string }> =
-      view === "system"
-        ? systems.filter((item) =>
-            item.title.toLowerCase().includes(search.toLowerCase()),
-          )
-        : (result?.items ?? []);
-    return (
-      <Command shouldFilter={false}>
-        <ComposerContextSearchInput
-          onBack={() => controls.onBack()}
-          autoFocus
-          value={enteringFigma ? figmaInput : search}
-          onValueChange={(value) => {
-            if (enteringFigma) setFigmaInput(value);
-            else {
-              setSearch(value);
-              setPage(1);
-              setCursors([undefined]);
+    onSelect: (item, request) => {
+      const reference: ComposerSource = {
+        source,
+        id:
+          source === "figma"
+            ? decodeURIComponent(item.id.slice(item.id.lastIndexOf(":") + 1))
+            : item.id,
+        title: item.title,
+        ...(item.url ? { url: item.url } : {}),
+        ...(source === "figma"
+          ? {
+              figmaUrl: item.url ?? request.url,
+              nodeId: decodeURIComponent(
+                item.id.slice(item.id.lastIndexOf(":") + 1),
+              ),
             }
-          }}
-          placeholder={t(
-            enteringFigma ? "home.context.figmaUrl" : "home.context.search",
-          )}
-          aria-label={t(
-            enteringFigma ? "home.context.figmaUrl" : "home.context.search",
-          )}
-        />
-        <CommandList>
-          {enteringFigma ? (
-            <CommandGroup>
-              <CommandItem
-                disabled={!figmaInput.trim()}
-                onSelect={() => setFigmaUrl(figmaInput.trim())}
-              >
-                {t("home.context.browse")}
-              </CommandItem>
-            </CommandGroup>
-          ) : listError ? (
-            <CommandGroup>
-              <p role="alert" className="p-3 text-sm text-destructive">
-                {listError}
-              </p>
-              <CommandItem
-                onSelect={() =>
-                  void (view === "system"
-                    ? retrySystems?.()
-                    : listQuery.refetch())
-                }
-              >
-                {t("home.retry")}
-              </CommandItem>
-            </CommandGroup>
-          ) : (view === "system" ? systemsLoading : listQuery.isFetching) ? (
-            <div className="p-2" aria-busy="true">
-              <Skeleton className="h-8 w-full" />
-            </div>
-          ) : (
-            <>
-              <CommandEmpty>{t("home.context.empty")}</CommandEmpty>
-              <CommandGroup>
-                {view === "system" && (
-                  <CommandItem
-                    onSelect={() => {
-                      save({ ...selection, designSystemId: null });
-                      controls.onClose();
-                    }}
-                  >
-                    {t("home.none")}
-                  </CommandItem>
-                )}
-                {list.map((item) => (
-                  <CommandItem
-                    key={item.id}
-                    value={item.id}
-                    onSelect={() => {
-                      if (view === "system")
-                        save({ ...selection, designSystemId: item.id });
-                      else if (view) {
-                        const source: ComposerSource = {
-                          source: view,
-                          ...item,
-                          ...(view === "figma"
-                            ? {
-                                figmaUrl: item.url ?? figmaUrl,
-                                nodeId: item.id,
-                              }
-                            : {}),
-                        };
-                        save({
-                          ...selection,
-                          references: [
-                            ...selection.references.filter(
-                              (value) =>
-                                composerSourceKey(value) !==
-                                composerSourceKey(source),
-                            ),
-                            source,
-                          ],
-                        });
-                      }
-                      controls.onClose();
-                    }}
-                  >
-                    {item.title}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </>
-          )}
-          {!enteringFigma && view !== "system" && !listError && (
-            <CommandGroup>
-              {page > 1 && (
-                <CommandItem onSelect={() => setPage(page - 1)}>
-                  {t("home.context.previous")}
-                </CommandItem>
-              )}
-              {result?.hasMore && (
-                <CommandItem
-                  onSelect={() => {
-                    setCursors([...cursors.slice(0, page), result.nextCursor]);
-                    setPage(page + 1);
-                  }}
-                >
-                  {t("home.context.next")}
-                </CommandItem>
-              )}
-            </CommandGroup>
-          )}
-        </CommandList>
-      </Command>
-    );
-  };
+          : {}),
+      };
+      return save({
+        ...selection,
+        references: [
+          ...selection.references.filter(
+            (value) =>
+              composerSourceKey(value) !== composerSourceKey(reference),
+          ),
+          reference,
+        ],
+      });
+    },
+  });
   const contextItems = error
     ? [
         ...items,
@@ -368,39 +287,59 @@ export function useSlidesComposerContext({
       id: "design-context",
       label: t("home.context.designCategory"),
       searchPlaceholder: t("home.context.menu.searchDesign"),
-      icon: <IconLayout />,
+      icon: <IconTextRecognition size={16} />,
       children: [
         {
           id: "system",
           label: t("home.context.menu.system"),
-          icon: <IconPalette />,
-          onSelect: () => open("system"),
-          render: renderPicker,
-          onDismiss: () => setView(null),
+          icon: <IconOmega size={16} />,
+          picker: {
+            scopeKey: identity,
+            searchPlaceholder: t("home.context.searchSystems"),
+            selectedIds: selection.designSystemId
+              ? [selection.designSystemId]
+              : [],
+            items: systems,
+            loading: systemsLoading,
+            error: systemsError
+              ? (actionErrorMessage(systemsError) ??
+                t("home.context.loadFailed"))
+              : undefined,
+            onRetry: retrySystems,
+            emptyMessage: systems.length
+              ? t("home.context.empty")
+              : t("home.context.noSystems"),
+            footerAction: {
+              label: t("home.context.createSystem"),
+              icon: <IconOmega size={16} />,
+              onSelect: onCreateDesignSystem,
+            },
+            clearSelection: selection.designSystemId
+              ? {
+                  label: t("home.none"),
+                  onSelect: () => save({ ...selection, designSystemId: null }),
+                }
+              : undefined,
+            onSelect: (item) => save({ ...selection, designSystemId: item.id }),
+          },
         },
         {
           id: "figma",
           label: t("home.context.menu.figma"),
-          icon: <IconBrandFigma />,
-          onSelect: () => open("figma"),
-          render: renderPicker,
-          onDismiss: () => setView(null),
+          icon: <IconComponents size={16} />,
+          picker: referencePicker("figma"),
         },
         {
           id: "design",
           label: t("home.context.menu.design"),
-          icon: <IconLayout />,
-          onSelect: () => open("design"),
-          render: renderPicker,
-          onDismiss: () => setView(null),
+          icon: <IconLink size={16} />,
+          picker: referencePicker("design"),
         },
         {
           id: "slides",
           label: t("home.context.menu.deck"),
-          icon: <IconPresentation />,
-          onSelect: () => open("slides"),
-          render: renderPicker,
-          onDismiss: () => setView(null),
+          icon: <IconLink size={16} />,
+          picker: referencePicker("slides"),
         },
       ],
     },

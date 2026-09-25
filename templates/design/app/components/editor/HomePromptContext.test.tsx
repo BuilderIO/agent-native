@@ -1,14 +1,15 @@
 import { snapshotComposerContextItems } from "@agent-native/core/client/composer";
 // @vitest-environment happy-dom
-import { act, type ReactNode } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useHomePromptContext } from "./HomePromptContext";
 
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
-  query: vi.fn(),
+  refresh: 0,
   retry: vi.fn(),
   select: vi.fn(),
   session: { email: "user@example.com", orgId: "org-one" },
@@ -16,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/hooks", () => ({
   useSession: () => ({ session: mocks.session }),
   callAction: (...args: unknown[]) => mocks.call(...args),
-  useActionQuery: (...args: unknown[]) => mocks.query(...args),
+  useChangeVersions: () => mocks.refresh,
   actionErrorMessage: (error: unknown) =>
     error instanceof Error
       ? error.message.replace(/^Action failed: /, "")
@@ -25,77 +26,36 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
-vi.mock("@agent-native/core/client/composer", async (original) => ({
-  ...(await original<Record<string, unknown>>()),
-  ComposerContextSearchInput: ({
-    value,
-    onValueChange,
-    placeholder,
-    "aria-label": ariaLabel,
-  }: {
-    value?: string;
-    onValueChange?: (value: string) => void;
-    placeholder?: string;
-    "aria-label"?: string;
-  }) => (
-    <input
-      aria-label={ariaLabel}
-      placeholder={placeholder}
-      value={value}
-      onInput={(event) => onValueChange?.(event.currentTarget.value)}
-    />
-  ),
-}));
-vi.mock("@/components/ui/command", () => ({
-  Command: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  CommandList: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  CommandGroup: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  CommandEmpty: ({ children }: { children: ReactNode }) => (
-    <div data-empty>{children}</div>
-  ),
-  CommandItem: ({
-    children,
-    onSelect,
-    disabled,
-  }: {
-    children: ReactNode;
-    onSelect: () => void;
-    disabled?: boolean;
-  }) => (
-    <button data-option disabled={disabled} onClick={onSelect}>
-      {children}
-    </button>
-  ),
-}));
 type Props = Parameters<typeof useHomePromptContext>[0];
 let controller: ReturnType<typeof useHomePromptContext>;
 let root: Root;
 let container: HTMLDivElement;
 let props: Props;
-const controls = { onBack: vi.fn(), onClose: vi.fn(), onResume: vi.fn() };
-function Harness({ page }: { page?: string }) {
+let page: string | undefined;
+function Harness() {
   controller = useHomePromptContext(props);
+  return null;
+}
+function picker(id = page!) {
   const item = controller.menuItems
     .flatMap((item) => item.children ?? [item])
-    .find((item) => item.id === page);
-  return (
-    <>
-      {item && "render" in item ? item.render?.(controls) : null}
-      <output>{JSON.stringify(controller.contextItems)}</output>
-    </>
-  );
+    .find((item) => item.id === id);
+  if (!item || !("picker" in item) || !item.picker)
+    throw new Error("Missing shared picker");
+  return item.picker;
 }
-async function render(page?: string) {
-  await act(async () => root.render(<Harness page={page} />));
+const request = (extra = {}) => ({
+  search: "",
+  page: 1,
+  signal: new AbortController().signal,
+  ...extra,
+});
+async function render(nextPage?: string) {
+  page = nextPage;
+  await act(async () => root.render(<Harness />));
 }
-async function click(text: string) {
-  const button = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === text,
-  );
-  expect(button).toBeTruthy();
-  await act(async () => button!.click());
+async function click(title: string) {
+  await act(async () => picker().onSelect({ id: "ref", title }, request()));
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -114,11 +74,7 @@ beforeEach(() => {
     title: "Reference",
     context: "Bounded visual context",
   });
-  mocks.query.mockReturnValue({
-    data: { items: [{ id: "ref", title: "Reference" }], hasMore: false },
-    isSuccess: true,
-    refetch: mocks.retry,
-  });
+  mocks.refresh = 0;
   props = {
     systems: [],
     systemId: null,
@@ -137,6 +93,24 @@ afterEach(async () => {
 });
 
 describe("home prompt context", () => {
+  it("offers a genuine setup link with no lone None choice when there are no systems", async () => {
+    await render("system");
+    const system = picker();
+    expect(system.items).toEqual([]);
+    expect(system.emptyMessage).toBe("homeContext.noSystems");
+    expect(system.clearSelection).toBeUndefined();
+    expect(system.footerAction?.label).toBe("homeContext.createSystem");
+    await act(async () =>
+      root.render(
+        <MemoryRouter>
+          {system.footerAction!.renderLink!(system.footerAction!.label)}
+        </MemoryRouter>,
+      ),
+    );
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/design-systems/setup",
+    );
+  });
   it("nests only the supported design sources in the agreed order", async () => {
     await render();
     expect(controller.menuItems.map((item) => item.id)).toEqual(["design"]);
@@ -159,9 +133,7 @@ describe("home prompt context", () => {
     ["slides-reference", "homeContext.searchPresentations"],
   ])("gives %s search a localized accessible purpose", async (page, label) => {
     await render(page);
-    const input = container.querySelector("input")!;
-    expect(input.getAttribute("aria-label")).toBe(label);
-    expect(input.placeholder).toBe(label);
+    expect(picker().searchPlaceholder).toBe(label);
   });
   it("clears selected context on identity change and rejects old in-flight reads", async () => {
     const old = deferred<unknown>();
@@ -320,74 +292,83 @@ describe("home prompt context", () => {
       status: "ready",
     });
   });
-  it("uses nextCursor history for Slides and clears it on search or source change", async () => {
-    mocks.query.mockImplementation((_name, params) => ({
-      data: {
-        items: [],
-        hasMore: true,
-        nextCursor: params.cursor ? "cursor-3" : "cursor-2",
+  it("forwards shared paging, search, cancellation and refresh without changing identity scope", async () => {
+    await render("slides-reference");
+    mocks.call.mockResolvedValue({
+      items: [],
+      hasMore: true,
+      nextCursor: "cursor-3",
+    });
+    const input = request({ search: "campaign", page: 2, cursor: "cursor-2" });
+    expect(await picker().load!(input)).toEqual({
+      items: [],
+      hasMore: true,
+      nextCursor: "cursor-3",
+    });
+    expect(mocks.call).toHaveBeenLastCalledWith(
+      "read-composer-source",
+      {
+        source: "slides",
+        operation: "list",
+        search: "campaign",
+        page: 2,
+        cursor: "cursor-2",
       },
-      isSuccess: true,
-    }));
-    await render("slides-reference");
-    await click("home.paginationNext");
-    expect(mocks.query.mock.lastCall?.[1]).toMatchObject({
-      source: "slides",
-      page: 2,
-      cursor: "cursor-2",
-    });
-    await click("home.paginationNext");
-    expect(mocks.query.mock.lastCall?.[1].cursor).toBe("cursor-3");
-    await click("home.paginationPrevious");
-    expect(mocks.query.mock.lastCall?.[1].cursor).toBe("cursor-2");
-    const search = container.querySelector("input")!;
-    await act(async () => {
-      search.value = "campaign";
-      search.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(mocks.query.mock.lastCall?.[1]).toMatchObject({
-      page: 1,
-      cursor: undefined,
-      search: "campaign",
-    });
-    await click("home.paginationNext");
-    await render("design-reference");
-    expect(mocks.query.mock.lastCall?.[1]).toMatchObject({
-      source: "design",
-      page: 1,
-      cursor: undefined,
-      search: "",
-    });
-  });
-  it("shows query failure and retry instead of claiming the list is empty", async () => {
-    mocks.query.mockReturnValue({
-      isError: true,
-      error: new Error("Action failed: Peer unavailable"),
-      refetch: mocks.retry,
-    });
-    await render("slides-reference");
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "Peer unavailable",
+      { method: "GET", signal: input.signal },
     );
-    expect(container.textContent).not.toContain("homeContext.empty");
-    await click("homeContext.retry");
-    expect(mocks.retry).toHaveBeenCalledOnce();
+    const scope = picker().scopeKey;
+    mocks.refresh = 1;
+    await render("slides-reference");
+    expect(picker()).toMatchObject({ scopeKey: scope, refreshKey: 1 });
   });
-  it("marks the selected system and shows loading/error/empty selection states", async () => {
+  it.each([
+    { items: [] },
+    { items: [], hasMore: true },
+    { context: "not a list" },
+  ])(
+    "rejects malformed or unpageable Slides catalogs rather than returning empty success: %j",
+    async (result) => {
+      await render("slides-reference");
+      mocks.call.mockResolvedValue(result);
+      await expect(picker().load!(request())).rejects.toThrow(
+        "homeContext.loadFailed",
+      );
+    },
+  );
+  it("surfaces cleaned load errors and retries the action on a fresh shared request", async () => {
+    await render("slides-reference");
+    mocks.call.mockRejectedValueOnce(
+      new Error("Action failed: Peer unavailable"),
+    );
+    await expect(picker().load!(request())).rejects.toThrow("Peer unavailable");
+    mocks.call.mockResolvedValueOnce({ items: [], hasMore: false });
+    await expect(picker().load!(request())).resolves.toEqual({
+      items: [],
+      hasMore: false,
+    });
+  });
+  it("supplies system selection, loading, error and retry as data, with no app render slot", async () => {
     props = {
       ...props,
       systemId: "system",
-      systems: [{ id: "system", title: "Chosen", ready: true }],
+      systems: [
+        { id: "system", title: "Chosen", ready: true },
+        { id: "pending", title: "Pending", ready: false },
+      ],
     };
     await render("system");
-    expect(
-      Array.from(container.querySelectorAll("button"))
-        .find((item) => item.textContent === "Chosen")
-        ?.querySelector("svg"),
-    ).toBeTruthy();
+    expect(picker()).toMatchObject({
+      selectedIds: ["system"],
+      items: [
+        { id: "system", title: "Chosen", disabled: false },
+        { id: "pending", title: "Pending", disabled: true },
+      ],
+    });
+    await act(async () => picker().clearSelection!.onSelect());
+    expect(mocks.select).toHaveBeenCalledWith(null);
     props = { ...props, systems: [], systemsLoading: true };
     await render("system");
-    expect(container.querySelector("[data-empty]")).toBeNull();
+    expect(picker().loading).toBe(true);
     props = {
       ...props,
       systemsLoading: false,
@@ -395,14 +376,47 @@ describe("home prompt context", () => {
       retrySystems: mocks.retry,
     };
     await render("system");
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "Catalog failed",
-    );
-    await click("homeContext.retry");
+    expect(picker().error).toBe("Catalog failed");
+    picker().onRetry?.();
     expect(mocks.retry).toHaveBeenCalledOnce();
-    props = { ...props, systemsError: undefined };
-    await render("system");
-    expect(container.querySelector("[data-empty]")).toBeTruthy();
+    expect(
+      controller.menuItems[0].children?.every((item) => !("render" in item)),
+    ).toBe(true);
+  });
+  it("keeps Figma URL entry separate and identifies selected frames by file as well as node", async () => {
+    await render("figma-reference");
+    expect(picker().link).toMatchObject({
+      placeholder: "homeContext.figmaUrl",
+      submitLabel: "homeContext.browse",
+    });
+    const url = "https://www.figma.com/design/example-one/Example";
+    mocks.call.mockResolvedValueOnce({
+      items: [{ id: "1:2", title: "Frame" }],
+      hasMore: false,
+    });
+    const result = await picker().load!(request({ url }));
+    await act(async () => picker().onSelect(result.items[0], request({ url })));
+    expect(mocks.call).toHaveBeenLastCalledWith(
+      "read-composer-source",
+      {
+        source: "figma",
+        operation: "read",
+        id: "1:2",
+        nodeId: "1:2",
+        figmaUrl: url,
+        page: 1,
+      },
+      { method: "GET" },
+    );
+    expect(picker().selectedIds).toContain(result.items[0].id);
+    mocks.call.mockResolvedValueOnce({
+      items: [{ id: "1:2", title: "Other frame" }],
+      hasMore: false,
+    });
+    const other = await picker().load!(
+      request({ url: "https://www.figma.com/design/example-two/Example" }),
+    );
+    expect(picker().selectedIds).not.toContain(other.items[0].id);
   });
   it("binds frozen system context to the selected id rather than the previous render", async () => {
     mocks.call.mockResolvedValueOnce({ agentContext: "System A" });

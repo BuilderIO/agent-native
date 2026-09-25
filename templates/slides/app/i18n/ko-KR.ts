@@ -791,6 +791,13 @@ const messages = {
     },
     importDeck: "덱 가져오기",
     context: {
+      createSystem: "디자인 시스템 만들기",
+      noSystems:
+        "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",
+      searchSystems: "디자인 시스템 검색…",
+      searchFrames: "Figma 프레임 검색…",
+      searchDesigns: "디자인 검색…",
+      searchPresentations: "프레젠테이션 검색…",
       menu: {
         system: "디자인 시스템 사용",
         figma: "Figma 첨부",

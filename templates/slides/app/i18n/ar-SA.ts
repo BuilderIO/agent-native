@@ -813,6 +813,13 @@ const messages = {
     },
     importDeck: "استيراد عرض",
     context: {
+      createSystem: "إنشاء نظام تصميم",
+      noSystems:
+        "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
+      searchSystems: "البحث في أنظمة التصميم…",
+      searchFrames: "البحث في إطارات Figma…",
+      searchDesigns: "البحث في التصاميم…",
+      searchPresentations: "البحث في العروض التقديمية…",
       menu: {
         system: "استخدام نظام تصميم",
         figma: "إرفاق Figma",

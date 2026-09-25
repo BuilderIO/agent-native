@@ -1670,6 +1670,9 @@ export default {
     staleAnchorDetail: "L’élément d’origine est introuvable sur le canevas.",
   },
   homeContext: {
+    createSystem: "Créer un système de design",
+    noSystems:
+      "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
     searchSystems: "Rechercher des systèmes de design…",
     searchFrames: "Rechercher des cadres Figma…",
     searchDesigns: "Rechercher des designs…",
@@ -1679,7 +1682,8 @@ export default {
     notReady:
       "La demande n’est pas prête. Vérifiez le contexte sélectionné et la connexion, puis réessayez.",
     search: "Rechercher du contexte…",
-    browse: "Parcourir",
+    figmaUrl: "Collez un lien Figma",
+    browse: "Parcourir les cadres",
     loadFailed: "Impossible de charger cette référence.",
     retry: "Réessayer",
     empty: "Aucune référence correspondante.",

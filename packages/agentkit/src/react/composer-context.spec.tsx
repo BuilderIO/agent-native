@@ -3,6 +3,7 @@
 import type {
   PromptComposerProps,
   AgentChatContextItem,
+  ComposerContextMenuItem,
 } from "@agent-native/toolkit/agentkit";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -68,6 +69,52 @@ function transport() {
 }
 
 describe("AgentKit composer context submission", () => {
+  it("forwards declarative picker and host attachment policy without starting a run", async () => {
+    const runtime = transport();
+    client = new AgentKitClient({ transport: runtime });
+    const onSelect = vi.fn().mockResolvedValue(false);
+    const load = vi.fn().mockResolvedValue({ items: [] });
+    const contextMenuItems: ComposerContextMenuItem[] = [
+      {
+        id: "source",
+        label: "Source",
+        picker: {
+          searchPlaceholder: "Search sources",
+          scopeKey: "account",
+          refreshKey: 3,
+          load,
+          onSelect,
+          footerAction: { label: "Create source", onSelect: vi.fn() },
+        },
+      },
+    ];
+    const attachmentAdapter = {
+      accept: ".tsx",
+      add: vi.fn(),
+      remove: vi.fn(),
+      send: vi.fn(),
+    };
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer
+            contextMenuItems={contextMenuItems}
+            attachmentAdapter={attachmentAdapter}
+            inlineTextAttachments={false}
+          />
+        </AgentKitProvider>,
+      ),
+    );
+    expect(capture.props?.contextMenuItems).toBe(contextMenuItems);
+    expect(capture.props?.attachmentAdapter).toBe(attachmentAdapter);
+    expect(capture.props?.inlineTextAttachments).toBe(false);
+    await onSelect(
+      { id: "one", title: "One" },
+      { page: 1, search: "", signal: new AbortController().signal },
+    );
+    expect(runtime.startRun).not.toHaveBeenCalled();
+    expect(runtime.queueMessage).not.toHaveBeenCalled();
+  });
   it.each(["immediate", "queued"] as const)(
     "awaits persistence and sends the immutable context to the %s runtime path",
     async (intent) => {

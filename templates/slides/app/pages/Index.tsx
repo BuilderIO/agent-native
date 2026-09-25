@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
+import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import {
   FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
   fetchFirstRunOnboardingStatus,
@@ -83,6 +84,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   describeDeckPersistenceFailure,
   type Deck,
@@ -135,6 +137,13 @@ import { cn } from "@/lib/utils";
 
 const loadPromptPopover = () => import("@/components/editor/PromptDialog");
 const LazyPromptPopover = lazy(loadPromptPopover);
+const LazyDesignSystemSetup = lazy(() =>
+  import("@/components/design-system/DesignSystemSetup").then(
+    ({ DesignSystemSetup }) => ({
+      default: DesignSystemSetup,
+    }),
+  ),
+);
 
 async function uploadPromptFiles(files: File[]): Promise<UploadedFile[]> {
   const module = await import("@/lib/prompt-file-uploads");
@@ -473,6 +482,7 @@ export default function Index() {
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
+  const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const { generating, submit: agentSubmit } = useAgentGenerating();
   const effectiveDefaultDesignSystemId = resolveSelectableDesignSystemId(
     designSystems,
@@ -508,6 +518,7 @@ export default function Index() {
     systemsError: designSystemsError,
     systemsLoading: designSystemsLoading,
     retrySystems: refetchDesignSystems,
+    onCreateDesignSystem: () => setShowDesignSystemSetup(true),
   });
   const createdByParam = searchParams.get("createdBy");
   const deckFilter = resolveDeckFilter(createdByParam, storedDeckFilter);
@@ -2264,6 +2275,21 @@ export default function Index() {
         searchDecksLabel={t("root.searchDecks")}
         promptSummary={pendingDeck?.prompt}
       />
+
+      {showDesignSystemSetup && (
+        <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+          <Suspense fallback={<Skeleton className="h-8 w-48" />}>
+            <LazyDesignSystemSetup
+              open
+              onClose={() => setShowDesignSystemSetup(false)}
+              onComplete={() => {
+                setShowDesignSystemSetup(false);
+                void refetchDesignSystems();
+              }}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
 
       {/* Sign-in required to create a deck. Shown when an unauthenticated
           user submits a prompt - the typed prompt is preserved in

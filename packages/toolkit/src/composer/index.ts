@@ -9,6 +9,12 @@ export {
   type ComposerContextMenuItem,
   type ComposerContextMenuAction,
   type ComposerContextMenuCategory,
+  type ComposerContextPickerConfig,
+  type ComposerContextPickerItem,
+  type ComposerContextPickerRequest,
+  type ComposerContextPickerResult,
+  type ComposerContextPickerSelection,
+  type ComposerContextPickerFooterAction,
 } from "./ComposerContextMenu.js";
 export {
   areComposerContextItemsReady,

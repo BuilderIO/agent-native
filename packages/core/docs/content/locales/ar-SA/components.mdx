@@ -231,14 +231,81 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 />
 ```
 
-تستخدم الفئات المتداخلة `children`. تستخدم الإجراءات الطرفية `onSelect()` ويمكنها توفير `render(controls)` لمنتقي داخل النافذة المنبثقة. يتوفر `ComposerContextMenu` و`ComposerContextSearchInput` كتصديرين عامين. يحافظ `attachButton` على مسار الرفع الخاص بالتطبيق.
+تسجّل مصادر السياق `picker` ضمن `ComposerContextMenuItem`. تدير `ComposerContextMenu` قوائم فرعية متصلة ومتسلسلة من shadcn/Radix، لا لوحات تحلّ محل بعضها: تعرض القائمة الرئيسية رفع الملفات ثم إضافة سياق → فئات المضيف → منتقيات المصادر. تُحذف إضافة سياق عند غياب عناصر المضيف. تتنقل مفاتيح الأسهم وEscape بين مستويات القائمة. أما الرجوع داخل منتقي الروابط فيعيد فقط من النتائج إلى إدخال الرابط في القائمة الفرعية نفسها. يدير المنتقي المشترك البحث وصفوف القائمة وحالات التحميل والفراغ والخطأ وإعادة المحاولة وترقيم الصفحات وإدخال الروابط. توفّر التطبيقات بيانات مصرحًا بها ودوال اختيار بدلًا من JSX خاص بالمنتقي.
 
-يمكن للفئة توفير `searchPlaceholder` مترجم. تستخدم الفئات التي لا توفره نص البحث في المستوى الرئيسي. تؤدي إضافة `addAttachment` إلى `ComposerContextMenu` إلى وضع إجراء الرفع القياسي أولاً مع الحفاظ على دالة معالجة الملفات في التطبيق المضيف.
+تقبل تهيئة المنتقي ما يلي:
+
+- `searchPlaceholder` و`emptyMessage` الاختياري كنصوص مترجمة للتطبيق. تحدد `selectedIds` الصفوف المختارة. تتضمن العناصر `id` و`title` وحقلي `disabled` و`url` الاختياريين.
+- إما `items` محلية مع `loading` و`error` و`onRetry()` اختيارية، أو `load(request)` للتحميل عن بُعد. لا يمكن الجمع بين النمطين.
+- تستقبل `load(request)` كلًا من `search` و`page` التي تبدأ من واحد و`cursor` و`url` الاختياريين و`AbortSignal`. وتعيد `{ items, hasMore?, nextCursor? }`. يجب أن ترفض حالات الفشل الوعد بدلًا من إعادة نتيجة فارغة.
+- تجهّز `onSelect(item, request)` المصدر ويمكن أن تعمل بشكل غير متزامن. تبقي إعادة `false` المنتقي مفتوحًا. يؤدي رمي خطأ إلى عرض خطأ مع إعادة المحاولة. توفّر `clearSelection` الاختيارية `label` مترجمًا ودالة `onSelect()`.
+- توفّر `link` الاختيارية نصّي `placeholder` و`submitLabel` المترجمين. يمكن أن تعيد `validate(url)` رسالة خطأ. يتولى النموذج المشترك إدخال الرابط والتنقل.
+- تعيد `scopeKey` ضبط جميع حالات المنتقي عند تغيّر الهوية أو نطاق الوصول. تبطل `refreshKey` الاستعلام الحالي عند تغيّر رمز المصدر أو الإصدار دون إعادة ضبط الرابط. يعيد تغيّر البحث الانتقال إلى الصفحة الأولى. تمرّر التطبيقات رموزًا محدثة عندما تغيّر كتابات الوكيل بيانات المصدر.
+
+يمكن للتطبيق تسجيل خيارات مصرح بها مسبقًا. تحتوي `labels` هنا على نصوص التطبيق المترجمة، وتحدّث `stageReference` السياق المجهّز لدى المضيف:
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+لمصدر قابل للبحث أو يعتمد على رابط، يوفّر التطبيق دالة تحميل مصادقًا عليها. تطبّق `loadAuthorizedReferences` عقد الطلب والنتيجة أعلاه، وتحافظ على فحوص الوصول، وتمرّر إشارة الإلغاء إلى دالة العميل المساعدة:
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      onSelect: stageReference,
+      link: {
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+لا تعرّف عناصر المنتقي أيضًا `render` أو `onSelect` على مستوى العنصر. تستخدم الفئات `children`. تحتفظ القائمة الرئيسية وكل فئة بحقل بحث في رأسها. يمكن للفئات توفير `searchPlaceholder` مترجم؛ وإلا تستخدم النص المشترك للبحث في السياق. يحدد `picker.searchPlaceholder` نص حقل البحث في قائمة المصادر. لا يمنح التسجيل وصولًا إلى المصدر. يتجاهل المنتقي المشترك استجابات التحميل التي حلّت محلها طلبات أحدث.
+
+يبقى `footerAction` الاختياري أسفل النتائج حتى أثناء التحميل أو الخطأ أو فراغ القائمة. يقبل `label` مترجمًا و`icon` و`disabled` اختياريين، وإما `onSelect()` أو `renderLink(children)`. استخدم دالة لفتح نافذة حوار أو مسار آخر ذي حالة: تُبقي `false` القائمة مفتوحة، وتغلقها `true` أو `void`، ويعرض رفض الوعد خطأ مع إعادة المحاولة. للتنقل فقط، أعد من `renderLink` عنصر `Link` حقيقيًا من React Router أو رابط HTML؛ توفّر القائمة المشتركة الصف عبر `asChild` وتحافظ على `href` وسلوك تنقل المتصفح. اربط مسارات موجودة ومصرحًا بها، لا إجراءات شكلية.
+
+تؤدي إضافة `addAttachment` إلى `ComposerContextMenu` إلى وضع إجراء الرفع القياسي أولًا مع الحفاظ على دالة معالجة ملفات المضيف.
+
+تقبل `PromptComposer` و`AgentKitComposer` الخاصية `attachmentAdapter` بالنوع العام `AttachmentAdapter` من `@assistant-ui/react`. قدّم عبر هذا المحوّل سياسة المضيف لقبول الملفات والتحقق من الحجم وتجهيز المرفقات؛ واحذفه للإبقاء على المحوّلات الافتراضية. يظل المحرر المشترك مسؤولًا عن أداة الرفع ومنتقي الملفات ومنتقي السياق وشرائح المرفقات. لا تستبدل هذه الأدوات لتخصيص تجهيز الملفات.
+
+تكون `inlineTextAttachments` مساوية لـ`true` افتراضيًا في `PromptComposer` و`AgentKitComposer`. اضبطها على `false` عندما يستخرج المضيف الملفات النصية العادية بالفعل: يمرّر المحرر الملفات الأصلية إلى المضيف دون قراءة محتواها وإلحاقه بالطلب النصي. تظل المرفقات المصطنعة الناتجة عن النص الملصق جزءًا من نص الطلب. لا يغيّر هذا الخيار قبول المرفقات أو الأدوات المشتركة.
 
 ```tsx
 <PromptComposer
   contextItems={contextItems}
-  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
   onRetryContextItem={retryContext}
   onSubmit={submitPrompt}
 />

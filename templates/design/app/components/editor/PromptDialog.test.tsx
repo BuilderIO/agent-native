@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { PromptComposerProps } from "@agent-native/core/client/composer";
 import {
   act,
   createRef,
@@ -17,10 +18,11 @@ import PromptPopover from "./PromptDialog";
 interface ComposerStubProps {
   disabled?: boolean;
   submissionDisabled?: boolean;
-  attachButton?: React.ReactElement<{
-    disabled?: boolean;
-    items?: Array<{ id: string; label: string; onSelect?: () => void }>;
-  }>;
+  attachButton?: unknown;
+  contextMenuItems?: PromptComposerProps["contextMenuItems"];
+  attachmentAdapter?: PromptComposerProps["attachmentAdapter"];
+  inlineTextAttachments?: boolean;
+  maxDocumentAttachmentBytes?: number;
   contextItems?: unknown[];
   onRemoveContextItem?: (key: string) => void;
   draftScope?: string;
@@ -122,6 +124,19 @@ vi.mock("@agent-native/core/client/composer", () => ({
             props.onAttachmentsChange?.(nextFiles);
           }}
         />
+        {files.map((file) => (
+          <button
+            key={file.name}
+            data-testid="remove-file"
+            onClick={() => {
+              const remaining = files.filter((item) => item !== file);
+              setFiles(remaining);
+              props.onAttachmentsChange?.(remaining);
+            }}
+          >
+            {file.name}
+          </button>
+        ))}
         <button
           type="button"
           data-testid="composer-submit"
@@ -259,15 +274,20 @@ describe("PromptPopover inline home", () => {
       );
       mockEagerUpload.implementation = upload;
       await renderPopover({ inline, onSubmit });
-      expect(
-        mockComposer.current!.attachButton!.props.items?.map((item) => item.id),
-      ).toEqual(["upload"]);
+      expect(mockComposer.current!.attachButton).toBeUndefined();
+      expect(mockComposer.current!.contextMenuItems).toEqual([]);
+      expect(mockComposer.current!.attachmentAdapter).toBeDefined();
+      expect(mockComposer.current!.inlineTextAttachments).toBe(false);
+      expect(mockComposer.current!.maxDocumentAttachmentBytes).toBe(
+        4 * 1024 * 1024,
+      );
+      expect(container!.querySelector('input[hidden][type="file"]')).toBeNull();
       const files = [
         new File(["first"], "first.txt"),
         new File(["second"], "second.txt"),
       ];
       const input = container!.querySelector<HTMLInputElement>(
-        'input[hidden][type="file"]',
+        '[data-testid="prompt-file-input"]',
       )!;
       await act(async () => {
         Object.defineProperty(input, "files", { value: files });
@@ -275,7 +295,7 @@ describe("PromptPopover inline home", () => {
       });
       expect(upload).toHaveBeenCalledWith(files);
       await act(async () =>
-        mockComposer.current!.onSubmit("Keep batch", [], [], {}),
+        mockComposer.current!.onSubmit("Keep batch", files, [], {}),
       );
       expect(onSubmit).toHaveBeenCalledWith(
         "Keep batch",
@@ -290,22 +310,15 @@ describe("PromptPopover inline home", () => {
       onSkip: vi.fn(),
       contextMenuItems: [{ id: "design", label: "Design", children: [] }],
     });
-    const entries = mockComposer.current!.attachButton!.props.items!;
-    expect(entries.map((item) => item.id)).toEqual(["upload", "design"]);
-    expect(entries[0].label).toBe("promptDialog.uploadFile");
-    const input = container!.querySelector<HTMLInputElement>(
-      'input[hidden][type="file"]',
-    )!;
-    const picker = vi.spyOn(input, "click");
-    entries[0].onSelect!();
-    expect(picker).toHaveBeenCalledOnce();
+    expect(
+      mockComposer.current!.contextMenuItems?.map((item) => item.id),
+    ).toEqual(["design"]);
+    expect(mockComposer.current!.attachButton).toBeUndefined();
   });
   it("keeps Pick asset and Skip prompt out of the legacy attachment menu too", async () => {
     await renderPopover({ onSkip: vi.fn() });
-    const attachmentMenu = mockComposer.current!.attachButton!;
-    expect(attachmentMenu.props.items?.map((item) => item.id)).toEqual([
-      "upload",
-    ]);
+    expect(mockComposer.current!.contextMenuItems).toEqual([]);
+    expect(mockComposer.current!.attachButton).toBeUndefined();
     expect(container!.textContent).not.toContain("promptDialog.pickAsset");
     expect(container!.textContent).not.toContain("promptDialog.skipPrompt");
   });
@@ -335,7 +348,7 @@ describe("PromptPopover inline home", () => {
     expect(input.disabled).toBe(false);
     expect(submit.disabled).toBe(true);
     expect(mockComposer.current!.submissionDisabled).toBe(true);
-    expect(mockComposer.current!.attachButton!.props.disabled).toBe(false);
+    expect(mockComposer.current!.contextMenuItems).toEqual([]);
     expect(mockComposer.current!.contextItems).toEqual(props.contextItems);
     const file = new File(["brief"], "brief.txt", { type: "text/plain" });
     Object.defineProperty(input, "files", {
@@ -432,6 +445,9 @@ describe("PromptPopover inline home", () => {
       ).rejects.toThrow("save failed");
     });
     expect(editor.value).toBe("Keep my typed draft");
+    expect(
+      container!.querySelector('[data-testid="remove-file"]')?.textContent,
+    ).toBe("reference.png");
     expect(onSubmitError).toHaveBeenCalledOnce();
     expect(onSubmit).toHaveBeenCalledWith(
       "Localized quick start",
@@ -452,6 +468,67 @@ describe("PromptPopover inline home", () => {
       [{ path: "/uploads/reference.png" }],
       { ...options, contextItems: freshContext },
     );
+  });
+
+  it("keeps the existing aggregate cap even when files have already uploaded in separate eager batches", async () => {
+    const onSubmit = vi.fn();
+    const beforeSubmitContext = vi.fn();
+    await renderPopover({ inline: true, onSubmit, beforeSubmitContext });
+    const files = [
+      new File([new Uint8Array(3 * 1024 * 1024)], "first.tsx"),
+      new File([new Uint8Array(2 * 1024 * 1024)], "second.tsx"),
+    ];
+    await act(async () => {
+      mockComposer.current!.onAttachmentsChange!([files[0]]);
+      mockComposer.current!.onAttachmentsChange!(files);
+    });
+    await act(async () => {
+      await expect(
+        mockComposer.current!.onSubmit("Keep the draft", files, [], {}),
+      ).rejects.toThrow("promptDialog.attachmentsTooLarge");
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(beforeSubmitContext).not.toHaveBeenCalled();
+    expect(
+      container!.querySelector<HTMLTextAreaElement>(
+        '[data-testid="prompt-editor"]',
+      )!.value,
+    ).toBe("Keep the draft");
+  });
+
+  it("keeps rejected staged files removable without resubmitting the rejected file", async () => {
+    const onSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Host rejected attachment"));
+    await renderPopover({ inline: true, onSubmit });
+    const file = new File(["source"], "app.tsx", {
+      type: "application/octet-stream",
+    });
+    const input = container!.querySelector<HTMLInputElement>(
+      '[data-testid="prompt-file-input"]',
+    )!;
+    Object.defineProperty(input, "files", { value: [file] });
+    await act(async () =>
+      input.dispatchEvent(new Event("change", { bubbles: true })),
+    );
+    await act(async () => {
+      await expect(
+        mockComposer.current!.onSubmit("Preserve draft", [file], [], {}),
+      ).rejects.toThrow("Host rejected attachment");
+    });
+    const remove = container!.querySelector<HTMLButtonElement>(
+      '[data-testid="remove-file"]',
+    )!;
+    expect(remove.textContent).toBe("app.tsx");
+    await act(async () => remove.click());
+    expect(container!.querySelector('[data-testid="remove-file"]')).toBeNull();
+    onSubmit.mockResolvedValue(undefined);
+    await act(async () =>
+      container!
+        .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')!
+        .click(),
+    );
+    expect(onSubmit).toHaveBeenLastCalledWith("Preserve draft", [], {});
   });
 
   it("does not hand off an upload or restore old text into a different identity", async () => {

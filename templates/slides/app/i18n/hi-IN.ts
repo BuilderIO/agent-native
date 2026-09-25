@@ -789,6 +789,13 @@ const messages = {
     },
     importDeck: "प्रस्तुति आयात करें",
     context: {
+      createSystem: "डिज़ाइन सिस्टम बनाएँ",
+      noSystems:
+        "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
+      searchSystems: "डिज़ाइन सिस्टम खोजें…",
+      searchFrames: "Figma फ़्रेम खोजें…",
+      searchDesigns: "डिज़ाइन खोजें…",
+      searchPresentations: "प्रस्तुतियाँ खोजें…",
       menu: {
         system: "डिज़ाइन सिस्टम का उपयोग करें",
         figma: "Figma संलग्न करें",

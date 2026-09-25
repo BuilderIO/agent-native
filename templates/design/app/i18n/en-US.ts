@@ -1641,6 +1641,9 @@ export default {
     staleAnchorDetail: "Original element no longer found on the canvas.",
   },
   homeContext: {
+    createSystem: "Create a design system",
+    noSystems:
+      "You don’t have a design system yet. Create one from website, files, or Figma.",
     searchSystems: "Search design systems…",
     searchFrames: "Search Figma frames…",
     searchDesigns: "Search designs…",
@@ -1650,7 +1653,8 @@ export default {
     notReady:
       "The prompt is not ready to submit. Check the selected context and connection, then try again.",
     search: "Search context…",
-    browse: "Browse",
+    figmaUrl: "Paste a Figma link",
+    browse: "Browse frames",
     loadFailed: "Could not load this reference.",
     retry: "Retry",
     empty: "No matching references.",

@@ -828,6 +828,39 @@ describe("inline prompt starters", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([false, true])(
+    "uses the standard context menu without a custom attach control (context: %s)",
+    (hasContext) => {
+      const entries = [{ id: "design", label: "Design", children: [] }];
+      const context = hasContext
+        ? ({
+            props: { contextItems: [], contextMenuItems: entries },
+            beforeSend: vi.fn(),
+            dialogs: null,
+          } as unknown as ReturnType<typeof useSlidesComposerContext>)
+        : undefined;
+      render(
+        <PromptPopover
+          open
+          presentation="inline"
+          title="New presentation"
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          context={context}
+        />,
+      );
+      expect(promptComposerProps.mock.lastCall![0].contextMenuItems).toEqual(
+        hasContext ? entries : [],
+      );
+      expect(
+        promptComposerProps.mock.lastCall![0].attachButton,
+      ).toBeUndefined();
+      expect(
+        promptComposerProps.mock.lastCall![0].attachmentAdapter,
+      ).toBeUndefined();
+    },
+  );
+
   it.each(["inline", "popover"] as const)(
     "does not expose Skip prompt in the %s presentation",
     (presentation) => {

@@ -1,6 +1,11 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.menu.search": "Pesquisar…",
+  "composer.contextPrevious": "Anterior",
+  "composer.contextNext": "Próximo",
+  "composer.contextLoadFailed": "Não foi possível carregar o contexto.",
+  "composer.contextLinkRequired": "Insira um link.",
   "composer.submitFailed": "Não foi possível enviar. Tente novamente.",
   "composer.addContext": "Adicionar contexto",
   "composer.contextActionFailed": "Não foi possível adicionar o contexto.",

@@ -1685,6 +1685,8 @@ export default {
     layoutLabel: "畫面版面已可儲存",
   },
   homeContext: {
+    createSystem: "建立設計系統",
+    noSystems: "你還沒有設計系統。可以從網站、檔案或 Figma 建立。",
     searchSystems: "搜尋設計系統…",
     searchFrames: "搜尋 Figma 畫框…",
     searchDesigns: "搜尋設計…",
@@ -1693,7 +1695,8 @@ export default {
     useDesignSystem: "使用設計系統",
     notReady: "提示尚未準備好提交。請檢查所選上下文和連線，然後重試。",
     search: "搜尋上下文…",
-    browse: "瀏覽",
+    figmaUrl: "貼上 Figma 連結",
+    browse: "瀏覽畫框",
     loadFailed: "無法載入此參考。",
     retry: "重試",
     empty: "沒有相符的參考。",

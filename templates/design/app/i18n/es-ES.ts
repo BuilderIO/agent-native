@@ -1655,6 +1655,9 @@ export default {
     staleAnchorDetail: "Ya no se encuentra el elemento original en el lienzo.",
   },
   homeContext: {
+    createSystem: "Crear un sistema de diseño",
+    noSystems:
+      "Aún no tienes un sistema de diseño. Crea uno a partir de un sitio web, archivos o Figma.",
     searchSystems: "Buscar sistemas de diseño…",
     searchFrames: "Buscar marcos de Figma…",
     searchDesigns: "Buscar diseños…",
@@ -1664,7 +1667,8 @@ export default {
     notReady:
       "La solicitud aún no está lista. Revisa el contexto seleccionado y la conexión, e inténtalo de nuevo.",
     search: "Buscar contexto…",
-    browse: "Explorar",
+    figmaUrl: "Pega un enlace de Figma",
+    browse: "Explorar marcos",
     loadFailed: "No se pudo cargar esta referencia.",
     retry: "Reintentar",
     empty: "No hay referencias coincidentes.",

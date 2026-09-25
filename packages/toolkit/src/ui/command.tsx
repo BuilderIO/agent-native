@@ -56,27 +56,63 @@ const CommandDialog = ({
   );
 };
 
+const commandInputClassName =
+  "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50";
+
+function SearchInputFrame({
+  leading,
+  children,
+  command = false,
+}: {
+  leading?: React.ReactNode;
+  children: React.ReactNode;
+  command?: boolean;
+}) {
+  return (
+    <div
+      className="flex items-center border-b px-3"
+      cmdk-input-wrapper={command ? "" : undefined}
+    >
+      {leading === undefined ? (
+        <IconSearch className="me-2 h-4 w-4 shrink-0 opacity-50" />
+      ) : (
+        leading
+      )}
+      {children}
+    </div>
+  );
+}
+
+/** Integrated menu search without cmdk's combobox/listbox relationship. */
+const MenuSearchInput = React.forwardRef<
+  HTMLInputElement,
+  React.ComponentPropsWithoutRef<"input"> & { leading?: React.ReactNode }
+>(({ className, leading, ...props }, ref) => (
+  <SearchInputFrame leading={leading}>
+    <input
+      {...props}
+      ref={ref}
+      type="search"
+      role="searchbox"
+      className={cn(commandInputClassName, className)}
+    />
+  </SearchInputFrame>
+));
+MenuSearchInput.displayName = "MenuSearchInput";
+
 const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input> & {
     leading?: React.ReactNode;
   }
 >(({ className, leading, ...props }, ref) => (
-  <div className="flex items-center border-b px-3" cmdk-input-wrapper="">
-    {leading === undefined ? (
-      <IconSearch className="me-2 h-4 w-4 shrink-0 opacity-50" />
-    ) : (
-      leading
-    )}
+  <SearchInputFrame leading={leading} command>
     <CommandPrimitive.Input
       ref={ref}
-      className={cn(
-        "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
+      className={cn(commandInputClassName, className)}
       {...props}
     />
-  </div>
+  </SearchInputFrame>
 ));
 
 CommandInput.displayName = CommandPrimitive.Input.displayName;
@@ -171,6 +207,7 @@ export {
   Command,
   CommandDialog,
   CommandInput,
+  MenuSearchInput,
   CommandList,
   CommandEmpty,
   CommandGroup,

@@ -1632,6 +1632,9 @@ export default {
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
   homeContext: {
+    createSystem: "디자인 시스템 만들기",
+    noSystems:
+      "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",
     searchSystems: "디자인 시스템 검색…",
     searchFrames: "Figma 프레임 검색…",
     searchDesigns: "디자인 검색…",
@@ -1641,7 +1644,8 @@ export default {
     notReady:
       "아직 요청을 제출할 수 없습니다. 선택한 컨텍스트와 연결을 확인한 후 다시 시도하세요.",
     search: "컨텍스트 검색…",
-    browse: "찾아보기",
+    figmaUrl: "Figma 링크 붙여넣기",
+    browse: "프레임 찾아보기",
     loadFailed: "이 참조를 불러오지 못했습니다.",
     retry: "다시 시도",
     empty: "일치하는 참조가 없습니다.",

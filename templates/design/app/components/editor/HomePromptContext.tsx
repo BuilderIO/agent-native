@@ -1,45 +1,35 @@
 import {
-  ComposerContextSearchInput,
   snapshotComposerContextItems,
   type ComposerContextSnapshot,
   type AgentChatContextItem,
   type ComposerContextMenuItem,
-  type ComposerContextPageControls,
+  type ComposerContextPickerConfig,
 } from "@agent-native/core/client/composer";
 import {
   actionErrorMessage,
   callAction,
-  useActionQuery,
+  useChangeVersions,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import type {
-  ComposerSourceRequest,
-  ComposerSourceResult,
+import {
+  composerSourceListSchema,
+  type ComposerSourceRequest,
+  type ComposerSourceResult,
 } from "@agent-native/core/shared";
 import {
-  IconBrandFigma,
-  IconCheck,
-  IconLayout,
-  IconPalette,
-  IconPresentation,
+  IconComponents,
+  IconLink,
+  IconOmega,
+  IconTextRecognition,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 
 import type {
   PromptDesignSystemOption,
   PromptTemplateOption,
 } from "@/components/editor/PromptDialog";
-import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   SYSTEM_CONTEXT_KEY,
   TEMPLATE_CONTEXT_KEY,
@@ -48,242 +38,6 @@ import {
 type SourceItem = { id: string; title: string; url?: string };
 type Source = "design" | "slides" | "figma";
 type Reference = SourceItem & { source: Source; figmaUrl?: string };
-
-function ReferencePage({
-  source,
-  controls,
-  onSelect,
-}: {
-  source: Source;
-  controls: ComposerContextPageControls;
-  onSelect: (reference: Reference) => void;
-}) {
-  const t = useT();
-  const [paging, setPaging] = useState<{
-    source: Source;
-    search: string;
-    cursors: Array<string | undefined>;
-  }>({ source, search: "", cursors: [undefined] });
-  const { search, cursors } =
-    paging.source === source ? paging : { search: "", cursors: [undefined] };
-  const [figmaUrl, setFigmaUrl] = useState("");
-  const [submittedUrl, setSubmittedUrl] = useState("");
-  const params = {
-    source,
-    operation: "list" as const,
-    search,
-    page: cursors.length,
-    cursor: cursors[cursors.length - 1],
-    ...(submittedUrl ? { figmaUrl: submittedUrl } : {}),
-  };
-  const query = useActionQuery("read-composer-source", params, {
-    enabled: source !== "figma" || Boolean(submittedUrl),
-  });
-  const data = query.data && "items" in query.data ? query.data : undefined;
-  const searchLabel = t(
-    source === "figma"
-      ? "homeContext.searchFrames"
-      : source === "slides"
-        ? "homeContext.searchPresentations"
-        : "homeContext.searchDesigns",
-  );
-  return (
-    <Command shouldFilter={false}>
-      <ComposerContextSearchInput
-        value={search}
-        onValueChange={(value) =>
-          setPaging({ source, search: value, cursors: [undefined] })
-        }
-        placeholder={searchLabel}
-        aria-label={searchLabel}
-        onBack={() => controls.onBack()}
-      />
-      {source === "figma" ? (
-        <form
-          className="flex gap-2 p-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setSubmittedUrl(figmaUrl.trim());
-            setPaging({ source, search, cursors: [undefined] });
-          }}
-        >
-          <Input
-            aria-label={t("designEditor.import.figmaUrlLabel")}
-            placeholder={t("designEditor.import.figmaUrlPlaceholder")}
-            value={figmaUrl}
-            onChange={(event) => setFigmaUrl(event.target.value)}
-          />
-          <Button
-            type="submit"
-            size="sm"
-            variant="outline"
-            disabled={!figmaUrl.trim()}
-          >
-            {t("homeContext.browse")}
-          </Button>
-        </form>
-      ) : null}
-      <CommandList>
-        {query.isLoading && (source !== "figma" || submittedUrl) ? (
-          <div className="grid gap-2 p-2">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-          </div>
-        ) : null}
-        {query.isError ? (
-          <div className="grid gap-2 p-2">
-            <p role="alert" className="text-sm text-destructive">
-              {actionErrorMessage(query.error) ?? t("homeContext.loadFailed")}
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void query.refetch()}
-            >
-              {t("homeContext.retry")}
-            </Button>
-          </div>
-        ) : null}
-        <CommandGroup>
-          {(data?.items ?? []).map((item) => (
-            <CommandItem
-              key={item.id}
-              value={item.id}
-              onSelect={() => {
-                onSelect({
-                  ...item,
-                  source,
-                  ...(source === "figma" ? { figmaUrl: submittedUrl } : {}),
-                });
-                controls.onClose();
-              }}
-            >
-              {item.title}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-        {query.isSuccess && data && !data.items.length ? (
-          <p className="p-3 text-sm text-muted-foreground">
-            {t("homeContext.empty")}
-          </p>
-        ) : null}
-        <div className="flex justify-between gap-2 p-2">
-          {cursors.length > 1 ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                setPaging({ source, search, cursors: cursors.slice(0, -1) })
-              }
-            >
-              {t("home.paginationPrevious")}
-            </Button>
-          ) : (
-            <span />
-          )}
-          {data?.hasMore ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={
-                query.isFetching || (source === "slides" && !data.nextCursor)
-              }
-              onClick={() =>
-                setPaging({
-                  source,
-                  search,
-                  cursors: [...cursors, data.nextCursor],
-                })
-              }
-            >
-              {t("home.paginationNext")}
-            </Button>
-          ) : null}
-        </div>
-      </CommandList>
-    </Command>
-  );
-}
-
-function SelectionPage({
-  controls,
-  options,
-  onSelect,
-  selectedId,
-  loading,
-  error,
-  onRetry,
-}: {
-  controls: ComposerContextPageControls;
-  options: Array<{ id: string; title: string; disabled?: boolean }>;
-  onSelect: (id: string | null) => void;
-  selectedId?: string | null;
-  loading?: boolean;
-  error?: unknown;
-  onRetry?: () => void;
-}) {
-  const t = useT();
-  return (
-    <Command>
-      <ComposerContextSearchInput
-        placeholder={t("homeContext.searchSystems")}
-        aria-label={t("homeContext.searchSystems")}
-        onBack={() => controls.onBack()}
-      />
-      <CommandList>
-        {loading ? (
-          <div className="grid gap-2 p-2">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-          </div>
-        ) : null}
-        {error ? (
-          <div className="grid gap-2 p-2">
-            <p role="alert" className="text-sm text-destructive">
-              {actionErrorMessage(error) ?? t("homeContext.loadFailed")}
-            </p>
-            <Button variant="outline" size="sm" onClick={onRetry}>
-              {t("homeContext.retry")}
-            </Button>
-          </div>
-        ) : null}
-        {!loading && !error ? (
-          <CommandEmpty>{t("homeContext.empty")}</CommandEmpty>
-        ) : null}
-        <CommandGroup>
-          <CommandItem
-            onSelect={() => {
-              onSelect(null);
-              controls.onClose();
-            }}
-          >
-            {!selectedId ? <IconCheck /> : null}
-            {t("homeContext.none")}
-          </CommandItem>
-          {options.map((option) => (
-            <CommandItem
-              key={option.id}
-              value={`${option.id} ${option.title}`}
-              disabled={option.disabled}
-              onSelect={() => {
-                onSelect(option.id);
-                controls.onClose();
-              }}
-            >
-              {selectedId === option.id ? <IconCheck /> : null}
-              {option.title}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-        {!loading && !error && !options.length ? (
-          <p className="p-3 text-sm text-muted-foreground">
-            {t("homeContext.empty")}
-          </p>
-        ) : null}
-      </CommandList>
-    </Command>
-  );
-}
 
 export function useHomePromptContext({
   systems,
@@ -310,6 +64,7 @@ export function useHomePromptContext({
   const [items, setItems] = useState<AgentChatContextItem[]>([]);
   const { session } = useSession();
   const identity = `${session?.email ?? "anonymous"}:${session?.orgId ?? "none"}`;
+  const refreshKey = useChangeVersions(["action", "designs", "files", "decks"]);
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const previousIdentity = useRef(identity);
@@ -482,71 +237,141 @@ export function useHomePromptContext({
           ],
     [items, systemId, systemState, systemTitle, template, identity],
   );
+  const referencePicker = (source: Source): ComposerContextPickerConfig => ({
+    scopeKey: identity,
+    refreshKey,
+    searchPlaceholder: t(
+      source === "figma"
+        ? "homeContext.searchFrames"
+        : source === "slides"
+          ? "homeContext.searchPresentations"
+          : "homeContext.searchDesigns",
+    ),
+    emptyMessage: t("homeContext.empty"),
+    selectedIds: [...requests.current.values()]
+      .filter(({ reference }) => reference.source === source)
+      .map(({ reference }) =>
+        source === "figma"
+          ? `${encodeURIComponent(reference.figmaUrl ?? "")}:${encodeURIComponent(reference.id)}`
+          : reference.id,
+      ),
+    ...(source === "figma"
+      ? {
+          link: {
+            placeholder: t("homeContext.figmaUrl"),
+            submitLabel: t("homeContext.browse"),
+          },
+        }
+      : {}),
+    load: async ({ search, page, cursor, url, signal }) => {
+      try {
+        const result = composerSourceListSchema.safeParse(
+          await callAction(
+            "read-composer-source",
+            {
+              source,
+              operation: "list",
+              search,
+              page,
+              cursor,
+              ...(source === "figma" ? { figmaUrl: url } : {}),
+            },
+            { method: "GET", signal },
+          ),
+        );
+        if (
+          !result.success ||
+          (source === "slides" &&
+            result.data.hasMore &&
+            !result.data.nextCursor)
+        )
+          throw new Error(loadFailed);
+        return {
+          ...result.data,
+          items: result.data.items.map((item) => ({
+            ...item,
+            id:
+              source === "figma"
+                ? `${encodeURIComponent(item.url ?? url ?? "")}:${encodeURIComponent(item.id)}`
+                : item.id,
+          })),
+        };
+      } catch (error) {
+        throw new Error(actionErrorMessage(error) ?? loadFailed);
+      }
+    },
+    onSelect: (item, request) =>
+      attach({
+        ...item,
+        id:
+          source === "figma"
+            ? decodeURIComponent(item.id.slice(item.id.lastIndexOf(":") + 1))
+            : item.id,
+        source,
+        ...(source === "figma" ? { figmaUrl: item.url ?? request.url } : {}),
+      }),
+  });
   const menuItems: ComposerContextMenuItem[] = [
     {
       id: "design",
       label: t("homeContext.design"),
-      icon: <IconLayout />,
+      icon: <IconTextRecognition size={16} />,
       searchPlaceholder: t("homeContext.searchDesign"),
       children: [
         {
           id: "system",
           label: t("homeContext.useDesignSystem"),
-          icon: <IconPalette />,
-          onSelect() {},
-          render: (controls) => (
-            <SelectionPage
-              controls={controls}
-              options={systems.map((system) => ({
-                ...system,
-                disabled: !system.ready,
-              }))}
-              selectedId={systemId}
-              loading={systemsLoading}
-              error={systemsError}
-              onRetry={retrySystems}
-              onSelect={onSystemChange}
-            />
-          ),
+          icon: <IconOmega size={16} />,
+          picker: {
+            scopeKey: identity,
+            searchPlaceholder: t("homeContext.searchSystems"),
+            selectedIds: systemId ? [systemId] : [],
+            items: systems.map((system) => ({
+              id: system.id,
+              title: system.title,
+              disabled: !system.ready,
+            })),
+            loading: systemsLoading,
+            error: systemsError
+              ? (actionErrorMessage(systemsError) ?? loadFailed)
+              : undefined,
+            onRetry: retrySystems,
+            emptyMessage: systems.length
+              ? t("homeContext.empty")
+              : t("homeContext.noSystems"),
+            footerAction: {
+              label: t("homeContext.createSystem"),
+              icon: <IconOmega size={16} />,
+              renderLink: (children) => (
+                <Link to="/design-systems/setup">{children}</Link>
+              ),
+            },
+            clearSelection: systemId
+              ? {
+                  label: t("homeContext.none"),
+                  onSelect: () => onSystemChange(null),
+                }
+              : undefined,
+            onSelect: (item) => onSystemChange(item.id),
+          },
         },
         {
           id: "figma-reference",
           label: t("homeContext.figmaReference"),
-          icon: <IconBrandFigma />,
-          onSelect() {},
-          render: (controls) => (
-            <ReferencePage
-              source="figma"
-              controls={controls}
-              onSelect={attach}
-            />
-          ),
+          icon: <IconComponents size={16} />,
+          picker: referencePicker("figma"),
         },
         {
           id: "design-reference",
           label: t("homeContext.referenceDesign"),
-          icon: <IconLayout />,
-          onSelect() {},
-          render: (controls) => (
-            <ReferencePage
-              source="design"
-              controls={controls}
-              onSelect={attach}
-            />
-          ),
+          icon: <IconLink size={16} />,
+          picker: referencePicker("design"),
         },
         {
           id: "slides-reference",
           label: t("homeContext.referenceDeck"),
-          icon: <IconPresentation />,
-          onSelect() {},
-          render: (controls) => (
-            <ReferencePage
-              source="slides"
-              controls={controls}
-              onSelect={attach}
-            />
-          ),
+          icon: <IconLink size={16} />,
+          picker: referencePicker("slides"),
         },
       ],
     },

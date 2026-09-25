@@ -1,4 +1,9 @@
 const messages = {
+  "composer.menu.search": "Search…",
+  "composer.contextPrevious": "Previous",
+  "composer.contextNext": "Next",
+  "composer.contextLoadFailed": "Could not load context.",
+  "composer.contextLinkRequired": "Enter a link.",
   "composer.submitFailed": "Could not submit. Try again.",
   "composer.addContext": "Add context",
   "composer.contextActionFailed": "Could not add context.",

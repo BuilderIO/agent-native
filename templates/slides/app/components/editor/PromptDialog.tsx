@@ -667,6 +667,7 @@ export default function PromptPopover({
             <div className={inline ? undefined : "px-2.5 pb-2.5"}>
               <PromptComposer
                 {...context?.props}
+                contextMenuItems={context?.props.contextMenuItems ?? []}
                 composerRef={composerRef}
                 autoFocus={!inline}
                 layoutVariant={inline ? "hero" : undefined}

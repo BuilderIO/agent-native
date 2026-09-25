@@ -1,6 +1,11 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.menu.search": "搜尋…",
+  "composer.contextPrevious": "上一頁",
+  "composer.contextNext": "下一頁",
+  "composer.contextLoadFailed": "無法載入內容脈絡。",
+  "composer.contextLinkRequired": "請輸入連結。",
   "composer.submitFailed": "無法提交。請重試。",
   "composer.addContext": "新增上下文",
   "composer.contextActionFailed": "無法新增上下文。",

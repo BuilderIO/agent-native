@@ -1,6 +1,11 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.menu.search": "검색…",
+  "composer.contextPrevious": "이전",
+  "composer.contextNext": "다음",
+  "composer.contextLoadFailed": "컨텍스트를 불러올 수 없습니다.",
+  "composer.contextLinkRequired": "링크를 입력하세요.",
   "composer.submitFailed": "제출하지 못했습니다. 다시 시도하세요.",
   "composer.addContext": "컨텍스트 추가",
   "composer.contextActionFailed": "컨텍스트를 추가하지 못했습니다.",

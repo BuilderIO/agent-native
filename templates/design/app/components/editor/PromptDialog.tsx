@@ -19,8 +19,6 @@ import {
   IconPalette,
   IconPlus,
   IconSparkles,
-  IconUpload,
-  IconX,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -28,6 +26,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
 } from "react";
 import { toast } from "sonner";
@@ -61,6 +60,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { createDesignPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
@@ -69,12 +69,6 @@ const loadPromptComposer = () =>
     default: PromptComposer,
   }));
 const LazyPromptComposer = lazy(loadPromptComposer);
-const LazyContextMenu = lazy(() =>
-  import("@agent-native/core/client/composer").then(
-    ({ ComposerContextMenu }) => ({ default: ComposerContextMenu }),
-  ),
-);
-
 export function preloadPromptComposer() {
   void loadPromptComposer().catch(() => {});
 }
@@ -358,6 +352,13 @@ export default function PromptPopover({
   scopeDraftsToOrg = true,
 }: PromptPopoverProps) {
   const t = useT();
+  const attachmentLimitMessage = t("promptDialog.attachmentsTooLarge", {
+    max: MAX_UPLOAD_MB,
+  });
+  const attachmentAdapter = useMemo(
+    () => createDesignPromptAttachmentAdapter(attachmentLimitMessage),
+    [attachmentLimitMessage],
+  );
   const onOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!inline) onPopoverOpenChange(nextOpen);
@@ -390,13 +391,10 @@ export default function PromptPopover({
   const [showStartChoice, setShowStartChoice] = useState(offerStartChoice);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);
-  const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
-  const composerFilesRef = useRef<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const draftTextRef = useRef<string | undefined>(undefined);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const contextFileInputRef = useRef<HTMLInputElement>(null);
   // A failed popover handoff can remount the composer. Leave its normal
   // localStorage restoration untouched unless that handoff needs recovery;
   // a defined initialText (even "") would short-circuit draft restoration.
@@ -472,7 +470,6 @@ export default function PromptPopover({
     // Same reason as above: a still-running submit owns these until it either
     // commits them or fails and hands the composer back with its attachments.
     if (submittingRef.current) return;
-    setSelectedUploadFiles([]);
     // Only sticks for the session immediately following a failed submit; a
     // fresh open after a real close should fall back to the composer's own
     // localStorage draft restore for this scope, not a stale failed prompt.
@@ -566,8 +563,7 @@ export default function PromptPopover({
 
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
-      composerFilesRef.current = files;
-      syncFiles([...files, ...selectedUploadFiles]);
+      syncFiles(files);
       void uploadFiles(files).catch((error) => {
         toast.error(
           error instanceof Error
@@ -576,26 +572,7 @@ export default function PromptPopover({
         );
       });
     },
-    [selectedUploadFiles, syncFiles, t, uploadFiles],
-  );
-
-  const handleUploadFiles = useCallback(
-    (files: File[]) => {
-      setSelectedUploadFiles((current) => [...current, ...files]);
-      syncFiles([
-        ...composerFilesRef.current,
-        ...selectedUploadFiles,
-        ...files,
-      ]);
-      void uploadFiles(files).catch((error) => {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t("promptDialog.failedToUploadFile"),
-        );
-      });
-    },
-    [selectedUploadFiles, syncFiles, t, uploadFiles],
+    [syncFiles, t, uploadFiles],
   );
 
   const handleSubmit = useCallback(
@@ -608,7 +585,6 @@ export default function PromptPopover({
       if (submittingRef.current) return;
       const recoveryText = inline ? (draftTextRef.current ?? text) : text;
       const submissionScope = recoveryScope;
-      const allFiles = [...files, ...selectedUploadFiles];
       submittingRef.current = true;
       setSubmitting(true);
       // The work continues in the caller and the editor shows its own loading
@@ -618,12 +594,14 @@ export default function PromptPopover({
       let uploaded: UploadedFile[];
       let submissionOptions = options;
       try {
+        if (files.reduce((sum, file) => sum + file.size, 0) > MAX_UPLOAD_BYTES)
+          throw new Error(attachmentLimitMessage);
         if (beforeSubmitContext)
           submissionOptions = {
             ...options,
             contextItems: await beforeSubmitContext(options.contextItems),
           };
-        uploaded = await uploadFiles(allFiles);
+        uploaded = await uploadFiles(files);
         if (draftScopeRef.current !== submissionScope)
           throw new Error(t("promptDialog.failedToSubmitPrompt"));
       } catch (error) {
@@ -641,14 +619,13 @@ export default function PromptPopover({
         throw error;
       }
       try {
-        retainFiles(allFiles);
+        retainFiles(files);
         await onSubmit(text, uploaded, submissionOptions);
-        commitFiles(allFiles);
-        setSelectedUploadFiles([]);
+        commitFiles(files);
         setSubmitting(false);
         submittingRef.current = false;
       } catch (error) {
-        discardFiles(allFiles);
+        discardFiles(files);
         setSubmitting(false);
         submittingRef.current = false;
         onOpenChange(true);
@@ -670,26 +647,14 @@ export default function PromptPopover({
       onSubmit,
       onSubmitError,
       beforeSubmitContext,
+      attachmentLimitMessage,
       recoveryScope,
       inline,
       retainFiles,
       restorePromptText,
-      selectedUploadFiles,
       t,
       uploadFiles,
     ],
-  );
-
-  const removeSelectedUploadFile = useCallback(
-    (index: number) => {
-      const file = selectedUploadFiles[index];
-      if (!file) return;
-      setSelectedUploadFiles((current) =>
-        current.filter((_, currentIndex) => currentIndex !== index),
-      );
-      discardFiles([file]);
-    },
-    [discardFiles, selectedUploadFiles],
   );
 
   const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
@@ -856,6 +821,9 @@ export default function PromptPopover({
               }
               autoFocus
               attachmentsEnabled
+              attachmentAdapter={attachmentAdapter}
+              inlineTextAttachments={false}
+              maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
               disabled={disabled || loading || submitting}
               submissionDisabled={submissionDisabled}
               layoutVariant={inline ? "hero" : undefined}
@@ -882,33 +850,10 @@ export default function PromptPopover({
                   ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
                   : `seed:${initialTextKey ?? 0}`
               }
-              attachButton={
-                <LazyContextMenu
-                  disabled={loading || uploading || submitting}
-                  items={[
-                    {
-                      id: "upload",
-                      label: t("promptDialog.uploadFile"),
-                      icon: <IconUpload />,
-                      onSelect: () => contextFileInputRef.current?.click(),
-                    },
-                    ...(contextMenuItems ?? []),
-                  ]}
-                />
-              }
+              contextMenuItems={contextMenuItems ?? []}
             />
           </Suspense>
         </LazyChunkErrorBoundary>
-        <input
-          ref={contextFileInputRef}
-          type="file"
-          multiple
-          hidden
-          onChange={(event) => {
-            handleUploadFiles(Array.from(event.currentTarget.files ?? []));
-            event.currentTarget.value = "";
-          }}
-        />
       </div>
       {!inline &&
         !showStartChoice &&
@@ -1013,29 +958,6 @@ export default function PromptPopover({
             ) : null}
           </div>
         )}
-
-      {!showStartChoice && selectedUploadFiles.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
-          {selectedUploadFiles.map((file, index) => (
-            <span
-              key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
-              className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
-            >
-              <span className="truncate">{file.name}</span>
-              <button
-                type="button"
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                aria-label={t("promptDialog.removeAttachment", {
-                  name: file.name,
-                })}
-                onClick={() => removeSelectedUploadFile(index)}
-              >
-                <IconX className="h-3.5 w-3.5" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
 
       {/* The chooser already offers the blank path as a peer, so the corner
             link would be a second, quieter way to do the same thing. */}

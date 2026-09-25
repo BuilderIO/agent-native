@@ -233,14 +233,81 @@ Der Host kann bereits autorisierten Kontext bereitstellen und beim Senden einen 
 />
 ```
 
-Verschachtelte Kategorien verwenden `children`. Aktionen verwenden `onSelect()` und optional `render(controls)` für eine Auswahl im Popover. `ComposerContextMenu` und `ComposerContextSearchInput` sind öffentliche Exporte. Mit `attachButton` bleibt der Upload-Ablauf der App erhalten.
+Kontextquellen registrieren `picker` in einem `ComposerContextMenuItem`. `ComposerContextMenu` verwaltet verbundene kaskadierende shadcn/Radix-Untermenüs statt austauschender Ansichten: Die Wurzel bietet den Datei-Upload, dann Kontext hinzufügen → Host-Kategorien → Quellenauswahl. Ohne Host-Einträge entfällt Kontext hinzufügen. Pfeiltasten und Escape navigieren durch die Menühierarchie. Zurück innerhalb einer Linkauswahl führt nur von den Ergebnissen zur Linkeingabe im selben Untermenü. Die gemeinsame Auswahl verwaltet Suche, Listenzeilen, Lade-, Leer- und Fehlerzustände, Wiederholung, Seitennavigation und Linkeingabe. Apps liefern autorisierte Daten und Auswahl-Callbacks statt eigener Auswahl-JSX.
 
-Eine Kategorie kann einen lokalisierten `searchPlaceholder` angeben. Ohne diesen Wert gilt der Suchplatzhalter der obersten Ebene. Mit `addAttachment` zeigt `ComposerContextMenu` die Standard-Upload-Aktion zuerst und verwendet weiterhin den Datei-Callback der Host-App.
+Die Auswahlkonfiguration akzeptiert:
+
+- `searchPlaceholder` und optional `emptyMessage` als lokalisierte App-Texte. `selectedIds` markiert ausgewählte Zeilen. Einträge haben `id`, `title` sowie optional `disabled` und `url`.
+- Entweder lokale `items` mit optionalen `loading`, `error` und `onRetry()` oder den entfernten Lader `load(request)`. Die Modi lassen sich nicht kombinieren.
+- `load(request)` erhält `search`, die bei eins beginnende `page`, optional `cursor` und `url` sowie ein `AbortSignal`. Das Ergebnis ist `{ items, hasMore?, nextCursor? }`. Fehler müssen das Promise ablehnen, statt ein leeres Ergebnis zurückzugeben.
+- `onSelect(item, request)` stellt die Quelle als Kontext bereit und darf asynchron sein. `false` hält die Auswahl offen. Ein ausgelöster Fehler zeigt eine Wiederholungsoption. Das optionale `clearSelection` enthält ein lokalisiertes `label` und einen `onSelect()`-Callback.
+- Das optionale `link` enthält lokalisierte Werte für `placeholder` und `submitLabel`. `validate(url)` kann einen Fehlertext zurückgeben. Das gemeinsame Formular übernimmt Linkeingabe und Navigation.
+- `scopeKey` setzt bei einer Änderung der Identität oder des Zugriffsumfangs den gesamten Auswahlzustand zurück. `refreshKey` invalidiert die aktuelle Abfrage bei einem geänderten Quellen-/Versionstoken, ohne die URL zurückzusetzen. Eine geänderte Suche beginnt wieder auf Seite eins. Apps aktualisieren Tokens, wenn Agenten ihre Quelldaten ändern.
+
+Eine App kann bereits autorisierte Optionen registrieren. `labels` enthält hier lokalisierte App-Texte und `stageReference` aktualisiert den bereitgestellten Kontext des Hosts:
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+Für durchsuchbare oder verlinkte Quellen liefert die App einen authentifizierten Lader. `loadAuthorizedReferences` erfüllt den oben beschriebenen Anfrage-/Ergebnisvertrag, erhält die Zugriffskontrollen und reicht das Abbruchsignal an die Client-Hilfsfunktion weiter:
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      onSelect: stageReference,
+      link: {
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+Auswahleinträge definieren nicht zusätzlich `render` oder ein `onSelect` auf Eintragsebene. Kategorien verwenden `children`. Die Wurzel und jede Kategorie behalten ein Suchfeld im Kopfbereich. Kategorien können einen lokalisierten `searchPlaceholder` angeben; andernfalls verwenden sie den gemeinsamen Platzhalter für die Kontextsuche. `picker.searchPlaceholder` beschriftet das Suchfeld der Quellenliste. Die Registrierung gewährt keinen Quellenzugriff. Die gemeinsame Auswahl ignoriert Antworten überholter Ladeanfragen.
+
+Das optionale `footerAction` bleibt unter den Ergebnissen sichtbar, auch beim Laden, bei Fehlern oder einer leeren Liste. Es akzeptiert ein lokalisiertes `label`, optional `icon` und `disabled` sowie entweder `onSelect()` oder `renderLink(children)`. Für einen Dialog oder einen anderen zustandsbehafteten Ablauf dient ein Callback: `false` hält das Menü offen, `true` oder `void` schließt es, und eine Ablehnung zeigt einen Fehler mit Wiederholung. Bei reiner Navigation liefert `renderLink` einen echten React-Router-`Link` oder HTML-Link; das gemeinsame Menü stellt die Zeile über `asChild` bereit und bewahrt deren `href` und Browsernavigation. Binden Sie bestehende autorisierte Abläufe ein, keine Platzhalteraktionen.
+
+Mit `addAttachment` zeigt `ComposerContextMenu` die Standard-Upload-Aktion zuerst und verwendet weiterhin den Datei-Callback des Hosts.
+
+`PromptComposer` und `AgentKitComposer` akzeptieren `attachmentAdapter` mit dem öffentlichen Typ `AttachmentAdapter` aus `@assistant-ui/react`. Der Adapter stellt die Host-Regeln für zulässige Dateien, Größenprüfung und Dateivorbereitung bereit; ohne ihn bleiben die Standardadapter aktiv. Upload-Steuerung, Dateiauswahl, Kontextauswahl und Anhang-Chips bleiben Aufgabe des gemeinsamen Composers. Ersetzen Sie diese Bedienelemente nicht, um die Dateivorbereitung anzupassen.
+
+`inlineTextAttachments` ist bei `PromptComposer` und `AgentKitComposer` standardmäßig `true`. Setzen Sie es auf `false`, wenn der Host gewöhnliche Textdateien bereits extrahiert: Der Composer übergibt die Originaldateien an den Host, ohne ihren Inhalt zu lesen und an den Prompt anzuhängen. Synthetische Anhänge aus eingefügtem Text werden weiterhin zu Prompt-Text. Diese Option ändert weder die Dateizulassung noch die gemeinsamen Bedienelemente.
 
 ```tsx
 <PromptComposer
   contextItems={contextItems}
-  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
   onRetryContextItem={retryContext}
   onSubmit={submitPrompt}
 />
