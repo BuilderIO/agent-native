@@ -341,6 +341,77 @@ describe("<NewDeckReferenceStep>", () => {
     );
   });
 
+  it("keeps Continue disabled for an invalid Figma link and enables it for a valid one", () => {
+    renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Figma" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Figma link" }), {
+      target: { value: "@" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Figma link" }), {
+      target: { value: "https://www.figma.com/file/abc123" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Website link and enables it for a valid one", () => {
+    renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Website" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Website link" }), {
+      target: { value: "@" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Website link" }), {
+      target: { value: "https://example.com" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Google Slides link but allows a bare picker file ID", () => {
+    renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "@" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "presentation_123" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
   it("only shows Google connection recovery after choosing Slides", () => {
     renderStep();
 

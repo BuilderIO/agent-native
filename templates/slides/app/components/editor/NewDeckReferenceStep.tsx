@@ -73,6 +73,33 @@ export interface ImportedReference {
 
 type FileImportSource = Exclude<ImportedReference["source"], "google-slides">;
 
+// Matches the bare Picker file ID shape accepted by
+// extractGoogleSlidesPresentationId in actions/import-google-slides-reference.ts.
+const GOOGLE_PICKER_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    // coercion-ok: an unparseable string is a syntactically invalid URL, the
+    // exact "false" this validity check exists to report.
+    return false;
+  }
+}
+
+function isValidReferenceSourceValue(
+  kind: NewDeckReferenceSource["kind"],
+  value: string,
+): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (kind === "google-docs") {
+    return isHttpUrl(trimmed) || GOOGLE_PICKER_ID_PATTERN.test(trimmed);
+  }
+  return isHttpUrl(trimmed);
+}
+
 interface DesignSystemOption {
   id: string;
   title: string;
@@ -160,10 +187,12 @@ export function NewDeckReferenceStep({
   const selectedReferenceDeck = selectedReferenceDeckId
     ? deckById.get(selectedReferenceDeckId)
     : undefined;
+  const selectedSourceValid = Boolean(
+    selectedSource &&
+    isValidReferenceSourceValue(selectedSource.kind, selectedSource.value),
+  );
   const hasSelection = Boolean(
-    selectedDesignSystemId ||
-    selectedReferenceDeckId ||
-    selectedSource?.value.trim(),
+    selectedDesignSystemId || selectedReferenceDeckId || selectedSourceValid,
   );
 
   useEffect(() => {
@@ -609,7 +638,7 @@ export function NewDeckReferenceStep({
           disabled={
             busy ||
             !hasSelection ||
-            Boolean(selectedSource && !selectedSource.value.trim())
+            Boolean(selectedSource && !selectedSourceValid)
           }
         >
           {importing || continuing
