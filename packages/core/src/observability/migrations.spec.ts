@@ -117,7 +117,10 @@ describe("observability release migrations", () => {
     const orgAFeedback = await db
       .prepare("SELECT id FROM agent_feedback WHERE org_id = ? ORDER BY id")
       .all("org-a");
-    expect(orgAFeedback).toEqual([{ id: "feedback-a" }]);
+    expect(orgAFeedback).toEqual([
+      { id: "feedback-a" },
+      { id: "feedback-null-thread" },
+    ]);
     const orgBFeedback = await db
       .prepare("SELECT id FROM agent_feedback WHERE org_id = ? ORDER BY id")
       .all("org-b");
@@ -128,7 +131,10 @@ describe("observability release migrations", () => {
         "SELECT id FROM agent_instruction_updates WHERE org_id = ? ORDER BY id",
       )
       .all("org-a");
-    expect(orgAUpdates).toEqual([{ id: "instruction-a" }]);
+    expect(orgAUpdates).toEqual([
+      { id: "instruction-a" },
+      { id: "instruction-null-thread" },
+    ]);
     const orgBUpdates = await db
       .prepare(
         "SELECT id FROM agent_instruction_updates WHERE org_id = ? ORDER BY id",
