@@ -574,9 +574,10 @@ const SAFETY_FINDING_PATTERN =
   /\b(auth|authentication|authorization|credential|secret|api[- ]keys?|api[- ]tokens?|webhook[- ]tokens?|(?:access|refresh|bearer|session|service|signing|oauth|auth)[- ]tokens?|tokens?\s+(?:(?:is|are|was|were)\s+)?(?:exposed|leaked|returned|sent|logged|stolen|disclosed)|passwords?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|oauth|cors|redirects?|open redirect|(?:untrusted|raw|unsafe|unsanitized|unescaped)\s+html|event[- ]handlers?|script(?:s|[- ]tags?|[- ]execution|[- ]injection)|sanitiz(?:e|ers?|ations?|ed|ing))\b/i;
 const HTML_TAINT_SOURCE_PATTERN = String.raw`(?:(?:(?:user|attacker)[- ](?:controlled|supplied|provided|generated|injected)|malicious|arbitrary|raw|untrusted(?:\s+(?:user|attacker))?|external|remote|uploaded|webhook|third[- ]party|request[- ]body|api[- ]response|comment|unsanitized|unescaped)\s+(?:html|markup|svg|input|content|value)|(?:html|markup|svg)\s+(?:supplied|provided|generated|injected)\s+by\s+(?:(?:the|a)\s+)?(?:user|attacker)|(?:html|markup|svg)\s+(?:from\s+(?:the\s+)?(?:pr\s+(?:body|description)|request[- ]body|api[- ]response|comment|untrusted\s+source|user\s+input))|(?:user|attacker)\s+input)`;
 const HTML_SINK_PATTERN = String.raw`(?:innerhtml|dangerouslysetinnerhtml|(?:render|insert|assign|reflect|pass|put)\w*\b.{0,50}\b(?:dom|html\s+rendering))`;
-const HTML_EVENT_HANDLER_ACTION_PATTERN = String.raw`(?:execute|run|fire|trigger|call|invok|evaluat|eval|perform|fetch|post|request|redirect|navigat|access|open|load|write|beacon|emit|message|stor|set|update|mutat|modif|alter|leak|exfiltrat|steal|read|send|transmit|disclos|expos|capture|harvest)\w*`;
+const HTML_EVENT_HANDLER_ACTION_PATTERN = String.raw`(?:execute|run|fire|trigger|call|invok|evaluat|eval|perform|fetch|post|request|redirect|navigat|access|open|load|write|beacon|emit|message|stor|mutat|modif|alter|leak|exfiltrat|steal|read|send|transmit|disclos|expos|capture|harvest)\w*`;
+const HTML_EVENT_HANDLER_COOKIE_ACTION_PATTERN = String.raw`(?:set|update)\w*\b.{0,30}\bdocument\s*\.\s*cookie\b`;
 const HTML_EVENT_HANDLER_REFERENCE_PATTERN = String.raw`\bon[a-z]+(?:\s*(?:=|\s+(?:handler(?:\s+attribute)?|event(?:\s+attribute)?|attribute)))?`;
-const HTML_UNSAFE_SIGNAL_PATTERN = String.raw`(?:unescaped|unsanitized|without\s+(?:proper\s+)?(?:escaping|encoding|sanitiz(?:ation|ing))|(?:not|never|isn't|is\s+not)\s+(?:properly\s+)?(?:escaped|encoded|sanitized|sanitised)|no\s+(?:proper\s+)?(?:escaping|encoding|sanitiz(?:ation|ing))|(?:execute|run)\w*\b.{0,20}\b(?:javascript|scripts?)|(?:${HTML_EVENT_HANDLER_REFERENCE_PATTERN}.{0,50}\b${HTML_EVENT_HANDLER_ACTION_PATTERN}|\b${HTML_EVENT_HANDLER_ACTION_PATTERN}.{0,50}${HTML_EVENT_HANDLER_REFERENCE_PATTERN}))`;
+const HTML_UNSAFE_SIGNAL_PATTERN = String.raw`(?:unescaped|unsanitized|without\s+(?:proper\s+)?(?:escaping|encoding|sanitiz(?:ation|ing))|(?:not|never|isn't|is\s+not)\s+(?:properly\s+)?(?:escaped|encoded|sanitized|sanitised)|no\s+(?:proper\s+)?(?:escaping|encoding|sanitiz(?:ation|ing))|(?:execute|run)\w*\b.{0,20}\b(?:javascript|scripts?)|(?:${HTML_EVENT_HANDLER_REFERENCE_PATTERN}.{0,50}\b${HTML_EVENT_HANDLER_ACTION_PATTERN}|\b${HTML_EVENT_HANDLER_ACTION_PATTERN}.{0,50}${HTML_EVENT_HANDLER_REFERENCE_PATTERN}|${HTML_EVENT_HANDLER_REFERENCE_PATTERN}.{0,50}\b${HTML_EVENT_HANDLER_COOKIE_ACTION_PATTERN}|\b${HTML_EVENT_HANDLER_COOKIE_ACTION_PATTERN}.{0,50}${HTML_EVENT_HANDLER_REFERENCE_PATTERN}))`;
 const UNSAFE_HTML_SINK_FINDING_PATTERN = new RegExp(
   [
     String.raw`\b${HTML_TAINT_SOURCE_PATTERN}\b.{0,100}\b(?:${HTML_SINK_PATTERN}|${HTML_UNSAFE_SIGNAL_PATTERN})\b`,
@@ -592,7 +593,7 @@ const UNSAFE_HTML_SINK_FINDING_PATTERN = new RegExp(
 const SAFE_HTML_HANDLING_PATTERN =
   /\b(?:(?:render|insert)\w*\s+safely|safely\s+(?:render|insert)\w*)\b/i;
 const SAFE_HTML_PRE_SINK_PATTERN =
-  /\b(?:sanitiz\w*|escap\w*|encod\w*)\b.{0,30}\b(?:and\s+then|before|prior\s+to|then)\b.{0,30}$/i;
+  /\b(?:sanitiz\w*|escap\w*|encod\w*|set\w*\s+to\s+(?:null|undefined))\b.{0,30}\b(?:and\s+then|before|prior\s+to|then)\b.{0,30}$/i;
 const NEGATED_SAFE_HTML_HANDLING_PATTERN =
   /\b(?:(?:not|never|isn't|is\s+not|does\s+not)\b.{0,24}\b(?:sanitiz\w*|escap\w*|encod\w*|safely)\b|no\s+(?:proper\s+)?(?:sanitiz\w*|escap\w*|encod\w*))\b/i;
 function isSafeHtmlHandlingAt(
@@ -639,8 +640,12 @@ const NEGATED_FINDING_PATTERN = new RegExp(
   String.raw`\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?${NEGATED_SAFETY_TOPIC_LIST_PATTERN}\s+(?:(?:security\s+)?(?:issues?|findings?|concerns?|risks?|vulnerabilit(?:y|ies)|exploits?)\b(?:\s+(?:were|was|are|is)\s+(?:found|identified|reported|present)\b)?|(?:were|was|are|is)\s+(?:found|identified|reported|present)\b)(?=\s*(?:[,.;!?]|\b(?:and|but|however|while)\b|$))`,
   "i",
 );
+const NEGATED_HTML_EVENT_HANDLER_COOKIE_PATTERN = new RegExp(
+  String.raw`\bno\s+(?:${HTML_TAINT_SOURCE_PATTERN}\s+)?${HTML_EVENT_HANDLER_REFERENCE_PATTERN}.{0,50}\b${HTML_EVENT_HANDLER_COOKIE_ACTION_PATTERN}(?=\s*(?:to\s+(?:an?\s+)?(?:attacker|external|remote)\s+(?:endpoint|url))?(?:[,.;!?]|\b(?:and|but|however|while)\b|$))`,
+  "i",
+);
 const SAFE_HTML_HANDLER_REMOVAL_PATTERN =
-  /\b(?:on[a-z]+\s+(?:handler|attribute)|event[- ]handler)\b.{0,80}\b(?:removed|stripped|sanitized|sanitised)\b.{0,40}\b(?:before|prior\s+to)\s+(?:insertion|rendering|execution)\b/i;
+  /\b(?:on[a-z]+\s+(?:handler|attribute)|event[- ]handler)\b.{0,80}\b(?:removed|stripped|sanitized|sanitised|set\s+to\s+(?:null|undefined))\b.{0,40}\b(?:before|prior\s+to)\s+(?:insertion|rendering|execution)\b/i;
 const NON_FINDING_PATTERN =
   /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:(?:api[- ]keys?|tokens?|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+(?:or|and)\s+)*(?:(?:api[- ]keys?|tokens?|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+)?(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilit(?:y|ies))|issues?|findings?|concerns?|risks?|vulnerabilit(?:y|ies)|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|api[- ]keys?|tokens?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|api[- ]keys?|tokens?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
 
@@ -713,6 +718,9 @@ export function hasActiveCredibleSafetyFinding(
       const nonFindings = [
         ...sentence.matchAll(new RegExp(NON_FINDING_PATTERN.source, "gi")),
         ...sentence.matchAll(new RegExp(NEGATED_FINDING_PATTERN.source, "gi")),
+        ...sentence.matchAll(
+          new RegExp(NEGATED_HTML_EVENT_HANDLER_COOKIE_PATTERN.source, "gi"),
+        ),
         ...sentence.matchAll(
           new RegExp(SAFE_HTML_HANDLER_REMOVAL_PATTERN.source, "gi"),
         ),
