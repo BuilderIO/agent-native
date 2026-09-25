@@ -16,6 +16,7 @@ import {
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
 import {
+  BuilderCredentialLookupError,
   resolveHasBuilderGatewayCredential,
   resolveSecret,
 } from "@agent-native/core/server";
@@ -94,12 +95,33 @@ export default async (nitroApp: any): Promise<void> => {
       },
     ],
     isComplete: async () => {
-      if (await resolveHasBuilderGatewayCredential()) return true;
-      const [gemini, openai] = await Promise.all([
-        resolveSecret("GEMINI_API_KEY").catch(() => null),
-        resolveSecret("OPENAI_API_KEY").catch(() => null),
+      let builderLookupError: BuilderCredentialLookupError | undefined;
+      try {
+        if (await resolveHasBuilderGatewayCredential()) return true;
+      } catch (error) {
+        if (!(error instanceof BuilderCredentialLookupError)) throw error;
+        builderLookupError = error;
+      }
+
+      const manualLookups = await Promise.allSettled([
+        resolveSecret("GEMINI_API_KEY"),
+        resolveSecret("OPENAI_API_KEY"),
       ]);
-      return !!(gemini || openai);
+      if (
+        manualLookups.some(
+          (result) => result.status === "fulfilled" && Boolean(result.value),
+        )
+      ) {
+        return true;
+      }
+      const manualLookupFailure = manualLookups.find(
+        (result) => result.status === "rejected",
+      );
+      if (manualLookupFailure?.status === "rejected") {
+        throw manualLookupFailure.reason;
+      }
+      if (builderLookupError) throw builderLookupError;
+      return false;
     },
   });
 

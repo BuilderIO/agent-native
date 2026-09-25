@@ -1,13 +1,21 @@
 import { and, eq, ne } from "drizzle-orm";
 
+import type {
+  VideoAspectRatio,
+  VideoDuration,
+  VideoModel,
+  VideoResolution,
+} from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer } from "./assets.js";
 import { notifyGenerationRunFinished } from "./generation-run-notifications.js";
 import { nowIso, parseJson, stringifyJson } from "./json.js";
+import { getObject } from "./storage.js";
 import {
   pollBuilderVideoGeneration,
   pollGeminiVideoGeneration,
   RetryableVideoGenerationError,
+  startVideoGeneration,
 } from "./video-generation.js";
 
 type VideoRunDb = Pick<ReturnType<typeof getDb>, "select" | "update">;
@@ -69,6 +77,108 @@ async function readCurrentVideoRunResult(
     return { status: "completed", run, asset, completionClaimed: false };
   }
   return { status: "processing", run, completionClaimed: false };
+}
+
+async function retryVideoGenerationStart(
+  db: VideoRunDb,
+  run: typeof schema.assetGenerationRuns.$inferSelect,
+  metadata: Record<string, unknown>,
+): Promise<VideoRunResult> {
+  const settings = metadata.settingsUsed;
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    throw new Error("Video generation run has no saved start settings.");
+  }
+  const settingsUsed = settings as Record<string, unknown>;
+  if (
+    typeof settingsUsed.enhancePrompt !== "boolean" ||
+    typeof settingsUsed.generateAudio !== "boolean" ||
+    (settingsUsed.negativePrompt !== null &&
+      typeof settingsUsed.negativePrompt !== "string")
+  ) {
+    throw new Error("Video generation run has invalid saved start settings.");
+  }
+
+  const referenceAssetIds: unknown = JSON.parse(run.referenceAssetIds);
+  if (
+    !Array.isArray(referenceAssetIds) ||
+    !referenceAssetIds.every((id) => typeof id === "string")
+  ) {
+    throw new Error("Video generation run has invalid reference asset IDs.");
+  }
+
+  const referenceAssets = await Promise.all(
+    referenceAssetIds.map(async (id: string) => {
+      const [asset] = await db
+        .select()
+        .from(schema.assets)
+        .where(eq(schema.assets.id, id))
+        .limit(1);
+      if (
+        !asset ||
+        asset.libraryId !== run.libraryId ||
+        !asset.mimeType.startsWith("image/")
+      ) {
+        throw new Error("A saved video reference asset is unavailable.");
+      }
+      return {
+        id: asset.id,
+        mimeType: asset.mimeType,
+        data: (await getObject(asset.objectKey)).toString("base64"),
+        role: asset.role,
+      };
+    }),
+  );
+  const sourceAssetId =
+    typeof metadata.sourceAssetId === "string" ? metadata.sourceAssetId : null;
+  const sourceImage = sourceAssetId
+    ? referenceAssets.find((asset) => asset.id === sourceAssetId)
+    : null;
+  if (sourceAssetId && !sourceImage) {
+    throw new Error("The saved video source image is unavailable.");
+  }
+
+  const operation = await startVideoGeneration({
+    runId: run.id,
+    libraryId: run.libraryId,
+    callerAppId: run.callerAppId ?? undefined,
+    model: run.model as VideoModel,
+    compiledPrompt: run.compiledPrompt,
+    aspectRatio: run.aspectRatio as VideoAspectRatio,
+    durationSeconds: run.durationSeconds as VideoDuration,
+    resolution: (run.resolution ?? run.imageSize) as VideoResolution,
+    sourceImage,
+    referenceImages: sourceImage ? [] : referenceAssets,
+    negativePrompt: settingsUsed.negativePrompt as string | null,
+    enhancePrompt: settingsUsed.enhancePrompt,
+    generateAudio: settingsUsed.generateAudio,
+    identity: { userEmail: run.ownerEmail, orgId: run.orgId },
+  });
+  const nextMetadata = {
+    ...metadata,
+    ...(operation.provider === "builder"
+      ? { generationId: operation.generationId }
+      : { operationName: operation.operationName }),
+    provider: operation.provider,
+    providerStatus: "processing",
+    startedAt: nowIso(),
+  };
+  const [startedRun] = await db
+    .update(schema.assetGenerationRuns)
+    .set({
+      status: "processing",
+      error: null,
+      metadata: stringifyJson(nextMetadata),
+    })
+    .where(
+      and(
+        eq(schema.assetGenerationRuns.id, run.id),
+        eq(schema.assetGenerationRuns.status, run.status),
+      ),
+    )
+    .returning();
+  return startedRun
+    ? { status: "processing", run: startedRun, completionClaimed: false }
+    : readCurrentVideoRunResult(db, run.id);
 }
 
 export async function failVideoGenerationRun(
@@ -186,6 +296,29 @@ export async function completeVideoGenerationRun(
     typeof metadata.operationName === "string" ? metadata.operationName : null;
   const generationId =
     typeof metadata.generationId === "string" ? metadata.generationId : null;
+  if (metadata.providerStatus === "starting") {
+    try {
+      return await retryVideoGenerationStart(getDb(), run, metadata);
+    } catch (error) {
+      if (!(error instanceof RetryableVideoGenerationError)) {
+        await failVideoGenerationRun(run.id, error);
+        throw error;
+      }
+      const [retryingRun] = await getDb()
+        .update(schema.assetGenerationRuns)
+        .set({ status: "processing", error: error.message })
+        .where(
+          and(
+            eq(schema.assetGenerationRuns.id, run.id),
+            eq(schema.assetGenerationRuns.status, run.status),
+          ),
+        )
+        .returning();
+      return retryingRun
+        ? { status: "processing", run: retryingRun, completionClaimed: false }
+        : readCurrentVideoRunResult(getDb(), run.id);
+    }
+  }
   if (
     (provider === "builder" && !generationId) ||
     (provider === "gemini" && !operationName)
@@ -203,7 +336,7 @@ export async function completeVideoGenerationRun(
       provider === "builder"
         ? await pollBuilderVideoGeneration(generationId!, {
             userEmail: run.ownerEmail,
-            ...(run.orgId ? { orgId: run.orgId } : {}),
+            orgId: run.orgId,
           })
         : await pollGeminiVideoGeneration(operationName!);
   } catch (error) {
@@ -357,8 +490,21 @@ export async function completeVideoGenerationRun(
       };
     });
   } catch (err) {
+    if (!(err instanceof Error)) throw err;
     const current = await readCurrentVideoRunResult(getDb(), run.id);
     if (current.status !== "processing") return current;
-    throw err;
+    const [retryingRun] = await getDb()
+      .update(schema.assetGenerationRuns)
+      .set({ error: err.message })
+      .where(
+        and(
+          eq(schema.assetGenerationRuns.id, run.id),
+          eq(schema.assetGenerationRuns.status, "processing"),
+        ),
+      )
+      .returning();
+    return retryingRun
+      ? { status: "processing", run: retryingRun, completionClaimed: false }
+      : readCurrentVideoRunResult(getDb(), run.id);
   }
 }

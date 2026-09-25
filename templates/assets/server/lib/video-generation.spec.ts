@@ -166,6 +166,30 @@ describe("Builder video generation", () => {
     ).toEqual(["assets-run-123", "assets-run-123", "assets-run-123"]);
   });
 
+  it("keeps an exhausted transient start retryable", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("upstream unavailable", { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(startVideoGeneration(baseInput)).rejects.toBeInstanceOf(
+      RetryableVideoGenerationError,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps an exhausted transport failure retryable", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(startVideoGeneration(baseInput)).rejects.toBeInstanceOf(
+      RetryableVideoGenerationError,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("keeps credential-store failures retryable before polling", async () => {
     mocks.resolveBuilderGatewayAuth.mockRejectedValueOnce(
       new mocks.BuilderCredentialLookupError(),

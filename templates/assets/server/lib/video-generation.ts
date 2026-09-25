@@ -248,10 +248,11 @@ export async function startVideoGeneration(input: {
   negativePrompt?: string | null;
   enhancePrompt?: boolean;
   generateAudio?: boolean;
+  identity?: { userEmail?: string | null; orgId?: string | null };
 }): Promise<VideoGenerationOperation> {
   let auth;
   try {
-    auth = await resolveBuilderGatewayAuth();
+    auth = await resolveBuilderGatewayAuth(input.identity);
   } catch (error) {
     if (error instanceof BuilderCredentialLookupError) {
       throw new RetryableVideoGenerationError(error.message);
@@ -319,7 +320,12 @@ export async function startVideoGeneration(input: {
         signal: AbortSignal.timeout(45_000),
       });
     } catch (error) {
-      if (!isRetryableTransportError(error) || attempt === 2) throw error;
+      if (!isRetryableTransportError(error)) throw error;
+      if (attempt === 2) {
+        throw new RetryableVideoGenerationError(
+          "Builder video generation start could not be confirmed.",
+        );
+      }
       continue;
     }
     if (response.status === 409) {

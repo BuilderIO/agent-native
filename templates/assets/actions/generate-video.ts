@@ -5,7 +5,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -23,6 +23,7 @@ import {
 import { getObject } from "../server/lib/storage.js";
 import {
   compileVideoPrompt,
+  RetryableVideoGenerationError,
   startVideoGeneration,
   type VideoReferenceImage,
 } from "../server/lib/video-generation.js";
@@ -218,6 +219,10 @@ export default defineAction({
       },
       settingsUsed,
     };
+    const startingMetadata = stringifyJson({
+      ...baseMetadata,
+      providerStatus: "starting",
+    });
     await db.insert(schema.assetGenerationRuns).values({
       id: runId,
       libraryId: args.libraryId,
@@ -239,7 +244,7 @@ export default defineAction({
       callerAppId: callerAppId ?? null,
       ownerEmail,
       orgId,
-      metadata: stringifyJson(baseMetadata),
+      metadata: startingMetadata,
       createdAt: now,
     });
 
@@ -261,6 +266,36 @@ export default defineAction({
         generateAudio: args.generateAudio,
       });
     } catch (error) {
+      if (error instanceof RetryableVideoGenerationError) {
+        const [retryingRun] = await db
+          .update(schema.assetGenerationRuns)
+          .set({ status: "processing", error: error.message })
+          .where(
+            and(
+              eq(schema.assetGenerationRuns.id, runId),
+              eq(schema.assetGenerationRuns.status, "pending"),
+            ),
+          )
+          .returning();
+        if (retryingRun) {
+          return {
+            run: serializeGenerationRun(retryingRun),
+            artifactType: "video",
+            ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
+          };
+        }
+        const [currentRun] = await db
+          .select()
+          .from(schema.assetGenerationRuns)
+          .where(eq(schema.assetGenerationRuns.id, runId))
+          .limit(1);
+        if (!currentRun) throw new Error("Video generation run disappeared.");
+        return {
+          run: serializeGenerationRun(currentRun),
+          artifactType: "video",
+          ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
+        };
+      }
       await failVideoGenerationRun(runId, error);
       throw error;
     }
