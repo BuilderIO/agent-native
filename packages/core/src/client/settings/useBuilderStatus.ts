@@ -782,8 +782,14 @@ export function useBuilderConnectFlow(
     const removePopupClosed = desktopBridge?.oauth?.onPopupClosed(
       (attemptId) => {
         if (!attemptId || attemptId !== connectAttemptIdRef.current) return;
-        popupClosedAtRef.current ??= Date.now();
         const started = connectStartedAtRef.current;
+        if (
+          started !== null &&
+          callbackSuccessStartedAtRef.current === started
+        ) {
+          return;
+        }
+        popupClosedAtRef.current ??= Date.now();
         if (callbackSuccessCancelRef.current?.started === started) {
           callbackSuccessCancelRef.current.cancel();
         }
@@ -1006,6 +1012,7 @@ export function useBuilderConnectFlow(
     try {
       activePopupRef.current?.close();
     } catch {
+      // coercion-ok: cancellation state is already recorded.
       // The bounded cancellation path still applies if the browser refuses.
     }
     if (typeof window !== "undefined" && attemptId) {
@@ -1018,6 +1025,7 @@ export function useBuilderConnectFlow(
           }
         ).agentNativeDesktop?.oauth?.cancelPopup?.(attemptId);
       } catch {
+        // coercion-ok: cancellation state is already recorded.
         // The bounded cancellation path still applies if the desktop bridge is unavailable.
       }
     }
@@ -1449,6 +1457,7 @@ export function useBuilderConnectFlow(
       }
       callbackSuccessStartedAtRef.current = started;
       callbackSuccessInFlightAtRef.current = started;
+      popupClosedAtRef.current = null;
       let s: Awaited<ReturnType<typeof fetchStatus>> = null;
       let cancelled = false;
       let resolveCancelled: (value: null) => void = () => {};

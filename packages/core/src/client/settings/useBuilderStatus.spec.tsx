@@ -1570,6 +1570,83 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("keeps a delayed desktop success when its OAuth popup closes itself", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
+    let notifyPopupClosed: ((attemptId: string | null) => void) | null = null;
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          onPopupClosed: (callback: (attemptId: string | null) => void) => {
+            notifyPopupClosed = callback;
+            return () => {
+              notifyPopupClosed = null;
+            };
+          },
+        },
+      },
+    });
+
+    let connectStartedAt = Date.now();
+    vi.mocked(fetch).mockImplementation(async () => {
+      const configured = Date.now() - connectStartedAt >= 45_000;
+      return jsonResponse(
+        configured
+          ? connectedBuilderStatus
+          : {
+              configured: false,
+              envManaged: false,
+              builderEnabled: true,
+              orgName: null,
+              connectUrl: signedConnectUrl,
+              appHost: "https://builder.io",
+              apiHost: "https://api.builder.io",
+              publicKeyConfigured: false,
+              privateKeyConfigured: false,
+            },
+      );
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      connectStartedAt = Date.now();
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const openedUrl = String(openSpy.mock.calls[0]?.[0]);
+    const attemptId = new URL(openedUrl).searchParams.get(
+      "_an_connect_attempt",
+    );
+    expect(attemptId).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: { type: "builder-connect-success", attemptId },
+        }),
+      );
+      notifyPopupClosed?.(attemptId);
+      await vi.advanceTimersByTimeAsync(26_000);
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(container.textContent).not.toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+  });
+
   it("asks Electron to close the matching OAuth window when cancelled", async () => {
     setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
     const cancelPopup = vi.fn();
