@@ -252,6 +252,27 @@ describe("DeckEditor generation signal wiring", () => {
     ).toHaveLength(1);
   });
 
+  it("emits one output view per deck even when a deck is revisited", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    const outputViews = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed");
+    await waitFor(() => expect(outputViews()).toHaveLength(1));
+
+    await act(async () => router?.navigate("/deck/deck-2"));
+    await waitFor(() => expect(outputViews()).toHaveLength(2));
+
+    await act(async () => router?.navigate("/deck/deck-1"));
+    expect(outputViews()).toHaveLength(2);
+  });
+
   it("clears generation state when the target tab finishes while another chat stays busy", async () => {
     router = createMemoryRouter(
       [{ path: "/deck/:id", element: <DeckEditor /> }],

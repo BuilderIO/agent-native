@@ -146,6 +146,12 @@ describe("onboarding funnel metrics", () => {
         id: "a3",
         outcome: "settings_opened",
       },
+      {
+        user: "u3",
+        method: "custom_keys",
+        id: "a7",
+        outcome: "handoff_failed",
+      },
       { user: "u6", method: "builder_sign_in", id: "a4" },
       {
         user: "u5+autoz",
@@ -179,6 +185,11 @@ describe("onboarding funnel metrics", () => {
         );
       }
     }
+    await insertEvent("onboarding_method_clicked", "unseen", {
+      ...step,
+      method_id: "builder_create_account",
+      onboarding_attempt_id: "a8",
+    });
 
     const panel = buildPanel("onboarding-setup-choice")!;
     expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
@@ -197,6 +208,7 @@ describe("onboarding funnel metrics", () => {
       connection_failure_users: 1,
       connection_success_attempts: 1,
       connection_failure_attempts: 1,
+      handoff_failure_attempts: 0,
     });
     expect(
       result.rows.find((row) => row.method_id === "builder_sign_in"),
@@ -209,6 +221,7 @@ describe("onboarding funnel metrics", () => {
     ).toMatchObject({
       first_choice_users: 1,
       settings_handoff_attempts: 1,
+      handoff_failure_attempts: 1,
     });
   }, 20_000);
 });

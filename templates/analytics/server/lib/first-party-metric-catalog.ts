@@ -936,6 +936,7 @@ const ONBOARDING_SETUP_CHOICE_SQL = `${ONBOARDING_EVENTS_CTE}, choice_viewers AS
   SELECT choices.*,
     ROW_NUMBER() OVER (PARTITION BY funnel_user_key ORDER BY clicked_at, id) AS choice_number
   FROM choices
+  JOIN choice_viewers USING (funnel_user_key)
 ), first_choice_summary AS (
   SELECT method_id, COUNT(DISTINCT funnel_user_key) AS first_choice_users
   FROM ranked_choices
@@ -971,6 +972,7 @@ const ONBOARDING_SETUP_CHOICE_SQL = `${ONBOARDING_EVENTS_CTE}, choice_viewers AS
   SELECT starts.funnel_user_key, starts.method_id, starts.attempt_id,
     MAX(CASE WHEN method_outcomes.outcome IN ('connected', 'already_connected') THEN 1 ELSE 0 END) AS connected,
     MAX(CASE WHEN method_outcomes.outcome = 'failed' THEN 1 ELSE 0 END) AS failed,
+    MAX(CASE WHEN method_outcomes.outcome = 'handoff_failed' THEN 1 ELSE 0 END) AS handoff_failed,
     MAX(CASE WHEN method_outcomes.outcome = 'settings_opened' THEN 1 ELSE 0 END) AS settings_opened,
     MAX(CASE WHEN method_outcomes.outcome IS NOT NULL THEN 1 ELSE 0 END) AS has_outcome
   FROM starts
@@ -983,6 +985,7 @@ const ONBOARDING_SETUP_CHOICE_SQL = `${ONBOARDING_EVENTS_CTE}, choice_viewers AS
   SELECT method_id,
     COUNT(DISTINCT CASE WHEN connected = 1 THEN attempt_id END) AS connection_success_attempts,
     COUNT(DISTINCT CASE WHEN failed = 1 THEN attempt_id END) AS connection_failure_attempts,
+    COUNT(DISTINCT CASE WHEN handoff_failed = 1 THEN attempt_id END) AS handoff_failure_attempts,
     COUNT(DISTINCT CASE WHEN connected = 1 THEN funnel_user_key END) AS connection_success_users,
     COUNT(DISTINCT CASE WHEN failed = 1 THEN funnel_user_key END) AS connection_failure_users,
     COUNT(DISTINCT CASE WHEN connected = 0 AND failed = 0 AND has_outcome = 0 THEN attempt_id END) AS connection_no_outcome_attempts,
@@ -1003,6 +1006,7 @@ SELECT method_list.method_id, method_list.method_label,
   COALESCE(selection_summary.selection_attempts, 0) AS selection_attempts,
   COALESCE(attempt_summary.connection_success_attempts, 0) AS connection_success_attempts,
   COALESCE(attempt_summary.connection_failure_attempts, 0) AS connection_failure_attempts,
+  COALESCE(attempt_summary.handoff_failure_attempts, 0) AS handoff_failure_attempts,
   COALESCE(attempt_summary.connection_success_users, 0) AS connection_success_users,
   COALESCE(attempt_summary.connection_failure_users, 0) AS connection_failure_users,
   COALESCE(attempt_summary.connection_no_outcome_attempts, 0) AS connection_no_outcome_attempts,
@@ -1971,7 +1975,7 @@ const ENTRIES: FirstPartyMetric[] = [
     buildSql: fixed(ONBOARDING_SETUP_CHOICE_SQL),
     config: {
       description:
-        "Choice-screen viewers, first selected setup path, repeat selections, and linked Builder connection outcomes. Rates use choice-screen viewers or resolved Builder outcomes as their denominator; started attempts with no outcome are unknown or abandoned, not assumed failures. A successful Builder outcome confirms credentials connected, not that a new external account was created. Account-exists is counted as a failed create-account attempt. +autoz identities are excluded.",
+        "Choice-screen viewers, first selected setup path, repeat selections, and linked Builder connection outcomes. Rates use choice-screen viewers or resolved Builder outcomes as their denominator; started attempts with no outcome are unknown or abandoned, not assumed failures. Handoff failures are reported separately from Builder connection failures. A successful Builder outcome confirms credentials connected, not that a new external account was created. Account-exists is counted as a failed create-account attempt. +autoz identities are excluded.",
       columns: [
         { key: "method_label", label: "Setup choice" },
         {
@@ -2009,6 +2013,11 @@ const ENTRIES: FirstPartyMetric[] = [
         {
           key: "connection_failure_attempts",
           label: "Failed attempts",
+          format: "number",
+        },
+        {
+          key: "handoff_failure_attempts",
+          label: "Handoff failures",
           format: "number",
         },
         {
