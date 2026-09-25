@@ -1,5 +1,6 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -133,7 +134,10 @@ export default defineAction({
           title: localDocument.title,
           content: localDocument.content,
           bodyRevision: bodyRevisionForContent(localDocument.content),
-          icon: localDocument.icon,
+          icon:
+            typeof localDocument.icon === "string"
+              ? localDocument.icon
+              : serializeIconValue(parseIconValue(localDocument.icon)),
           isFavorite: localDocument.isFavorite ? 1 : 0,
           hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
           sourceRootPath: localDocument.source?.rootPath ?? null,
@@ -182,7 +186,10 @@ export default defineAction({
           parentId: null,
           title: localDocument.title,
           content: localDocument.content,
-          icon: localDocument.icon,
+          icon:
+            typeof localDocument.icon === "string"
+              ? localDocument.icon
+              : serializeIconValue(parseIconValue(localDocument.icon)),
           position: nextAppendPosition(maxPosition),
           isFavorite: localDocument.isFavorite ? 1 : 0,
           hideFromSearch: localDocument.hideFromSearch ? 1 : 0,

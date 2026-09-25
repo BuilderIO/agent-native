@@ -15,6 +15,7 @@ import type { EventHandler, H3Event } from "h3";
 import { getHeader, setResponseHeader, setResponseStatus } from "h3";
 
 import { AppConfigurationError } from "../app-config/index.js";
+import { markServerRuntimeStarted } from "../db/server-runtime.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import {
@@ -263,6 +264,11 @@ export function getH3App(nitroApp: any): H3AppShim {
 
   if (!BOOTSTRAPPED.has(nitroApp)) {
     BOOTSTRAPPED.add(nitroApp);
+    // A real nitroApp instance exists, wiring its H3 app for real requests —
+    // the one cross-platform signal bare Node/Docker has for "this process is
+    // actually serving" (see db/server-runtime.js). A build never reaches
+    // this: it never constructs a real nitroApp.
+    markServerRuntimeStarted();
     // Parse now, decide later. An unknown slot name in `plugins.disabled` is
     // an invalid deployment, not a plugin that failed to start, and the catch
     // below would turn it into an app with every default route missing — so

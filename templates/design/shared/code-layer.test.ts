@@ -436,6 +436,16 @@ describe("code-layer projection", () => {
     expect(tree.map((node) => node.children.length)).toEqual([0, 0, 0, 0, 0]);
   });
 
+  it("classifies an unmarked svg as a generic shape", () => {
+    const html = `
+      <div data-agent-native-node-id="icon" style="position:absolute;width:24px;height:24px">
+        <svg data-agent-native-node-id="v1" data-agent-native-layer-name="Vector" viewBox="0 0 20 20" style="position:absolute"><path d="M0 0 L20 20"/></svg>
+      </div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree[0]?.children.map((node) => node.type)).toEqual(["shape"]);
+  });
+
   it("does not project inline-SVG internals as child layers", () => {
     const html = `
       <div data-agent-native-node-id="logo" style="position:absolute">

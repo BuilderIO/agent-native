@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { iconValueSchema } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
@@ -88,6 +89,7 @@ const viewSchema = z
   .object({
     id: z.string(),
     name: z.string(),
+    icon: iconValueSchema.nullable().optional(),
     type: z
       .enum([
         "table",

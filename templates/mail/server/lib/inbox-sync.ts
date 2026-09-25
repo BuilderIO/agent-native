@@ -27,17 +27,18 @@ import {
 } from "./google-auth.js";
 import { classifyAutomated } from "./inbox-classify.js";
 import {
-  assertSyncClaimHeld,
   claimSyncAccount,
   deleteInboxThreadRow,
   ensureSyncAccountRow,
   markThreadsOutOfInboxBeforeSync,
   patchSyncAccount,
+  readInboxPushGeneration,
   readSyncAccounts,
   releaseSyncAccount,
   resetSyncAccountProgress,
   SyncClaimLostError,
   upsertInboxThreadRows,
+  withSyncClaim,
   type CachedGmailLabel,
   type SyncAccountPatch,
   type SyncAccountRow,
@@ -297,12 +298,17 @@ async function hydrateAndApply(
       else deletes.push({ id: part.id, readStartedAt });
     }
   }
-  // Fenced immediately before this step's row writes: a claim lost to a
-  // newer worker during the Gmail round trips above must not land here.
-  await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
-  if (upserts.length > 0) await upsertInboxThreadRows(upserts);
-  for (const { id, readStartedAt } of deletes)
-    await deleteInboxThreadRow(ownerEmail, accountEmail, id, readStartedAt);
+  await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
+    if (upserts.length > 0) await upsertInboxThreadRows(upserts, tx);
+    for (const { id, readStartedAt } of deletes)
+      await deleteInboxThreadRow(
+        ownerEmail,
+        accountEmail,
+        id,
+        readStartedAt,
+        tx,
+      );
+  });
 }
 
 async function runFullSyncStep(
@@ -348,10 +354,9 @@ async function runFullSyncStep(
         accountEmail,
         connected,
       );
-      // Fenced immediately before the page's row writes: a claim lost to a
-      // newer worker during the Gmail round trips above must not land here.
-      await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
-      await upsertInboxThreadRows(rows);
+      await withSyncClaim(ownerEmail, accountEmail, claimId, (tx) =>
+        upsertInboxThreadRows(rows, tx),
+      );
     }
     pageToken = page.nextPageToken;
     await patchProgress(ownerEmail, accountEmail, claimId, {
@@ -359,11 +364,13 @@ async function runFullSyncStep(
     });
 
     if (!pageToken) {
-      await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
-      await markThreadsOutOfInboxBeforeSync(
-        ownerEmail,
-        accountEmail,
-        fullSyncStartedAt!,
+      await withSyncClaim(ownerEmail, accountEmail, claimId, (tx) =>
+        markThreadsOutOfInboxBeforeSync(
+          ownerEmail,
+          accountEmail,
+          fullSyncStartedAt!,
+          tx,
+        ),
       );
       await patchProgress(ownerEmail, accountEmail, claimId, {
         historyId: fullSyncHistoryId,
@@ -555,6 +562,7 @@ export async function syncInboxAccount(
     budgetMs?: number;
     force?: boolean;
     connectedAccountEmails?: readonly string[];
+    pushGeneration?: number;
   },
 ): Promise<InboxSyncAccountStatus> {
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
@@ -573,6 +581,9 @@ export async function syncInboxAccount(
 
   let row = claim.row;
   try {
+    const pushGeneration =
+      opts?.pushGeneration ??
+      (await readInboxPushGeneration(ownerEmail, accountEmail));
     let client: { accessToken: string; email: string } | null;
     try {
       client = await getClientForConnectedAccount(ownerEmail, accountEmail);
@@ -647,6 +658,14 @@ export async function syncInboxAccount(
         : "idle";
     if (syncResult.changed) invalidateHistoryCacheForAccount(accountEmail);
     invalidateListCacheForOwner(ownerEmail);
+    if (
+      accountStatus.state === "ready" &&
+      pushGeneration > row.lastPushGeneration
+    ) {
+      await patchProgress(ownerEmail, accountEmail, claim.claimId, {
+        lastPushGeneration: pushGeneration,
+      });
+    }
     await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
     return accountStatus;
   } catch (err) {
@@ -692,8 +711,14 @@ export async function ensureInboxFresh(
   const statuses = await Promise.all(
     emails.map(async (accountEmail) => {
       const row = await ensureSyncAccountRow(ownerEmail, accountEmail);
+      const pushGeneration = await readInboxPushGeneration(
+        ownerEmail,
+        accountEmail,
+      );
       const fresh =
-        row.lastSyncedAt != null && now - row.lastSyncedAt < maxAgeMs;
+        row.lastPushGeneration >= pushGeneration &&
+        row.lastSyncedAt != null &&
+        now - row.lastSyncedAt < maxAgeMs;
       if (fresh) return statusFromRow(row);
       try {
         // Accounts run concurrently and share nothing — each has its own
@@ -701,6 +726,7 @@ export async function ensureInboxFresh(
         return await syncInboxAccount(ownerEmail, accountEmail, {
           budgetMs,
           connectedAccountEmails: accounts,
+          pushGeneration,
         });
       } catch (err) {
         // Belt-and-suspenders: syncInboxAccount already records failures on

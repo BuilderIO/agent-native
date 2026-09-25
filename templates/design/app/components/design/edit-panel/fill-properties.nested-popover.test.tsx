@@ -130,8 +130,10 @@ function findButtonByText(
   text: string,
 ): HTMLButtonElement | null {
   return (
-    Array.from(root.querySelectorAll("button")).find((btn) =>
-      btn.textContent?.includes(text),
+    Array.from(root.querySelectorAll("button")).find(
+      (btn) =>
+        btn.textContent?.includes(text) ||
+        btn.getAttribute("aria-label")?.includes(text),
     ) ?? null
   );
 }

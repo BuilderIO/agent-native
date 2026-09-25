@@ -207,7 +207,7 @@ describe("ComposeModal scheduling", () => {
     cleanup();
   });
 
-  it("opens a new-message draft in the compact workspace card", () => {
+  it("opens a new-message draft in the roomy workspace card", () => {
     const { container, getByRole } = render(
       <ComposeModal
         drafts={[draft]}
@@ -229,8 +229,12 @@ describe("ComposeModal scheduling", () => {
     expect(compose?.className).toContain("bottom-0");
     expect(compose?.className).not.toContain("sm:top-14");
     expect(compose?.className).not.toContain("sm:bottom-auto");
-    expect(compose?.className).toContain("sm:h-[300px]");
-    expect(compose?.className).toContain("sm:w-[490px]");
+    expect(compose?.className).toContain(
+      "sm:h-[min(540px,_calc(100dvh_-_2rem))]",
+    );
+    expect(compose?.className).toContain(
+      "md:w-[min(490px,_calc(100vw_-_var(--compose-right)_-_1rem))]",
+    );
     expect(compose?.className).toContain("sm:rounded-xl");
     expect(
       getByRole("button", {

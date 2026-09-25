@@ -571,7 +571,15 @@ function colorTokenSpansInHtml(
     const insideSvg = svgDepth > 0 || opensSvg;
     if (opensSvg && !/\/\s*>$/.test(tag)) svgDepth += 1;
     if (tagName && !closesSvg) {
-      for (const attribute of htmlAttributeSpans(tag, tagOffset)) {
+      const attributes = htmlAttributeSpans(tag, tagOffset);
+      const styledProperties = new Set<string>();
+      for (const attribute of attributes) {
+        if (attribute.name !== "style") continue;
+        declarationValueSpans(maskCssComments(attribute.value)).forEach(
+          ({ property }) => styledProperties.add(property),
+        );
+      }
+      for (const attribute of attributes) {
         if (attribute.name === "style") {
           tokens.push(
             ...colorTokenSpansInCss(
@@ -582,7 +590,8 @@ function colorTokenSpansInHtml(
           );
         } else if (
           insideSvg &&
-          SVG_PRESENTATION_COLOR_ATTRIBUTES.has(attribute.name)
+          SVG_PRESENTATION_COLOR_ATTRIBUTES.has(attribute.name) &&
+          !styledProperties.has(attribute.name)
         ) {
           if (properties && !properties.has(attribute.name)) continue;
           tokens.push(

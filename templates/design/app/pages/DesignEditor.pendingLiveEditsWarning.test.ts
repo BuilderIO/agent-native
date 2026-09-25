@@ -95,7 +95,52 @@ describe("DesignEditor pending live edits", () => {
       new URL("./DesignEditor.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain('callAction("publish-visual-edit-pending"');
+    expect(source).toContain("runPublishVisualEditPending({");
     expect(source).toContain("pendingVisualStylePrompt");
+  });
+
+  it("wires canEditDesign into the extracted publish command and its effect deps", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const publishCallIndex = source.indexOf("runPublishVisualEditPending({");
+    expect(publishCallIndex).toBeGreaterThan(-1);
+    const depsStart = source.indexOf(".then(publish);", publishCallIndex);
+    expect(depsStart).toBeGreaterThan(publishCallIndex);
+    const depsEnd = source.indexOf("]);", depsStart);
+    const publishCall = source.slice(publishCallIndex, depsStart);
+    const deps = source.slice(depsStart, depsEnd);
+    // publish-visual-edit-pending requires editor access; a signed-out or
+    // read-only viewer can never satisfy it. runPublishVisualEditPending
+    // (design-editor/commands/publish-visual-edit-pending.ts) is the actual
+    // gate — see its own describe block below for the behavioral proof.
+    expect(publishCall).toContain("canEditDesign,");
+    expect(deps).toContain("canEditDesign,");
+  });
+
+  it("uses the shared guard for frame entry and close path for re-clicking the focused screen", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const handlerStart = source.indexOf(
+      "const handleOverviewFrameAction = useCallback(",
+    );
+    expect(handlerStart).toBeGreaterThan(-1);
+    const handler = source.slice(
+      handlerStart,
+      source.indexOf("// Escape is the standard", handlerStart),
+    );
+    const focusedFrameIndex = handler.indexOf(
+      "overviewInteractScreenIdRef.current === screenId",
+    );
+    const closeIndex = handler.indexOf("handleExitResponsiveInteract();");
+    const enterIndex = handler.indexOf(
+      'handleModeChange("interact", { targetFileId: screenId })',
+    );
+    expect(focusedFrameIndex).toBeGreaterThan(-1);
+    expect(closeIndex).toBeGreaterThan(focusedFrameIndex);
+    expect(enterIndex).toBeGreaterThan(closeIndex);
   });
 });

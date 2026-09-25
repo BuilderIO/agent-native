@@ -20,7 +20,8 @@ vi.mock("./store.js", () => ({
 }));
 
 import getObservabilityReviewApp from "./actions/get-observability-review-app.js";
-import { listOutputReviews } from "./reviews.js";
+import getObservabilityReviewDetail from "./actions/get-observability-review-detail.js";
+import { getOutputReviewDetailForRun, listOutputReviews } from "./reviews.js";
 
 describe("listOutputReviews", () => {
   beforeEach(() => {
@@ -326,5 +327,81 @@ describe("listOutputReviews", () => {
         userId: "alice@example.com",
       }),
     ).resolves.toMatchObject([{ ask: "", answer: "" }]);
+  });
+
+  it("loads the full text transcript for an accessible run", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-1",
+      threadId: "thread-1",
+    });
+    mockResolveThreadsAccess.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            threadData: JSON.stringify({
+              messages: [
+                { message: { role: "user", content: "First question" } },
+                { message: { role: "assistant", content: "First answer" } },
+                { message: { role: "user", content: "Follow-up" } },
+                { message: { role: "assistant", content: "Final answer" } },
+              ],
+            }),
+          },
+        ],
+      ]),
+    );
+
+    await expect(
+      getObservabilityReviewDetail.run({ runId: "run-1" }, {
+        userEmail: "alice@example.com",
+      } as any),
+    ).resolves.toEqual({
+      app: null,
+      messages: [
+        { role: "user", text: "First question" },
+        { role: "assistant", text: "First answer" },
+        { role: "user", text: "Follow-up" },
+        { role: "assistant", text: "Final answer" },
+      ],
+    });
+    expect(mockGetTraceSummary).toHaveBeenCalledWith("run-1", {
+      userId: "alice@example.com",
+    });
+    expect(mockResolveThreadsAccess).toHaveBeenCalledWith("alice@example.com", [
+      "thread-1",
+    ]);
+  });
+
+  it("returns an empty detail for a run without a thread and hides inaccessible runs", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-1",
+      threadId: null,
+    });
+    await expect(
+      getOutputReviewDetailForRun({
+        runId: "run-1",
+        userId: "alice@example.com",
+      }),
+    ).resolves.toEqual({ found: true, app: null, messages: [] });
+    expect(mockResolveThreadsAccess).not.toHaveBeenCalled();
+
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-2",
+      threadId: "private-thread",
+    });
+    mockResolveThreadsAccess.mockResolvedValueOnce(new Map());
+    await expect(
+      getObservabilityReviewDetail.run({ runId: "run-2" }, {
+        userEmail: "alice@example.com",
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("requires a signed-in user to load a review detail", async () => {
+    await expect(
+      getObservabilityReviewDetail.run({ runId: "run-1" }, {} as any),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mockGetTraceSummary).not.toHaveBeenCalled();
   });
 });

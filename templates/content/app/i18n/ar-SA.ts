@@ -799,6 +799,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "الأيقونات",
+    iconPickerEmoji: "الرموز التعبيرية",
+    iconPickerRecent: "الأخيرة",
+    iconPickerColors: "الألوان",
+    iconPickerDefault: "افتراضي",
+    iconPickerUpload: "رفع",
+    iconPickerUploading: "جارٍ الرفع…",
     suggestionCreateFailed: "تعذر إنشاء الاقتراح",
     suggestionsCount: "{{count}} اقتراحات",
     acceptSuggestion: "قبول",
@@ -841,6 +848,35 @@ const rawLiterals = {
     contentSpace: "مساحة Content",
     addChild: "إضافة عنصر فرعي",
     addChildTo: "إضافة عنصر فرعي إلى {{title}}",
+    removeFromRecent: "إزالة من الأخيرة",
+    copyLink: "نسخ الرابط",
+    openInNewTab: "فتح في علامة تبويب جديدة",
+    rename: "إعادة التسمية",
+    duplicate: "تكرار",
+    moveTo: "نقل إلى",
+    moveToTrash: "نقل إلى سلة المهملات",
+    lastEditedBy: "آخر تعديل بواسطة {{name}}",
+    lastEdited: "آخر تعديل",
+    pageName: "اسم الصفحة",
+    movePageTo: "نقل «{{title}}» إلى",
+    topLevel: "المستوى الأعلى",
+    noMatchingPages: "لا توجد صفحات مطابقة",
+    failedRenamePage: "تعذّرت إعادة تسمية الصفحة",
+    failedDuplicatePage: "تعذّر تكرار الصفحة",
+    duplicatedFromLastSave:
+      "تم نسخ آخر إصدار محفوظ؛ لم تُضمَّن التعديلات الأخيرة غير المحفوظة.",
+    chooseSpace: "اختر مساحة عمل",
+    moveToSpaceTitle: "النقل إلى {{space}}؟",
+    moveToSpaceWarningShared:
+      "سيتمكن الجميع في {{space}} من رؤية «{{title}}» وصفحاتها الفرعية. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
+    moveToSpaceWarningPrivate:
+      "ستصبح «{{title}}» وصفحاتها الفرعية خاصة بك في {{space}}. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
+    back: "رجوع",
+    movePage: "نقل",
+    movedToSpace: "تم نقل «{{title}}» إلى {{space}}",
+    failedRemoveFromRecent: "تعذّرت الإزالة من الأخيرة",
+    collapseItem: "طي {{title}}",
+    expandItem: "توسيع {{title}}",
     database: "المجموعة",
     collection: "مجموعة",
     databasePermanentlyDeleted: "تم حذف المجموعة نهائيًا",
@@ -986,6 +1022,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "الأيقونات",
+    iconPickerEmoji: "الرموز التعبيرية",
+    iconPickerRecent: "الأخيرة",
+    iconPickerColors: "الألوان",
+    iconPickerDefault: "افتراضي",
+    iconPickerUpload: "رفع",
+    iconPickerUploading: "جارٍ الرفع…",
     suggestionAmendmentEmpty:
       "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
     suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
@@ -1235,6 +1278,13 @@ const overrides = {
     genericError: "حدث خطأ ما",
   },
   editor: {
+    iconPickerIcons: "الأيقونات",
+    iconPickerEmoji: "الرموز التعبيرية",
+    iconPickerRecent: "الأخيرة",
+    iconPickerColors: "الألوان",
+    iconPickerDefault: "افتراضي",
+    iconPickerUpload: "رفع",
+    iconPickerUploading: "جارٍ الرفع…",
     ...editor,
     sourceComponent: {
       defaultTitle: "مكوّن المصدر",

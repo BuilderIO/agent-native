@@ -37,6 +37,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 
+import { schema } from "../db/index.js";
 import {
   assertReplayKeyBudget,
   compactSessionRecordingSummary,
@@ -1321,6 +1322,80 @@ describe("session replay ingest parsing", () => {
     });
   });
 
+  it("rejects a new recording at 90% of the daily byte budget", async () => {
+    // Admission ceiling for a new recording is 85% of the 1,000-byte cap
+    // (850), so 900 already-used bytes plus any request exceeds it even
+    // though the hard cap (1,000) has headroom left.
+    const db = createBudgetDbMock([[{ bytes: 900 }]]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      assertReplayKeyBudget(
+        {
+          id: "key_1",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 1_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+        {
+          requestBytes: 10,
+          now: new Date("2026-01-01T00:00:00.000Z"),
+          isNewRecording: true,
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 429,
+      message: "Replay ingest byte quota exceeded for this public key",
+      retryAfterSeconds: 24 * 60 * 60,
+    });
+  });
+
+  it("accepts an existing recording at 90% of the daily byte budget", async () => {
+    const db = createBudgetDbMock([[{ bytes: 900 }], [{ requests: 0 }]]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      assertReplayKeyBudget(
+        {
+          id: "key_1",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 1_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+        {
+          requestBytes: 10,
+          now: new Date("2026-01-01T00:00:00.000Z"),
+          isNewRecording: false,
+        },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("still rejects an existing recording above the hard daily byte cap", async () => {
+    const db = createBudgetDbMock([[{ bytes: 1_000 }]]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      assertReplayKeyBudget(
+        {
+          id: "key_1",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 1_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+        {
+          requestBytes: 10,
+          now: new Date("2026-01-01T00:00:00.000Z"),
+          isNewRecording: false,
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 429,
+      message: "Replay ingest byte quota exceeded for this public key",
+      retryAfterSeconds: 24 * 60 * 60,
+    });
+  });
+
   it("does not leave an empty recording when production chunk storage fails", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     const originalFallback = process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK;
@@ -1363,9 +1438,10 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
-      [{ bytes: 0 }],
-      [{ requests: 0 }],
-      [],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM (100% cap)
+      [{ requests: 0 }], // per-minute COUNT
+      [], // no existing recording -> triggers insert
+      [{ bytes: 0 }], // new-recording admission SUM (85% ceiling)
       [recording],
       [],
     ]);
@@ -1389,8 +1465,11 @@ describe("session replay ingest parsing", () => {
         statusCode: 503,
       });
 
-      expect(deletes).toHaveLength(1);
-      const cleanupCondition = conditionText(deletes[0]?.where);
+      // The reserved usage row is deleted first (rollback of the pre-upload
+      // reservation), then the empty-recording placeholder.
+      expect(deletes).toHaveLength(2);
+      expect(deletes[0]?.table).toBe(schema.sessionReplayIngests);
+      const cleanupCondition = conditionText(deletes[1]?.where);
       expect(cleanupCondition).toContain("chunk_count");
       expect(cleanupCondition).toContain("event_count");
       expect(cleanupCondition).toContain("not exists");
@@ -1403,6 +1482,109 @@ describe("session replay ingest parsing", () => {
         process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK = originalFallback;
       }
     }
+  });
+
+  it("rejects a rate-limited ingest before looking up the recording", async () => {
+    const { db, inserts } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 2,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 2 }],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          replayId: "recording_1",
+          sessionId: "session_1",
+          userId: "dev@example.com",
+          sequence: 0,
+          events: [{ type: 4, timestamp: 1 }],
+        }),
+        { origin: "https://app.example.com", requestBytes: 100 },
+      ),
+    ).rejects.toMatchObject({ statusCode: 429, retryAfterSeconds: 60 });
+
+    // key, daily bytes, per-minute count, and no session_recordings lookup
+    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(inserts).toHaveLength(0);
+  });
+
+  it("removes a new recording's placeholder when the usage reservation fails", async () => {
+    const recording = {
+      id: "sr_new",
+      publicKeyId: "key_1",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      chunkCount: 0,
+      eventCount: 0,
+      metadata: "{}",
+      ownerEmail: "owner@example.com",
+      orgId: "org_123",
+    };
+    const { db, inserts, deletes } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM (100% cap)
+      [{ requests: 0 }], // per-minute COUNT
+      [], // no existing recording -> placeholder insert
+      [{ bytes: 0 }], // new-recording admission SUM (85% ceiling)
+      [recording],
+      [],
+    ]);
+    db.insert.mockImplementation((table: unknown) => ({
+      values: vi.fn((values: unknown) => {
+        inserts.push({ table, values });
+        if (table === schema.sessionReplayIngests) {
+          throw new Error("reservation insert failed");
+        }
+        return { onConflictDoNothing: vi.fn(async () => undefined) };
+      }),
+    }));
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          replayId: "recording_1",
+          sessionId: "session_1",
+          userId: "dev@example.com",
+          anonymousId: "anon_1",
+          sequence: 0,
+          events: [{ type: 4, timestamp: 1 }],
+        }),
+        { origin: "https://app.example.com", requestBytes: 100 },
+      ),
+    ).rejects.toThrow("reservation insert failed");
+
+    expect(putPrivateBlobMock).not.toHaveBeenCalled();
+    const placeholderCleanup = deletes.find(
+      (entry) => entry.table === schema.sessionRecordings,
+    );
+    expect(placeholderCleanup).toBeDefined();
+    expect(conditionText(placeholderCleanup?.where)).toContain("chunk_count");
   });
 
   it("deletes uploaded replay blobs when chunk inserts fail", async () => {
@@ -1436,7 +1618,7 @@ describe("session replay ingest parsing", () => {
       visibility: "private",
       status: "active",
     };
-    const { db, inserts } = createReplayDbMock([
+    const { db, inserts, deletes } = createReplayDbMock([
       [
         {
           id: "key_1",
@@ -1448,15 +1630,18 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
-      [{ bytes: 0 }],
-      [{ requests: 0 }],
-      [recording],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM (100% cap)
+      [{ requests: 0 }], // per-minute COUNT
+      [recording], // existing recording found directly, no reselect
       [],
     ]);
     db.insert.mockImplementation((table: unknown) => ({
       values: vi.fn((values: unknown) => {
         inserts.push({ table, values });
-        throw new Error("chunk insert failed");
+        if (table === schema.sessionReplayChunks) {
+          throw new Error("chunk insert failed");
+        }
+        return { onConflictDoNothing: vi.fn(async () => undefined) };
       }),
     }));
     getDbMock.mockReturnValue(db);
@@ -1477,6 +1662,17 @@ describe("session replay ingest parsing", () => {
     ).rejects.toThrow("chunk insert failed");
 
     expect(deletePrivateBlobMock).toHaveBeenCalledWith(handle);
+
+    const reservation = inserts.find(
+      (entry) => entry.table === schema.sessionReplayIngests,
+    );
+    const reservedId = (reservation?.values as { id: string } | undefined)?.id;
+    expect(reservedId).toBeTruthy();
+    const reservationDelete = deletes.find(
+      (entry) => entry.table === schema.sessionReplayIngests,
+    );
+    expect(reservationDelete).toBeDefined();
+    expect(conditionText(reservationDelete?.where)).toContain(reservedId);
   });
 
   // --- Regression coverage for the prod "empty Sessions list" root causes. ---
@@ -1498,9 +1694,10 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
-      [{ bytes: 0 }],
-      [{ requests: 0 }],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM (100% cap)
+      [{ requests: 0 }], // per-minute COUNT
       [], // no existing recording -> triggers insert
+      [{ bytes: 0 }], // new-recording admission SUM (85% ceiling)
       [
         {
           id: "sr_new",
@@ -1648,5 +1845,106 @@ describe("session replay ingest parsing", () => {
     expect((recordingInsert?.values as { visibility: string }).visibility).toBe(
       "private",
     );
+  });
+
+  it("creates no session_recordings row when admission control rejects a new recording", async () => {
+    const { db, inserts } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 1_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM at the 100% cap -> passes
+      [{ requests: 0 }], // per-minute COUNT -> passes
+      [], // no existing recording
+      [{ bytes: 900 }], // 90% used -> above the 85% new-recording ceiling
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 10,
+        now: new Date("2026-01-01T00:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ statusCode: 429 });
+
+    expect(inserts).toHaveLength(0);
+  });
+
+  it("reserves usage before uploading chunk blobs or inserting chunk rows", async () => {
+    // Regression coverage for the admission race: the usage row must land
+    // before the slow blob upload, not after, or concurrent first chunks can
+    // all read the same pre-reservation total and overshoot the budget.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const order: string[] = [];
+    putPrivateBlobMock.mockImplementation(async () => {
+      order.push("blob-upload");
+      return { opaque: "blob_1", provider: "test" };
+    });
+    const { db } = createReplayDbMock(replayIngestKeyDbResults("org_123"));
+    db.insert.mockImplementation((table: unknown) => ({
+      values: vi.fn((values: unknown) => {
+        if (table === schema.sessionReplayIngests) order.push("reserve-usage");
+        if (table === schema.sessionReplayChunks) order.push("insert-chunks");
+        return { onConflictDoNothing: vi.fn(async () => undefined) };
+      }),
+    }));
+    (db as { update?: unknown }).update = vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(async () => undefined),
+      })),
+    }));
+    getDbMock.mockReturnValue(db);
+
+    try {
+      await recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      });
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    expect(order).toEqual(["reserve-usage", "blob-upload", "insert-chunks"]);
+  });
+
+  it("deletes the reserved usage row when a chunk upload fails", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    putPrivateBlobMock.mockRejectedValue(new Error("upload failed"));
+    const { db, inserts, deletes } = createReplayDbMock(
+      replayIngestKeyDbResults("org_123"),
+    );
+    getDbMock.mockReturnValue(db);
+
+    try {
+      await expect(
+        recordSessionReplayChunks(replayIngestPayload(), {
+          origin: "https://app.example.com",
+          requestBytes: 100,
+        }),
+      ).rejects.toThrow("upload failed");
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    const reservation = inserts.find(
+      (entry) => entry.table === schema.sessionReplayIngests,
+    );
+    const reservedId = (reservation?.values as { id: string } | undefined)?.id;
+    expect(reservedId).toBeTruthy();
+    const reservationDelete = deletes.find(
+      (entry) => entry.table === schema.sessionReplayIngests,
+    );
+    expect(reservationDelete).toBeDefined();
+    expect(conditionText(reservationDelete?.where)).toContain(reservedId);
   });
 });

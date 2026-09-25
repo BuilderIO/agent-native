@@ -111,6 +111,56 @@ describe("runTextContentChange default text-layer naming", () => {
 });
 
 describe("runTextContentChange selected live element", () => {
+  it("uses the source-layer identity when the bridge selector no longer resolves", () => {
+    const content = `<body><div data-agent-native-node-id="t1">Before</div><div data-agent-native-node-id="t2">Other</div></body>`;
+    const { args, nodeId, getContent } = buildArgs(content, false);
+    const selectedElement: { current: ElementInfo | null } = { current: null };
+    const sourceIdentityInfo: ElementInfo = {
+      tagName: "span",
+      sourceId: "stale-runtime-id",
+      selector: `[data-agent-native-node-id="missing"]`,
+      sourceLayerIdentity: { screenId: "index.html", nodeId },
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 100, height: 24 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    expect(
+      runTextContentChange(
+        {
+          ...args,
+          setSelectedElement: (update) => {
+            selectedElement.current =
+              typeof update === "function"
+                ? update(selectedElement.current)
+                : update;
+          },
+        },
+        sourceIdentityInfo.selector!,
+        "After",
+        sourceIdentityInfo,
+      ),
+    ).toBe("accepted");
+
+    const projection = buildCodeLayerProjection(getContent(), {
+      source: { kind: "design-file", fileId: "index.html" },
+    });
+    expect(
+      projection.nodes.find((node) => node.id === nodeId)?.textSnippet,
+    ).toContain("After");
+    expect(
+      projection.nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "t2",
+      )?.textSnippet,
+    ).toContain("Other");
+    expect(selectedElement.current?.sourceLayerIdentity).toEqual({
+      screenId: "index.html",
+      nodeId,
+    });
+  });
+
   it("retains the host layer identity and mixed style snapshot after the source commit", () => {
     const content = `<body><div data-agent-native-node-id="t1">Before</div></body>`;
     const { args, getContent } = buildArgs(content, false);

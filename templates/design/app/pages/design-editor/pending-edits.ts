@@ -1794,6 +1794,27 @@ export function applyScopedVisualStyleEdit(args: {
     source,
   } = args;
   const normalizedProperty = normalizeCssPropertyName(property);
+  // An empty value clears the declaration at the edit's own scope.
+  if (value === "") {
+    return applyVisualEdit(
+      content,
+      upperBoundPx == null
+        ? {
+            kind: "style",
+            operation: "remove",
+            target,
+            property: normalizedProperty,
+          }
+        : {
+            kind: "breakpoint-style",
+            operation: "remove",
+            target,
+            maxWidthPx: upperBoundPx,
+            property: normalizedProperty,
+          },
+      { source },
+    );
+  }
   if (upperBoundPx != null && isVectorEndpointProperty(normalizedProperty)) {
     // Endpoint values require marker definitions and shape attributes, which
     // cannot be represented by a media-scoped custom property. Let the shared

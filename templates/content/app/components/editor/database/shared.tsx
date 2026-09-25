@@ -67,6 +67,7 @@ import {
 import { useDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
+import { ContentIcon, contentIconValue } from "../../icons/ContentIcon";
 import { OPTION_COLOR_CLASSES, TYPE_ICONS } from "../DocumentProperties";
 import { databaseDuplicatedItemFromResponse } from "./navigation-state";
 import {
@@ -172,8 +173,8 @@ export function DatabaseDropIndicator({
 export function databaseItemPageIconText(
   document: Pick<Document, "icon"> | null | undefined,
 ) {
-  const icon = document?.icon?.trim();
-  return icon ? icon : null;
+  const icon = contentIconValue(document?.icon);
+  return icon?.kind === "emoji" ? icon.emoji : null;
 }
 
 export function DatabaseItemPageIcon({
@@ -185,18 +186,14 @@ export function DatabaseItemPageIcon({
   className?: string;
   fallbackClassName?: string;
 }) {
-  const icon = databaseItemPageIconText(document);
+  const icon = contentIconValue(document.icon);
   if (icon) {
     return (
-      <span
-        aria-hidden="true"
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center leading-none",
-          className,
-        )}
-      >
-        {icon}
-      </span>
+      <ContentIcon
+        value={icon}
+        size={16}
+        className={cn("shrink-0", className)}
+      />
     );
   }
 

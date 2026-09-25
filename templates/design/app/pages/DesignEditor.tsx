@@ -57,7 +57,10 @@ import {
   useSendReviewThreadToAgent,
   type ReviewThread,
 } from "@agent-native/core/client/review";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  ShareButton,
+  withShareLinkAttribution,
+} from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
@@ -108,7 +111,6 @@ import {
   type CodeLayerSource,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
-import { parseCssColor } from "@shared/color-utils";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import {
   componentNodeIdMatches,
@@ -234,6 +236,7 @@ import {
 import {
   CanvasContextMenu,
   type CanvasContextMenuHandle,
+  type CanvasContextMenuPoint,
 } from "@/components/design/CanvasContextMenu";
 import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
@@ -269,11 +272,9 @@ import {
   rewriteSelectionFillStyles,
   selectionColorTargets,
 } from "@/components/design/edit-panel/document-colors";
-import {
-  isVectorShapeElement,
-  sizeNeedsMeasurement,
-} from "@/components/design/edit-panel/element-classification";
+import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
+import type { ScaleToolControls } from "@/components/design/edit-panel/scale-properties";
 import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
 import {
   mergeRotationValue,
@@ -342,7 +343,10 @@ import {
   getResponsiveScreenCullGeometry,
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
-import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import {
+  findCanvasIframeForScreen,
+  getBreakpointIframeId,
+} from "@/components/design/multi-screen/iframe-targeting";
 import {
   sendLinkedScreenPreviewInteractionStateStyle,
   sendLinkedScreenPreviewStyleChange,
@@ -371,6 +375,7 @@ import type {
   ScreenContentRenderOptions,
   ScreenProjectionNodeIdentity,
   VectorEditOverlayState,
+  VisibleCanvasRect,
 } from "@/components/design/multi-screen/types";
 import type {
   KScaleStyleChangesByFrameId,
@@ -510,7 +515,10 @@ import {
   type ClipboardContentMutationOrigin,
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
-import { readDesignClipboardPayloadFromSystem } from "@/lib/design-clipboard";
+import {
+  readDesignClipboardPayloadFromSystem,
+  readSystemClipboard,
+} from "@/lib/design-clipboard";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
@@ -584,8 +592,10 @@ import {
 } from "./design-editor/canvas-primitive-insert";
 import { createPrimitiveInsertFromSpec } from "./design-editor/canvas-primitives";
 import {
+  boardRenderOffset,
   getElementOuterHtml,
   insertClonedHtmlLayers,
+  penPathForVectorEdit,
   penPathScreenContentOffset,
   primitiveVectorEditSource,
   writeBackPrimitiveAsVector,
@@ -687,7 +697,11 @@ import { runGeometryCommit } from "./design-editor/commands/geometry-commit";
 import { runGetSelectedLayerSnapshots } from "./design-editor/commands/get-selected-layer-snapshots";
 import { runGroupSelection } from "./design-editor/commands/group-selection";
 import { runIframeContextMenu } from "./design-editor/commands/iframe-context-menu";
-import { runImportFigmaClipboardIntoDesign } from "./design-editor/commands/import-figma-clipboard-into-design";
+import {
+  runImportFigmaClipboardIntoDesign,
+  type FigmaPasteLayerInsert,
+} from "./design-editor/commands/import-figma-clipboard-into-design";
+import { runInsertFigmaPasteLayers } from "./design-editor/commands/insert-figma-paste-layers";
 import {
   coalesceMarqueeSelectionHistory,
   runMarqueeSelectionCancellation,
@@ -720,12 +734,15 @@ import { runPasteToReplace } from "./design-editor/commands/paste-to-replace";
 import {
   getOverviewCanvasCenter,
   runPastedImageFiles,
+  type PastedImageFilesClientAnchor,
+  type PastedImageFilesTarget,
 } from "./design-editor/commands/pasted-image-files";
 import { parsePastedSvg } from "./design-editor/commands/pasted-svg";
 import { runPendingTextHostCommit } from "./design-editor/commands/pending-text-host-commit";
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
+import { runPublishVisualEditPending } from "./design-editor/commands/publish-visual-edit-pending";
 import { runRecordPendingLiveLayerStateEdit } from "./design-editor/commands/record-pending-live-layer-state-edit";
 import {
   commitPendingLiveStructureEdits,
@@ -740,6 +757,7 @@ import {
   runFileContentSaveKeepalive,
   runSaveFileContent,
 } from "./design-editor/commands/save-file-content";
+import { runScaleSelection } from "./design-editor/commands/scale-selection";
 import { runScreenElementSelect } from "./design-editor/commands/screen-element-select";
 import { runScreenTextContentChange } from "./design-editor/commands/screen-text-content-change";
 import { runScreenVisualDuplicateChange } from "./design-editor/commands/screen-visual-duplicate-change";
@@ -764,6 +782,11 @@ import { runStyleChange } from "./design-editor/commands/style-change";
 import { styleWriteTarget } from "./design-editor/commands/style-write-target";
 import { runStylesChange } from "./design-editor/commands/styles-change";
 import { runSuggestAutoLayout } from "./design-editor/commands/suggest-auto-layout";
+import { runSwapFillStroke } from "./design-editor/commands/swap-fill-stroke";
+import {
+  runContextMenuPaste,
+  runSystemPasteToReplace,
+} from "./design-editor/commands/system-clipboard-paste";
 import { runTextContentChange } from "./design-editor/commands/text-content-change";
 import { runTidyUp } from "./design-editor/commands/tidy-up";
 import { runToggleLayerHidden } from "./design-editor/commands/toggle-layer-hidden";
@@ -886,6 +909,7 @@ import { runPublishAgentSelectionContext } from "./design-editor/effects/publish
 import { runResumePendingGeneration } from "./design-editor/effects/resume-pending-generation";
 import { runSeedCollabContent } from "./design-editor/effects/seed-collab-content";
 import { syncLatestActiveContentFromRender } from "./design-editor/effects/sync-latest-active-content";
+import { resolveFigmaPasteScene } from "./design-editor/figma-paste-scene";
 import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
@@ -983,6 +1007,7 @@ import {
   withMeasuredFrameHeights,
   getBoardSelectionFitBounds,
 } from "./design-editor/overview-camera";
+import { resolvePastePlacementForSelection } from "./design-editor/paste-placement";
 import {
   clearPendingEditSessionMarker,
   readPendingEditSessionMarker,
@@ -1434,6 +1459,10 @@ function DesignEditor() {
   const [overviewInteractScreenId, setOverviewInteractScreenId] = useState<
     string | null
   >(null);
+  const overviewInteractScreenIdRef = useRef(overviewInteractScreenId);
+  useEffect(() => {
+    overviewInteractScreenIdRef.current = overviewInteractScreenId;
+  }, [overviewInteractScreenId]);
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
   // Drawing drops activeTool back to move (Figma parity), so the shape group
   // button cannot read its own identity off it.
@@ -1514,7 +1543,9 @@ function DesignEditor() {
   const [interactZoom, setInteractZoom] = useState(100);
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
   useEffect(() => {
-    if (viewMode !== "overview" || mode !== "edit") {
+    // An overview-origin Interact view keeps its frame id while the focused
+    // canvas remains on the same mounted MultiScreenCanvas tree.
+    if (viewMode !== "single" || mode !== "interact") {
       setOverviewInteractScreenId(null);
     }
   }, [mode, viewMode]);
@@ -1557,6 +1588,7 @@ function DesignEditor() {
   const [vectorEditingState, setVectorEditingState] = useState<{
     screenId: string;
     nodeId: string;
+    layerId: string;
     path: PenPath;
     selectedAnchorIndex: number | null;
     sourceOffset: { x: number; y: number };
@@ -2437,6 +2469,10 @@ function DesignEditor() {
   const [overviewClearSelectionRequest, setOverviewClearSelectionRequest] =
     useState(0);
   const [hasCanvasClipboard, setHasCanvasClipboard] = useState(false);
+  const [hasSystemClipboardImages, setHasSystemClipboardImages] =
+    useState(false);
+  const menuClipboardFilesRef = useRef<File[]>([]);
+  const menuClipboardReadIdRef = useRef(0);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
   // Item 2d: CanvasContextMenu's "Copy animation" / "Paste animation" —
   // a small same-tab clipboard ref, mirroring copiedStylePropsRef's pattern.
@@ -4961,10 +4997,16 @@ function DesignEditor() {
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
+  // Viral attribution: whoever copies this share link is tagged as the
+  // referrer, so a signup that follows it can be attributed.
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
-    return getDesignEditorShareUrl(id, window.location.origin, appBasePath());
-  }, [id]);
+    return withShareLinkAttribution(
+      getDesignEditorShareUrl(id, window.location.origin, appBasePath()),
+      "design_share",
+      session?.userId,
+    );
+  }, [id, session?.userId]);
   const {
     designSystems,
     defaultSystem,
@@ -7644,6 +7686,9 @@ function DesignEditor() {
   // layer (see beginRename in LayersPanel.tsx).
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const visibleCanvasRectRef = useRef<(() => VisibleCanvasRect | null) | null>(
+    null,
+  );
   /** Read by primitive creation, which runs far above where the colour is
    *  derived. */
   const canvasBackgroundRef = useRef<string | null>(null);
@@ -8288,16 +8333,14 @@ function DesignEditor() {
       const escaped =
         typeof CSS !== "undefined" && CSS.escape ? CSS.escape(fileId) : fileId;
       return (
-        container.querySelector<HTMLIFrameElement>(
-          `iframe[data-screen-iframe-id="${escaped}"]`,
-        ) ??
+        findCanvasIframeForScreen(container, fileId, boardFileId) ??
         container.querySelector<HTMLIFrameElement>(
           `iframe[data-screen-iframe-id^="${escaped}::bp-"]`,
         ) ??
         null
       );
     },
-    [canvasContainerRef],
+    [boardFileId, canvasContainerRef],
   );
 
   // Overview resolvers: the agent's presence rides on `overviewPresenceFileId`,
@@ -11560,6 +11603,17 @@ function DesignEditor() {
    * (e.g. the owning screen was deleted mid-edit) — MultiScreenCanvas
    * doesn't render the overlay in that case.
    */
+  // A click outside the overlay lands in the screen or board iframe and only
+  // changes the selection, so the edit session must follow the selection.
+  useEffect(() => {
+    if (
+      vectorEditingState &&
+      !selectedLayerIdsState.includes(vectorEditingState.layerId)
+    ) {
+      setVectorEditingState(null);
+    }
+  }, [selectedLayerIdsState, vectorEditingState]);
+
   const vectorEditOverlayState = useMemo<VectorEditOverlayState | null>(() => {
     if (!vectorEditingState) return null;
     const originCanvas = getScreenFrameOriginCanvas({
@@ -11988,6 +12042,29 @@ function DesignEditor() {
     setDrawMode(false);
     setPinMode(false);
   }, [activeFile, canEditDesign]);
+  const scaleToolControls = useMemo<ScaleToolControls>(
+    () => ({
+      onScale: (factor, anchor) =>
+        runScaleSelection(
+          {
+            selectedElement,
+            boardFileId,
+            activeBreakpointWidthPx: activeBreakpointWidthState,
+            fallbackIframe: canvasIframeRef.current,
+          },
+          factor,
+          anchor,
+        ),
+      onExit: handleMoveTool,
+    }),
+    [
+      activeBreakpointWidthState,
+      boardFileId,
+      canvasIframeRef,
+      handleMoveTool,
+      selectedElement,
+    ],
+  );
 
   const handleDrawTool = useCallback(() => {
     if (!activeFile || !canEditDesign) return;
@@ -13101,7 +13178,7 @@ function DesignEditor() {
   // instead of once for the whole call.
   const commitRelativeStyleDeltaToSelectedLayers = useCallback(
     (
-      property: string,
+      property: string | string[],
       operation: number | ScrubRelativeExpression,
       pendingUndoGestureId?: string,
     ) => {
@@ -14663,15 +14740,15 @@ function DesignEditor() {
   const refreshClipboardFromSystemClipboard = useCallback(async () => {
     const result = await readDesignClipboardPayloadFromSystem();
     if (
-      !result ||
-      result.markerText === lastWrittenClipboardMarkerRef.current
+      result.status !== "found" ||
+      result.value.markerText === lastWrittenClipboardMarkerRef.current
     ) {
       return;
     }
     adoptDesignClipboardPayload(
-      result.payload,
-      result.markerText,
-      result.plainText,
+      result.value.payload,
+      result.value.markerText,
+      result.value.plainText,
     );
   }, [adoptDesignClipboardPayload]);
 
@@ -14871,21 +14948,99 @@ function DesignEditor() {
     ],
   );
 
+  const resolveFigmaPasteSceneForEditor = useCallback(() => {
+    const selectedNodeId =
+      selectedElement?.runtimeSourceId ?? selectedElement?.sourceId ?? null;
+    return resolveFigmaPasteScene({
+      viewMode: viewModeRef.current,
+      activeFileId: activeFile?.id,
+      boardFileId,
+      overviewSelectedScreenIds,
+      selectedNodeId,
+      selectedIsContainer:
+        Boolean(selectedNodeId && activeFile) &&
+        resolvePastePlacementForSelection({
+          content: getScreenContent(activeFile!.id),
+          selectedElement,
+        })?.placement === "inside",
+      canvasRoot: canvasContainerRef.current,
+      screens: getAllScreenFrameEntries({
+        overviewScreens,
+        canvasFrameGeometryById,
+      })
+        .filter((entry) => entry.id !== boardFileId)
+        .map((entry) => ({ fileId: entry.id, ...entry.geometry })),
+      visibleCanvasRect: visibleCanvasRectRef.current?.() ?? null,
+    });
+  }, [
+    activeFile,
+    boardFileId,
+    canvasFrameGeometryById,
+    getScreenContent,
+    overviewScreens,
+    overviewSelectedScreenIds,
+    selectedElement,
+  ]);
+
+  const insertFigmaPasteLayers = useCallback(
+    (
+      fileId: string,
+      selector: string | null,
+      layers: FigmaPasteLayerInsert[],
+    ) =>
+      runInsertFigmaPasteLayers(
+        {
+          activeFile,
+          applyFileContentUpdate,
+          applyLocalContentUpdate,
+          canvasContainerRef,
+          getFreshActiveContent,
+          getScreenContent,
+          pendingLocalFileContentsRef,
+          selectInsertedLayers,
+          viewModeRef,
+        },
+        fileId,
+        selector,
+        layers,
+      ),
+    [
+      activeFile,
+      applyFileContentUpdate,
+      applyLocalContentUpdate,
+      getFreshActiveContent,
+      getScreenContent,
+      selectInsertedLayers,
+    ],
+  );
+
   const importFigmaClipboardIntoDesign = useCallback(
     async (content: string) =>
       runImportFigmaClipboardIntoDesign(
         {
+          boardFileId,
           canEditDesign,
           figmaPasteImportingRef,
           id,
+          insertPasteLayers: insertFigmaPasteLayers,
           navigate,
           queryClient,
+          resolvePasteScene: resolveFigmaPasteSceneForEditor,
           showPastedImagesNotice,
           t,
         },
         content,
       ),
-    [canEditDesign, id, navigate, queryClient, t],
+    [
+      boardFileId,
+      canEditDesign,
+      id,
+      insertFigmaPasteLayers,
+      navigate,
+      queryClient,
+      resolveFigmaPasteSceneForEditor,
+      t,
+    ],
   );
 
   // One prompt for every path that can leave image placeholders behind: the
@@ -15161,7 +15316,7 @@ function DesignEditor() {
   const handlePastedImageFiles = useCallback(
     (
       files: File[],
-      target?: { fileId: string; point: { x: number; y: number } },
+      target?: PastedImageFilesTarget | PastedImageFilesClientAnchor,
     ) =>
       runPastedImageFiles(
         {
@@ -15171,6 +15326,7 @@ function DesignEditor() {
           boardFileId,
           canEditDesign,
           canvasContainerRef,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           canvasFrameGeometryById,
           getFreshActiveContent,
           getFreshActivePreviewContent,
@@ -15260,6 +15416,7 @@ function DesignEditor() {
           boardFileId,
           canEditDesign,
           canvasContainerRef,
+          getVisibleCanvasRect: () => visibleCanvasRectRef.current?.() ?? null,
           canvasFrameGeometryById,
           getFreshActiveContent,
           getFreshActivePreviewContent,
@@ -15445,6 +15602,26 @@ function DesignEditor() {
     ],
   );
 
+  const handleContextMenuPaste = useCallback(
+    (point?: CanvasContextMenuPoint) =>
+      runContextMenuPaste(
+        {
+          canEditDesign,
+          clipboardFiles: menuClipboardFilesRef.current,
+          handlePasteSelection,
+          handlePastedImageFiles,
+          insertDroppedImageFiles,
+        },
+        point,
+      ),
+    [
+      canEditDesign,
+      handlePasteSelection,
+      handlePastedImageFiles,
+      insertDroppedImageFiles,
+    ],
+  );
+
   // Figma's Shift+Cmd+R — "Paste to replace": the current selection's node
   // is swapped out for the clipboard's node in place, as a single history
   // step. Distinct from handlePasteOverSelection (Cmd+Shift+V), which pastes
@@ -15454,24 +15631,45 @@ function DesignEditor() {
   // or multi-node clipboard replace has no unambiguous 1:1 pairing, so this
   // no-ops rather than guessing.
   const handlePasteToReplace = useCallback(
-    () =>
-      runPasteToReplace({
-        activeFile,
-        applyLocalContentUpdate,
-        canEditDesign,
-        getCanvasClipboardEntries,
-        getFreshActiveContent,
-        runtimeStructureInsertRevisionRef,
-        selectInsertedLayers,
-        selectedCanvasSelector,
-        selectedElement,
-        setRuntimeStructureInsertRequest,
+    async (menuClipboardFiles?: File[]) => {
+      const replace = (externalLayerHtml?: string) =>
+        runPasteToReplace(
+          {
+            activeFile,
+            applyLocalContentUpdate,
+            canEditDesign,
+            getCanvasClipboardEntries,
+            getFreshActiveContent,
+            runtimeStructureInsertRevisionRef,
+            selectInsertedLayers,
+            selectedCanvasSelector,
+            selectedElement,
+            setRuntimeStructureInsertRequest,
+            t,
+          },
+          externalLayerHtml,
+        );
+      let clipboardFiles: File[] | null;
+      if (menuClipboardFiles !== undefined) {
+        clipboardFiles = menuClipboardFiles;
+      } else {
+        const clipboardContents = await readSystemClipboard();
+        clipboardFiles =
+          clipboardContents === null ? null : clipboardContents.files;
+      }
+      await runSystemPasteToReplace({
+        clipboardFiles,
+        replaceWithLayerCopy: () => replace(),
+        replaceWithHtml: replace,
         t,
-      }),
+        uploadImageFileForHtml,
+      });
+    },
     [
       activeFile,
       applyLocalContentUpdate,
       canEditDesign,
+      uploadImageFileForHtml,
       getCanvasClipboardEntries,
       getFreshActiveContent,
       selectedCanvasSelector,
@@ -17571,62 +17769,15 @@ function DesignEditor() {
     );
   }, [canEditDesign, handleStyleChange, selectedElement]);
 
-  // Figma's Shift+X — swap fill and stroke. Matches Figma even when one side
-  // is empty: an element with a fill and no stroke ends up with a stroke and
-  // no fill (not a no-op). Both properties are committed together via
-  // handleStylesChange so the swap is a single undo step.
-  const handleSwapFillStroke = useCallback(() => {
-    if (!canEditDesign || !selectedElement) return;
-    if (isVectorShapeElement(selectedElement)) {
-      const styles = selectedElement.computedStyles;
-      // SVG gradient styles render as url(#id), but the editor's authored
-      // custom properties hold the portable gradient values. Capture both
-      // before committing either side so Shift+X can rebuild each definition
-      // without leaving the other paint pointing at a removed id.
-      const fill =
-        selectedElement.inlineStyles?.["--an-vector-fill-gradient"] ||
-        styles["--an-vector-fill-gradient"] ||
-        styles.fill ||
-        "";
-      const stroke =
-        selectedElement.inlineStyles?.["--an-vector-stroke-gradient"] ||
-        styles["--an-vector-stroke-gradient"] ||
-        styles.stroke ||
-        "";
-      const hasPaint = (value: string) => {
-        const normalized = value.trim().toLowerCase();
-        if (
-          !normalized ||
-          normalized === "none" ||
-          normalized === "transparent"
-        )
-          return false;
-        const color = parseCssColor(value);
-        return color ? color.a > 0 : true;
-      };
-      const fillHasPaint = hasPaint(fill);
-      const strokeWidth = Number.parseFloat(styles.strokeWidth ?? "0");
-      const strokeOpacity = Number.parseFloat(styles.strokeOpacity ?? "1");
-      const strokeHasPaint =
-        hasPaint(stroke) && strokeWidth > 0 && strokeOpacity > 0;
-      if (!fillHasPaint && !strokeHasPaint) return;
-      const fillOpacity = styles.fillOpacity ?? "1";
-      handleStylesChange({
-        fill: strokeHasPaint ? stroke : "none",
-        fillOpacity: strokeHasPaint ? (styles.strokeOpacity ?? "1") : "1",
-        stroke: fillHasPaint ? fill : "none",
-        strokeOpacity: fillHasPaint ? fillOpacity : "1",
-        ...(fillHasPaint && !strokeHasPaint ? { strokeWidth: "1px" } : {}),
-      });
-      return;
-    }
-    const currentFill = selectedElement.computedStyles.backgroundColor ?? "";
-    const currentStroke = selectedElement.computedStyles.borderColor ?? "";
-    handleStylesChange({
-      backgroundColor: currentStroke || "transparent",
-      borderColor: currentFill || "transparent",
-    });
-  }, [canEditDesign, handleStylesChange, selectedElement]);
+  const handleSwapFillStroke = useCallback(
+    () =>
+      runSwapFillStroke({
+        canEditDesign,
+        selectedElement,
+        handleStylesChange,
+      }),
+    [canEditDesign, handleStylesChange, selectedElement],
+  );
 
   // Figma's Ctrl+C — eyedropper: sample a color from anywhere on screen and
   // apply it to the current selection's fill (shape/frame) or text color
@@ -18616,6 +18767,8 @@ function DesignEditor() {
           setMode,
           setPinMode,
           setSelectedElement,
+          overviewInteractScreenId,
+          setOverviewInteractScreenId,
           t,
           viewModeRef,
         },
@@ -18634,13 +18787,9 @@ function DesignEditor() {
       requestPendingVisualStyleRevert,
       t,
       files,
+      overviewInteractScreenId,
     ],
   );
-  const handleOverviewFrameAction = useCallback((screenId: string) => {
-    setOverviewInteractScreenId((current) =>
-      current === screenId ? null : screenId,
-    );
-  }, []);
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
   // screen with no device chrome and no canvas around it.
@@ -18648,6 +18797,18 @@ function DesignEditor() {
     setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
     handleModeChange("edit");
   }, [handleModeChange]);
+  // Frame-button entry uses the shared pending-edit guard. Re-clicking the
+  // focused screen leaves through the same close path as Escape and Close.
+  const handleOverviewFrameAction = useCallback(
+    (screenId: string) => {
+      if (overviewInteractScreenIdRef.current === screenId) {
+        handleExitResponsiveInteract();
+        return;
+      }
+      handleModeChange("interact", { targetFileId: screenId });
+    },
+    [handleExitResponsiveInteract, handleModeChange],
+  );
   // Escape is the standard "leave this mode" convention users try first, and
   // Interact had no keyboard path back to Edit at all — only the bar's Close
   // button. This listens on `window` in the default bubble phase, same as
@@ -19095,20 +19256,30 @@ function DesignEditor() {
         const isPastedChildPath =
           elementTag === "path" &&
           svg?.getAttribute("data-an-primitive") === "pasted-svg";
-        const offset =
-          svg && (elementTag === "svg" || isPastedChildPath)
-            ? penPathScreenContentOffset(svg)
+        const renderOffset =
+          owner.fileId === boardFileId
+            ? boardRenderOffset(element)
+            : { x: 0, y: 0 };
+        // A pasted child path writes back only its own `d`, so it cannot
+        // re-base a scaled parent viewBox the way a drawn vector does.
+        const editable =
+          path &&
+          svg &&
+          (elementTag === "svg" ||
+            (isPastedChildPath && penPathScreenContentOffset(svg)))
+            ? penPathForVectorEdit(svg, path, renderOffset)
             : null;
-        if (!path || !offset) {
+        if (!editable) {
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
           return true;
         }
         setVectorEditingState({
           screenId: owner.fileId,
           nodeId,
-          path: translatePenPath(path, offset.x, offset.y),
+          layerId: owner.node.id,
+          path: editable.path,
           selectedAnchorIndex: null,
-          sourceOffset: offset,
+          sourceOffset: editable.sourceOffset,
           primitiveSource: null,
         });
         return true;
@@ -19126,6 +19297,7 @@ function DesignEditor() {
       setVectorEditingState({
         screenId: owner.fileId,
         nodeId,
+        layerId: owner.node.id,
         path: source.path,
         selectedAnchorIndex: null,
         sourceOffset: { x: 0, y: 0 },
@@ -19457,7 +19629,9 @@ function DesignEditor() {
     onPaste: canEditDesign ? () => void handlePasteSelection() : undefined,
     onCut: canEditDesign ? handleCutSelection : undefined,
     onPasteOver: canEditDesign ? handlePasteOverSelection : undefined,
-    onPasteToReplace: canEditDesign ? handlePasteToReplace : undefined,
+    onPasteToReplace: canEditDesign
+      ? () => void handlePasteToReplace()
+      : undefined,
     onCopyProps: canEditActiveVisualScreen ? handleCopyProps : undefined,
     onPasteProps: canEditActiveVisualScreen ? handlePasteProps : undefined,
     onDuplicate: canEditActiveVisualScreen
@@ -19941,58 +20115,23 @@ function DesignEditor() {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
     }
-    const clearRequested = pending.pending === null;
-    const publish = async () => {
-      if (canEditDesign) {
-        try {
-          await callAction("publish-visual-edit-pending", pending);
-          setPendingVisualEditPublicationFailed(false);
-          if (
-            clearRequested &&
-            pendingVisualEditClearRequestedRef.current === id
-          ) {
-            pendingVisualEditClearRequestedRef.current = null;
-            pendingVisualEditHadPendingRef.current = null;
-          }
-        } catch (error) {
-          console.error(
-            "[design:visual-edit] durable handoff publication failed",
-            error,
-          );
-          setPendingVisualEditPublicationFailed(true);
+    const publish = () =>
+      runPublishVisualEditPending({
+        activeScreenBridgeUrl,
+        activeScreenPreviewToken,
+        callAction,
+        canEditDesign,
+        designId: id,
+        fetchImpl: fetch,
+        pending,
+        pendingVisualEditClearRequestedRef,
+        pendingVisualEditHadPendingRef,
+        setPendingVisualEditPublicationFailed,
+        showHandoffErrorToast: () =>
           toast.error(t("designEditor.toasts.codingHandoffError"), {
             id: "design-visual-edit-pending-publication",
-          });
-        }
-      } else {
-        setPendingVisualEditPublicationFailed(false);
-      }
-
-      if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
-      try {
-        const response = await fetch(
-          `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-design-preview-token": activeScreenPreviewToken,
-            },
-            body: JSON.stringify(pending),
-          },
-        );
-        if (!response.ok) {
-          throw new Error(`Bridge returned HTTP ${response.status}`);
-        }
-      } catch (error) {
-        // The bridge is optional for static screens; durable MCP publication
-        // remains authoritative when the local app is offline.
-        console.warn(
-          "[design:visual-edit] local bridge handoff publication failed",
-          error,
-        );
-      }
-    };
+          }),
+      });
     pendingVisualEditPublicationQueueRef.current =
       pendingVisualEditPublicationQueueRef.current
         .catch((error) => {
@@ -27402,6 +27541,7 @@ function DesignEditor() {
     mode,
     files: documentColorFiles,
     activeTool,
+    scaleToolControls: canEditDesign ? scaleToolControls : undefined,
     onCreateScreenFromPreset: canEditDesign
       ? handleCreateScreenFromPreset
       : undefined,
@@ -27965,11 +28105,38 @@ function DesignEditor() {
             // until the user's first same-tab copy even though a real
             // clipboard payload is already sitting in the OS clipboard.
             onOpenChange={(open) => {
-              if (!open) setCanvasLayerHitCandidates([]);
-              if (open) void refreshClipboardFromSystemClipboard();
+              if (!open) {
+                setCanvasLayerHitCandidates([]);
+                menuClipboardReadIdRef.current += 1;
+                menuClipboardFilesRef.current = [];
+                setHasSystemClipboardImages(false);
+              }
+              if (open) {
+                const readId = ++menuClipboardReadIdRef.current;
+                menuClipboardFilesRef.current = [];
+                setHasSystemClipboardImages(false);
+                void readSystemClipboard().then((contents) => {
+                  if (readId !== menuClipboardReadIdRef.current) return;
+                  if (
+                    contents?.design &&
+                    contents.design.markerText !==
+                      lastWrittenClipboardMarkerRef.current
+                  ) {
+                    adoptDesignClipboardPayload(
+                      contents.design.payload,
+                      contents.design.markerText,
+                      contents.design.plainText,
+                    );
+                  }
+                  menuClipboardFilesRef.current = contents?.files ?? [];
+                  setHasSystemClipboardImages(Boolean(contents?.files.length));
+                });
+              }
             }}
             canPasteHere={
-              canEditDesign && hasCanvasClipboard && Boolean(activeFile)
+              canEditDesign &&
+              (hasCanvasClipboard || hasSystemClipboardImages) &&
+              Boolean(activeFile)
             }
             canSelectAll={files.length > 0}
             canZoomToFit={Boolean(activeFile)}
@@ -27986,7 +28153,9 @@ function DesignEditor() {
               selectedElement?.selector || selectedScreenIds.length > 0,
             )}
             canPaste={
-              canEditDesign && hasCanvasClipboard && Boolean(activeFile)
+              canEditDesign &&
+              (hasCanvasClipboard || hasSystemClipboardImages) &&
+              Boolean(activeFile)
             }
             canPasteOver={
               canEditDesign && hasCanvasClipboard && Boolean(activeFile)
@@ -28052,7 +28221,8 @@ function DesignEditor() {
             canUngroup={canUngroup}
             canPasteToReplace={
               canEditDesign &&
-              getCanvasClipboardEntries().length === 1 &&
+              (menuClipboardFilesRef.current.length === 1 ||
+                getCanvasClipboardEntries().length === 1) &&
               Boolean(selectedElement)
             }
             canFrameSelection={
@@ -28110,12 +28280,7 @@ function DesignEditor() {
             isCommentsHidden={commentsHidden}
             getCanvasPoint={getContextCanvasPoint}
             onPasteHere={(details) =>
-              void handlePasteSelection(
-                details.point?.canvasX !== undefined &&
-                  details.point.canvasY !== undefined
-                  ? { x: details.point.canvasX, y: details.point.canvasY }
-                  : undefined,
-              )
+              void handleContextMenuPaste(details.point ?? undefined)
             }
             onSelectAll={handleSelectAllFrames}
             onZoomToFit={handleZoomToFit}
@@ -28129,7 +28294,7 @@ function DesignEditor() {
             onZoomIn={handleZoomIn}
             onZoomOut={handleZoomOut}
             onCopy={handleCopySelection}
-            onPaste={() => void handlePasteSelection()}
+            onPaste={() => void handleContextMenuPaste()}
             onPasteOver={handlePasteOverSelection}
             onDuplicate={handleDuplicateSelection}
             onDelete={handleDeleteSelection}
@@ -28165,7 +28330,11 @@ function DesignEditor() {
             onCopyAsPng={() => void handleCopyAsPng()}
             onCopyAsSvg={() => void handleCopyAsFigmaSvg()}
             onRotateClockwise={handleRotateSelectionClockwise}
-            onPasteToReplace={canEditDesign ? handlePasteToReplace : undefined}
+            onPasteToReplace={
+              canEditDesign
+                ? () => void handlePasteToReplace(menuClipboardFilesRef.current)
+                : undefined
+            }
             onFrameSelection={canEditDesign ? handleFrameSelection : undefined}
             onCreateComponent={
               canEditDesign ? handleCreateComponentHotkey : undefined
@@ -28421,13 +28590,23 @@ function DesignEditor() {
                       </div>
                     </div>
                   ) : null}
-                  {viewMode === "overview" ? (
+                  {viewMode === "overview" ||
+                  (responsiveInteractActive &&
+                    overviewInteractScreenId === activeFileId) ? (
                     <>
                       {/* ── Render: overview canvas ── */}
                       <MultiScreenCanvas
                         screens={overviewScreens}
-                        zoom={overviewCanvasZoom}
-                        onZoomChange={setExplicitOverviewCanvasZoom}
+                        zoom={
+                          responsiveInteractActive && overviewInteractScreenId
+                            ? interactZoom
+                            : overviewCanvasZoom
+                        }
+                        onZoomChange={
+                          responsiveInteractActive && overviewInteractScreenId
+                            ? undefined
+                            : setExplicitOverviewCanvasZoom
+                        }
                         cameraCommand={cameraCommand}
                         suppressLineupRecenter={suppressLineupRecenter}
                         preserveCameraOnScreenCountChange={
@@ -28439,6 +28618,7 @@ function DesignEditor() {
                         }
                         chromeInsetLeft={chromeInsetLeft}
                         chromeInsetRight={chromeInsetRight}
+                        visibleCanvasRectRef={visibleCanvasRectRef}
                         activeId={activeFileId}
                         selectedScreenIds={overviewSelectedScreenIds}
                         exportPreviewScreenId={exportPreviewScreenId}
@@ -28449,8 +28629,19 @@ function DesignEditor() {
                         fullViewScreenIds={fullViewScreenIds}
                         pendingReviewScreenIds={pendingNodeRewriteScreenIds}
                         onReviewPendingScreen={handleReviewPendingScreen}
-                        interactMode={mode === "interact"}
-                        interactScreenId={overviewInteractScreenId}
+                        interactMode={
+                          mode === "interact" && !overviewInteractScreenId
+                        }
+                        interactScreenId={
+                          responsiveInteractActive
+                            ? overviewInteractScreenId
+                            : null
+                        }
+                        focusedInteractViewport={
+                          responsiveInteractActive && overviewInteractScreenId
+                            ? interactDeviceSize
+                            : null
+                        }
                         readOnly={!canEditDesign}
                         editableScreenIds={editableLiveScreenIds}
                         activeScreenHasHoveredChild={

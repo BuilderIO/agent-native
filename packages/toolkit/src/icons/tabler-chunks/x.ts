@@ -1,0 +1,33 @@
+// Generated from @tabler/icons 3.44.0. Run node packages/toolkit/scripts/generate-tabler-catalog.ts.
+import {
+  IconX,
+  IconXFilled,
+  IconXMark,
+  IconXPowerY,
+  IconXboxA,
+  IconXboxAFilled,
+  IconXboxB,
+  IconXboxBFilled,
+  IconXboxX,
+  IconXboxXFilled,
+  IconXboxY,
+  IconXboxYFilled,
+  IconXd,
+  IconXxx,
+} from "@tabler/icons-react";
+export default {
+  IconX,
+  IconXFilled,
+  IconXMark,
+  IconXPowerY,
+  IconXboxA,
+  IconXboxAFilled,
+  IconXboxB,
+  IconXboxBFilled,
+  IconXboxX,
+  IconXboxXFilled,
+  IconXboxY,
+  IconXboxYFilled,
+  IconXd,
+  IconXxx,
+};

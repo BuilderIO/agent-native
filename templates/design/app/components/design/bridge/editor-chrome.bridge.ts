@@ -120,6 +120,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       {
         type: "agent-native:editor-chrome-ready",
         routePath: window.location.pathname + window.location.search,
+        documentId: runtimeDocumentId,
       },
       "*",
     );
@@ -336,6 +337,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
+      "[data-agent-native-drawn-caret]{caret-color:transparent!important}" +
+      // Figma hides a styled range's highlight while its inspector controls
+      // have focus; an unfocused frame would paint it as an opaque grey block.
+      "[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
       // A selection SWITCHING to a different element must not ease the
       // handle spans through their old target's geometry: the singleton
@@ -607,7 +612,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (signature) {
         var existing = findHeadNodeBySignature(signature);
         if (existing) {
+          var nextAnchor = existing.nextSibling;
           document.head.replaceChild(document.importNode(node, true), existing);
+          if (anchor === existing) anchor = nextAnchor;
           return;
         }
       }
@@ -2605,9 +2612,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       // Falling back out of a stale/unrelated scope IS exiting drill mode.
       selectionContainerScope = null;
-      scope = document.body;
+      scope = topLevelBoardFrameOwning(resolved) || document.body;
     }
     return containerScopeAncestor(resolved, scope);
+  }
+
+  // Figma treats a top-level frame like an artboard: its direct children are
+  // picked by a plain click, while nested frames still need a drill-in.
+  function topLevelBoardFrameOwning(el: Element): Element | null {
+    if (!designCanvasBoardSurface) return null;
+    var node: Element | null = el;
+    while (node && node.parentElement && node.parentElement !== document.body) {
+      node = node.parentElement;
+    }
+    return node &&
+      node !== el &&
+      node.parentElement === document.body &&
+      node.getAttribute("data-an-primitive") === "frame"
+      ? node
+      : null;
   }
 
   /*
@@ -4074,6 +4097,118 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
+  var PORTABLE_TEXT_PROPERTIES: Record<string, boolean> = {
+    color: true,
+    font: true,
+    fontFamily: true,
+    fontSize: true,
+    fontStyle: true,
+    fontWeight: true,
+    letterSpacing: true,
+    lineHeight: true,
+    textAlign: true,
+    textDecoration: true,
+    textDecorationColor: true,
+    textDecorationLine: true,
+    textDecorationStyle: true,
+    textShadow: true,
+    textTransform: true,
+    whiteSpace: true,
+    wordBreak: true,
+  };
+
+  function portableBorderSidePaints(
+    cs: CSSStyleDeclaration,
+    side: string,
+  ): boolean {
+    var style = cs.getPropertyValue("border-" + side + "-style");
+    return (
+      style !== "none" &&
+      style !== "hidden" &&
+      parseFloat(cs.getPropertyValue("border-" + side + "-width")) > 0
+    );
+  }
+
+  function portableValueRendersNothing(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+  ): boolean {
+    var sides = ["top", "right", "bottom", "left"];
+    if (/^border(Top|Right|Bottom|Left)?(Color|Style|Width)?$/.test(property)) {
+      var sideMatch = /^border(Top|Right|Bottom|Left)/.exec(property);
+      var checked = sideMatch ? [sideMatch[1].toLowerCase()] : sides;
+      return !checked.some(function (side) {
+        return portableBorderSidePaints(cs, side);
+      });
+    }
+    if (/^outline(Color|Style|Width|Offset)?$/.test(property)) {
+      return cs.outlineStyle === "none" || !(parseFloat(cs.outlineWidth) > 0);
+    }
+    if (property === "boxSizing") {
+      return (
+        !sides.some(function (side) {
+          return portableBorderSidePaints(cs, side);
+        }) &&
+        !sides.some(function (side) {
+          return parseFloat(cs.getPropertyValue("padding-" + side)) > 0;
+        })
+      );
+    }
+    if (property === "display") {
+      return (
+        cs.display === "block" &&
+        (cs.position === "absolute" || cs.position === "fixed")
+      );
+    }
+    if (property === "transformOrigin") {
+      return (
+        cs.transform === "none" &&
+        (cs.rotate || "none") === "none" &&
+        (cs.scale || "none") === "none"
+      );
+    }
+    if (!PORTABLE_TEXT_PROPERTIES[property]) return false;
+    var tag = el.tagName.toLowerCase();
+    if (tag === "img") return true;
+    if (!(el instanceof SVGElement) || /^(text|tspan|textpath)$/.test(tag)) {
+      return false;
+    }
+    if (property !== "color") return true;
+    return !/currentcolor/i.test(
+      (el.getAttribute("fill") || "") +
+        (el.getAttribute("stroke") || "") +
+        ((el as SVGElement).style.cssText || ""),
+    );
+  }
+
+  function portableSizeIsLayoutResolved(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+  ): boolean {
+    if ((el as HTMLElement).style?.getPropertyValue(property)) return false;
+    if (property !== "width" || cs.position !== "static") return false;
+    var parent = el.parentElement;
+    if (!parent) return false;
+    var parentStyle = window.getComputedStyle(parent);
+    if (/^(inline-)?flex$/.test(parentStyle.display)) {
+      return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+    }
+    if (/^(inline-)?grid$/.test(parentStyle.display)) {
+      return cs.justifySelf === "normal" || cs.justifySelf === "stretch";
+    }
+    if (cs.display !== "block" && cs.display !== "flow-root") return false;
+    var parentContentWidth =
+      parent.clientWidth -
+      parseFloat(parentStyle.paddingLeft || "0") -
+      parseFloat(parentStyle.paddingRight || "0");
+    return (
+      parentContentWidth > 0 &&
+      Math.abs(el.getBoundingClientRect().width - parentContentWidth) < 1
+    );
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
     cache?: PortableStyleComputedStylesCache,
@@ -4105,27 +4240,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var typedElement = el as Element & {
       computedStyleMap?: () => StylePropertyMap;
     };
+    var typedStyles: StylePropertyMap | null = null;
     if (typeof typedElement.computedStyleMap !== "function") {
       dndLog("style:typed-om-unavailable", { tag: el.tagName });
-      return cacheFailure();
+      // CSSStyleDeclaration can expose used pixel sizes for auto or percentage
+      // sizing, so omit only these fields rather than freezing layout geometry.
+    } else {
+      try {
+        typedStyles = typedElement.computedStyleMap();
+      } catch (_error) {
+        dndLog("style:typed-om-read-failed", { tag: el.tagName });
+        return cacheFailure();
+      }
+      if (!typedStyles) return cacheFailure();
     }
-    try {
-      var typedStyles = typedElement.computedStyleMap();
+    if (typedStyles) {
       for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
         var typedValue = typedStyles.get(property);
-        if (typedValue == null || !String(typedValue).trim()) {
-          dndLog("style:typed-om-value-missing", { property: property });
+        if (typedValue == null) {
+          dndLog("style:typed-om-value-unavailable", {
+            tag: el.tagName,
+            property,
+          });
           return cacheFailure();
         }
         var size = String(typedValue).trim();
-        // Explicit auto must replace a losing inline size in the moved markup.
-        if (size !== "auto" || hostStyle?.getPropertyValue(property)) {
+        if (
+          size &&
+          (size !== "auto" || hostStyle?.getPropertyValue(property)) &&
+          !portableSizeIsLayoutResolved(el, property, cs)
+        ) {
           styles[property] = size;
         }
       }
-    } catch (_error) {
-      dndLog("style:typed-om-read-failed", { tag: el.tagName });
-      return cacheFailure();
     }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
@@ -4142,7 +4289,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         typeof value === "string" &&
         value.trim() &&
-        (inlineValue || value !== defaults[property])
+        (inlineValue ||
+          (value !== defaults[property] &&
+            !portableValueRendersNothing(el, property, cs)))
       ) {
         styles[property] = value;
       }
@@ -4288,6 +4437,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "paddingRight",
     "paddingBottom",
     "paddingLeft",
+    "marginTop",
+    "marginRight",
+    "marginBottom",
+    "marginLeft",
     "alignItems",
     "alignContent",
     "justifyItems",
@@ -4480,6 +4633,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return elementLooksLikeComponent(el)
       ? "var(--design-editor-component-contrast-color)"
       : "var(--design-editor-accent-contrast-color)";
+  }
+
+  function marginValueIsAuto(
+    el: Element,
+    side: string,
+    computedValue: string,
+  ): boolean {
+    var typedElement = el as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap === "function") {
+      var typedValue = typedElement.computedStyleMap().get("margin-" + side);
+      if (String(typedValue).trim().toLowerCase() === "auto") return true;
+    }
+    var inlineValue = (el as HTMLElement).style.getPropertyValue(
+      "margin-" + side,
+    );
+    return (
+      inlineValue.trim().toLowerCase() === "auto" ||
+      computedValue.trim().toLowerCase() === "auto"
+    );
   }
 
   function collectComputedStyles(
@@ -4843,6 +5017,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    // An open pen path's fill-opacity="0" only keeps its chord unpainted
+    // (Figma fills closed regions only); it is not the fill's own opacity.
+    var paintTarget =
+      vectorPaintTarget(el) ||
+      (el.tagName.toLowerCase() === "path" &&
+      el.hasAttribute("data-an-pen-nodes")
+        ? el
+        : null);
+    var penNodesOwner =
+      paintTarget && paintTarget.hasAttribute("data-an-pen-nodes")
+        ? paintTarget
+        : el;
+    if (
+      paintTarget &&
+      paintTarget.getAttribute("fill-opacity") === "0" &&
+      (penNodesOwner.getAttribute("data-an-pen-nodes") || "").indexOf("[0") ===
+        0
+    ) {
+      computed.fillOpacity =
+        (paintTarget as HTMLElement).style.getPropertyValue("fill-opacity") ||
+        "1";
+    }
     // A multi-shape pasted SVG has no single paint target. Its wrapper's
     // computed `fill` is the SVG initial value (black), not an authored fill.
     // Keep authored wrapper fills visible, while leaving child paints to the
@@ -4878,6 +5074,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         computed.resolvedLineHeightPx = resolvedLineHeightPx;
       }
     }
+    if (marginValueIsAuto(el, "top", cs.marginTop)) computed.marginTop = "auto";
+    if (marginValueIsAuto(el, "right", cs.marginRight))
+      computed.marginRight = "auto";
+    if (marginValueIsAuto(el, "bottom", cs.marginBottom))
+      computed.marginBottom = "auto";
+    if (marginValueIsAuto(el, "left", cs.marginLeft))
+      computed.marginLeft = "auto";
     return {
       ...computed,
       "--an-vector-stroke-position":
@@ -5435,7 +5638,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     edge.setAttribute("data-agent-native-edge-handle", pos);
     var cursor = pos === "n" || pos === "s" ? "ns-resize" : "ew-resize";
     edge.style.cssText =
-      "position:absolute;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:2;pointer-events:auto;cursor:" +
       cursor +
       ";background:transparent;";
     if (pos === "n") {
@@ -6039,7 +6242,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceProvenance?: { versionHash?: string; uniqueNodeIds: string[] };
   } | null = null;
   var textEditPointerState: {
-    shield: string;
     selection: string;
     highlight: string;
   } | null = null;
@@ -6272,17 +6474,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceProvenance?: { versionHash?: string; uniqueNodeId?: string };
   } | null = null;
   var spacingDrag: {
-    key: string;
-    groupKey: string;
-    property: string;
-    oppositeProperty: string;
-    side: string;
-    orientation: string;
-    baseValue: number;
-    baseOppositeValue: number;
-    startX: number;
-    startY: number;
-    el: Element;
+    handle: { key: string; groupKey: string; kind: string };
+    currentValue: number;
+    mirrorOpposite: boolean;
+    syncAllSides: boolean;
   } | null = null;
   var lockedSelectors: string[] = [];
   var hiddenSelectors: string[] = [];
@@ -8048,10 +8243,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function clampSpacingValue(value: number): number {
+  function clampSpacingValue(value: number, allowNegative: boolean): number {
     var rounded = Math.round(value);
     if (!Number.isFinite(rounded)) return 0;
-    return Math.max(0, Math.min(999, rounded));
+    return Math.max(allowNegative ? -999 : 0, Math.min(999, rounded));
   }
 
   // Figma-style handle hit area: only the small handle *line* itself (plus a
@@ -8091,6 +8286,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function hitRectForMarginHandle(
+    line: { x: number; y: number; width: number; height: number },
+    tolerance: number,
+    side: string,
+    elementRect: { width: number; height: number },
+  ): { x: number; y: number; width: number; height: number } {
+    var hit = {
+      x: line.x - tolerance,
+      y: line.y - tolerance,
+      width: line.width + tolerance * 2,
+      height: line.height + tolerance * 2,
+    };
+    var inwardReach =
+      side === "top" || side === "bottom"
+        ? clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.height)
+        : clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.width);
+    if (side === "top") {
+      var bottom = Math.min(hit.y + hit.height, inwardReach);
+      hit.y = Math.min(hit.y, bottom - 1);
+      hit.height = Math.max(1, bottom - hit.y);
+    } else if (side === "bottom") {
+      var originalBottom = hit.y + hit.height;
+      var top = Math.max(hit.y, elementRect.height - inwardReach);
+      hit.y = top;
+      hit.height = Math.max(1, originalBottom - top);
+    } else if (side === "left") {
+      var right = Math.min(hit.x + hit.width, inwardReach);
+      hit.x = Math.min(hit.x, right - 1);
+      hit.width = Math.max(1, right - hit.x);
+    } else if (side === "right") {
+      var originalRight = hit.x + hit.width;
+      var left = Math.max(hit.x, elementRect.width - inwardReach);
+      hit.x = left;
+      hit.width = Math.max(1, originalRight - left);
+    }
+    return hit;
+  }
+
   function makeSpacingHandle(config: {
     key: string;
     groupKey?: string;
@@ -8100,6 +8333,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     side?: string;
     orientation: string;
     value: number;
+    valueLabel?: string;
+    elementRect?: { width: number; height: number };
     region: { x: number; y: number; width: number; height: number };
     line?: { x: number; y: number; width: number; height: number };
   }): unknown {
@@ -8118,7 +8353,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             roundedRegion,
             PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
           )
-        : roundedRegion;
+        : config.kind === "margin"
+          ? hitRectForMarginHandle(
+              config.line,
+              PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
+              config.side || "",
+              config.elementRect || { width: 0, height: 0 },
+            )
+          : roundedRegion;
     return {
       key: config.key,
       groupKey: config.groupKey || config.key,
@@ -8127,7 +8369,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       oppositeProperty: config.oppositeProperty || "",
       side: config.side || "",
       orientation: config.orientation,
-      value: clampSpacingValue(config.value),
+      value: clampSpacingValue(config.value, config.kind === "margin"),
+      valueLabel: config.valueLabel || "",
       region: roundedRegion,
       hit: hit,
       line: config.line,
@@ -8296,6 +8539,135 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return handles.filter(Boolean);
   }
 
+  function buildMarginSpacingHandles(
+    el: Element,
+    rect: DOMRect,
+    cs: CSSStyleDeclaration,
+  ): unknown[] {
+    var line = chromeLineScale();
+    var tickLength =
+      Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) *
+      line;
+    var marginHandleClearance = 6 * Math.max(1, line);
+    var top = clampSpacingValue(readPx(cs.marginTop), true);
+    var right = clampSpacingValue(readPx(cs.marginRight), true);
+    var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
+    var left = clampSpacingValue(readPx(cs.marginLeft), true);
+
+    return [
+      makeSpacingHandle({
+        key: "margin:top",
+        kind: "margin",
+        property: "marginTop",
+        oppositeProperty: "marginBottom",
+        side: "top",
+        orientation: "horizontal",
+        value: top,
+        valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+        elementRect: rect,
+        region: {
+          x: 0,
+          y: Math.min(0, -top),
+          width: rect.width,
+          height: Math.max(1, Math.abs(top)),
+        },
+        line: {
+          x: rect.width / 2 - tickLength / 2,
+          y:
+            (top >= 0 ? -1 : 1) *
+              Math.max(marginHandleClearance, Math.abs(top) / 2) -
+            line / 2,
+          width: tickLength,
+          height: line,
+        },
+      }),
+      makeSpacingHandle({
+        key: "margin:right",
+        kind: "margin",
+        property: "marginRight",
+        oppositeProperty: "marginLeft",
+        side: "right",
+        orientation: "vertical",
+        value: right,
+        valueLabel: marginValueIsAuto(el, "right", cs.marginRight)
+          ? "auto"
+          : "",
+        elementRect: rect,
+        region: {
+          x: rect.width + Math.min(0, right),
+          y: 0,
+          width: Math.max(1, Math.abs(right)),
+          height: rect.height,
+        },
+        line: {
+          x:
+            rect.width +
+            (right >= 0 ? 1 : -1) *
+              Math.max(marginHandleClearance, Math.abs(right) / 2) -
+            line / 2,
+          y: rect.height / 2 - tickLength / 2,
+          width: line,
+          height: tickLength,
+        },
+      }),
+      makeSpacingHandle({
+        key: "margin:bottom",
+        kind: "margin",
+        property: "marginBottom",
+        oppositeProperty: "marginTop",
+        side: "bottom",
+        orientation: "horizontal",
+        value: bottom,
+        valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom)
+          ? "auto"
+          : "",
+        elementRect: rect,
+        region: {
+          x: 0,
+          y: rect.height + Math.min(0, bottom),
+          width: rect.width,
+          height: Math.max(1, Math.abs(bottom)),
+        },
+        line: {
+          x: rect.width / 2 - tickLength / 2,
+          y:
+            rect.height +
+            (bottom >= 0 ? 1 : -1) *
+              Math.max(marginHandleClearance, Math.abs(bottom) / 2) -
+            line / 2,
+          width: tickLength,
+          height: line,
+        },
+      }),
+      makeSpacingHandle({
+        key: "margin:left",
+        kind: "margin",
+        property: "marginLeft",
+        oppositeProperty: "marginRight",
+        side: "left",
+        orientation: "vertical",
+        value: left,
+        valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+        elementRect: rect,
+        region: {
+          x: Math.min(0, -left),
+          y: 0,
+          width: Math.max(1, Math.abs(left)),
+          height: rect.height,
+        },
+        line: {
+          x:
+            (left >= 0 ? -1 : 1) *
+              Math.max(marginHandleClearance, Math.abs(left) / 2) -
+            line / 2,
+          y: rect.height / 2 - tickLength / 2,
+          width: line,
+          height: tickLength,
+        },
+      }),
+    ].filter(Boolean);
+  }
+
   function buildGapSpacingHandles(
     el: Element,
     rect: DOMRect,
@@ -8403,14 +8775,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   } | null)[] {
     if (!el || !document.documentElement.contains(el)) return [];
     if (Math.abs(currentRotation(el)) > 0.01) return [];
-    var children = visibleLayoutChildren(el);
-    if (children.length === 0) return [];
     var rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return [];
     var cs = window.getComputedStyle(el);
-    return buildPaddingSpacingHandles(el, rect, cs).concat(
-      buildGapSpacingHandles(el, rect, cs),
-    );
+    return buildPaddingSpacingHandles(el, rect, cs)
+      .concat(buildMarginSpacingHandles(el, rect, cs))
+      .concat(buildGapSpacingHandles(el, rect, cs));
   }
 
   // Figma-style live value readout for the padding handle: shown while
@@ -8431,6 +8801,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       side: string;
       orientation: string;
       value: number;
+      valueLabel?: string;
       region: { x: number; y: number; width: number; height: number };
       line: { x: number; y: number; width: number; height: number } | undefined;
     } | null,
@@ -8459,7 +8830,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       x = rect.left + handle.region.x + handle.region.width / 2;
       y = rect.top + handle.region.y + handle.region.height / 2;
     }
-    spacingBadge.textContent = String(clampSpacingValue(value)) + "px";
+    spacingBadge.textContent =
+      handle.kind === "margin" &&
+      handle.valueLabel === "auto" &&
+      value === handle.value
+        ? "auto"
+        : String(clampSpacingValue(value, handle.kind === "margin")) + "px";
     spacingBadge.style.display = "block";
     spacingBadge.style.background = spacingColor(handle.kind);
     spacingBadge.style.fontSize = 10 * line + "px";
@@ -8518,7 +8894,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // compensates for the host's iframe scale (matches spacingFill's scaled
     // stripe stops — a fixed 6px tile would clip the scaled pattern).
     var hatchTile = 6 * chromeLineScale() + "px";
-    if (handle.kind === "padding") {
+    if (handle.kind === "padding" || handle.kind === "margin") {
       var hatchNode = document.createElement("span");
       hatchNode.setAttribute("data-agent-native-spacing-hatch", handle.kind);
       hatchNode.style.position = "absolute";
@@ -8545,10 +8921,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     regionNode.style.display = "block";
     regionNode.style.boxSizing = "border-box";
     regionNode.style.pointerEvents = "auto";
+    regionNode.style.zIndex =
+      handle.kind === "padding" ? "3" : handle.kind === "margin" ? "1" : "0";
     regionNode.style.backgroundSize = hatchTile + " " + hatchTile;
     regionNode.style.cursor =
       handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
-    var hitRect = handle.kind === "padding" ? handle.hit : handle.region;
+    var hitRect =
+      handle.kind === "padding" || handle.kind === "margin"
+        ? handle.hit
+        : handle.region;
     regionNode.style.left = hitRect.x + "px";
     regionNode.style.top = hitRect.y + "px";
     regionNode.style.width = hitRect.width + "px";
@@ -8558,11 +8939,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // the hatch on this node — buildSpacingHandles' dedicated hatchNode above
     // owns that so it can stay outside the (now much smaller) hit area.
     regionNode.style.background =
-      handle.kind !== "padding" && active
+      handle.kind !== "padding" && handle.kind !== "margin" && active
         ? spacingFill(handle.kind, handle.orientation)
         : "transparent";
     regionNode.style.outline =
-      handle.kind !== "padding" && active
+      handle.kind !== "padding" && handle.kind !== "margin" && active
         ? "1px solid " + spacingColor(handle.kind)
         : "0";
     regionNode.style.outlineOffset = "-1px";
@@ -8602,7 +8983,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var hovered = Boolean(hoverGroupKeys[handle.groupKey]);
       var regionNode = spacingHandleNodesByKey[handle.key];
       if (regionNode) {
-        var gapHighlighted = handle.kind !== "padding" && active;
+        var gapHighlighted =
+          handle.kind !== "padding" && handle.kind !== "margin" && active;
         (regionNode as HTMLElement).style.background = gapHighlighted
           ? spacingFill(handle.kind, handle.orientation)
           : "transparent";
@@ -8637,7 +9019,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (
       spacingDrag &&
       spacingDrag.mirrorOpposite &&
-      activeHandle.kind === "padding" &&
+      (activeHandle.kind === "padding" || activeHandle.kind === "margin") &&
       activeHandle.oppositeProperty
     ) {
       handles.forEach(function (handle) {
@@ -10484,28 +10866,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     measurementOverlay.innerHTML = "";
   }
 
-  function addMeasurementLine(x1, y1, x2, y2, label) {
-    var horizontal = Math.abs(x2 - x1) >= Math.abs(y2 - y1);
+  function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
+    var horizontal = y1 === y2;
     var line = document.createElement("div");
-    var labelEl = document.createElement("div");
-    // Constant-screen-size chrome: line thickness, label font/padding, and
-    // label offsets all compensate for the host's iframe scale so the
-    // measurement readout looks identical at any canvas zoom.
     var scale = chromeLineScale();
-    var lineWidth = 1 * chromeLineScale();
-    var labelChrome =
-      "transform-origin:center;border-radius:" +
-      3 * scale +
-      "px;background:var(--design-editor-measure-color);color:white;padding:" +
-      1 * scale +
+    var border =
+      scale +
       "px " +
-      4 * scale +
-      "px;font-size:" +
-      11 * scale +
-      "px;";
+      (dashed ? "dashed" : "solid") +
+      " var(--design-editor-measure-color);";
     if (horizontal) {
       var left = Math.min(x1, x2);
-      var width = Math.max(1, Math.abs(x2 - x1));
+      var width = Math.abs(x2 - x1);
       line.style.cssText =
         "position:fixed;left:" +
         left +
@@ -10514,18 +10886,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "px;width:" +
         width +
         "px;border-top:" +
-        lineWidth +
-        "px dashed var(--design-editor-measure-color);";
-      labelEl.style.cssText =
-        "position:fixed;left:" +
-        (left + width / 2) +
-        "px;top:" +
-        (y1 - 9 * scale) +
-        "px;transform:translateX(-50%);" +
-        labelChrome;
+        border;
     } else {
       var top = Math.min(y1, y2);
-      var height = Math.max(1, Math.abs(y2 - y1));
+      var height = Math.abs(y2 - y1);
       line.style.cssText =
         "position:fixed;left:" +
         x1 +
@@ -10534,19 +10898,101 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "px;height:" +
         height +
         "px;border-left:" +
-        lineWidth +
-        "px dashed var(--design-editor-measure-color);";
-      labelEl.style.cssText =
-        "position:fixed;left:" +
-        (x1 + 5 * scale) +
-        "px;top:" +
-        (top + height / 2) +
-        "px;transform:translateY(-50%);" +
-        labelChrome;
+        border;
     }
-    labelEl.textContent = label;
     measurementOverlay.appendChild(line);
+    if (!label) return;
+    var labelEl = document.createElement("div");
+    labelEl.style.cssText =
+      "position:fixed;left:" +
+      (horizontal ? (x1 + x2) / 2 : x1 + 8 * scale) +
+      "px;top:" +
+      (horizontal ? y1 + 7 * scale : (y1 + y2) / 2) +
+      "px;transform:" +
+      (horizontal ? "translateX(-50%)" : "translateY(-50%)") +
+      ";border-radius:" +
+      3 * scale +
+      "px;background:var(--design-editor-measure-color);color:white;padding:" +
+      1 * scale +
+      "px " +
+      4 * scale +
+      "px;font-size:" +
+      11 * scale +
+      "px;";
+    labelEl.textContent = label;
     measurementOverlay.appendChild(labelEl);
+  }
+
+  // Figma measures both axes: single gaps when boxes are apart and separate
+  // edge distances while they overlap. Dashed runs only connect off-axis gaps.
+  function measurementSegments(s, t) {
+    var segments: Array<{
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      label: string;
+      dashed: boolean;
+    }> = [];
+    function add(x1, y1, x2, y2, dashed) {
+      var length = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+      if (length < 0.5) return;
+      segments.push({
+        x1: x1,
+        y1: y1,
+        x2: x2,
+        y2: y2,
+        label: dashed ? "" : String(Math.round(length)),
+        dashed: dashed,
+      });
+    }
+    var apartX = t.left >= s.right || t.right <= s.left;
+    var apartY = t.top >= s.bottom || t.bottom <= s.top;
+    var intersect = !apartX && !apartY;
+    var sCx = (s.left + s.right) / 2;
+    var sCy = (s.top + s.bottom) / 2;
+    var y = intersect
+      ? (Math.max(s.top, t.top) + Math.min(s.bottom, t.bottom)) / 2
+      : sCy;
+    var x = intersect
+      ? (Math.max(s.left, t.left) + Math.min(s.right, t.right)) / 2
+      : sCx;
+    var tNearY = t.top >= sCy ? t.top : t.bottom;
+    var tNearX = t.left >= sCx ? t.left : t.right;
+    var yMissesT = y < t.top || y > t.bottom;
+    var xMissesT = x < t.left || x > t.right;
+
+    if (apartX) {
+      var gapEdge = t.left >= s.right ? t.left : t.right;
+      add(t.left >= s.right ? s.right : s.left, y, gapEdge, y, false);
+      if (yMissesT) add(gapEdge, y, gapEdge, tNearY, true);
+    } else {
+      var sFarY = tNearY === t.top ? s.top : s.bottom;
+      if (intersect || t.left < s.left) {
+        add(t.left, y, s.left, y, false);
+        if (!intersect) add(t.left, sFarY, t.left, tNearY, true);
+      }
+      if (intersect || t.right > s.right) {
+        add(s.right, y, t.right, y, false);
+        if (!intersect) add(t.right, sFarY, t.right, tNearY, true);
+      }
+    }
+    if (apartY) {
+      var gapEdgeY = t.top >= s.bottom ? t.top : t.bottom;
+      add(x, t.top >= s.bottom ? s.bottom : s.top, x, gapEdgeY, false);
+      if (xMissesT) add(x, gapEdgeY, tNearX, gapEdgeY, true);
+    } else {
+      var sFarX = tNearX === t.left ? s.left : s.right;
+      if (intersect || t.top < s.top) {
+        add(x, t.top, x, s.top, false);
+        if (!intersect) add(sFarX, t.top, tNearX, t.top, true);
+      }
+      if (intersect || t.bottom > s.bottom) {
+        add(x, s.bottom, x, t.bottom, false);
+        if (!intersect) add(sFarX, t.bottom, tNearX, t.bottom, true);
+      }
+    }
+    return segments;
   }
 
   function showMeasurements(a, b) {
@@ -10554,8 +11000,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideMeasurements();
       return;
     }
-    var selectedRect = a.getBoundingClientRect();
-    var hoverRect = b.getBoundingClientRect();
     // A content re-render can rebuild document.body and drop this overlay;
     // re-attach it before drawing so the lines always render.
     if (!measurementOverlay.isConnected) {
@@ -10563,79 +11007,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     measurementOverlay.innerHTML = "";
     measurementOverlay.style.display = "block";
-
-    if (hoverRect.right <= selectedRect.left) {
-      var yLeft = Math.max(
-        hoverRect.top,
-        Math.min(hoverRect.bottom, selectedRect.top + selectedRect.height / 2),
-      );
+    measurementSegments(
+      a.getBoundingClientRect(),
+      b.getBoundingClientRect(),
+    ).forEach(function (segment) {
       addMeasurementLine(
-        hoverRect.right,
-        yLeft,
-        selectedRect.left,
-        yLeft,
-        Math.round(selectedRect.left - hoverRect.right) + "px",
+        segment.x1,
+        segment.y1,
+        segment.x2,
+        segment.y2,
+        segment.label,
+        segment.dashed,
       );
-      return;
-    }
-    if (selectedRect.right <= hoverRect.left) {
-      var yRight = Math.max(
-        selectedRect.top,
-        Math.min(selectedRect.bottom, hoverRect.top + hoverRect.height / 2),
-      );
-      addMeasurementLine(
-        selectedRect.right,
-        yRight,
-        hoverRect.left,
-        yRight,
-        Math.round(hoverRect.left - selectedRect.right) + "px",
-      );
-      return;
-    }
-    if (hoverRect.bottom <= selectedRect.top) {
-      var xTop = Math.max(
-        hoverRect.left,
-        Math.min(hoverRect.right, selectedRect.left + selectedRect.width / 2),
-      );
-      addMeasurementLine(
-        xTop,
-        hoverRect.bottom,
-        xTop,
-        selectedRect.top,
-        Math.round(selectedRect.top - hoverRect.bottom) + "px",
-      );
-      return;
-    }
-    if (selectedRect.bottom <= hoverRect.top) {
-      var xBottom = Math.max(
-        selectedRect.left,
-        Math.min(selectedRect.right, hoverRect.left + hoverRect.width / 2),
-      );
-      addMeasurementLine(
-        xBottom,
-        selectedRect.bottom,
-        xBottom,
-        hoverRect.top,
-        Math.round(hoverRect.top - selectedRect.bottom) + "px",
-      );
-      return;
-    }
-    addMeasurementLine(
-      selectedRect.left + selectedRect.width / 2,
-      selectedRect.top + selectedRect.height / 2,
-      hoverRect.left + hoverRect.width / 2,
-      hoverRect.top + hoverRect.height / 2,
-      Math.round(
-        Math.hypot(
-          hoverRect.left +
-            hoverRect.width / 2 -
-            (selectedRect.left + selectedRect.width / 2),
-          hoverRect.top +
-            hoverRect.height / 2 -
-            (selectedRect.top + selectedRect.height / 2),
-        ),
-      ) + "px",
-    );
+    });
   }
 
   function dragEventNames(e) {
@@ -11111,25 +11495,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  // The host replays read-only and interaction mode many times a second, so
+  // every writer must derive the shield from both states, not overwrite it.
+  function syncShieldPointerEvents(): void {
+    shieldOverlay.style.pointerEvents =
+      interactionMode || textEditPointerState ? "none" : "auto";
+  }
+
   function setTextEditingPointerPassthrough(enabled: boolean): void {
     if (enabled) {
       if (!textEditPointerState) {
         textEditPointerState = {
-          shield: shieldOverlay.style.pointerEvents,
           selection: selectionOverlay.style.pointerEvents,
           highlight: highlightOverlay.style.pointerEvents,
         };
       }
-      shieldOverlay.style.pointerEvents = "none";
+      syncShieldPointerEvents();
       selectionOverlay.style.pointerEvents = "none";
       highlightOverlay.style.pointerEvents = "none";
       return;
     }
     if (!textEditPointerState) return;
-    shieldOverlay.style.pointerEvents = textEditPointerState.shield;
     selectionOverlay.style.pointerEvents = textEditPointerState.selection;
     highlightOverlay.style.pointerEvents = textEditPointerState.highlight;
     textEditPointerState = null;
+    syncShieldPointerEvents();
   }
 
   function hasTextContent(el: Element | null): boolean {
@@ -11151,6 +11541,72 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
   }
 
+  // Native caret width scales with the canvas. Draw one screen pixel at every zoom.
+  var textCaretOverlay: HTMLElement | null = null;
+
+  function hideTextCaretOverlay(target: Element): void {
+    target.removeAttribute("data-agent-native-drawn-caret");
+    if (textCaretOverlay) textCaretOverlay.style.display = "none";
+  }
+
+  function positionTextCaretOverlay(target: HTMLElement): void {
+    var selection = window.getSelection ? window.getSelection() : null;
+    var range =
+      selection &&
+      selection.isCollapsed &&
+      selectionBelongsToElement(selection, target)
+        ? selection.getRangeAt(0)
+        : null;
+    var rect = range ? range.getClientRects()[0] : undefined;
+    if (!range || !rect || rect.height <= 0) {
+      hideTextCaretOverlay(target);
+      return;
+    }
+    if (!textCaretOverlay) {
+      textCaretOverlay = document.createElement("div");
+      textCaretOverlay.setAttribute(
+        "data-agent-native-edit-overlay",
+        "text-caret",
+      );
+      textCaretOverlay.style.cssText =
+        "position:fixed;pointer-events:none;z-index:99999;display:none;";
+      appendEditorChromeNode(textCaretOverlay);
+    }
+    var caretHost =
+      range.startContainer.nodeType === 1
+        ? (range.startContainer as Element)
+        : range.startContainer.parentElement || target;
+    var width = chromeLineScale();
+    var moved =
+      textCaretOverlay.style.display === "none" ||
+      textCaretOverlay.style.left !== rect.left - width / 2 + "px" ||
+      textCaretOverlay.style.top !== rect.top + "px";
+    textCaretOverlay.style.left = rect.left - width / 2 + "px";
+    textCaretOverlay.style.top = rect.top + "px";
+    textCaretOverlay.style.width = width + "px";
+    textCaretOverlay.style.height = rect.height + "px";
+    textCaretOverlay.style.background =
+      window.getComputedStyle(caretHost).color;
+    textCaretOverlay.style.display = "block";
+    if (!target.hasAttribute("data-agent-native-drawn-caret")) {
+      target.setAttribute("data-agent-native-drawn-caret", "");
+    }
+    if (moved && textCaretOverlay.animate) {
+      textCaretOverlay.getAnimations().forEach(function (animation) {
+        animation.cancel();
+      });
+      textCaretOverlay.animate(
+        [
+          { opacity: 1 },
+          { opacity: 1, offset: 0.5 },
+          { opacity: 0, offset: 0.5 },
+          { opacity: 0 },
+        ],
+        { duration: 1060, iterations: Infinity, delay: 500 },
+      );
+    }
+  }
+
   function updateTextEditingChrome(
     target: HTMLElement,
     originalMinWidth: string,
@@ -11169,8 +11625,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.style.minHeight = originalMinHeight;
       positionOverlay(selectionOverlay, target);
       setSelectionOverlayResizeChromeVisible(false);
+      positionTextCaretOverlay(target);
       return;
     }
+    hideTextCaretOverlay(target);
     target.style.minWidth = originalMinWidth || "1px";
     target.style.minHeight = originalMinHeight || "1em";
     document.documentElement.setAttribute(
@@ -13129,12 +13587,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var delta =
       handle.orientation === "vertical" ? clientX - startX : clientY - startY;
     if (
-      handle.kind === "padding" &&
-      (handle.side === "right" || handle.side === "bottom")
+      (handle.kind === "padding" &&
+        (handle.side === "right" || handle.side === "bottom")) ||
+      (handle.kind === "margin" &&
+        (handle.side === "left" || handle.side === "top"))
     ) {
       delta = -delta;
     }
-    return clampSpacingValue(originValue + delta);
+    return clampSpacingValue(originValue + delta, handle.kind === "margin");
   }
 
   var paddingProperties = [
@@ -13143,6 +13603,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "paddingBottom",
     "paddingLeft",
   ];
+  var marginProperties = [
+    "marginTop",
+    "marginRight",
+    "marginBottom",
+    "marginLeft",
+  ];
+
+  function propertiesForSpacingHandle(handle) {
+    if (handle.kind === "margin") return marginProperties;
+    if (handle.kind === "padding") return paddingProperties;
+    return [handle.property];
+  }
 
   function applySpacingDragValue(
     target: Element,
@@ -13160,18 +13632,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } | null,
     value: number,
     mirrorOpposite: boolean,
-    syncAllPadding: boolean,
+    syncAllSides: boolean,
   ): void {
     if (!target || !handle) return;
-    if (handle.kind === "padding" && syncAllPadding) {
-      for (var i = 0; i < 4; i += 1) {
-        target.style[paddingProperties[i]] = value + "px";
+    var properties = propertiesForSpacingHandle(handle);
+    if (syncAllSides) {
+      for (var i = 0; i < properties.length; i += 1) {
+        target.style[properties[i]] = value + "px";
       }
       return;
     }
     target.style[handle.property] = value + "px";
     if (
-      handle.kind === "padding" &&
+      (handle.kind === "padding" || handle.kind === "margin") &&
       mirrorOpposite &&
       handle.oppositeProperty
     ) {
@@ -13194,14 +13667,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var dragEl = selectedEl;
     var originValue = handle.value;
-    var originInlinePaddingValues = {};
-    for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-      var paddingProperty = paddingProperties[paddingIndex];
-      originInlinePaddingValues[paddingProperty] = (
+    var spacingProperties = propertiesForSpacingHandle(handle);
+    var originInlineSpacingValues = {};
+    for (
+      var propertyIndex = 0;
+      propertyIndex < spacingProperties.length;
+      propertyIndex += 1
+    ) {
+      var spacingProperty = spacingProperties[propertyIndex];
+      originInlineSpacingValues[spacingProperty] = (
         dragEl as HTMLElement
-      ).style[paddingProperty];
+      ).style[spacingProperty];
     }
-    var syncAllPadding = !!e.shiftKey;
+    var syncAllSides = !!e.shiftKey;
     var startX = e.clientX;
     var startY = e.clientY;
     lastSpacingPointerPoint = { x: startX, y: startY };
@@ -13210,16 +13688,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle: handle,
       currentValue: originValue,
       mirrorOpposite: !!e.altKey,
-      syncAllPadding: syncAllPadding,
-      touchedAllPadding: syncAllPadding,
+      syncAllSides: syncAllSides,
     };
-    applySpacingDragValue(
-      dragEl,
-      handle,
-      originValue,
-      !!e.altKey,
-      syncAllPadding,
-    );
+    if (syncAllSides) {
+      applySpacingDragValue(dragEl, handle, originValue, !!e.altKey, true);
+    }
     // Hide the hover-only hatch fill the instant the drag begins (Figma-style:
     // hatch communicates "this is the resizable band" on hover; once dragging,
     // only the live value badge should be visible over the padding band).
@@ -13228,31 +13701,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function updateSpacingDragState(
       mirrorOpposite: boolean,
-      syncAllPadding: boolean,
+      syncAllSides: boolean,
     ) {
       if (!spacingDrag) return;
       if (
         spacingDrag.mirrorOpposite === mirrorOpposite &&
-        spacingDrag.syncAllPadding === syncAllPadding
+        spacingDrag.syncAllSides === syncAllSides
       ) {
         return;
       }
-      var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding;
-      if (syncAllPadding) {
-        applySpacingDragValue(
-          dragEl,
-          handle,
-          spacingDrag.currentValue,
-          mirrorOpposite,
-          true,
-        );
+      for (
+        var propertyIndex = 0;
+        propertyIndex < spacingProperties.length;
+        propertyIndex += 1
+      ) {
+        var spacingProperty = spacingProperties[propertyIndex];
+        (dragEl as HTMLElement).style[spacingProperty] =
+          originInlineSpacingValues[spacingProperty];
       }
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        spacingDrag.currentValue,
+        mirrorOpposite,
+        syncAllSides,
+      );
       spacingDrag = {
         handle: handle,
         currentValue: spacingDrag.currentValue,
         mirrorOpposite: mirrorOpposite,
-        syncAllPadding: syncAllPadding,
-        touchedAllPadding: touchedAllPadding,
+        syncAllSides: syncAllSides,
       };
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -13268,10 +13746,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function restoreSpacingDragValue() {
       if (dragEl && document.documentElement.contains(dragEl)) {
-        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-          var paddingProperty = paddingProperties[paddingIndex];
-          (dragEl as HTMLElement).style[paddingProperty] =
-            originInlinePaddingValues[paddingProperty];
+        for (
+          var propertyIndex = 0;
+          propertyIndex < spacingProperties.length;
+          propertyIndex += 1
+        ) {
+          var spacingProperty = spacingProperties[propertyIndex];
+          (dragEl as HTMLElement).style[spacingProperty] =
+            originInlineSpacingValues[spacingProperty];
         }
         selectedEl = dragEl;
         positionOverlay(selectionOverlay, dragEl);
@@ -13306,15 +13788,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
-      var syncAllPadding = !!ev.shiftKey;
-      var touchedAllPadding =
-        (spacingDrag && spacingDrag.touchedAllPadding) || syncAllPadding;
+      var syncAllSides = !!ev.shiftKey;
       spacingDrag = {
         handle: handle,
         currentValue: nextValue,
         mirrorOpposite: !!ev.altKey,
-        syncAllPadding: syncAllPadding,
-        touchedAllPadding: touchedAllPadding,
+        syncAllSides: syncAllSides,
       };
       lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
       applySpacingDragValue(
@@ -13322,7 +13801,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         handle,
         nextValue,
         !!ev.altKey,
-        syncAllPadding,
+        syncAllSides,
       );
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, nextValue);
@@ -13339,32 +13818,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var mirrorOpposite = spacingDrag
         ? spacingDrag.mirrorOpposite
         : !!ev.altKey;
-      var syncAllPadding = spacingDrag
-        ? spacingDrag.syncAllPadding
-        : !!ev.shiftKey;
-      var touchedAllPadding = spacingDrag
-        ? spacingDrag.touchedAllPadding
-        : syncAllPadding;
-      var commitAllPadding =
-        handle.kind === "padding" && (syncAllPadding || touchedAllPadding);
+      var syncAllSides = spacingDrag ? spacingDrag.syncAllSides : !!ev.shiftKey;
+      var commitAllSides =
+        (handle.kind === "padding" || handle.kind === "margin") && syncAllSides;
+      if (finalValue === originValue && !commitAllSides) {
+        restoreSpacingDragValue();
+        return;
+      }
       applySpacingDragValue(
         dragEl,
         handle,
         finalValue,
         mirrorOpposite,
-        commitAllPadding,
+        commitAllSides,
       );
       selectedEl = dragEl;
       spacingDrag = null;
       var styles = {};
-      if (commitAllPadding) {
-        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-          styles[paddingProperties[paddingIndex]] = finalValue + "px";
+      if (commitAllSides) {
+        for (
+          var propertyIndex = 0;
+          propertyIndex < spacingProperties.length;
+          propertyIndex += 1
+        ) {
+          styles[spacingProperties[propertyIndex]] = finalValue + "px";
         }
       } else {
         styles[handle.property] = finalValue + "px";
         if (
-          handle.kind === "padding" &&
+          (handle.kind === "padding" || handle.kind === "margin") &&
           mirrorOpposite &&
           handle.oppositeProperty
         ) {
@@ -14254,12 +14736,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  function vectorGradientPaintTarget(
+  function pastedSvgPaintShapes(root: SVGSVGElement): Element[] {
+    var shapes: Element[] = [];
+    function visit(parent: Element): void {
+      Array.from(parent.children).forEach(function (child) {
+        var tag = child.tagName.toLowerCase();
+        if (tag === "defs") return;
+        if (
+          /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)
+        ) {
+          shapes.push(child);
+        } else if (tag === "g") {
+          visit(child);
+        }
+      });
+    }
+    visit(root);
+    return shapes;
+  }
+
+  function vectorGradientPaintTargets(
     el: Element,
     paintProperty: "fill" | "stroke",
   ): {
     root: SVGSVGElement;
-    target: Element;
+    targets: Element[];
+    metadataTarget: Element;
   } | null {
     var root =
       el.tagName.toLowerCase() === "svg"
@@ -14277,7 +14779,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       target = el;
     }
-    return target ? { root: root, target: target } : null;
+    var targets = target ? [target] : [];
+    if (
+      !targets.length &&
+      el === root &&
+      root.getAttribute("data-an-primitive") === "pasted-svg"
+    ) {
+      targets = pastedSvgPaintShapes(root);
+    }
+    if (!targets.length) return null;
+    var shapeCount = pastedSvgPaintShapes(root).length;
+    return {
+      root: root,
+      targets: targets,
+      metadataTarget: shapeCount === 1 || el === root ? root : targets[0]!,
+    };
   }
 
   function vectorGradientDefAttribute(paintProperty: "fill" | "stroke") {
@@ -14319,12 +14835,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function removeVectorGradientPreview(
     root: SVGSVGElement,
-    target: Element,
+    targets: Element[],
     paintProperty: "fill" | "stroke",
   ): void {
-    var style = (target as HTMLElement).style.getPropertyValue(paintProperty);
-    var reference = style.match(/^url\(\s*['"]?#([^)'"\s]+)['"]?\s*\)$/i);
-    var gradientId = reference ? reference[1] : "";
+    var gradientIds: Record<string, boolean> = Object.create(null);
+    var metadataProperty = vectorGradientMetadataProperty(paintProperty);
+    var rootMetadata = root.style.getPropertyValue(metadataProperty);
+    targets.forEach(function (target) {
+      var style = (target as HTMLElement).style.getPropertyValue(paintProperty);
+      var reference = style.match(/^url\(\s*['"]?#([^)'"\s]+)['"]?\s*\)$/i);
+      if (reference?.[1]) gradientIds[reference[1]] = true;
+      (target as HTMLElement).style.removeProperty(metadataProperty);
+    });
     var defsContainers = Array.from(
       root.querySelectorAll(
         ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]",
@@ -14332,8 +14854,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     defsContainers.forEach(function (defs) {
       Array.from(defs.children).forEach(function (gradient) {
-        if (gradientId && gradient.getAttribute("id") === gradientId) {
+        var id = gradient.getAttribute("id");
+        var remainingReferences = id
+          ? Array.from(root.querySelectorAll("[style]")).filter(function (el) {
+              if (targets.indexOf(el) >= 0) return false;
+              var reference = (el as HTMLElement).style
+                .getPropertyValue(paintProperty)
+                .match(/^url\(\s*['\"]?#([^)'\"\s]+)['\"]?\s*\)$/i);
+              return reference?.[1] === id;
+            })
+          : [];
+        if (id && gradientIds[id] && !remainingReferences.length) {
           gradient.remove();
+        } else if (rootMetadata && gradientIds[id || ""]) {
+          remainingReferences.forEach(function (el) {
+            (el as HTMLElement).style.setProperty(
+              metadataProperty,
+              rootMetadata,
+            );
+          });
         }
       });
     });
@@ -14341,28 +14880,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (normalizedDefs && normalizedDefs.children.length === 0) {
       normalizedDefs.remove();
     }
-    var metadataProperty = vectorGradientMetadataProperty(paintProperty);
-    (target as HTMLElement).style.removeProperty(metadataProperty);
     root.style.removeProperty(metadataProperty);
-  }
-
-  function vectorFillGradientShapeCount(root: SVGSVGElement): number {
-    var count = 0;
-    function visit(parent: Element): void {
-      Array.from(parent.children).forEach(function (child) {
-        var tag = child.tagName.toLowerCase();
-        if (tag === "defs") return;
-        if (
-          /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)
-        ) {
-          count += 1;
-        } else if (tag === "g") {
-          visit(child);
-        }
-      });
-    }
-    visit(root);
-    return count;
   }
 
   function appendSvgGradientStops(
@@ -14408,7 +14926,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     value: string,
     paintProperty: "fill" | "stroke",
   ): boolean {
-    var paint = vectorGradientPaintTarget(el, paintProperty);
+    var paint = vectorGradientPaintTargets(el, paintProperty);
     if (!paint) return false;
     var linear = parseLinearGradientCss(value);
     var radialMatch = String(value || "")
@@ -14442,7 +14960,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!linear && !isRadial) return false;
     var stops = linear ? linear.stops : radialStops;
 
-    removeVectorGradientPreview(paint.root, paint.target, paintProperty);
+    removeVectorGradientPreview(paint.root, paint.targets, paintProperty);
     var baseId =
       (paint.root.getAttribute("data-agent-native-node-id") || "vector") +
       "-" +
@@ -14639,15 +15157,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     defs.appendChild(gradient);
     recordSourceSubtree(defs);
-    (paint.target as HTMLElement).style.setProperty(
-      paintProperty,
-      "url(#" + gradientId + ")",
-    );
-    var metadataTarget =
-      vectorFillGradientShapeCount(paint.root) === 1
-        ? paint.root
-        : paint.target;
-    (metadataTarget as HTMLElement).style.setProperty(
+    paint.targets.forEach(function (target) {
+      (target as HTMLElement).style.setProperty(
+        paintProperty,
+        "url(#" + gradientId + ")",
+      );
+    });
+    (paint.metadataTarget as HTMLElement).style.setProperty(
       vectorGradientMetadataProperty(paintProperty),
       value.trim(),
     );
@@ -14681,35 +15197,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var strokeOverlay: Element | null = null;
     var useOverlay = false;
     if (isVectorPaintProperty(cssProperty)) {
-      var shape = vectorPaintTarget(el);
       var vectorRoot =
         el.tagName.toLowerCase() === "svg"
           ? (el as unknown as SVGSVGElement)
           : (el.closest(
               "svg[data-an-primitive]",
             ) as unknown as SVGSVGElement | null);
+      var shape = vectorPaintTarget(el);
+      var shapes = shape ? [shape] : [];
       if (
-        !shape &&
-        vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg" &&
-        /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
-          el.tagName,
-        )
+        !shapes.length &&
+        vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg"
       ) {
-        shape = el;
+        shapes =
+          el === vectorRoot
+            ? pastedSvgPaintShapes(vectorRoot)
+            : /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
+                  el.tagName,
+                )
+              ? [el]
+              : [];
       }
-      if (shape) {
-        if (cssProperty === "fill" && vectorRoot) {
-          removeVectorGradientPreview(vectorRoot, shape, "fill");
+      if (shapes.length && vectorRoot) {
+        if (cssProperty === "fill" || cssProperty === "stroke") {
+          removeVectorGradientPreview(vectorRoot, shapes, cssProperty);
         }
         strokeOverlay = vectorStrokeTarget(el);
         useOverlay =
           cssProperty.indexOf("stroke") === 0 &&
           !!strokeOverlay &&
           strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
-        target = useOverlay ? strokeOverlay! : shape;
-        if (cssProperty === "stroke" && vectorRoot) {
-          removeVectorGradientPreview(vectorRoot, target, "stroke");
-        }
+        target = useOverlay ? strokeOverlay! : shapes[0]!;
         clearVectorWrapperPaint(el);
         if (useOverlay && cssProperty === "stroke-width") {
           var logicalWidth = String(value);
@@ -14725,6 +15243,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             logicalWidth,
           );
           value = actualWidth;
+        }
+        if (shapes.length > 1 && !useOverlay) {
+          shapes.forEach(function (shapeTarget) {
+            (shapeTarget as HTMLElement).style.setProperty(
+              cssProperty,
+              String(value),
+            );
+          });
+          return true;
         }
       }
     }
@@ -15380,8 +15907,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // while synthetic and older events can carry an epoch timestamp. Normalize
   // both forms before sending a source timestamp to the host document.
   function eventEpochMilliseconds(
-    ev?: { timeStamp?: number } | null,
+    ev?: { timeStamp?: number; isTrusted?: boolean } | null,
   ): number | undefined {
+    // The host forwards board-drag events built in its own realm. Their
+    // timeStamp uses the host's earlier time origin, so dispatch-time is the
+    // reliable creation time when the event crosses into this document.
+    if (ev?.isTrusted === false) {
+      return performance.timeOrigin + performance.now();
+    }
     if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
       return undefined;
     }
@@ -22377,6 +22910,81 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return [];
   };
 
+  function scaleSelectionByFactor(
+    factor: number,
+    anchorX: number,
+    anchorY: number,
+  ): void {
+    if (readOnly || !selectedEl || isLayerInteractionBlocked(selectedEl))
+      return;
+    if (!(factor > 0) || factor === 1) return;
+    var el = selectedEl as HTMLElement;
+    refreshLiveVisualEditOriginalStyles(el);
+    ensurePositionable(el);
+    var cs = window.getComputedStyle(el);
+    var width = readPx(cs.width);
+    var height = readPx(cs.height);
+    var nextWidth = width * factor;
+    var nextHeight = height * factor;
+    var styles: Record<string, string> = {
+      left:
+        quantizeToLayoutGrid(
+          readPx(el.style.left || cs.left) - (nextWidth - width) * anchorX,
+        ) + "px",
+      top:
+        quantizeToLayoutGrid(
+          readPx(el.style.top || cs.top) - (nextHeight - height) * anchorY,
+        ) + "px",
+      width: quantizeToLayoutGrid(nextWidth) + "px",
+      height: quantizeToLayoutGrid(nextHeight) + "px",
+    };
+    if (el.style.position) styles.position = el.style.position;
+    var fontSize = readPx(el.style.fontSize || cs.fontSize);
+    var svgViewBoxScalesFont =
+      (el instanceof SVGSVGElement && el.hasAttribute("viewBox")) ||
+      isInsideScaledSvgViewBox(el);
+    if (fontSize > 0 && !svgViewBoxScalesFont) {
+      styles.fontSize =
+        Math.max(1, Math.round(fontSize * factor * 100) / 100) + "px";
+    }
+    var targets = collectKScaleStyleTargets(el, false);
+    Object.keys(styles).forEach(function (property) {
+      (el.style as any)[property] = styles[property];
+    });
+    applyKScaleStyleTargets(targets, factor);
+    var changes = kScaleStyleChanges(targets, factor);
+    var rootSelector = getSelector(el);
+    var rootChange = changes.find(function (change) {
+      return change.selector === rootSelector;
+    });
+    if (rootChange) {
+      rootChange.styles = Object.assign({}, rootChange.styles, styles);
+      rootChange.originalStyles = Object.assign(
+        {},
+        rootChange.originalStyles || {},
+        originalInlineStylesForPatch(el, styles),
+      );
+    } else {
+      changes.unshift({
+        selector: rootSelector,
+        sourceId: getSourceId(el) || undefined,
+        styles: styles,
+        originalStyles: originalInlineStylesForPatch(el, styles),
+        preserveSelection: true,
+      });
+    }
+    (window.parent as Window).postMessage(
+      { type: "visual-style-batch-change", changes: changes },
+      "*",
+    );
+    recordSourceOwnership(el);
+    targets.forEach(function (target) {
+      recordSourceOwnership(target.el);
+    });
+    releaseLiveVisualEditOriginalStyles(el);
+    refreshOverlays();
+  }
+
   function startResize(handle, e) {
     if (readOnly) return;
     if (!selectedEl) return;
@@ -23539,6 +24147,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return;
     }
+    if (activeTextEditEl && isTextEditElConnected()) {
+      var textEditToFinish = activeTextEditEl;
+      if (finishActiveTextEdit) finishActiveTextEdit(true);
+      textEditToFinish.blur();
+    }
     stopNativeInteraction(e);
     clearGridProjectionCaches();
     // Consume any host handoff at pointerdown; the synthetic event carries
@@ -24559,29 +25172,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  function placeTextCaretFromPoint(target, clientX, clientY) {
-    try {
-      var range = null;
-      if (document.caretRangeFromPoint) {
-        range = document.caretRangeFromPoint(clientX, clientY);
-      } else if (document.caretPositionFromPoint) {
-        var position = document.caretPositionFromPoint(clientX, clientY);
-        if (position) {
-          range = document.createRange();
-          range.setStart(position.offsetNode, position.offset);
-        }
-      }
-      if (!range) {
-        range = document.createRange();
-        range.selectNodeContents(target);
-        range.collapse(false);
-      }
-      var selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-    } catch (err) {
-      collapseSelectionIntoContents(target);
-    }
+  function selectAllTextContents(target: HTMLElement): void {
+    var range = document.createRange();
+    range.selectNodeContents(target);
+    var selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+    selection.addRange(range);
   }
 
   // T5: elements that must never become contenteditable via the raw-target
@@ -24670,6 +25267,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // hit-test, and we already tried the explicit target above.
       if (!programmaticFlag) {
         var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
+        // Figma: double-clicking the selected vector opens point editing,
+        // which the host already owns behind Enter.
+        if (
+          descendHit &&
+          selectedEl &&
+          selectedEl.hasAttribute("data-an-pen-nodes") &&
+          selectedEl.contains(descendHit)
+        ) {
+          postDesignHotkey({ key: "Enter", code: "Enter" });
+          return;
+        }
         if (
           descendHit &&
           descendHit !== document.body &&
@@ -24858,10 +25466,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.removeEventListener("input", onInput, true);
       target.removeEventListener("keyup", onKeyUp, true);
       target.removeEventListener("mouseup", onMouseUp, true);
+      target.removeEventListener("mousedown", onMouseDownInSelection, true);
+      target.removeEventListener("dragstart", preventTextDrag, true);
       document.removeEventListener("selectionchange", onSelectionChange);
       window.removeEventListener("blur", onWindowBlur, true);
       target.removeAttribute("contenteditable");
       target.removeAttribute("data-agent-native-text-editing");
+      hideTextCaretOverlay(target);
       document.documentElement.removeAttribute(
         "data-agent-native-empty-text-editing",
       );
@@ -25093,6 +25704,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       scheduleTextEditingChromeUpdate();
     }
 
+    function onMouseDownInSelection(ev: MouseEvent) {
+      if (ev.button !== 0 || ev.shiftKey || ev.detail !== 1) return;
+      var selection = window.getSelection ? window.getSelection() : null;
+      if (!selection || selection.isCollapsed) return;
+      var point = document.caretPositionFromPoint
+        ? (function () {
+            var position = document.caretPositionFromPoint(
+              ev.clientX,
+              ev.clientY,
+            );
+            if (!position) return null;
+            var range = document.createRange();
+            range.setStart(position.offsetNode, position.offset);
+            range.collapse(true);
+            return range;
+          })()
+        : document.caretRangeFromPoint
+          ? document.caretRangeFromPoint(ev.clientX, ev.clientY)
+          : null;
+      if (!point || !rangeBelongsToElement(point, target)) return;
+      selection.removeAllRanges();
+      selection.addRange(point);
+    }
+
+    function preventTextDrag(ev: DragEvent): void {
+      ev.preventDefault();
+    }
+
     function onMouseUp() {
       captureActiveTextEditRange(target);
       clearActiveTextEditRangeIfCollapsed(target);
@@ -25105,6 +25744,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     target.addEventListener("input", onInput, true);
     target.addEventListener("keyup", onKeyUp, true);
     target.addEventListener("mouseup", onMouseUp, true);
+    target.addEventListener("mousedown", onMouseDownInSelection, true);
+    target.addEventListener("dragstart", preventTextDrag, true);
     document.addEventListener("selectionchange", onSelectionChange);
     window.addEventListener("blur", onWindowBlur, true);
     target.focus();
@@ -25123,7 +25764,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // editable node. Collapse to the end of the target's own contents instead.
       collapseSelectionIntoContents(target);
     } else {
-      placeTextCaretFromPoint(target, e.clientX, e.clientY);
+      selectAllTextContents(target);
     }
     captureActiveTextEditRange(target);
     postTextEditingState(target, true);
@@ -25707,7 +26348,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       // Preserve the more specific Interact ownership when read-only state is
       // replayed after a mode change on a retained iframe.
-      shieldOverlay.style.pointerEvents = interactionMode ? "none" : "auto";
+      syncShieldPointerEvents();
       setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
       if (interactionMode) hideSelectionOverlay();
       else if (selectedEl?.isConnected)
@@ -25737,11 +26378,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         hideSelectionOverlay();
         highlightOverlay.style.display = "none";
         marqueeSelectionOverlay.style.display = "none";
-        shieldOverlay.style.pointerEvents = "none";
+        syncShieldPointerEvents();
       } else {
         textEditingEnabled = !readOnly && textEditingEnabledFlag;
         setSelectionOverlayResizeChromeVisible(!readOnly);
-        shieldOverlay.style.pointerEvents = "auto";
+        syncShieldPointerEvents();
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
         scheduleRuntimeLayerSnapshot();
@@ -26071,6 +26712,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // bridgeSpaceKeyPressed on every move/commit tick, so this has the
       // same effect as this document's own keydown/keyup listener seeing it.
       bridgeSpaceKeyPressed = Boolean(e.data.held);
+      return;
+    }
+    if (e.data.type === "agent-native:scale-selection") {
+      if (!selectedEl || getSelector(selectedEl) !== e.data.selector) return;
+      scaleSelectionByFactor(
+        Number(e.data.factor),
+        Number(e.data.anchorX),
+        Number(e.data.anchorY),
+      );
       return;
     }
     if (e.data.type === "agent-native:cancel-active-drag") {
@@ -27542,10 +28192,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         hideSelectionOverlay();
         highlightOverlay.style.display = "none";
         marqueeSelectionOverlay.style.display = "none";
-        shieldOverlay.style.pointerEvents = "none";
+        syncShieldPointerEvents();
       } else {
         setSelectionOverlayResizeChromeVisible(!readOnly);
-        shieldOverlay.style.pointerEvents = "auto";
+        syncShieldPointerEvents();
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
       }

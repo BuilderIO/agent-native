@@ -263,6 +263,12 @@ export default {
       opacity: "Opacidade",
       padding: "Preenchimento",
       margin: "Margem",
+      marginTop: "Margem superior",
+      marginRight: "Margem direita",
+      marginBottom: "Margem inferior",
+      marginLeft: "Margem esquerda",
+      linkMarginSides: "Vincular lados da margem",
+      unlinkMarginSides: "Desvincular lados da margem",
       radius: "Raio",
       flexGrow: "Crescer",
       flexShrink: "Encolher",
@@ -324,6 +330,18 @@ export default {
       customTransform:
         "Transformação personalizada — não pode ser editada como rotação X/Y/Z",
       shaderEffectType: "Shader",
+      imageScaleMode: "Modo de escala da imagem",
+      imageAdjustments: "Ajustes da imagem",
+      imageExposure: "Exposição",
+      imageContrast: "Contraste",
+      imageSaturation: "Saturação",
+      imageScaleFill: "Preencher",
+      imageScaleFit: "Ajustar",
+      imageScaleCrop: "Recortar",
+      noMirroring: "Sem espelhamento",
+      vector: "Vetor",
+      mirrorAngle: "Espelhar ângulo",
+      mirrorAngleAndLength: "Espelhar ângulo e comprimento",
     },
     shaders: {
       fillsTitle: "Preenchimentos de shader",
@@ -546,6 +564,22 @@ export default {
         socialMedia: "Redes sociais",
         adUnit: "Unidade de anúncio",
       },
+    },
+    scale: {
+      title: "Escala",
+      exit: "Sair da escala",
+      factor: "Fator de escala",
+      presets: "Predefinições de escala",
+      anchor: "Ponto de ancoragem",
+      topLeft: "Superior esquerdo",
+      topCenter: "Superior central",
+      topRight: "Superior direito",
+      middleLeft: "Centro esquerdo",
+      center: "Centro",
+      middleRight: "Centro direito",
+      bottomLeft: "Inferior esquerdo",
+      bottomCenter: "Inferior central",
+      bottomRight: "Inferior direito",
     },
   },
   designEditor: {
@@ -778,6 +812,8 @@ export default {
       figmaPasteTarget: "Cole na tela",
       figmaPasteApiKeyHint:
         "Conecte seu token de acesso do Figma para importações exatas de nós.",
+      figmaPasteAccessDenied:
+        'O token do Figma conectado não consegue acessar este arquivo. Verifique suas permissões e se o token inclui o escopo "File content".',
       figmaPasteMatchGuidance:
         "Não foi possível corresponder a nós específicos do Figma. Cole um link do frame para uma importação exata.",
       figmaPasteUnreadable:
@@ -1077,6 +1113,7 @@ export default {
         ungroup: "Desagrupar",
         frameSelection: "Enquadrar seleção",
         autoLayout: "Layout automático",
+        imageVideo: "Imagem/vídeo...",
       },
     },
     undo: "Desfazer",
@@ -1368,6 +1405,10 @@ export default {
       screenSourceUpdateFailed: "Não foi possível atualizar a fonte da tela",
       vectorEditUnsupported:
         "A edição vetorial não está disponível para esta forma ou transformação.",
+      imageUploading: "Enviando imagem…",
+      pasteReplaceFailed: "Não foi possível substituir essa camada",
+      swapFillStrokeLayeredFill:
+        "Vários preenchimentos ou preenchimentos de imagem ainda não podem virar contorno",
     },
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Pode ver e adicionar comentários de revisão",

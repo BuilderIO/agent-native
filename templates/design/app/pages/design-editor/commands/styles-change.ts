@@ -17,7 +17,7 @@ export interface StylesChangeArgs {
     styles: Record<string, string>,
   ) => boolean;
   commitRelativeStyleDeltaToSelectedLayers: (
-    property: string,
+    property: string | string[],
     operation: number | ScrubRelativeExpression,
     phase?: StyleChangeMeta["phase"],
   ) => boolean;
@@ -126,7 +126,7 @@ export function runStylesChange(
   if (meta?.capturedStyleTargets && meta.phase !== "preview") {
     commitCapturedStyleTargets(
       Object.fromEntries(
-        Object.entries(styles).filter(([, value]) => Boolean(value)),
+        Object.entries(styles).filter(([, value]) => value !== undefined),
       ),
       meta.capturedStyleTargets,
       meta.interactionState,
@@ -172,7 +172,9 @@ export function runStylesChange(
     );
     return;
   }
-  const entries = Object.entries(styles).filter(([, value]) => Boolean(value));
+  const entries = Object.entries(styles).filter(
+    ([, value]) => value !== undefined,
+  );
   if (entries.length === 0) return;
   const target = styleWriteTarget({ selector, selectedElement });
   if (
@@ -189,14 +191,35 @@ export function runStylesChange(
     );
     return;
   }
-  if (meta?.relativeExpression && entries.length === 1) {
-    const [property] = entries[0]!;
-    commitRelativeStyleDeltaToSelectedLayers(
-      property,
-      meta.relativeExpression,
-      meta.phase,
+  if (selectedScreenId && selectedScreenStyleChange) {
+    selectedScreenStyleChange(
+      selectedScreenId,
+      target,
+      Object.fromEntries(entries),
+      selectedElement ?? undefined,
+      meta,
     );
     return;
+  }
+  const relativeProperties =
+    meta?.relativeDeltaProperties ??
+    (entries.length === 1 ? [entries[0]![0]] : []);
+  const relativeOperation = meta?.relativeExpression ?? meta?.relativeDelta;
+  if (
+    relativeOperation !== undefined &&
+    relativeProperties.length > 0 &&
+    relativeProperties.every((property) =>
+      entries.some(([entryProperty]) => entryProperty === property),
+    )
+  ) {
+    const applied = commitRelativeStyleDeltaToSelectedLayers(
+      relativeProperties.length === 1
+        ? relativeProperties[0]!
+        : relativeProperties,
+      relativeOperation,
+      meta?.phase,
+    );
+    if (meta?.relativeExpression || applied) return;
   }
   // T10: mirror handleStyleChange's text-range routing here. Without
   // this, a multi-property style commit (e.g. EditPanel's typography
@@ -222,20 +245,11 @@ export function runStylesChange(
         sendStyleChange(selector, property, value, {
           selectorCandidates: selectedCanvasSelectorCandidates,
           nodeId: selectedElement?.sourceId,
+          phase: meta?.phase,
         });
       });
       return;
     }
-  }
-  if (selectedScreenId && selectedScreenStyleChange) {
-    selectedScreenStyleChange(
-      selectedScreenId,
-      target,
-      Object.fromEntries(entries),
-      selectedElement ?? undefined,
-      meta,
-    );
-    return;
   }
   // PF12: same preview/commit split as handleStyleChange — see its
   // comment for the full undo-safety rationale. A batched multi-property
@@ -258,26 +272,6 @@ export function runStylesChange(
       });
     }
     return;
-  }
-  // Mixed-value arrow-step parity (item 7): see handleStyleChange's
-  // matching comment for the full defensive-read rationale. A relative
-  // delta is inherently single-valued (one scrub gesture on one field),
-  // so this only applies when the batched patch has exactly one entry —
-  // a multi-property patch (e.g. a shadow popover's X+Y+blur+spread all
-  // at once) has no single delta to apply per-node and falls through to
-  // the existing absolute-value paths unchanged.
-  const relativeDelta = (meta as { relativeDelta?: number } | undefined)
-    ?.relativeDelta;
-  if (typeof relativeDelta === "number" && entries.length === 1) {
-    const [singleProperty] = entries[0]!;
-    if (
-      commitRelativeStyleDeltaToSelectedLayers(
-        singleProperty,
-        relativeDelta,
-        meta?.phase,
-      )
-    )
-      return;
   }
   if (
     selectedElement &&

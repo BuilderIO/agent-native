@@ -125,7 +125,6 @@ import {
 } from "./edit-panel/fill-gradient-helpers";
 import { FillProperties } from "./edit-panel/fill-properties";
 import { FramePresetsPanel } from "./edit-panel/frame-presets-panel";
-import { ImageProperties } from "./edit-panel/image-properties";
 import type { InspectCodeSourceLocation } from "./edit-panel/inspect-code-source";
 import { SectionIconButton } from "./edit-panel/inspector-controls";
 import {
@@ -163,6 +162,10 @@ import {
   textStrokeIsVisible,
 } from "./edit-panel/position-helpers";
 import { PositionLayoutProperties } from "./edit-panel/position-layout-properties";
+import {
+  ScaleProperties,
+  type ScaleToolControls,
+} from "./edit-panel/scale-properties";
 import { mixedElementFromSelection } from "./edit-panel/selection-helpers";
 import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
@@ -539,6 +542,8 @@ interface EditPanelProps {
    * type without EditPanel importing it.
    */
   activeTool?: string;
+  /** Shows Figma's Scale section while `activeTool === "scale"`. */
+  scaleToolControls?: ScaleToolControls;
   /**
    * Creates a new screen sized to the clicked preset. Only takes effect while
    * `activeTool === "frame"`; when omitted the frame tool falls back to the
@@ -1914,6 +1919,7 @@ function PageProperties({
           <ColorInput
             label={t("editPanel.labels.background")}
             value={canvasBackground ?? canvasBackgroundFallback ?? ""}
+            supportedPaintTypes={["solid", "none"]}
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
@@ -2569,6 +2575,7 @@ export const EditPanel = memo(function EditPanel({
   inspectCode,
   aiActions,
   activeTool,
+  scaleToolControls,
   onCreateScreenFromPreset,
   onAlignSelection,
   alignSelectionDisabled = false,
@@ -3372,6 +3379,17 @@ export const EditPanel = memo(function EditPanel({
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
+                  {activeTool === "scale" &&
+                  scaleToolControls &&
+                  effectiveSelectedElements.length === 1 ? (
+                    <ScaleProperties
+                      key={`scale:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      controls={scaleToolControls}
+                    />
+                  ) : null}
                   <LayoutContextProperties
                     key={`layout-context:${inspectorElementSectionKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
@@ -3397,14 +3415,6 @@ export const EditPanel = memo(function EditPanel({
                     vectorPointSelected={vectorPointSelected}
                     onVectorPointRadiusChange={onVectorPointRadiusChange}
                   />
-                  {inspectorElement.tagName.toLowerCase() === "img" ? (
-                    <ImageProperties
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      onStyleChange={onStyleChange}
-                    />
-                  ) : null}
                   {selectionHasTextElement ? (
                     <TypographyProperties
                       key={`typography:${inspectorElementSectionKey}`}

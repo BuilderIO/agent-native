@@ -47,8 +47,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暂时跳过",
   "onboarding.saveRoleError": "无法保存你的角色。",
-  "onboarding.builderActivateCredits": "激活 Builder.io 免费额度",
-  "onboarding.builderConnectCredits": "连接 Builder.io 免费额度",
+  "onboarding.builderCreateAccount": "创建 Builder.io 账户",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io 账户登录",
   "onboarding.builderActivateDescription":
     "一键创建或重新使用您的 Builder.io 账户，并激活免费额度。",
   "onboarding.builderActiveCredits": "包含在有效的 Builder.io 免费额度中",
@@ -458,7 +458,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AI 提供商暂时拒绝了此请求。这种情况通常在一分钟内自行恢复,请重试。",
   "errorMessages.startNewChat": "开始新聊天",
-  "errorMessages.upgradeAtBuilder": "在 Builder.io 升级",
+  "errorMessages.addCreditsInBuilder": "在 Builder 中添加积分",
   "feedback.inaccurate": "不准确",
   "feedback.keyboardHint": "{{shortcut}} Enter 发送",
   "feedback.notHelpful": "没有帮助",
@@ -780,6 +780,14 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "无法发送确认邮件。",
   "settings.emailNewLabel": "新电子邮件",
   "settings.emailNewPlaceholder": "输入新电子邮件",
+  "usage.builderCredits": "Builder 积分",
+  "usage.estimatedBuilderCredits": "~{{amount}} 预估积分",
+  "usage.otherUsdSpend": "{{amount}} 其他 USD",
+  "usage.noBuilderCredits": "Builder 积分 0",
+  "usage.otherUnclassifiedSpend": "其他或未分类的 USD 支出",
+  "usage.providerSpendDetail": "Builder 计费之外的提供商使用量或旧调用",
+  "usage.providerSpendToday": "今日其他或未分类使用量：{{amount}}",
+  "usage.driverCreditsAndUsd": "Builder 积分 / USD",
 };
 
 export default messages;

@@ -65,6 +65,7 @@ export interface StyleChangeMeta {
   routePath?: string;
   relativeDelta?: number;
   relativeExpression?: ScrubRelativeExpression;
+  relativeDeltaProperties?: string[];
   interactionState?: InteractionState;
   breakpointReset?: { property: string; maxWidthPx: number };
   /** Source targets captured by an async inspector operation such as image upload. */
