@@ -1143,7 +1143,7 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.pathname).toBe("/settings/agent/llm");
+    expect(window.location.pathname).toBe("/settings/keys");
     expect(mocks.completeFirstRun).toHaveBeenCalled();
     window.history.replaceState(null, "", "/");
   });

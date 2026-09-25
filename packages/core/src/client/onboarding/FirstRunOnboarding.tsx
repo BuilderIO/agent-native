@@ -345,7 +345,7 @@ export function FirstRunOnboarding({
     window.history.pushState(
       null,
       "",
-      `${appPath(buildSettingsRoute("agent:llm"))}${query ? `?${query}` : ""}`,
+      `${appPath(buildSettingsRoute("keys"))}${query ? `?${query}` : ""}`,
     );
     window.dispatchEvent(new Event("popstate"));
   };
