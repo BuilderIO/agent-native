@@ -641,7 +641,7 @@ describe("listOutputReviews", () => {
     ).resolves.toMatchObject([{ ask: "A real thread", answer: "" }]);
   });
 
-  it("loads the full text transcript for an accessible run", async () => {
+  it("loads only the selected run's text transcript", async () => {
     mockGetTraceSummary.mockResolvedValueOnce({
       runId: "run-1",
       threadId: "thread-1",
@@ -653,10 +653,48 @@ describe("listOutputReviews", () => {
           "thread-1",
           JSON.stringify({
             messages: [
-              { message: { role: "user", content: "First question" } },
-              { message: { role: "assistant", content: "First answer" } },
-              { message: { role: "user", content: "Follow-up" } },
-              { message: { role: "assistant", content: "Final answer" } },
+              {
+                message: {
+                  role: "user",
+                  content: "Neighbor question",
+                  metadata: { runId: "run-2" },
+                },
+              },
+              {
+                message: {
+                  role: "assistant",
+                  content: "Neighbor answer",
+                  metadata: { runId: "run-2" },
+                },
+              },
+              {
+                message: {
+                  role: "user",
+                  content: "First question",
+                  metadata: { runId: "run-1" },
+                },
+              },
+              {
+                message: {
+                  role: "assistant",
+                  content: "First answer",
+                  metadata: { runId: "run-1" },
+                },
+              },
+              {
+                message: {
+                  role: "user",
+                  content: "Follow-up",
+                  metadata: { runId: "run-1" },
+                },
+              },
+              {
+                message: {
+                  role: "assistant",
+                  content: "Final answer",
+                  metadata: { runId: "run-1" },
+                },
+              },
             ],
           }),
         ],

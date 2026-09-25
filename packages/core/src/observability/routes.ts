@@ -96,11 +96,11 @@ async function resolveOwner(event: H3Event): Promise<string> {
 async function feedbackReadScope(
   event: H3Event,
   userId: string,
-): Promise<{ orgId: string } | { userId: string }> {
+): Promise<{ orgId: string } | { userId: string; orgId?: string }> {
   const org = await getOrgContext(event);
   return org.orgId && (org.role === "owner" || org.role === "admin")
     ? { orgId: org.orgId }
-    : { userId };
+    : { userId, ...(org.orgId ? { orgId: org.orgId } : {}) };
 }
 
 function canManageExperiments(ownerEmail: string): boolean {
@@ -334,6 +334,7 @@ export function createObservabilityHandler() {
         feedbackType: isFeedbackType(q.feedbackType)
           ? q.feedbackType
           : undefined,
+        source: "chat",
         ...(await feedbackReadScope(event, owner)),
       });
     }

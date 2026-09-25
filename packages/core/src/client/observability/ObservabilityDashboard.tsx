@@ -18,7 +18,6 @@ import {
   IconExternalLink,
   IconArrowLeft,
   IconLoader2,
-  IconAlertTriangle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -50,7 +49,6 @@ import {
   useTraceDetail,
   useFeedbackList,
   useFeedbackStats,
-  useSatisfaction,
   useEvalStats,
   useExperiments,
   useExperimentDetail,
@@ -1467,8 +1465,6 @@ function FeedbackTab({ days }: { days: number }) {
     undefined,
     activeOrg?.orgId,
   );
-  const { data: satisfaction } = useSatisfaction(days);
-
   if (orgError) {
     return (
       <p role="alert" className="text-sm text-muted-foreground">
@@ -1481,15 +1477,10 @@ function FeedbackTab({ days }: { days: number }) {
 
   const thumbsTotal = (stats?.thumbsUp ?? 0) + (stats?.thumbsDown ?? 0);
   const thumbsUpRate = thumbsTotal > 0 ? stats!.thumbsUp / thumbsTotal : 0;
-  const avgFrustration =
-    satisfaction && satisfaction.length > 0
-      ? satisfaction.reduce((sum, s) => sum + s.frustrationScore, 0) /
-        satisfaction.length
-      : 0;
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <MetricCard
           label={t("observability.totalFeedback")}
           value={String(stats?.total ?? 0)}
@@ -1504,11 +1495,6 @@ function FeedbackTab({ days }: { days: number }) {
           label={t("observability.thumbsDown")}
           value={String(stats?.thumbsDown ?? 0)}
           icon={<IconThumbDown size={16} />}
-        />
-        <MetricCard
-          label={t("observability.frustration")}
-          value={avgFrustration.toFixed(2)}
-          icon={<IconAlertTriangle size={16} />}
         />
       </div>
 

@@ -142,9 +142,27 @@ describe("observability routes", () => {
       sinceMs: 123,
       limit: 100,
       feedbackType: undefined,
+      source: "chat",
       userId: "alice@example.com",
+      orgId: "org-a",
     });
     expect(mockGetFeedbackStats).toHaveBeenCalledWith(123, {
+      userId: "alice@example.com",
+      orgId: "org-a",
+    });
+  });
+
+  it("keeps member feedback scoped to the user when no active org exists", async () => {
+    mockGetOrgContext.mockResolvedValue({ orgId: null, role: null });
+    const handler = createObservabilityHandler() as any;
+
+    await handler(createEvent("/feedback?since=123"));
+
+    expect(mockGetFeedback).toHaveBeenCalledWith({
+      sinceMs: 123,
+      limit: 100,
+      feedbackType: undefined,
+      source: "chat",
       userId: "alice@example.com",
     });
   });
@@ -168,6 +186,7 @@ describe("observability routes", () => {
     expect(mockGetFeedback).toHaveBeenCalledWith({
       sinceMs: 123,
       limit: 100,
+      source: "chat",
       orgId: "org-a",
     });
     expect(mockGetFeedbackStats).toHaveBeenCalledWith(123, { orgId: "org-a" });
@@ -368,6 +387,7 @@ describe("observability routes", () => {
       sinceMs: expect.any(Number),
       limit: 25,
       feedbackType: "text",
+      source: "chat",
       orgId: "org-a",
     });
   });

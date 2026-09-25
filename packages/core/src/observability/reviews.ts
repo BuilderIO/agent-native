@@ -232,7 +232,11 @@ export async function getOutputReviewDetailForRun(opts: {
   const threadData = threads.get(summary.threadId);
   if (threadData === undefined) return { found: false };
 
-  const threadMessages = threadData ? readThreadMessages(threadData) : [];
+  const threadMessages = threadData
+    ? readThreadMessages(threadData).filter(
+        (message) => message.runId === summary.runId,
+      )
+    : [];
   return {
     found: true,
     app: getInlineAppForRun(summary, threadData),
