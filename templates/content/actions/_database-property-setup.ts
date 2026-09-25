@@ -1,3 +1,8 @@
+import {
+  iconValueSchema,
+  parseIconValue,
+  serializeIconValue,
+} from "@agent-native/core/icons";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -72,6 +77,7 @@ const propertyOptionSchema = z
 const propertyDefinitionBase = z.object({
   name: z.string().trim().min(1).max(500),
   description: z.string().max(2_000).optional(),
+  icon: iconValueSchema.nullable().optional(),
   visibility: z.enum(DOCUMENT_PROPERTY_VISIBILITIES).optional(),
 });
 
@@ -126,6 +132,7 @@ const updatePatchSchema = z
   .object({
     name: z.string().trim().min(1).max(500).optional(),
     description: z.string().max(2_000).optional(),
+    icon: iconValueSchema.nullable().optional(),
     visibility: z.enum(DOCUMENT_PROPERTY_VISIBILITIES).optional(),
     optionEdits: z.array(optionEditSchema).max(100).optional(),
     naturalKey: z.boolean().optional(),
@@ -255,6 +262,7 @@ function canonicalProperty(definition: Definition, context: MutationContext) {
     name: definition.name,
     type: definition.type as DocumentPropertyType,
     description: definition.description,
+    icon: definition.icon ? parseIconValue(definition.icon) : null,
     visibility: normalizePropertyVisibility(definition.visibility),
     options: parsePropertyOptions(definition.optionsJson),
     position: definition.position,
@@ -461,6 +469,10 @@ export async function runConfigureDocumentProperty(
           databaseId: context.database.id,
           name: definition.name,
           description: definition.description?.trim() ?? "",
+          icon:
+            definition.icon === undefined || definition.icon === null
+              ? null
+              : serializeIconValue(definition.icon),
           type: definition.type,
           visibility: normalizePropertyVisibility(definition.visibility),
           optionsJson: serializePropertyOptions(options),
@@ -535,6 +547,12 @@ export async function runConfigureDocumentProperty(
           input.patch.description === undefined
             ? existing.description
             : input.patch.description.trim(),
+        icon:
+          input.patch.icon === undefined
+            ? existing.icon
+            : input.patch.icon === null
+              ? null
+              : serializeIconValue(input.patch.icon),
         visibility:
           input.patch.visibility === undefined
             ? normalizePropertyVisibility(existing.visibility)
@@ -544,6 +562,7 @@ export async function runConfigureDocumentProperty(
       const changed =
         nextValues.name !== existing.name ||
         nextValues.description !== existing.description ||
+        nextValues.icon !== existing.icon ||
         nextValues.visibility !==
           normalizePropertyVisibility(existing.visibility) ||
         nextValues.optionsJson !==

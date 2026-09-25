@@ -3,10 +3,39 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-24
+
+### Improved
+
+- Add an All inbox tab that shows every inbox thread and can be hidden in tab settings.
+- Priority sort keeps results when switching inbox tabs, and loading tabs show a skeleton
+- The composer keeps its taller layout in a narrower window.
+- The compose window opens larger, leaving more room to write with quieter toolbar icons.
+
+### Fixed
+
+- Gmail inboxes refresh reliably when push notifications are delayed.
+- Priority sorting stays in place when you return to the inbox
+
+### Security
+
+- Mail automations no longer fall back to shared deployment LLM keys; connect a provider in Settings to enable them.
+
+## 2026-09-23
+
+### Improved
+
+- Jev email matches now show match probability instead of calling it confidence.
+
+### Fixed
+
+- Mail keeps Priority sort selected when Jev availability is temporarily unavailable.
+
 ## 2026-09-22
 
 ### Improved
 
+- Jev-powered Mail rules and Priority sort work with an enabled Builder space or your personal Jev key.
 - Apps start with an app-shaped skeleton while session data loads immediately.
 
 ### Fixed

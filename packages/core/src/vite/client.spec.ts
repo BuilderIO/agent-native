@@ -8,7 +8,9 @@ import { createServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
+import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
+import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
   _devActionBridgeOrigin,
@@ -24,6 +26,7 @@ import {
   _resolveNitroSsrServiceEntry,
   _nitroStartupGate,
   _nitroStartupRecovery,
+  _persistent5xxRecovery,
   agentNative,
   defaultViteWatchIgnored,
   defineConfig,
@@ -45,6 +48,53 @@ vi.mock("../server/dev-action-bridge.js", () => ({
 }));
 
 describe("Nitro dev startup recovery", () => {
+  it("requires a continuous 5xx streak before restarting after a long idle", () => {
+    let time = 0;
+    let middleware:
+      | ((req: unknown, res: unknown, next: () => void) => void)
+      | undefined;
+    const exit = vi.fn();
+    _persistent5xxRecovery({
+      enabled: true,
+      now: () => time,
+      exit,
+    }).configureServer?.({
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+
+    const request = { headers: { accept: "text/html" }, method: "GET" };
+    const next = vi.fn();
+    const response = (statusCode: number) => {
+      const res = Object.assign(new EventEmitter(), { statusCode });
+      middleware?.(request, res, next);
+      res.emit("finish");
+    };
+
+    response(200);
+    time = 100_000;
+    response(503);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 100_001;
+    response(200);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 200_000;
+    response(503);
+    time = 275_000;
+    response(503);
+    expect(exit).not.toHaveBeenCalled();
+
+    time = 275_001;
+    response(503);
+    expect(exit).toHaveBeenCalledWith(DEV_SERVER_RECOVERY_EXIT_CODE);
+    expect(next).toHaveBeenCalledTimes(6);
+  });
+
   it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {
     const repositoryRoot = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
@@ -945,6 +995,45 @@ describe("dev server mounted path helpers", () => {
     );
   });
 
+  it("leaves the browser manifest relative for same-origin requests behind a Host-rewriting proxy", () => {
+    // The page and manifest share a public origin, but the proxy in front of
+    // the dev server forwards Host: localhost:8080. Rewriting from Host would
+    // point every route module at the viewer's own localhost.
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      pluginContainer: { load: vi.fn() },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
+    const next = vi.fn();
+    middleware!(
+      {
+        method: "GET",
+        url: "/@id/__x00__virtual:react-router/browser-manifest",
+        headers: {
+          origin: "https://abc123-development.builderio.xyz",
+          host: "localhost:8080",
+          "sec-fetch-site": "same-origin",
+        },
+      },
+      res,
+      next,
+    );
+
+    expect(server.pluginContainer.load).not.toHaveBeenCalled();
+    expect(res.end).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it("does not serve base-prefixed Vite modules without embed auth", () => {
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
@@ -1516,6 +1605,95 @@ describe("agent-native app config", () => {
       version: 1,
       onboarding: { firstRun: "connect-and-integrations" },
     });
+  });
+
+  it("embeds the server's first-run mode from the client's config, Vite mode and env files", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-first-run-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({ onboarding: { firstRun: "off" } }),
+    );
+    const key = "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING";
+    const configFor = async (
+      options: Parameters<typeof agentNative>[0],
+      mode: string,
+    ) => {
+      const configPlugin = flatPlugins(agentNative(options)).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      return (await configPlugin.config({}, { command: "build", mode })) as any;
+    };
+
+    try {
+      process.chdir(tmpDir);
+
+      const staged = await configFor(
+        {
+          agentNativeConfig: {
+            version: 1,
+            onboarding: { firstRun: { staging: "connect", production: "off" } },
+          },
+        },
+        "staging",
+      );
+      expect(staged.nitro.replace[key]).toBe(JSON.stringify("connect"));
+      expect(staged.define[key]).toBe(JSON.stringify("connect"));
+      // The separate deploy build process reads the same resolved value.
+      expect(readAgentNativeBuildConfigMarker(tmpDir)?.firstRunOnboarding).toBe(
+        "connect",
+      );
+
+      fs.writeFileSync(
+        path.join(tmpDir, ".env.production"),
+        "VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING=true\n",
+      );
+      const fromEnvFile = await configFor({}, "production");
+      expect(fromEnvFile.nitro.replace[key]).toBe(JSON.stringify("connect"));
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("embeds the server's hosted harness setting from the resolved app config", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-harness-"));
+    const key = "process.env.AGENT_NATIVE_BUILD_HARNESS";
+    const configFor = async (
+      options: Parameters<typeof agentNative>[0],
+      mode: string,
+    ) => {
+      const configPlugin = flatPlugins(agentNative(options)).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      return (await configPlugin.config({}, { command: "build", mode })) as any;
+    };
+
+    try {
+      process.chdir(tmpDir);
+
+      // Only set via agent-native.config.ts, like chat/mail/analytics/calendar —
+      // this is the exact shape that a runtime disk read cannot see once
+      // deployed, since the config file is never shipped into the function.
+      const configured = await configFor(
+        { agentNativeConfig: { version: 1, harness: true } },
+        "production",
+      );
+      expect(configured.nitro.replace[key]).toBe(JSON.stringify("true"));
+      expect(configured.define[key]).toBe(JSON.stringify("true"));
+      expect(readAgentNativeBuildConfigMarker(tmpDir)?.harness).toBe("true");
+
+      // Unconfigured apps embed a positive "null", never the un-embedded
+      // sentinel "" — that sentinel is reserved for builds run with an older
+      // core that never recorded a value at all.
+      const unconfigured = await configFor({}, "production");
+      expect(unconfigured.nitro.replace[key]).toBe(JSON.stringify("null"));
+      expect(readAgentNativeBuildConfigMarker(tmpDir)?.harness).toBe("null");
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("loads an agent-native.config.ts from the app root", async () => {

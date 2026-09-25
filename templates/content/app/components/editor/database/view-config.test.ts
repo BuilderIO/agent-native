@@ -7,6 +7,14 @@ import {
 } from "./view-config";
 
 describe("database form view config", () => {
+  it("preserves view icons when normalizing and duplicating views", () => {
+    const icon = { version: 1, kind: "emoji", emoji: "🚀" } as const;
+    const view = createDatabaseView("Launch", "launch", { icon });
+    const config = normalizeClientDatabaseViewConfig({ views: [view] });
+    expect(config.views[0].icon).toEqual(icon);
+    expect(duplicateDatabaseView(config, view.id).views[1].icon).toEqual(icon);
+  });
+
   it("normalizes form questions, removes duplicate keys, and preserves order", () => {
     const config = normalizeClientDatabaseViewConfig({
       activeViewId: "form",

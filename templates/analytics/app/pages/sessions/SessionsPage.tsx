@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -170,7 +171,18 @@ type SessionRecordingIdentity = Pick<
 type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
 
 const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
+const MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS = 59_500;
 const SESSION_QUERY_DEBOUNCE_MS = 250;
+
+export function shouldShowZeroMinuteRecoveryAction(
+  includeZeroMinuteSessions: boolean,
+  filteredCount: number,
+  unfilteredCount: number,
+): boolean {
+  return (
+    !includeZeroMinuteSessions && filteredCount === 0 && unfilteredCount > 0
+  );
+}
 
 /**
  * Local input state for a URL-backed filter, debounced into the URL.
@@ -212,6 +224,8 @@ export default function SessionsPage() {
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
   const query = searchParams.get("q") ?? "";
+  const includeZeroMinuteSessions =
+    searchParams.get("includeZeroMinuteSessions") === "true";
   const from = useMemo(() => rangeToFrom(range), [range]);
 
   const updateFilter = useCallback(
@@ -243,21 +257,55 @@ export default function SessionsPage() {
   );
   const [appInput, setAppInput] = useDebouncedUrlFilter(app, commitApp);
 
+  const sessionListFilters = {
+    from: from ?? undefined,
+    app: app || undefined,
+    query: query || undefined,
+  };
   const { data, isLoading, isFetching, refetch, error } = useActionQuery<
     SessionRecordingSummary[]
   >(
     "list-session-recordings",
     {
-      from: from ?? undefined,
-      app: app || undefined,
-      query: query || undefined,
+      ...sessionListFilters,
+      minDurationMs: includeZeroMinuteSessions
+        ? undefined
+        : MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS,
       limit: 100,
     },
     { staleTime: 30_000 },
   );
 
   const recordings = data ?? [];
-  const popoverFiltered = range !== "30d" || app !== "";
+  const shouldCheckForHiddenSessions =
+    !includeZeroMinuteSessions &&
+    !isLoading &&
+    !error &&
+    recordings.length === 0;
+  const {
+    data: unfilteredRecordings,
+    isLoading: isCheckingForHiddenSessions,
+    isFetching: isFetchingHiddenSessions,
+    error: hiddenSessionsError,
+    refetch: refetchHiddenSessions,
+  } = useActionQuery<SessionRecordingSummary[]>(
+    "list-session-recordings",
+    { ...sessionListFilters, limit: 1 },
+    { enabled: shouldCheckForHiddenSessions, staleTime: 30_000 },
+  );
+  const showZeroMinuteRecoveryAction = shouldShowZeroMinuteRecoveryAction(
+    includeZeroMinuteSessions,
+    recordings.length,
+    unfilteredRecordings?.length ?? 0,
+  );
+  const loadError =
+    error ?? (shouldCheckForHiddenSessions ? hiddenSessionsError : null);
+  const isCheckingEmptyState =
+    shouldCheckForHiddenSessions && isCheckingForHiddenSessions;
+  const isRefreshing =
+    isFetching || (shouldCheckForHiddenSessions && isFetchingHiddenSessions);
+  const popoverFiltered =
+    range !== "30d" || app !== "" || includeZeroMinuteSessions;
 
   return (
     <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
@@ -328,6 +376,18 @@ export default function SessionsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <label className="flex cursor-pointer items-center gap-2 border-t pt-3 text-sm">
+                    <Checkbox
+                      checked={includeZeroMinuteSessions}
+                      onCheckedChange={(checked) =>
+                        updateFilter(
+                          "includeZeroMinuteSessions",
+                          checked === true ? "true" : "",
+                        )
+                      }
+                    />
+                    {t("sessions.includeZeroMinuteSessions")}
+                  </label>
                   <div className="grid gap-1.5 border-t pt-3">
                     <div className="text-xs font-medium text-muted-foreground">
                       {t("sessions.userFilters")}
@@ -355,12 +415,17 @@ export default function SessionsPage() {
               variant="ghost"
               size="icon"
               className="h-9 w-9"
-              onClick={() => void refetch()}
-              disabled={isFetching}
+              onClick={() => {
+                void refetch();
+                if (shouldCheckForHiddenSessions) {
+                  void refetchHiddenSessions();
+                }
+              }}
+              disabled={isRefreshing}
               aria-label={t("sessions.refresh")}
             >
               <IconRefresh
-                className={cn("h-4 w-4", isFetching && "animate-spin")}
+                className={cn("h-4 w-4", isRefreshing && "animate-spin")}
               />
             </Button>
           </div>
@@ -369,14 +434,22 @@ export default function SessionsPage() {
 
       <Card>
         <CardContent className="p-0">
-          {error ? (
+          {loadError ? (
             <div className="p-6 text-sm text-destructive">
-              {t("sessions.loadFailed", { message: error.message })}
+              {t("sessions.loadFailed", { message: loadError.message })}
             </div>
-          ) : isLoading ? (
+          ) : isLoading || isCheckingEmptyState ? (
             <SessionSkeleton />
           ) : recordings.length === 0 ? (
-            <EmptySessionsState />
+            showZeroMinuteRecoveryAction ? (
+              <FilteredEmptySessionsState
+                onIncludeZeroMinuteSessions={() =>
+                  updateFilter("includeZeroMinuteSessions", "true")
+                }
+              />
+            ) : (
+              <EmptySessionsState />
+            )
           ) : (
             <div>
               <div className="flex items-center justify-between border-b px-4 py-3">
@@ -521,6 +594,22 @@ function EmptySessionsState() {
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function FilteredEmptySessionsState({
+  onIncludeZeroMinuteSessions,
+}: {
+  onIncludeZeroMinuteSessions: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex min-h-[380px] flex-col items-center justify-center gap-4 p-6">
+      <h2 className="text-lg font-semibold">{t("sessions.noSessions")}</h2>
+      <Button variant="outline" onClick={onIncludeZeroMinuteSessions}>
+        {t("sessions.includeZeroMinuteSessions")}
+      </Button>
     </div>
   );
 }
@@ -862,6 +951,7 @@ function formatDateTime(value: string): string {
 
 export function formatSessionDuration(ms: number | null): string {
   if (!ms || !Number.isFinite(ms) || ms <= 0) return "0m";
+  if (ms < MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS) return "0m";
   const seconds = Math.round(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;

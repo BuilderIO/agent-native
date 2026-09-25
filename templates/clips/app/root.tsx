@@ -1,10 +1,12 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevOverlay } from "@agent-native/core/client/dev-overlay";
-import { getBrowserTabId, useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
+  useDbSync,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import {
   getLocaleInitScript,
@@ -33,6 +35,7 @@ import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 
 import { BugReportDialog } from "@/components/bug-report/bug-report-dialog";
 import { ClipsCommandMenu } from "@/components/clips-command-menu";
+import { LibraryLayout } from "@/components/library/library-layout";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -48,6 +51,7 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import { buildClipsExtensionBaseUrl } from "@/lib/extension-auth";
 import {
   isLegacyRecordingPath,
+  isRecordingSharePath,
   isStandalonePublicPath,
 } from "@/lib/public-ssr-paths";
 
@@ -386,7 +390,13 @@ function AppContent() {
 
 function PrivateAppContent() {
   const location = useLocation();
-  const standalonePublic = isStandalonePublicPath(location.pathname);
+  const { status: sessionStatus } = useSession();
+  const authenticatedShare =
+    typeof window !== "undefined" &&
+    isRecordingSharePath(location.pathname) &&
+    sessionStatus === "authenticated";
+  const standalonePublic =
+    isStandalonePublicPath(location.pathname) && !authenticatedShare;
   const [cmdkOpen, setCmdkOpen] = useState(false);
 
   return (
@@ -398,7 +408,13 @@ function PrivateAppContent() {
       )}
       {standalonePublic ? null : <BugReportDialog />}
       {standalonePublic ? null : <DevOverlay />}
-      <Outlet />
+      {authenticatedShare ? (
+        <LibraryLayout>
+          <Outlet />
+        </LibraryLayout>
+      ) : (
+        <Outlet />
+      )}
     </>
   );
 }

@@ -101,10 +101,10 @@ describe("OrgSwitcher", () => {
     });
   }
 
-  it("renders a disabled loading placeholder when reserveSpace is enabled", () => {
+  it("renders a disabled loading placeholder while organization data loads", () => {
     mocks.useOrg.mockReturnValue({ data: undefined, isLoading: true });
 
-    render(<OrgSwitcher reserveSpace />);
+    render(<OrgSwitcher />);
 
     const button = container.querySelector<HTMLButtonElement>("button");
     expect(button).not.toBeNull();
@@ -113,13 +113,14 @@ describe("OrgSwitcher", () => {
     expect(button?.className).toContain("animate-pulse");
   });
 
-  it("does not render while loading unless reserveSpace is enabled", () => {
+  it("keeps the compact trigger shape while organization data loads", () => {
     mocks.useOrg.mockReturnValue({ data: undefined, isLoading: true });
 
-    render(<OrgSwitcher />);
+    render(<OrgSwitcher compact />);
 
-    expect(container.querySelector("button")).toBeNull();
-    expect(container.textContent).toBe("");
+    const button = container.querySelector<HTMLButtonElement>("button");
+    expect(button?.className).toContain("justify-center");
+    expect(button?.querySelector("span")?.className).toContain("size-3.5");
   });
 
   it("still renders a labelled trigger in compact mode", () => {

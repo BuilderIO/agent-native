@@ -44,6 +44,12 @@ export const CONNECT_APPS_FLAG = defineFeatureFlag({
   description: "Show the experimental app connection surface.",
 });
 
+export const BUILDER_CREDIT_USAGE_REPORTING_FLAG = defineFeatureFlag({
+  key: "billing.builder-credit-usage-reporting",
+  displayName: "Builder credit usage reporting",
+  description: "Use Builder-reported credit usage and account limits in Usage.",
+});
+
 /** Define a small app-owned feature-flag registry. */
 export function defineFeatureFlags(
   definitions: readonly FeatureFlagDefinition[],

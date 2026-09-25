@@ -8,7 +8,6 @@ import {
   getConnectedAccountsWithErrors,
   isConnected,
 } from "../server/lib/google-auth.js";
-import { classifyAutomated } from "../server/lib/inbox-classify.js";
 import {
   inboxRowToItem,
   readCachedLabels,
@@ -16,70 +15,26 @@ import {
 } from "../server/lib/inbox-store.js";
 import { ensureInboxFresh } from "../server/lib/inbox-sync.js";
 import {
+  buildLocalInboxItems,
   partitionInboxItems,
   resolveActiveTabId,
   resolveInboxTabs,
 } from "../server/lib/inbox-tabs-server.js";
 import { readLocalEmails } from "../server/lib/local-email-store.js";
 import { readSettings } from "../server/lib/mail-settings.js";
-import type {
-  InboxSyncAccountStatus,
-  InboxTab,
-  InboxTabConfig,
-  InboxThreadItem,
-  ListInboxThreadsResult,
+import {
+  ALL_TAB_ID,
+  ALL_TAB_PARAM,
+  type InboxSyncAccountStatus,
+  type InboxTab,
+  type InboxTabConfig,
+  type InboxThreadItem,
+  type ListInboxThreadsResult,
 } from "../shared/inbox-threads.js";
-import type { EmailMessage, Label } from "../shared/types.js";
+import type { Label } from "../shared/types.js";
 
 const FRESHNESS_MAX_AGE_MS = 15_000;
 const SYNC_BUDGET_MS = 6_000;
-
-// classifyAutomated expects real Gmail CATEGORY_* label ids; local mail uses
-// the app-level lowercase ids from list-labels.ts's SYSTEM_LABELS mapping.
-const LOCAL_CATEGORY_TO_GMAIL_LABEL: Record<string, string> = {
-  promotions: "CATEGORY_PROMOTIONS",
-  social: "CATEGORY_SOCIAL",
-  updates: "CATEGORY_UPDATES",
-  forums: "CATEGORY_FORUMS",
-};
-
-/** Groups local mailbox messages into one `InboxThreadItem` per thread, latest-first. */
-function buildLocalInboxItems(emails: EmailMessage[]): InboxThreadItem[] {
-  const byThread = new Map<string, EmailMessage[]>();
-  for (const email of emails) {
-    if (email.isArchived || email.isTrashed || email.isDraft) continue;
-    const key = email.threadId || email.id;
-    const list = byThread.get(key);
-    if (list) list.push(email);
-    else byThread.set(key, [email]);
-  }
-
-  const items = [...byThread.values()].map((messages): InboxThreadItem => {
-    const latest = messages.reduce((a, b) =>
-      new Date(b.date).getTime() > new Date(a.date).getTime() ? b : a,
-    );
-    const labelIds = [...new Set(messages.flatMap((m) => m.labelIds))];
-    const isAutomated = classifyAutomated({
-      headers: [],
-      labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
-      fromEmail: latest.from?.email ?? "",
-    });
-    return {
-      ...latest,
-      labelIds,
-      messageCount: messages.length,
-      unreadCount: messages.filter((m) => !m.isRead).length,
-      messageIds: messages.map((m) => m.id),
-      isAutomated,
-    };
-  });
-
-  return items.sort(
-    (a, b) =>
-      new Date(b.date).getTime() - new Date(a.date).getTime() ||
-      b.id.localeCompare(a.id),
-  );
-}
 
 /** Shared tail: partition into tabs and page the active tab — identical for both backends. */
 function paginateIntoResult(
@@ -130,7 +85,7 @@ function paginateIntoResult(
 
 export default defineAction({
   description:
-    'Read the human\'s inbox exactly as the UI shows it: the tab bar (Important, pinned labels, saved filters, and Other — or one combined Inbox tab when the user has turned on "combine inbox"), each tab\'s total/unread counts, and the active tab\'s rows. All three come from one partition over the synced inbox store, so a tab\'s badge can never disagree with the rows returned for it, and this read is always fast — never a live Gmail call. `tab` accepts any id from the returned `tabs` list (a pinned label id, a saved filter id, "important", "other", or "inbox"); an unrecognized or omitted id falls back to the first tab. This is the inbox view specifically; for Sent, Archive, Trash, All Mail, or an ad hoc query, use `list-emails` or `search-emails` instead.',
+    'Read the human\'s inbox exactly as the UI shows it: the tab bar (All, Important, pinned labels, saved filters, and Other — or one combined Inbox tab when the user has turned on "combine inbox"), each tab\'s total/unread counts, and the active tab\'s rows. All three come from one partition over the synced inbox store, so a tab\'s badge can never disagree with the rows returned for it, and this read is always fast — never a live Gmail call. `tab` accepts any id from the returned `tabs` list (All, a pinned label id, a saved filter id, "important", "other", or "inbox"); an unrecognized or omitted id falls back to the first tab. This is the inbox view specifically; for Sent, Archive, Trash, All Mail, or an ad hoc query, use `list-emails` or `search-emails` instead.',
   schema: z.object({
     tab: z
       .string()
@@ -166,7 +121,8 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   link: ({ args }) => {
-    const tab = typeof args?.tab === "string" ? args.tab : undefined;
+    const requestedTab = typeof args?.tab === "string" ? args.tab : undefined;
+    const tab = requestedTab === ALL_TAB_ID ? ALL_TAB_PARAM : requestedTab;
     return {
       url: buildDeepLink({ app: "mail", view: "inbox", params: { tab } }),
       label: "Open inbox in Mail",
@@ -210,6 +166,7 @@ export default defineAction({
         savedFilters: settings.savedFilters ?? [],
         labelAliases: settings.labelAliases ?? {},
         combineInbox: settings.combineInbox,
+        showAllTab: settings.showAllTab,
       };
       const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
       return paginateIntoResult(
@@ -247,6 +204,7 @@ export default defineAction({
       savedFilters: settings.savedFilters ?? [],
       labelAliases: settings.labelAliases ?? {},
       combineInbox: settings.combineInbox,
+      showAllTab: settings.showAllTab,
     };
     const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
     return paginateIntoResult(

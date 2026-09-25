@@ -14,6 +14,7 @@ import {
   IconLayoutDistributeVertical,
 } from "@tabler/icons-react";
 import {
+  Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useState,
@@ -132,6 +133,14 @@ export interface AutoLayoutPadding {
   left: number;
 }
 
+export type AutoLayoutMargin = AutoLayoutPadding;
+export type AutoLayoutSidesMixed = Partial<
+  Record<keyof AutoLayoutPadding, boolean>
+>;
+export type AutoLayoutMarginTextValues = Partial<
+  Record<keyof AutoLayoutPadding, string>
+>;
+
 const OPPOSITE_PADDING_SIDE: Record<
   keyof AutoLayoutPadding,
   keyof AutoLayoutPadding
@@ -154,10 +163,26 @@ export function mirrorPaddingChange(
   side: keyof AutoLayoutPadding,
   meta?: PaddingChangeMeta,
 ): AutoLayoutPadding {
-  if (!meta?.altKey) return padding;
+  return mirrorSpacingChange(padding, side, meta);
+}
+
+export function mirrorMarginChange(
+  margin: AutoLayoutMargin,
+  side: keyof AutoLayoutPadding,
+  meta?: PaddingChangeMeta,
+): AutoLayoutMargin {
+  return mirrorSpacingChange(margin, side, meta);
+}
+
+function mirrorSpacingChange(
+  spacing: AutoLayoutPadding,
+  side: keyof AutoLayoutPadding,
+  meta?: PaddingChangeMeta,
+): AutoLayoutPadding {
+  if (!meta?.altKey) return spacing;
   return {
-    ...padding,
-    [OPPOSITE_PADDING_SIDE[side]]: padding[side],
+    ...spacing,
+    [OPPOSITE_PADDING_SIDE[side]]: spacing[side],
   };
 }
 
@@ -169,6 +194,9 @@ export interface AutoLayoutMatrixValue {
   gap: number;
   padding: AutoLayoutPadding;
   paddingLinked: boolean;
+  margin?: AutoLayoutMargin;
+  marginMixed?: AutoLayoutSidesMixed;
+  marginTextValues?: AutoLayoutMarginTextValues;
   clipContent?: boolean;
   clipContentMixed?: boolean;
   resolvedSize?: {
@@ -253,6 +281,13 @@ export interface AutoLayoutMatrixLabels {
   paddingRight: string;
   paddingBottom: string;
   paddingLeft: string;
+  margin: string;
+  linkMargin: string;
+  unlinkMargin: string;
+  marginTop: string;
+  marginRight: string;
+  marginBottom: string;
+  marginLeft: string;
   childSizing: string;
   hug: string;
   fill: string;
@@ -297,6 +332,11 @@ export interface AutoLayoutMatrixProps {
     meta?: ScrubInputChangeMeta,
   ) => void;
   onPaddingLinkedChange: (linked: boolean) => void;
+  onMarginChange?: (
+    margin: AutoLayoutMargin,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutMargin>,
+  ) => void;
   onClipContentChange?: (clipContent: boolean) => void;
   /** Clipping is a container's decision. A drawn rectangle or text node has
    *  nothing to clip, so the control is meaningless on those. */
@@ -378,6 +418,13 @@ export const DEFAULT_AUTO_LAYOUT_LABELS: AutoLayoutMatrixLabels = {
   paddingRight: "Right", // i18n-ignore fallback component label
   paddingBottom: "Bottom", // i18n-ignore fallback component label
   paddingLeft: "Left", // i18n-ignore fallback component label
+  margin: "Margin", // i18n-ignore fallback component label
+  linkMargin: "Link margin sides", // i18n-ignore fallback component label
+  unlinkMargin: "Unlink margin sides", // i18n-ignore fallback component label
+  marginTop: "Top margin", // i18n-ignore fallback component label
+  marginRight: "Right margin", // i18n-ignore fallback component label
+  marginBottom: "Bottom margin", // i18n-ignore fallback component label
+  marginLeft: "Left margin", // i18n-ignore fallback component label
   childSizing: "Child sizing", // i18n-ignore fallback component label
   hug: "Hug", // i18n-ignore fallback component label
   fill: "Fill", // i18n-ignore fallback component label
@@ -419,6 +466,7 @@ export function AutoLayoutMatrix({
   onGridChange,
   onPaddingChange,
   onPaddingLinkedChange,
+  onMarginChange,
   onClipContentChange,
   clipContentSupported = true,
   onDistribute,
@@ -437,33 +485,6 @@ export function AutoLayoutMatrix({
   className,
 }: AutoLayoutMatrixProps) {
   const copy = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labels };
-
-  // Show left/top as the representative value when padding is linked.
-  // Averaging the two sides would silently destroy asymmetric padding on the
-  // next edit — the onChange handler sets both sides to the same number, so
-  // whatever is displayed becomes the new value for both sides. Using the
-  // left/top value means scrubbing up/down from the current value preserves
-  // the user's intent without a silent lossy round-trip through the average.
-  const horizontalPaddingValue = value.padding.left;
-  const verticalPaddingValue = value.padding.top;
-  // The linked view shows one field per axis representing both sides, so it
-  // must report "Mixed" whenever *either* side of that axis differs across
-  // the selection — otherwise a selection with equal left/right but mixed
-  // top/bottom (or vice versa) would silently show a real-looking number.
-  const horizontalPaddingMixed = Boolean(
-    value.paddingMixed?.left || value.paddingMixed?.right,
-  );
-  const verticalPaddingMixed = Boolean(
-    value.paddingMixed?.top || value.paddingMixed?.bottom,
-  );
-
-  const updatePadding = (
-    side: keyof AutoLayoutPadding,
-    padding: AutoLayoutPadding,
-    meta?: PaddingChangeMeta,
-  ) => {
-    onPaddingChange(mirrorPaddingChange(padding, side, meta), meta);
-  };
 
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
@@ -781,156 +802,37 @@ export function AutoLayoutMatrix({
 
         {/* ── Padding ── */}
         {showChildLayoutControls ? (
-          <div className="design-sidebar-property-group">
-            <ControlLabel>{copy.padding}</ControlLabel>
-            {value.paddingLinked ? (
-              /* Default linked state: 2 compact fields + link toggle */
-              <InspectorGrid className="items-center" layout="action-pair">
-                <InspectorGridCell span={11}>
-                  <PaddingField
-                    icon={IconPaddingHorizontal}
-                    ariaLabel={copy.paddingLeft + " / " + copy.paddingRight}
-                    value={horizontalPaddingValue}
-                    mixed={horizontalPaddingMixed}
-                    onChange={(next, meta) =>
-                      updatePadding(
-                        "left",
-                        {
-                          top: value.padding.top,
-                          bottom: value.padding.bottom,
-                          left: next,
-                          right: next,
-                        },
-                        meta,
-                      )
-                    }
-                    disabled={disabled}
-                  />
-                </InspectorGridCell>
-                <InspectorGridCell span={1} ariaHidden />
-                <InspectorGridCell span={11}>
-                  <PaddingField
-                    icon={IconPaddingVertical}
-                    ariaLabel={copy.paddingTop + " / " + copy.paddingBottom}
-                    value={verticalPaddingValue}
-                    mixed={verticalPaddingMixed}
-                    onChange={(next, meta) =>
-                      updatePadding(
-                        "top",
-                        {
-                          top: next,
-                          bottom: next,
-                          left: value.padding.left,
-                          right: value.padding.right,
-                        },
-                        meta,
-                      )
-                    }
-                    disabled={disabled}
-                  />
-                </InspectorGridCell>
-                <InspectorGridCell span={1} ariaHidden />
-                <InspectorGridCell span={4} className="flex justify-center">
-                  <PaddingLinkButton
-                    linked
-                    disabled={disabled}
-                    linkLabel={copy.linkPadding}
-                    unlinkLabel={copy.unlinkPadding}
-                    onToggle={() => onPaddingLinkedChange(false)}
-                  />
-                </InspectorGridCell>
-              </InspectorGrid>
-            ) : (
-              /* Unlinked state: expand to 4 separate T / R / B / L fields */
-              <InspectorGrid className="items-center" layout="field-action">
-                <InspectorGridCell span={24}>
-                  <InspectorGrid className="items-center" layout="pair">
-                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-                      <PaddingField
-                        icon={IconBorderTop}
-                        ariaLabel={copy.paddingTop}
-                        value={value.padding.top}
-                        mixed={value.paddingMixed?.top}
-                        onChange={(next, meta) =>
-                          updatePadding(
-                            "top",
-                            { ...value.padding, top: next },
-                            meta,
-                          )
-                        }
-                        disabled={disabled}
-                      />
-                    </InspectorGridCell>
-                    <InspectorGridCell
-                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
-                      ariaHidden
-                    />
-                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-                      <PaddingField
-                        icon={IconBorderRight}
-                        ariaLabel={copy.paddingRight}
-                        value={value.padding.right}
-                        mixed={value.paddingMixed?.right}
-                        onChange={(next, meta) =>
-                          updatePadding(
-                            "right",
-                            { ...value.padding, right: next },
-                            meta,
-                          )
-                        }
-                        disabled={disabled}
-                      />
-                    </InspectorGridCell>
-                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-                      <PaddingField
-                        icon={IconBorderBottom}
-                        ariaLabel={copy.paddingBottom}
-                        value={value.padding.bottom}
-                        mixed={value.paddingMixed?.bottom}
-                        onChange={(next, meta) =>
-                          updatePadding(
-                            "bottom",
-                            { ...value.padding, bottom: next },
-                            meta,
-                          )
-                        }
-                        disabled={disabled}
-                      />
-                    </InspectorGridCell>
-                    <InspectorGridCell
-                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
-                      ariaHidden
-                    />
-                    <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-                      <PaddingField
-                        icon={IconBorderLeft}
-                        ariaLabel={copy.paddingLeft}
-                        value={value.padding.left}
-                        mixed={value.paddingMixed?.left}
-                        onChange={(next, meta) =>
-                          updatePadding(
-                            "left",
-                            { ...value.padding, left: next },
-                            meta,
-                          )
-                        }
-                        disabled={disabled}
-                      />
-                    </InspectorGridCell>
-                  </InspectorGrid>
-                </InspectorGridCell>
-                <InspectorGridCell span={4} className="flex justify-center">
-                  <PaddingLinkButton
-                    linked={false}
-                    disabled={disabled}
-                    linkLabel={copy.linkPadding}
-                    unlinkLabel={copy.unlinkPadding}
-                    onToggle={() => onPaddingLinkedChange(true)}
-                  />
-                </InspectorGridCell>
-              </InspectorGrid>
-            )}
-          </div>
+          <FourSideSpacingProperties
+            label={copy.padding}
+            value={value.padding}
+            mixed={value.paddingMixed}
+            linked={value.paddingLinked}
+            linkLabel={copy.linkPadding}
+            unlinkLabel={copy.unlinkPadding}
+            sideLabels={{
+              top: copy.paddingTop,
+              right: copy.paddingRight,
+              bottom: copy.paddingBottom,
+              left: copy.paddingLeft,
+            }}
+            onLinkedChange={onPaddingLinkedChange}
+            onChange={onPaddingChange}
+            mirrorOppositeOnAlt
+            disabled={disabled}
+          />
+        ) : null}
+
+        {showChildLayoutControls && value.margin ? (
+          <MarginProperties
+            value={value.margin}
+            mixed={value.marginMixed}
+            textValues={value.marginTextValues}
+            labels={copy}
+            onChange={(margin, meta, changedSides) =>
+              onMarginChange?.(margin, meta, changedSides)
+            }
+            disabled={disabled}
+          />
         ) : null}
 
         {/* ── Clip content ── */}
@@ -1853,21 +1755,229 @@ function GapField({
   );
 }
 
-/** A compact padding field: [icon] value. */
-function PaddingField({
+interface FourSideSpacingPropertiesProps {
+  label: string;
+  value: AutoLayoutPadding;
+  mixed?: AutoLayoutSidesMixed;
+  textValues?: AutoLayoutMarginTextValues;
+  linked: boolean;
+  linkLabel: string;
+  unlinkLabel: string;
+  sideLabels: Record<keyof AutoLayoutPadding, string>;
+  min?: number;
+  disabled: boolean;
+  onLinkedChange: (linked: boolean) => void;
+  onChange: (
+    value: AutoLayoutPadding,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutPadding>,
+  ) => void;
+  mirrorOppositeOnAlt?: boolean;
+}
+
+function FourSideSpacingProperties({
+  label,
+  value,
+  mixed,
+  textValues,
+  linked,
+  linkLabel,
+  unlinkLabel,
+  sideLabels,
+  min = 0,
+  disabled,
+  onLinkedChange,
+  onChange,
+  mirrorOppositeOnAlt = false,
+}: FourSideSpacingPropertiesProps) {
+  const horizontalValue = value.left;
+  const verticalValue = value.top;
+  const horizontalMixed = Boolean(mixed?.left || mixed?.right);
+  const verticalMixed = Boolean(mixed?.top || mixed?.bottom);
+
+  const update = (
+    side: keyof AutoLayoutPadding,
+    next: AutoLayoutPadding,
+    meta?: PaddingChangeMeta,
+  ) => {
+    const changedSides = new Set<keyof AutoLayoutPadding>([side]);
+    if (linked || (mirrorOppositeOnAlt && meta?.altKey)) {
+      changedSides.add(OPPOSITE_PADDING_SIDE[side]);
+    }
+    onChange(
+      mirrorOppositeOnAlt ? mirrorSpacingChange(next, side, meta) : next,
+      meta,
+      [...changedSides],
+    );
+  };
+
+  return (
+    <div className="design-sidebar-property-group">
+      <ControlLabel>{label}</ControlLabel>
+      {linked ? (
+        <InspectorGrid className="items-center" layout="action-pair">
+          <InspectorGridCell span={11}>
+            <SpacingField
+              icon={IconPaddingHorizontal}
+              ariaLabel={sideLabels.left + " / " + sideLabels.right}
+              value={horizontalValue}
+              textValue={textValues?.left}
+              mixed={horizontalMixed}
+              min={min}
+              onChange={(next, meta) =>
+                update("left", { ...value, left: next, right: next }, meta)
+              }
+              disabled={disabled}
+            />
+          </InspectorGridCell>
+          <InspectorGridCell span={1} ariaHidden />
+          <InspectorGridCell span={11}>
+            <SpacingField
+              icon={IconPaddingVertical}
+              ariaLabel={sideLabels.top + " / " + sideLabels.bottom}
+              value={verticalValue}
+              textValue={textValues?.top}
+              mixed={verticalMixed}
+              min={min}
+              onChange={(next, meta) =>
+                update("top", { ...value, top: next, bottom: next }, meta)
+              }
+              disabled={disabled}
+            />
+          </InspectorGridCell>
+          <InspectorGridCell span={1} ariaHidden />
+          <InspectorGridCell span={4} className="flex justify-center">
+            <SpacingLinkButton
+              linked
+              disabled={disabled}
+              linkLabel={linkLabel}
+              unlinkLabel={unlinkLabel}
+              onToggle={() => onLinkedChange(false)}
+            />
+          </InspectorGridCell>
+        </InspectorGrid>
+      ) : (
+        <InspectorGrid className="items-center" layout="field-action">
+          <InspectorGridCell span={24}>
+            <InspectorGrid className="items-center" layout="pair">
+              {(
+                [
+                  ["top", IconBorderTop],
+                  ["right", IconBorderRight],
+                  ["bottom", IconBorderBottom],
+                  ["left", IconBorderLeft],
+                ] as const
+              ).map(([side, icon], index) => (
+                <Fragment key={side}>
+                  {index % 2 === 1 ? (
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                  ) : null}
+                  <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+                    <SpacingField
+                      icon={icon}
+                      ariaLabel={sideLabels[side]}
+                      value={value[side]}
+                      textValue={textValues?.[side]}
+                      mixed={mixed?.[side]}
+                      min={min}
+                      onChange={(next, meta) =>
+                        update(side, { ...value, [side]: next }, meta)
+                      }
+                      disabled={disabled}
+                    />
+                  </InspectorGridCell>
+                </Fragment>
+              ))}
+            </InspectorGrid>
+          </InspectorGridCell>
+          <InspectorGridCell span={4} className="flex justify-center">
+            <SpacingLinkButton
+              linked={false}
+              disabled={disabled}
+              linkLabel={linkLabel}
+              unlinkLabel={unlinkLabel}
+              onToggle={() => onLinkedChange(true)}
+            />
+          </InspectorGridCell>
+        </InspectorGrid>
+      )}
+    </div>
+  );
+}
+
+export function MarginProperties({
+  value,
+  mixed,
+  textValues,
+  labels,
+  onChange,
+  disabled = false,
+}: {
+  value: AutoLayoutMargin;
+  mixed?: AutoLayoutSidesMixed;
+  textValues?: AutoLayoutMarginTextValues;
+  labels?: Partial<AutoLayoutMatrixLabels>;
+  onChange: (
+    margin: AutoLayoutMargin,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutMargin>,
+  ) => void;
+  disabled?: boolean;
+}) {
+  const copy = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labels };
+  const [linked, setLinked] = useState(() => {
+    const sides = ["top", "right", "bottom", "left"] as const;
+    if (sides.some((side) => mixed?.[side])) return false;
+    const first = textValues?.top ?? String(value.top);
+    return sides.every(
+      (side) => (textValues?.[side] ?? String(value[side])) === first,
+    );
+  });
+
+  return (
+    <FourSideSpacingProperties
+      label={copy.margin}
+      value={value}
+      mixed={mixed}
+      textValues={textValues}
+      linked={linked}
+      linkLabel={copy.linkMargin}
+      unlinkLabel={copy.unlinkMargin}
+      sideLabels={{
+        top: copy.marginTop,
+        right: copy.marginRight,
+        bottom: copy.marginBottom,
+        left: copy.marginLeft,
+      }}
+      min={-999}
+      disabled={disabled}
+      onLinkedChange={setLinked}
+      onChange={onChange}
+      mirrorOppositeOnAlt
+    />
+  );
+}
+
+/** A compact spacing field: [icon] value. */
+function SpacingField({
   icon: Icon,
   ariaLabel,
   value,
+  textValue,
   mixed = false,
+  min = 0,
   onChange,
   disabled,
 }: {
   icon: (props: { className?: string }) => ReactNode;
   ariaLabel: string;
   value: number;
-  /** Set for a multi-selection with differing padding on this side — see AutoLayoutMatrixValue.paddingMixed. */
+  textValue?: string;
   mixed?: boolean;
-  /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onPaddingChange. */
+  min?: number;
   onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   disabled: boolean;
 }) {
@@ -1884,10 +1994,11 @@ function PaddingField({
         tooltipLabel={ariaLabel}
         icon={Icon}
         value={value}
+        textValue={textValue}
         mixed={mixed}
         onChange={(next, meta) => onChange(next, meta)}
         unit="px"
-        min={0}
+        min={min}
         step={1}
         precision={1}
         disabled={disabled}
@@ -1899,8 +2010,8 @@ function PaddingField({
   );
 }
 
-/** Link / unlink padding toggle button. */
-function PaddingLinkButton({
+/** Link / unlink four-side spacing toggle button. */
+function SpacingLinkButton({
   linked,
   disabled,
   linkLabel,

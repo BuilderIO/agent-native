@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { parseIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -1426,10 +1427,15 @@ describe("update-document compare-and-swap", () => {
     );
 
     expect("conflict" in result && result.conflict).not.toBe(true);
-    expect(await documentRow(documentId)).toMatchObject({
+    const updated = await documentRow(documentId);
+    expect(updated).toMatchObject({
       content: "local body edit",
-      icon: "📌",
       bodyRevision: before.bodyRevision + 1,
+    });
+    expect(parseIconValue(updated.icon)).toEqual({
+      version: 1,
+      kind: "emoji",
+      emoji: "📌",
     });
   });
 

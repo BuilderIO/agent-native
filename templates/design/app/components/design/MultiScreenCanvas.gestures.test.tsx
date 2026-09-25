@@ -1963,6 +1963,83 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     ).not.toBe(0);
   });
 
+  it("disables only the focused screen's resize handles in Interact", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            { id: "screen-a", filename: "screen-a.html", content: "" },
+            { id: "screen-b", filename: "screen-b.html", content: "" },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          interactScreenId="screen-a"
+          focusedInteractViewport={{ width: 390, height: 844 }}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 390, height: 844 },
+            "screen-b": { x: 500, y: 0, width: 390, height: 844 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const focusedFrame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const otherFrame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-b"]',
+    );
+    expect(focusedFrame).not.toBeNull();
+    expect(otherFrame).not.toBeNull();
+    expect(focusedFrame!.querySelector("[data-resize-handle]")).toBeNull();
+    expect(
+      container.querySelector(
+        "[data-frame-selection-box] [data-resize-handle]",
+      ),
+    ).toBeNull();
+    expect(otherFrame!.querySelector("[data-resize-handle]")).not.toBeNull();
+  });
+
+  it("uses the focused device viewport for near-matching aspect ratios", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body>Preview</body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          interactMode
+          interactScreenId="screen-a"
+          focusedInteractViewport={{ width: 402, height: 874 }}
+          metadataById={{
+            "screen-a": { width: 390, height: 844 },
+          }}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 390, height: 844 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    expect(iframe).not.toBeNull();
+    expect(iframe!.style.width).toBe("402px");
+    expect(iframe!.style.height).toBe("874px");
+    expect(iframe!.style.transform).toBe("");
+  });
+
   it("resizes a frame and restores it when Escape cancels the drag", async () => {
     const { frame } = await renderSelectedFrame();
     const selectionBox = container.querySelector<HTMLElement>(

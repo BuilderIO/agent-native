@@ -45,8 +45,11 @@ export function trackOnboardingEvent(
     name.startsWith("integration_") ||
     name === "onboarding_role_save_started" ||
     name === "onboarding_method_clicked" ||
+    name === "onboarding_method_started" ||
+    name === "onboarding_method_outcome" ||
     name === "onboarding_dismissed" ||
-    name === "onboarding_reopened";
+    name === "onboarding_reopened" ||
+    name === "onboarding_abandoned";
   if (!isRepeatableInteraction && seenOnboardingEvents.has(key)) return;
   if (!isRepeatableInteraction) seenOnboardingEvents.add(key);
   trackEvent(name, properties);

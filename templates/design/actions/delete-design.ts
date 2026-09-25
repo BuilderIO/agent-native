@@ -4,6 +4,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import {
+  deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction,
+} from "../server/lib/visual-edit-snapshot-blobs.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 
 export default defineAction({
@@ -15,44 +19,66 @@ export default defineAction({
   run: async ({ id }) => {
     await assertAccess("design", id, "admin");
 
-    await withDesignSourceMutationTransaction(id, async (tx) => {
-      await tx
-        .delete(schema.designShares)
-        .where(eq(schema.designShares.resourceId, id));
+    const snapshotBlobHandles = await withDesignSourceMutationTransaction(
+      id,
+      async (tx) => {
+        const snapshots = await tx
+          .select({
+            blobHandle: schema.designVisualEditSnapshots.blobHandle,
+          })
+          .from(schema.designVisualEditSnapshots)
+          .where(eq(schema.designVisualEditSnapshots.designId, id))
+          .for("update");
 
-      await tx
-        .delete(schema.designAccessRequests)
-        .where(eq(schema.designAccessRequests.designId, id));
+        await queueVisualEditSnapshotBlobCleanupInTransaction(
+          tx,
+          snapshots.map((snapshot) => snapshot.blobHandle),
+        );
 
-      await tx
-        .delete(schema.componentIndex)
-        .where(eq(schema.componentIndex.designId, id));
+        await tx
+          .delete(schema.designVisualEditPending)
+          .where(eq(schema.designVisualEditPending.designId, id));
 
-      await tx
-        .delete(schema.motionTimeline)
-        .where(eq(schema.motionTimeline.designId, id));
+        await tx
+          .delete(schema.designShares)
+          .where(eq(schema.designShares.resourceId, id));
 
-      await tx
-        .delete(schema.designState)
-        .where(eq(schema.designState.designId, id));
+        await tx
+          .delete(schema.designAccessRequests)
+          .where(eq(schema.designAccessRequests.designId, id));
 
-      await tx
-        .delete(schema.designReviewSnapshot)
-        .where(eq(schema.designReviewSnapshot.designId, id));
+        await tx
+          .delete(schema.componentIndex)
+          .where(eq(schema.componentIndex.designId, id));
 
-      // Delete associated files first
-      await tx
-        .delete(schema.designFiles)
-        .where(eq(schema.designFiles.designId, id));
+        await tx
+          .delete(schema.motionTimeline)
+          .where(eq(schema.motionTimeline.designId, id));
 
-      // Delete associated versions
-      await tx
-        .delete(schema.designVersions)
-        .where(eq(schema.designVersions.designId, id));
+        await tx
+          .delete(schema.designState)
+          .where(eq(schema.designState.designId, id));
 
-      // Delete the design itself
-      await tx.delete(schema.designs).where(eq(schema.designs.id, id));
-    });
+        await tx
+          .delete(schema.designReviewSnapshot)
+          .where(eq(schema.designReviewSnapshot.designId, id));
+
+        // Delete associated files first
+        await tx
+          .delete(schema.designFiles)
+          .where(eq(schema.designFiles.designId, id));
+
+        // Delete associated versions
+        await tx
+          .delete(schema.designVersions)
+          .where(eq(schema.designVersions.designId, id));
+
+        // Delete the design itself
+        await tx.delete(schema.designs).where(eq(schema.designs.id, id));
+        return snapshots.map((snapshot) => snapshot.blobHandle);
+      },
+    );
+    await deleteVisualEditSnapshotBlobs(snapshotBlobHandles);
 
     return { id, deleted: true };
   },

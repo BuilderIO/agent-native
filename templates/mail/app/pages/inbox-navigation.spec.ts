@@ -57,13 +57,14 @@ describe("Inbox navigation commands", () => {
     );
   });
 
-  it("selects the first label by default on a plain inbox route", () => {
+  it("routes a plain inbox to the All tab by default", () => {
     const source = inboxSource();
 
     expect(source).toContain("settingsLoading");
     expect(source).toContain("settingsError ||");
     expect(source).toContain("!settings ||");
     expect(source).toContain("resolveDefaultMailHref({");
+    expect(source).toContain("showAllTab: settings?.showAllTab");
     expect(source).toContain("navigate(defaultHref, { replace: true })");
     expect(source).toContain(
       "const combineInbox = settings?.combineInbox === true;",
@@ -104,11 +105,33 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain('{ enabled: view === "inbox" },');
   });
 
+  it("shows the row skeleton while the selected inbox tab loads", () => {
+    const source = inboxSource();
+
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "const isLoading = isInboxView ? inboxThreads.isLoading || inboxThreads.isPlaceholderData || inboxStillSyncingEmpty : emailsIsLoading;",
+    );
+  });
+
+  it("lets Priority render a scored inbox page before later pages finish", () => {
+    const page = inboxSource();
+    const loadingStart = page.indexOf("const emailListLoading =");
+    const loading = page.slice(
+      loadingStart,
+      page.indexOf("const emails = useMemo(", loadingStart),
+    );
+
+    expect(loading).not.toContain("inboxExtraPages");
+    expect(emailListSource()).toContain(
+      "priorityWindowEmails.length > cachedPriorityScores.size",
+    );
+  });
+
   it("navigates the inbox tab bar when an agent command sets `tab`", () => {
     const source = inboxSource();
 
     expect(source).toContain(
-      'import { inboxTabHref } from "@shared/inbox-threads";',
+      'import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";',
     );
     expect(source).toContain(
       "} else if (navCommand.tab) {\n      void navigate(inboxTabHref(navCommand.tab));\n    } else if (targetFilter) {",
@@ -119,12 +142,8 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
     const emailList = emailListSource();
 
-    expect(source).toContain(
-      'if (!jevAvailability.isSuccess) return;\n    if (!jevConfigured && sortMode === "priority")',
-    );
-    expect(source).toContain(
-      'if (navCommand.sort === "priority" && jevAvailability.isLoading) {',
-    );
+    expect(source).toContain('localStorage.getItem("mail-sort-mode")');
+    expect(source).toContain('localStorage.setItem("mail-sort-mode", mode)');
     expect(source).toContain(
       'jevAvailability.isError || jevConfigured ? "priority" : "newest"',
     );
@@ -195,12 +214,13 @@ describe("Inbox navigation commands", () => {
     expect(navigateActionSource()).toContain('enum(["newest", "priority"])');
   });
 
-  it("filters the view-screen snapshot to the active Other partition", () => {
+  it("filters the view-screen snapshot using the resolved inbox tab", () => {
     const source = viewScreenSource();
 
     expect(source).toContain("activeInboxTab?: string");
     expect(source).toContain("activeAccounts?: string[]");
-    expect(source).toContain("activeInboxTab === OTHER_INBOX_TAB_PARAM");
+    expect(source).toContain('activeTab?.kind === "other"');
+    expect(source).toContain("resolveActiveTabId(activeInboxTab, inboxTabs)");
     expect(source).toContain("augmentSelfSentLabels");
     expect(source).toContain("selectedAccountSet");
     expect(source).toContain("accountEmails:");

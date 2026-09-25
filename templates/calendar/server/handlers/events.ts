@@ -1,20 +1,11 @@
-import { emit } from "@agent-native/core/event-bus";
 import { readBody, getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
-  getQuery,
   getRouterParam,
   setResponseStatus,
-  setResponseHeader,
   type H3Event,
 } from "h3";
 
-import { ensureOrganizerInAttendees } from "../../actions/event-action-helpers.js";
-import type { CalendarEvent } from "../../shared/api.js";
-import {
-  prepareZoomMeetingPatch,
-  shouldAutoAddGoogleMeet,
-} from "../lib/event-video-conferencing.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 
 async function uEmail(event: H3Event): Promise<string> {
@@ -64,160 +55,6 @@ function handleError(event: H3Event, error: any) {
   }
   return { error: error.message };
 }
-
-export const listEvents = defineEventHandler(async (event: H3Event) => {
-  try {
-    const email = await uEmail(event);
-    const query = getQuery(event);
-    const from = query.from as string | undefined;
-    const to = query.to as string | undefined;
-    const connected = await googleCalendar.isConnected(email);
-
-    if (!connected) {
-      return [];
-    }
-
-    if (!from || !to) {
-      return [];
-    }
-
-    const overlayEmailsParam = query.overlayEmails as string | undefined;
-
-    const { events: googleEvents, errors } = await googleCalendar.listEvents(
-      from,
-      to,
-      email,
-    );
-
-    if (googleEvents.length === 0 && errors.length > 0) {
-      setResponseStatus(event, 502);
-      return {
-        error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
-      };
-    }
-
-    // Fetch overlay people's events in parallel
-    let allEvents = googleEvents;
-    if (overlayEmailsParam) {
-      const overlayEmails = overlayEmailsParam
-        .split(",")
-        .filter(Boolean)
-        .slice(0, 10);
-      if (overlayEmails.length > 0) {
-        const { events: overlayEvents } =
-          await googleCalendar.listOverlayEvents(
-            from,
-            to,
-            overlayEmails,
-            email,
-          );
-        allEvents = [...googleEvents, ...overlayEvents];
-      }
-    }
-
-    let events = allEvents;
-    if (from) {
-      const fromDate = new Date(from);
-      events = events.filter((e) => new Date(e.end) >= fromDate);
-    }
-    if (to) {
-      const toDate = new Date(to);
-      events = events.filter((e) => new Date(e.start) <= toDate);
-    }
-
-    events.sort(
-      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
-    );
-    if (errors.length > 0) {
-      setResponseHeader(event, "X-Account-Errors", JSON.stringify(errors));
-    }
-    return events;
-  } catch (error: any) {
-    console.error("[listEvents] Error:", error.message);
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
-});
-
-export const createEvent = defineEventHandler(async (event: H3Event) => {
-  try {
-    const email = await uEmail(event);
-    const body = await readBody(event);
-
-    if (!(await googleCalendar.isConnected(email))) {
-      setResponseStatus(event, 400);
-      return {
-        error: "Google Calendar not connected. Connect via Settings first.",
-      };
-    }
-
-    const acctEmail = await resolveAccountEmail(body.accountEmail, email);
-
-    const { addGoogleMeet, addZoom, ...eventBody } = body;
-    if (addGoogleMeet === true && addZoom === true) {
-      setResponseStatus(event, 400);
-      return { error: "Choose either Google Meet or Zoom, not both." };
-    }
-
-    const calEvent: CalendarEvent = {
-      ...eventBody,
-      id: "",
-      source: "google",
-      accountEmail: acctEmail,
-      // Match Google Calendar UI: when inviting guests, include the
-      // organizer/self email in attendees so they appear in Guests.
-      attendees: ensureOrganizerInAttendees(eventBody.attendees, acctEmail),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    let zoomMeetingLink: string | undefined;
-    if (addZoom === true) {
-      const zoom = await prepareZoomMeetingPatch(email, calEvent);
-      zoomMeetingLink = zoom.meetingLink;
-      Object.assign(calEvent, zoom.patch);
-    }
-
-    const result = await googleCalendar.createEvent(calEvent, {
-      account: { ownerEmail: email, accountEmail: acctEmail },
-      addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
-        addGoogleMeet:
-          typeof addGoogleMeet === "boolean" ? addGoogleMeet : undefined,
-        addZoom: addZoom === true,
-      }),
-    });
-    if (result.id) {
-      calEvent.id = `google-${result.id}`;
-      calEvent.googleEventId = result.id;
-    }
-    if (result.htmlLink) calEvent.htmlLink = result.htmlLink;
-    if (result.meetLink) calEvent.hangoutLink = result.meetLink;
-    if (result.conferenceData) calEvent.conferenceData = result.conferenceData;
-    if (zoomMeetingLink) calEvent.meetingLink = zoomMeetingLink;
-
-    try {
-      emit(
-        "calendar.event.created",
-        {
-          eventId: calEvent.id,
-          title: calEvent.title || eventBody.title || "",
-          startTime: calEvent.start,
-          endTime: calEvent.end,
-          attendees: calEvent.attendees ?? [],
-          createdBy: email,
-        },
-        { owner: email },
-      );
-    } catch {
-      // best-effort
-    }
-
-    setResponseStatus(event, 201);
-    return calEvent;
-  } catch (error: any) {
-    return handleError(event, error);
-  }
-});
 
 export const rsvpEvent = defineEventHandler(async (event: H3Event) => {
   try {

@@ -345,7 +345,7 @@ export const AttendeeAutocomplete = forwardRef<
           className={cn(
             variant === "box"
               ? "rounded-md border border-input bg-transparent px-2 py-1.5 text-sm focus-within:ring-1 focus-within:ring-ring"
-              : "flex min-w-0 flex-1 items-center gap-2",
+              : "flex min-w-0 flex-1 flex-wrap items-center gap-2",
             className,
           )}
           onClick={() => inputRef.current?.focus()}

@@ -6,6 +6,7 @@ export {
   type AppConfig,
   type AppConfigInput,
 } from "../app-config/index.js";
+export { resolveDeployEnvironment } from "./deploy-environment.js";
 export {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -603,6 +604,8 @@ export {
   isBuilderEnvManaged,
   getBuilderProxyOrigin,
   getBuilderImageGenerationBaseUrl,
+  getBuilderEmbeddingsBaseUrl,
+  getBuilderVideoGenerationBaseUrl,
   getBuilderWebSearchBaseUrl,
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
@@ -627,6 +630,7 @@ export {
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
@@ -757,6 +761,16 @@ export {
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
+export {
+  hasRecurringSweepHandler,
+  registerRecurringSweepHandler,
+  runRecurringSweepHandlers,
+  type RecurringSweepHandler,
+} from "../jobs/sweep-hooks.js";
+export {
+  scheduledTriggerAvailability,
+  type ScheduledTriggerAvailability,
+} from "./agent-chat/recurring-jobs-runtime.js";
 export {
   getAppProductionUrl,
   getFirstPartyProdUrl,

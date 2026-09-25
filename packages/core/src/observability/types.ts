@@ -21,6 +21,8 @@ export interface TraceSpan {
    *  written before per-user isolation; null also means "no auth context"
    *  (background tasks, etc.) and is filtered out of per-user reads. */
   userId: string | null;
+  /** Active organization at creation; null for legacy or unscoped runs. */
+  orgId?: string | null;
   parentSpanId: string | null;
   spanType: SpanType;
   name: string;
@@ -41,6 +43,8 @@ export interface TraceSummary {
   threadId: string | null;
   /** See `TraceSpan.userId`. */
   userId: string | null;
+  /** Active organization at creation; null for legacy or unscoped runs. */
+  orgId?: string | null;
   totalSpans: number;
   llmCalls: number;
   toolCalls: number;
@@ -52,6 +56,8 @@ export interface TraceSummary {
   totalOutputTokens: number;
   model: string;
   createdAt: number;
+  /** Populated by the human-review thread rollup query. */
+  runCount?: number;
 }
 
 // ─── Feedback ────────────���────────────────────────────────────────────
@@ -67,6 +73,9 @@ export interface FeedbackEntry {
   value: string;
   idempotencyKey?: string | null;
   userId: string | null;
+  /** Organization attribution is never backfilled from current membership. */
+  orgId?: string | null;
+  source?: "chat" | "human_review";
   createdAt: number;
 }
 
@@ -81,6 +90,7 @@ export interface InstructionUpdate {
   feedback: string;
   status: InstructionUpdateStatus;
   userId: string;
+  orgId?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -93,10 +103,60 @@ export interface OutputReviewListRow {
   hasInlineApp: boolean;
   /** Bounded display name; the saved app payload is fetched on demand. */
   inlineAppTitle?: string;
+  threadTitle: string;
+  summary: HumanReviewSummaryPayload | null;
+  artifacts: HumanReviewArtifactRef[];
+  runs: OutputReviewRun[];
+  runCount: number;
+  authorName?: string;
+  authorAvatar?: string;
   model: string;
   createdAt: number;
   feedback: FeedbackEntry[];
   instructionUpdate: InstructionUpdate | null;
+}
+
+export interface OutputReviewRun {
+  runId: string;
+  model: string;
+  createdAt: number;
+}
+
+export interface HumanReviewArtifactRef {
+  appId: "design" | "slides" | "analytics";
+  artifactId: string;
+  title: string;
+  path?: string;
+}
+
+export interface HumanReviewSummaryPayload {
+  ask: string;
+  outcome: string;
+  artifacts: HumanReviewArtifactRef[];
+}
+
+export interface HumanReviewSummary extends HumanReviewSummaryPayload {
+  runId: string;
+  orgId: string;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OutputReviewThreadMessage {
+  role: "user" | "assistant";
+  text: string;
+  toolCalls?: string[];
+}
+
+export interface OutputReviewDetail {
+  runId: string;
+  app: AgentMcpAppPayload | null;
+  messages: OutputReviewThreadMessage[];
+  artifacts: HumanReviewArtifactRef[];
+  summary: HumanReviewSummaryPayload | null;
+  ask: string;
+  answer: string;
 }
 
 /** @deprecated Use OutputReviewListRow for list data. */

@@ -3,11 +3,30 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-25
+
+### Added
+
+- Add Jev invitation rules for auto-accept, auto-decline, and auto-hide with automation status.
+
+## 2026-09-24
+
+### Fixed
+
+- Calendar no longer shows an internal server error banner when a shared workspace Google connection can't be authorized
+- Guest inputs wrap beneath existing guests so the active input stays visible
+
 ## 2026-09-23
 
 ### Improved
 
 - Calendar opens faster by loading translated catalogs only when you need them.
+
+### Fixed
+
+- Bookings no longer confirm without their configured Zoom meeting
+- Release a booking slot when Zoom creation never starts
+- Zoom booking timeouts keep the slot reserved to prevent duplicate meetings.
 
 ## 2026-09-22
 

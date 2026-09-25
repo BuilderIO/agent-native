@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 export const runtimeConfig = z.object({
+  backgroundJobsEnabled: z.boolean().optional().meta({
+    env: "RUN_BACKGROUND_JOBS",
+    doc: "Run app-owned recurring background jobs. Defaults to enabled only in production.",
+  }),
   databasePoolMax: z.number().int().positive().optional().meta({
     env: "AGENT_NATIVE_DB_POOL_MAX",
     doc: "Maximum connections in each framework database pool. Defaults vary by runtime.",

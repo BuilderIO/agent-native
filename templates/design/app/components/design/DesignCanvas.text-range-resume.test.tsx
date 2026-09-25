@@ -80,6 +80,8 @@ async function mountCanvasWithStyledRange(active = true) {
         sourceType="localhost"
         bridgeUrl={bridgeUrl}
         previewToken="text-range-resume-token"
+        liveEditCapability="text-range-resume-live-capability"
+        liveEditRegistrationCapability="text-range-resume-registration-capability"
         zoom={100}
         deviceFrame="none"
         editMode

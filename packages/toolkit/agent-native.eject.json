@@ -67,6 +67,7 @@
         "culori",
         "date-fns",
         "embla-carousel-react",
+        "emojibase-data",
         "highlight.js",
         "input-otp",
         "lowlight",
@@ -85,6 +86,34 @@
         "yjs"
       ],
       "protectedImports": ["@agent-native/core/client"],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/icons",
+      "label": "Resource icons and picker",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["icons"],
+      "entrypoints": ["./icons"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/icons"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-popover",
+        "@radix-ui/react-select",
+        "@radix-ui/react-slot",
+        "@radix-ui/react-tabs",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "emojibase-data",
+        "react",
+        "tailwind-merge"
+      ],
+      "protectedImports": [
+        "@agent-native/core/icons",
+        "@agent-native/core/client"
+      ],
       "verification": ["pnpm typecheck"]
     },
     {
@@ -657,6 +686,7 @@
       "catalogItems": ["styles"],
       "entrypoints": [],
       "strategy": "source-copy",
+      "sourceEntries": ["src/theme/resource-icons.css"],
       "targetRoot": "app/components/agent-native/toolkit",
       "styles": [
         {

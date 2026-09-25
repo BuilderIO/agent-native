@@ -1995,7 +1995,8 @@ export async function processAgentTeamRun(
                     u.inputTokens > 0 ||
                     u.outputTokens > 0 ||
                     u.cacheReadTokens > 0 ||
-                    u.cacheWriteTokens > 0
+                    u.cacheWriteTokens > 0 ||
+                    u.builderCreditsUsed != null
                   ) {
                     const { recordUsage } = await import("../usage/store.js");
                     const label = payload.name
@@ -2007,6 +2008,8 @@ export async function processAgentTeamRun(
                       outputTokens: u.outputTokens,
                       cacheReadTokens: u.cacheReadTokens,
                       cacheWriteTokens: u.cacheWriteTokens,
+                      builderCreditsUsed: u.builderCreditsUsed,
+                      engineName: u.engineName ?? config.engine.name,
                       model: u.model,
                       label,
                     });

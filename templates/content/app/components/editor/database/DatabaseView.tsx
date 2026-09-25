@@ -232,6 +232,7 @@ import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
+import { ContentIcon, contentIconValue } from "../../icons/ContentIcon";
 import {
   builderBodyHydrationDisplayHydratedCount,
   databaseItemBodyHydrationIsPending,
@@ -268,6 +269,7 @@ import {
   renamePropertyOption,
   updatePropertyOptionColor,
 } from "../DocumentProperties";
+import { EmojiPicker } from "../EmojiPicker";
 import {
   deferredPreviewDocumentSave,
   type PreviewDocumentPayload,
@@ -791,8 +793,8 @@ function DatabaseDropIndicator({ side }: { side: DatabaseDropSide | null }) {
 export function databaseItemPageIconText(
   document: Pick<Document, "icon"> | null | undefined,
 ) {
-  const icon = document?.icon?.trim();
-  return icon ? icon : null;
+  const icon = contentIconValue(document?.icon);
+  return icon?.kind === "emoji" ? icon.emoji : null;
 }
 
 export function DatabaseItemPageIcon({
@@ -806,18 +808,14 @@ export function DatabaseItemPageIcon({
   fallbackClassName?: string;
   fallback?: "page" | "folder";
 }) {
-  const icon = databaseItemPageIconText(document);
+  const icon = contentIconValue(document.icon);
   if (icon) {
     return (
-      <span
-        aria-hidden="true"
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center leading-none",
-          className,
-        )}
-      >
-        {icon}
-      </span>
+      <ContentIcon
+        value={icon}
+        size={16}
+        className={cn("shrink-0", className)}
+      />
     );
   }
 
@@ -2177,6 +2175,73 @@ function DatabaseTable({
     [updateView.mutateAsync],
   );
 
+  const persistSharedDatabaseView = useCallback(
+    (
+      expectedDatabaseId: string,
+      sharedViewConfig: ContentDatabaseViewConfig,
+    ) => {
+      const nextKey = databaseViewStateKey(
+        expectedDatabaseId,
+        sharedViewConfig,
+      );
+      submittedViewRef.current = {
+        databaseId: expectedDatabaseId,
+        key: nextKey,
+      };
+      return viewSaveQueueRef.current(async () => {
+        try {
+          const response = await saveSharedDatabaseView(
+            expectedDatabaseId,
+            sharedViewConfig,
+          );
+          if (viewPersistenceRef.current.databaseId !== expectedDatabaseId)
+            return;
+          const nextViewConfig = normalizeClientDatabaseViewConfig(response);
+          viewPersistenceRef.current.savedViewConfig = nextViewConfig;
+          setSavedViewConfig(nextViewConfig);
+        } catch (error) {
+          if (viewPersistenceRef.current.databaseId === expectedDatabaseId) {
+            const latest = viewPersistenceRef.current;
+            setViewConfig((current) =>
+              rollbackFailedDatabaseViewSave({
+                databaseId: expectedDatabaseId,
+                current,
+                saved: latest.savedViewConfig,
+                failed: sharedViewConfig,
+                personalQueryDirty: latest.personalQueryDirty,
+              }),
+            );
+          }
+          throw error;
+        } finally {
+          if (
+            submittedViewRef.current?.databaseId === expectedDatabaseId &&
+            submittedViewRef.current.key === nextKey
+          ) {
+            submittedViewRef.current = null;
+          }
+        }
+      });
+    },
+    [saveSharedDatabaseView],
+  );
+
+  function handleViewIconChange(
+    viewId: string,
+    icon: ContentDatabaseView["icon"],
+  ) {
+    if (!databaseId)
+      return Promise.reject(new Error("Database is unavailable"));
+    const next = updateDatabaseViewIcon(viewConfig, viewId, icon);
+    const shared = personalQueryDirty
+      ? databaseViewConfigWithSavedQueryState(next, savedViewConfig)
+      : next;
+    if (saveViewTimerRef.current) clearTimeout(saveViewTimerRef.current);
+    const saved = persistSharedDatabaseView(databaseId, shared);
+    handleViewConfigChange(next);
+    return saved;
+  }
+
   async function savePersonalQueryForEveryone() {
     if (!databaseId) return;
     try {
@@ -2854,44 +2919,15 @@ function DatabaseTable({
       clearTimeout(saveViewTimerRef.current);
     }
     saveViewTimerRef.current = setTimeout(() => {
-      submittedViewRef.current = { databaseId, key: nextKey };
-      void viewSaveQueueRef.current(async () => {
-        return saveSharedDatabaseView(databaseId, sharedViewConfig).then(
-          (response) => {
-            if (viewPersistenceRef.current.databaseId !== databaseId) return;
-            const nextViewConfig = normalizeClientDatabaseViewConfig(response);
-            viewPersistenceRef.current.savedViewConfig = nextViewConfig;
-            setSavedViewConfig(nextViewConfig);
-            if (
-              submittedViewRef.current?.databaseId === databaseId &&
-              submittedViewRef.current.key === nextKey
-            ) {
-              submittedViewRef.current = null;
-            }
-          },
-          (err: unknown) => {
-            if (viewPersistenceRef.current.databaseId !== databaseId) return;
-            const latest = viewPersistenceRef.current;
-            setViewConfig((current) =>
-              rollbackFailedDatabaseViewSave({
-                databaseId,
-                current,
-                saved: latest.savedViewConfig,
-                failed: sharedViewConfig,
-                personalQueryDirty: latest.personalQueryDirty,
-              }),
-            );
-            if (submittedViewRef.current?.key === nextKey)
-              submittedViewRef.current = null;
-            toast.error(dbText("failedToSaveView"), {
-              description:
-                err instanceof Error
-                  ? err.message
-                  : dbText("somethingWentWrong"),
-            });
-          },
-        );
-      });
+      void persistSharedDatabaseView(databaseId, sharedViewConfig).catch(
+        (err: unknown) => {
+          if (viewPersistenceRef.current.databaseId !== databaseId) return;
+          toast.error(dbText("failedToSaveView"), {
+            description:
+              err instanceof Error ? err.message : dbText("somethingWentWrong"),
+          });
+        },
+      );
     }, 350);
     return () => {
       if (saveViewTimerRef.current) {
@@ -2903,7 +2939,7 @@ function DatabaseTable({
     databaseId,
     personalQueryDirty,
     personalView.data?.overrides,
-    saveSharedDatabaseView,
+    persistSharedDatabaseView,
     savedViewConfig,
     viewConfig,
   ]);
@@ -3013,6 +3049,7 @@ function DatabaseTable({
           viewConfig={viewConfig}
           canEdit={effectiveCanEdit}
           onViewConfigChange={handleViewConfigChange}
+          onViewIconChange={handleViewIconChange}
           onViewSelect={selectPersonalView}
         />
         <ContentTableToolbar>
@@ -13450,6 +13487,7 @@ export function createDatabaseView(
     id,
     name: name.trim() || databaseViewDefaultName(type),
     type,
+    icon: values.icon,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeClientDatabaseFilterMode(values.filterMode),
@@ -13666,6 +13704,19 @@ export function renameDatabaseView(
   });
 }
 
+export function updateDatabaseViewIcon(
+  config: ContentDatabaseViewConfig,
+  viewId: string,
+  icon: ContentDatabaseView["icon"],
+) {
+  return normalizeClientDatabaseViewConfig({
+    ...config,
+    views: config.views.map((view) =>
+      view.id === viewId ? { ...view, icon } : view,
+    ),
+  });
+}
+
 export function updateDatabaseViewType(
   config: ContentDatabaseViewConfig,
   viewId: string,
@@ -13690,6 +13741,7 @@ export function duplicateDatabaseView(
     uniqueDatabaseViewName(normalized.views, `${view.name} copy`),
     createDatabaseViewId(),
     {
+      icon: view.icon,
       sorts: view.sorts,
       filters: view.filters,
       filterMode: view.filterMode,
@@ -13814,6 +13866,7 @@ function normalizeClientDatabaseView(
       : databaseViewDefaultName(type),
     value.id,
     {
+      icon: value.icon,
       sorts: Array.isArray(value.sorts)
         ? value.sorts.filter(isDatabaseSort)
         : [],
@@ -15114,17 +15167,25 @@ function DatabaseViewTabs({
   viewConfig,
   canEdit,
   onViewConfigChange,
+  onViewIconChange,
   onViewSelect,
 }: {
   viewConfig: ContentDatabaseViewConfig;
   canEdit: boolean;
   onViewConfigChange: (viewConfig: ContentDatabaseViewConfig) => void;
+  onViewIconChange: (
+    viewId: string,
+    icon: ContentDatabaseView["icon"],
+  ) => Promise<void>;
   onViewSelect: (viewId: string) => void;
 }) {
+  const t = useT();
   const normalized = normalizeClientDatabaseViewConfig(viewConfig);
   const [newViewName, setNewViewName] = useState("");
   const [addViewOpen, setAddViewOpen] = useState(false);
   const [openViewMenuId, setOpenViewMenuId] = useState<string | null>(null);
+  const [iconPickerViewId, setIconPickerViewId] = useState<string | null>(null);
+  const activeViewTabRef = useRef<HTMLButtonElement>(null);
   const [renameViewId, setRenameViewId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [draggedViewId, setDraggedViewId] = useState<string | null>(null);
@@ -15292,6 +15353,7 @@ function DatabaseViewTabs({
         const tabButton = (
           <button
             type="button"
+            ref={active && canEdit ? activeViewTabRef : undefined}
             data-database-view-id={view.id}
             aria-label={
               active && canEdit ? `${view.name} view menu` : view.name
@@ -15325,12 +15387,16 @@ function DatabaseViewTabs({
             onPointerDown={(event) => startViewPointerDrag(view, event)}
           >
             <DatabaseDropIndicator side={dropSide} />
-            <ViewIcon
-              className={cn(
-                "size-4 shrink-0",
-                active ? "text-foreground" : "text-muted-foreground",
-              )}
-            />
+            {view.icon ? (
+              <ContentIcon value={view.icon} size={16} className="shrink-0" />
+            ) : (
+              <ViewIcon
+                className={cn(
+                  "size-4 shrink-0",
+                  active ? "text-foreground" : "text-muted-foreground",
+                )}
+              />
+            )}
             <span className="max-w-40 truncate">{view.name}</span>
           </button>
         );
@@ -15342,6 +15408,7 @@ function DatabaseViewTabs({
         return (
           <DropdownMenu
             key={view.id}
+            modal={false}
             open={openViewMenuId === view.id}
             onOpenChange={(open) => {
               setOpenViewMenuId(open ? view.id : null);
@@ -15353,8 +15420,23 @@ function DatabaseViewTabs({
           >
             <DropdownMenuTrigger asChild>{tabButton}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
-                {view.name}
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  aria-label={t("editor.emojiChangeIcon")}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
+                  onClick={() => {
+                    setOpenViewMenuId(null);
+                    setIconPickerViewId(view.id);
+                  }}
+                >
+                  {view.icon ? (
+                    <ContentIcon value={view.icon} size={16} />
+                  ) : (
+                    <ViewIcon className="size-4" />
+                  )}
+                </button>
+                <span className="truncate">{view.name}</span>
               </DropdownMenuLabel>
               {renameViewId === view.id ? (
                 <form
@@ -15449,6 +15531,17 @@ function DatabaseViewTabs({
                 </>
               )}
             </DropdownMenuContent>
+            <EmojiPicker
+              icon={view.icon ?? null}
+              open={iconPickerViewId === view.id}
+              onOpenChange={(open) =>
+                setIconPickerViewId(open ? view.id : null)
+              }
+              anchored
+              anchorElement={activeViewTabRef.current}
+              contentClassName="z-[310]"
+              onSelect={(icon) => onViewIconChange(view.id, icon)}
+            />
           </DropdownMenu>
         );
       })}
@@ -16339,9 +16432,17 @@ function DatabasePropertyHeader({
         isDragging && "opacity-45",
         dropSide && "bg-accent/40",
       )}
-      onPointerDown={canReorder ? onPointerDown : undefined}
     >
       <DatabaseDropIndicator side={dropSide} />
+      {canReorder && (
+        <span
+          aria-hidden="true"
+          className="flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/50 active:cursor-grabbing"
+          onPointerDown={onPointerDown}
+        >
+          <IconGripVertical className="size-3.5" />
+        </span>
+      )}
       {canEdit && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}
@@ -16351,11 +16452,6 @@ function DatabasePropertyHeader({
           databaseId={property.definition.databaseId!}
           icon={Icon}
           triggerClassName="h-full min-w-0 flex-1 rounded-none text-xs text-muted-foreground"
-          onTriggerPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onPointerDown(event);
-          }}
           triggerTrailing={
             <DatabaseColumnStateIndicators state={columnState} />
           }

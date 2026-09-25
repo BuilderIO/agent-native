@@ -55,6 +55,7 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingStructureVerificationStatus: PendingStructureVerificationStatus;
   pendingVisualStyleEdits: PendingVisualStyleEdit[];
   pendingVisualStylePrompt: string;
+  allowPromptOnly?: boolean;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
   setPendingAgentHandoffBusy: Dispatch<SetStateAction<boolean>>;
@@ -101,6 +102,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   pendingStructureVerificationStatus,
   pendingVisualStyleEdits,
   pendingVisualStylePrompt,
+  allowPromptOnly = false,
   setActiveLeftPanel,
   setApplyingViaHost,
   setPendingAgentHandoffBusy,
@@ -114,7 +116,8 @@ export async function runApplyPendingVisualStylesWithAgent({
 }: ApplyPendingVisualStylesWithAgentArgs) {
   if (
     pendingVisualStyleEdits.length === 0 &&
-    pendingLiveNonStyleEdits.length === 0
+    pendingLiveNonStyleEdits.length === 0 &&
+    !allowPromptOnly
   ) {
     return;
   }
@@ -185,7 +188,7 @@ export async function runApplyPendingVisualStylesWithAgent({
             t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
           );
         }, HOST_TURN_START_TIMEOUT_MS);
-      } else finalizeWithoutStructureVerification();
+      } else if (!allowPromptOnly) finalizeWithoutStructureVerification();
       if (delivery.target === "local") setActiveLeftPanel("agent");
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
       return;

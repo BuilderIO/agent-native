@@ -160,6 +160,8 @@ export default {
     untitledAnalysis: "Unbenannte Analyse",
   },
   settings: {
+    agentObservability: "Agentenbeobachtbarkeit",
+    reviewPreviewUnavailable: "Vorschau nicht verfügbar",
     agentTitle: "Agent verwalten",
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
@@ -1340,6 +1342,7 @@ export default {
     app: "App",
     unknownApp: "Unbekannte App",
     lastSeen: "Zuletzt gesehen",
+    includeZeroMinuteSessions: "0-Minuten-Sitzungen einschließen",
     duration: "Dauer",
     events: "Ereignisse",
     chunks: "Chunks",

@@ -474,6 +474,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    engineName: opts.engine.name,
     model: opts.model,
   };
 
@@ -482,6 +483,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
     usage.outputTokens += next.outputTokens;
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
+    if (next.builderCreditsUsed !== undefined) {
+      usage.builderCreditsUsed =
+        (usage.builderCreditsUsed ?? 0) + next.builderCreditsUsed;
+    }
+    usage.engineName = next.engineName ?? usage.engineName;
     usage.model = next.model;
     // Without these, a retry that never got a usage report merges its zeros
     // over an earlier attempt's real numbers, and telemetry reports an

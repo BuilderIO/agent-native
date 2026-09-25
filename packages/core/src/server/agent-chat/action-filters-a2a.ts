@@ -455,9 +455,14 @@ type A2AAgentLoopRunner = typeof runAgentLoopDirectWithSoftTimeout;
  * millions of input tokens as tool results accumulated. These defaults leave
  * ample room for multi-source analysis while failing before a delegated turn
  * can silently become an unbounded research session.
+ *
+ * This also gates `runMCPAgentLoop`, the same-app `ask_app` path, so it bounds
+ * ordinary requests to an app's own agent. The whole prompt, including every
+ * tool schema (~50k tokens for a large app), is re-sent each step, so the cap
+ * must leave room for a normal multi-step turn, not just a single call.
  */
 export const DEFAULT_DELEGATED_MAX_ITERATIONS = 80;
-export const DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS = 750_000;
+export const DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS = 5_000_000;
 export const DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS = 20_000;
 
 /**

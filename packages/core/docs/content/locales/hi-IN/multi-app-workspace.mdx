@@ -352,10 +352,11 @@ npx @agent-native/core@latest deploy
 - **ज़ीरो-कॉन्फिग क्रॉस-ऐप A2A।** `@mail` टैगिंग `@calendar` एक समान-मूल फ़ेच बन जाता है - कोई CORS नहीं, कोई JWT भाई-बहनों के बीच हस्ताक्षर नहीं। बाहरी A2A आज भी JWT का उपयोग करता है।
 - **एक DNS रिकॉर्ड, एक प्रमाणपत्र, एक CDN कैश।**
 
-`dist/` आउटपुट प्रकाशित करें:
+प्लेटफ़ॉर्म के लिए बिल्ड प्रकाशित करें:
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
 नेटलिफ़ाई के लिए:

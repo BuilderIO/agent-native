@@ -9,11 +9,13 @@ import path from "path";
  */
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
+import { isEmbeddedRuntimeAuthorized } from "./embedded-runtime.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
   recordDatabaseRetry,
 } from "./request-telemetry.js";
+import { isServerRuntimeStarted } from "./server-runtime.js";
 
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
@@ -116,6 +118,8 @@ function hasCloudflareRuntime(): boolean {
  * app ID automatically.
  */
 export function getDatabaseUrl(fallback = ""): string {
+  const testUrl = getIsolatedTestDatabaseUrl();
+  if (testUrl) return testUrl;
   const appName = getAppEnvPrefix();
   if (appName) {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
@@ -165,7 +169,20 @@ function usableRuntimeDatabaseValue(key: string): string | undefined {
   return value && isUsableRuntimeDatabaseUrl(value) ? value : undefined;
 }
 
+// Test fixtures set DATABASE_URL, but may inherit deployment aliases that would
+// otherwise send their migrations and writes to a hosted database.
+export function getIsolatedTestDatabaseUrl(): string | undefined {
+  const isTestProcess =
+    process.env.NODE_ENV === "test" ||
+    process.env.VITEST === "true" ||
+    process.env.VITEST === "1";
+  const url = isTestProcess ? envDatabaseValue("DATABASE_URL") : undefined;
+  return url && isPgliteUrl(url) ? url : undefined;
+}
+
 function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
+  const testUrl = getIsolatedTestDatabaseUrl();
+  if (testUrl) return { url: testUrl, source: "DATABASE_URL" };
   const appName = getAppEnvPrefix();
   if (appName) {
     const appUnpooled = usableRuntimeDatabaseValue(
@@ -271,7 +288,10 @@ function getAppEnvPrefix(): string | undefined {
  * Non-Neon URLs and already-direct Neon URLs are returned unchanged.
  */
 export function getMigrationDatabaseUrl(): string {
-  const url = getConfiguredUnpooledDatabaseUrl() || getDatabaseUrl();
+  const url =
+    getIsolatedTestDatabaseUrl() ||
+    getConfiguredUnpooledDatabaseUrl() ||
+    getDatabaseUrl();
   // Neon pooler hostname: ep-<id>-pooler.<region>.<cloud>.neon.tech
   // Direct hostname:      ep-<id>.<region>.<cloud>.neon.tech
   // The region between `-pooler.` and `.neon.tech` can contain multiple
@@ -1170,10 +1190,22 @@ export function isProductionServerlessFunctionRuntime(
  * by the AWS Lambda execution environment itself only once a function actually
  * invokes; `NETLIFY_FUNCTION_NAME` and the Vercel function markers are the
  * same kind of invocation-only signal on their platforms.
+ *
+ * Cloudflare is checked first and outside the `NODE_ENV` gate below:
+ * `hasCloudflareRuntime()` (`__cf_env` / `__env__` on `globalThis`) is only
+ * ever set by the generated Worker `fetch` handler on an actual request (see
+ * `generateCloudflareModuleWorkerEntry()` in deploy/build.ts) — it is never
+ * present in the Node process that runs the build, including the Cloudflare
+ * Pages static-shell prerender, which spawns a plain Node subprocess with no
+ * Workers globals. Unlike Netlify/Lambda/Vercel, Cloudflare's own runtime does
+ * not reliably set `NODE_ENV=production`, so gating it on that check the same
+ * way the other three are would make this branch silently never fire.
  */
 export function isHostedFunctionInvocationRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  if (hasCloudflareRuntime()) return true;
+
   if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
     return false;
   }
@@ -1202,6 +1234,51 @@ export class HostedRuntimeLocalDatabaseError extends Error {
         "requests off an ephemeral per-instance file instead of the shared database.",
     );
     this.name = "HostedRuntimeLocalDatabaseError";
+  }
+}
+
+/**
+ * Shared refusal for every database opener. `getDbExec()` (via `initClient`)
+ * and `createGetDb()`'s Drizzle opener resolve the same runtime URL and must
+ * refuse the same way — a request that reaches Drizzle first used to skip
+ * this check entirely and open PGlite silently.
+ *
+ * `isMigrationAuthorizedRuntime()` is checked first: release scripts and
+ * durable background workers can be a real hosted function invocation (a
+ * Netlify background function still gets `NETLIFY_FUNCTION_NAME`) and are
+ * still allowed to touch PGlite under `withMigrationRuntime()` — that path is
+ * guarded separately by `assertReleaseMigrationTargetsRemoteDatabase()`.
+ *
+ * A real hosted function invocation (`isHostedFunctionInvocationRuntime()`)
+ * always refuses next, before `isEmbeddedRuntimeAuthorized()` is even
+ * consulted: Netlify/Vercel/Lambda/Cloudflare are never a legitimate context
+ * for "this is an intentionally embedded desktop app," regardless of
+ * whether the local database was deliberately configured — an embedded host
+ * that ends up actually running as one of those ephemeral, multi-instance
+ * platforms hits the exact per-instance-PGlite failure the guard exists to
+ * prevent either way. `isEmbeddedRuntimeAuthorized()` only exempts the
+ * bare Node/Docker branch below: `createAgentNativeEmbeddedPlugin()` hosts
+ * (packaged/desktop installs) deliberately pass a `pglite:` `databaseUrl`,
+ * and — unlike the `NODE_ENV=test` integration-suite case
+ * `isServerRuntimeStarted()`'s own gate assumed — a real packaged install
+ * runs with `NODE_ENV=production`, so that gate alone does not exempt it.
+ * `configureAgentNativeEmbeddedEnvironment()` claims this duty whenever the
+ * embedding host supplies an explicit `databaseUrl`.
+ *
+ * `isServerRuntimeStarted()` is additionally gated on `NODE_ENV === "production"`
+ * here, unlike `isHostedFunctionInvocationRuntime()`'s Cloudflare branch:
+ * `getH3App()`'s bootstrap — where the flag is set — also runs for `pnpm dev`
+ * and any `NODE_ENV=test` suite that boots a real H3 app.
+ */
+export function assertHostedRuntimeDatabase(): void {
+  if (isMigrationAuthorizedRuntime()) return;
+  if (!isLocalDatabase()) return;
+  if (isHostedFunctionInvocationRuntime()) {
+    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
+  }
+  if (isEmbeddedRuntimeAuthorized()) return;
+  if (process.env.NODE_ENV === "production" && isServerRuntimeStarted()) {
+    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
   }
 }
 
@@ -2268,9 +2345,7 @@ function guardSchemaMutations(exec: DbExec): DbExec {
 async function initClient(): Promise<void> {
   if (_exec) return;
 
-  if (isHostedFunctionInvocationRuntime() && isLocalDatabase()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
+  assertHostedRuntimeDatabase();
 
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
   _exec = await createDbExecInternal({ url }, true);

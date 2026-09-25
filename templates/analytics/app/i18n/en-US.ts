@@ -337,6 +337,8 @@ export default {
     untitledDashboard: "Untitled dashboard",
   },
   settings: {
+    agentObservability: "Agent Observability",
+    reviewPreviewUnavailable: "Preview unavailable",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
@@ -1389,6 +1391,7 @@ export default {
     app: "App",
     unknownApp: "Unknown app",
     lastSeen: "Last seen",
+    includeZeroMinuteSessions: "Include 0m sessions",
     duration: "Duration",
     events: "Events",
     chunks: "Chunks",

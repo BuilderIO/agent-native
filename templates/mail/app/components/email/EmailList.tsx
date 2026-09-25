@@ -5,6 +5,7 @@ import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
 import {
   AI_IMPORTANT_LABEL,
   AI_PRIORITY_MAX_EMAILS,
+  aiPriorityEmailKey,
   type AiPriorityEmail,
   type MailSortMode,
 } from "@shared/ai-priority";
@@ -13,6 +14,8 @@ import type { EmailMessage, Label } from "@shared/types";
 import {
   IconAlertCircle,
   IconArchive,
+  IconCheck,
+  IconChevronDown,
   IconDots,
   IconFilter,
   IconFolder,
@@ -21,8 +24,13 @@ import {
   IconMailOpened,
   IconTrash,
   IconX,
+  IconSettings,
 } from "@tabler/icons-react";
-import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import {
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
@@ -42,13 +50,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -57,6 +58,10 @@ import {
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAiPriority } from "@/hooks/use-ai-priority";
+import {
+  askAgentToDraftImportanceRules,
+  useAiPriorityFeedback,
+} from "@/hooks/use-ai-priority-feedback";
 import { useAutomations } from "@/hooks/use-automations";
 import {
   useEmails,
@@ -84,8 +89,10 @@ import {
   useDeleteScheduledJob,
   useSendScheduledJobNow,
 } from "@/hooks/use-scheduled-jobs";
+import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 
 import { EmailListItem } from "./EmailListItem";
@@ -117,8 +124,53 @@ function toPriorityEmail(email: EmailMessage): AiPriorityEmail {
     isTrashed: email.isTrashed,
   };
 }
-import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
-import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
+
+function priorityEmailCacheKey(
+  email: EmailMessage,
+  ruleRevision: string,
+): string {
+  const priorityEmail = toPriorityEmail(email);
+  return JSON.stringify([
+    ruleRevision,
+    priorityEmail.accountEmail,
+    priorityEmail.id,
+    priorityEmail.date,
+    priorityEmail.from,
+    priorityEmail.to,
+    priorityEmail.subject,
+    priorityEmail.snippet,
+  ]);
+}
+
+type CachedPriorityScore = { inputKey: string; score: number };
+
+const priorityScoreCaches = new WeakMap<
+  QueryClient,
+  Map<string, CachedPriorityScore>
+>();
+
+function priorityScoreCache(queryClient: QueryClient) {
+  let cache = priorityScoreCaches.get(queryClient);
+  if (!cache) {
+    cache = new Map();
+    priorityScoreCaches.set(queryClient, cache);
+  }
+  return cache;
+}
+
+export function rememberPriorityScore(
+  cache: Map<string, CachedPriorityScore>,
+  key: string,
+  score: CachedPriorityScore,
+) {
+  cache.delete(key);
+  cache.set(key, score);
+  while (cache.size > AI_PRIORITY_MAX_EMAILS) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+}
 
 interface EmailListProps {
   emails?: EmailMessage[];
@@ -475,6 +527,7 @@ export function EmailList({
   const t = useT();
   const { isPending: isPriorityPending, mutateAsync: requestPriority } =
     useAiPriority();
+  const priorityFeedback = useAiPriorityFeedback();
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -545,6 +598,10 @@ export function EmailList({
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
   const labels = labelsProp ?? labelsData ?? EMPTY_LABELS;
+  const labelNames = useMemo(
+    () => new Map(labels.map((label) => [label.id, label.name])),
+    [labels],
+  );
   const moveEmail = useMoveEmail();
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();
@@ -581,7 +638,12 @@ export function EmailList({
     [priorityEmails],
   );
   const priorityWindowIds = useMemo(
-    () => new Set(priorityWindowEmails.map((email) => email.id)),
+    () =>
+      new Set(
+        priorityWindowEmails.map((email) =>
+          aiPriorityEmailKey(email.accountEmail, email.id),
+        ),
+      ),
     [priorityWindowEmails],
   );
   const priorityRuleRevision = useMemo(
@@ -611,7 +673,10 @@ export function EmailList({
     () =>
       new Map(
         chronologicalThreads.map((thread, index) => [
-          thread.latestMessage.id,
+          aiPriorityEmailKey(
+            thread.latestMessage.accountEmail,
+            thread.latestMessage.id,
+          ),
           index,
         ]),
       ),
@@ -623,19 +688,111 @@ export function EmailList({
         .concat(
           priorityWindowEmails.map(
             (email) =>
-              `${email.id}:${email.date}:${email.from.email}:${JSON.stringify(email.to)}:${email.subject}:${email.snippet}:${email.labelIds.join(",")}`,
+              `${email.accountEmail}:${email.id}:${email.date}:${email.from.email}:${JSON.stringify(email.to)}:${email.subject}:${email.snippet}`,
           ),
         )
         .join("\u001f"),
     [priorityRuleRevision, priorityWindowEmails],
   );
-  const [priorityScores, setPriorityScores] = useState<Map<string, number>>(
-    () => new Map(),
+  const [priorityScores, setPriorityScores] = useState(
+    () => new Map(priorityScoreCache(queryClient)),
   );
+  const recordPriorityFeedback = useCallback(
+    (email: EmailMessage, decision: "important" | "not-important") => {
+      const key = aiPriorityEmailKey(email.accountEmail, email.id);
+      const score = decision === "important" ? 1 : 0;
+      const cache = priorityScoreCache(queryClient);
+      const previousScore = cache.get(key) ?? priorityScores.get(key);
+      const optimisticScore = {
+        inputKey: priorityEmailCacheKey(email, priorityRuleRevision),
+        score,
+      };
+      rememberPriorityScore(cache, key, optimisticScore);
+      setPriorityScores((current) => {
+        const next = new Map(current);
+        next.set(key, optimisticScore);
+        return next;
+      });
+      void priorityFeedback
+        .mutateAsync({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          decision,
+          sender: email.from.name || email.from.email,
+          subject: email.subject,
+        })
+        .then(({ totalVotes, recentVotes }) => {
+          if (totalVotes % 5 !== 0) return;
+          let showSuggestion = true;
+          try {
+            const key = "mail-priority-feedback-suggestion-count";
+            const shownCount = Number(localStorage.getItem(key) ?? 0);
+            showSuggestion = shownCount < totalVotes;
+            if (showSuggestion) localStorage.setItem(key, String(totalVotes));
+            // coercion-ok: feedback was saved server-side; this only tracks a local reminder.
+          } catch {
+            // Feedback is saved server-side even when browser storage is unavailable.
+          }
+          if (!showSuggestion) return;
+          toast.info(t("mail.sort.priorityFeedbackSuggestion"), {
+            duration: 8_000,
+            action: {
+              label: t("mail.sort.priorityFeedbackAskAgent"),
+              onClick: () =>
+                askAgentToDraftImportanceRules(
+                  t("mail.sort.priorityFeedbackSuggestion"),
+                  recentVotes,
+                ),
+            },
+          });
+        })
+        .catch(() => {
+          setPriorityScores((current) => {
+            if (current.get(key) !== optimisticScore) return current;
+            const next = new Map(current);
+            if (previousScore) next.set(key, previousScore);
+            else next.delete(key);
+            return next;
+          });
+          if (cache.get(key) === optimisticScore) {
+            if (previousScore) rememberPriorityScore(cache, key, previousScore);
+            else cache.delete(key);
+          }
+          toast.error(t("mail.aiFilter.actionFailed"));
+        });
+    },
+    [
+      navigate,
+      priorityFeedback,
+      priorityRuleRevision,
+      priorityScores,
+      queryClient,
+      t,
+    ],
+  );
+  const cachedPriorityScores = useMemo(() => {
+    const cached = new Map<string, number>();
+    for (const email of priorityWindowEmails) {
+      const key = aiPriorityEmailKey(email.accountEmail, email.id);
+      const score = priorityScores.get(key);
+      if (
+        score?.inputKey === priorityEmailCacheKey(email, priorityRuleRevision)
+      ) {
+        cached.set(key, score.score);
+      }
+    }
+    return cached;
+  }, [priorityRuleRevision, priorityScores, priorityWindowEmails]);
   const priorityRequestKeyRef = useRef("");
   const priorityRequestGenerationRef = useRef(0);
   const previousSortModeRef = useRef(currentSortMode);
   const runPriority = useCallback(async () => {
+    const uncachedPriorityEmails = priorityWindowEmails.filter(
+      (email) =>
+        !cachedPriorityScores.has(
+          aiPriorityEmailKey(email.accountEmail, email.id),
+        ),
+    );
     if (
       areAutomationRulesFetching ||
       isPriorityPending ||
@@ -644,17 +801,69 @@ export function EmailList({
     ) {
       return;
     }
+    if (uncachedPriorityEmails.length === 0) {
+      priorityRequestKeyRef.current = priorityInputKey;
+      return;
+    }
     const requestKey = priorityInputKey;
     const requestGeneration = ++priorityRequestGenerationRef.current;
     priorityRequestKeyRef.current = requestKey;
+    const pendingEmailsByKey = new Map(
+      uncachedPriorityEmails.map((email) => [
+        aiPriorityEmailKey(email.accountEmail, email.id),
+        email,
+      ]),
+    );
+    const uniquePendingEmailById = new Map<string, EmailMessage | null>();
+    for (const email of uncachedPriorityEmails) {
+      uniquePendingEmailById.set(
+        email.id,
+        uniquePendingEmailById.has(email.id) ? null : email,
+      );
+    }
+    const pendingInputKeys = new Map(
+      uncachedPriorityEmails.map((email) => [
+        aiPriorityEmailKey(email.accountEmail, email.id),
+        priorityEmailCacheKey(email, priorityRuleRevision),
+      ]),
+    );
     try {
       const result = await requestPriority({
-        emails: priorityWindowEmails.map(toPriorityEmail),
+        emails: uncachedPriorityEmails.map(toPriorityEmail),
       });
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
-      setPriorityScores(
-        new Map(result.scores.map((score) => [score.emailId, score.score])),
-      );
+      const cache = priorityScoreCache(queryClient);
+      const next = new Map(cache);
+      const scoredKeys = new Set<string>();
+      for (const score of result.scores) {
+        const email =
+          score.accountEmail === undefined
+            ? uniquePendingEmailById.get(score.emailId)
+            : pendingEmailsByKey.get(
+                aiPriorityEmailKey(score.accountEmail, score.emailId),
+              );
+        if (!email) {
+          if (
+            score.accountEmail === undefined &&
+            uniquePendingEmailById.has(score.emailId)
+          ) {
+            throw new Error(t("mail.sort.priorityFailed"));
+          }
+          continue;
+        }
+        const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        scoredKeys.add(key);
+        const inputKey = pendingInputKeys.get(key);
+        if (inputKey) {
+          const cachedScore = { inputKey, score: score.score };
+          rememberPriorityScore(cache, key, cachedScore);
+          rememberPriorityScore(next, key, cachedScore);
+        }
+      }
+      if (scoredKeys.size !== uncachedPriorityEmails.length) {
+        throw new Error(t("mail.sort.priorityFailed"));
+      }
+      setPriorityScores(next);
     } catch (error) {
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
       priorityRequestKeyRef.current = "";
@@ -668,7 +877,10 @@ export function EmailList({
     areAutomationRulesFetching,
     isPriorityPending,
     priorityInputKey,
+    priorityRuleRevision,
+    cachedPriorityScores,
     priorityWindowEmails,
+    queryClient,
     requestPriority,
     t,
   ]);
@@ -691,18 +903,26 @@ export function EmailList({
     () =>
       currentSortMode === "priority"
         ? [...chronologicalThreads].sort((a, b) => {
-            const aIsPriority = priorityWindowIds.has(a.latestMessage.id);
-            const bIsPriority = priorityWindowIds.has(b.latestMessage.id);
+            const aKey = aiPriorityEmailKey(
+              a.latestMessage.accountEmail,
+              a.latestMessage.id,
+            );
+            const bKey = aiPriorityEmailKey(
+              b.latestMessage.accountEmail,
+              b.latestMessage.id,
+            );
+            const aIsPriority = priorityWindowIds.has(aKey);
+            const bIsPriority = priorityWindowIds.has(bKey);
             if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
             if (!aIsPriority) {
               return (
-                (chronologicalIndexes.get(a.latestMessage.id) ?? 0) -
-                (chronologicalIndexes.get(b.latestMessage.id) ?? 0)
+                (chronologicalIndexes.get(aKey) ?? 0) -
+                (chronologicalIndexes.get(bKey) ?? 0)
               );
             }
             return (
-              (priorityScores.get(b.latestMessage.id) ?? 0.5) -
-                (priorityScores.get(a.latestMessage.id) ?? 0.5) ||
+              (cachedPriorityScores.get(bKey) ?? 0.5) -
+                (cachedPriorityScores.get(aKey) ?? 0.5) ||
               new Date(b.latestMessage.date).getTime() -
                 new Date(a.latestMessage.date).getTime() ||
               b.latestMessage.id.localeCompare(a.latestMessage.id)
@@ -713,7 +933,7 @@ export function EmailList({
       chronologicalIndexes,
       chronologicalThreads,
       currentSortMode,
-      priorityScores,
+      cachedPriorityScores,
       priorityWindowIds,
     ],
   );
@@ -1919,31 +2139,73 @@ export function EmailList({
   const sortHeaderAction = useMemo(
     () =>
       view === "inbox" && !searchQuery && !labelParam && threads.length > 0 ? (
-        <Select
-          value={currentSortMode}
-          onValueChange={(value) => onSortModeChange?.(value as MailSortMode)}
-        >
-          <SelectTrigger
-            className="h-7 w-[104px] text-[11px]"
-            aria-label={t("mail.sort.label")}
-            aria-busy={isPriorityPending}
-          >
-            <SelectValue />
-            {isPriorityPending && <Spinner className="size-3" />}
-          </SelectTrigger>
-          <SelectContent align="end">
-            <SelectItem value="newest">{t("mail.sort.newest")}</SelectItem>
-            {showPrioritySort && (
-              <SelectItem value="priority">
-                {t("mail.sort.priority")}
-              </SelectItem>
-            )}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-7 w-[112px] items-center justify-between rounded-md border border-input bg-transparent px-2.5 text-[11px] text-foreground hover:bg-accent/40"
+                    aria-label={`${t("mail.sort.label")} · ⌘I`}
+                    aria-busy={isPriorityPending}
+                  >
+                    <span>
+                      {currentSortMode === "priority"
+                        ? t("mail.sort.priority")
+                        : t("mail.sort.newest")}
+                    </span>
+                    {isPriorityPending ? (
+                      <Spinner className="size-3" />
+                    ) : (
+                      <IconChevronDown className="size-3.5 text-muted-foreground" />
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{`${t("mail.sort.label")} · ⌘I`}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                onSelect={() => onSortModeChange?.("newest")}
+                className="justify-between"
+              >
+                {t("mail.sort.newest")}
+                {currentSortMode === "newest" && (
+                  <IconCheck className="size-3.5" />
+                )}
+              </DropdownMenuItem>
+              {showPrioritySort && (
+                <div className="flex items-center">
+                  <DropdownMenuItem
+                    onSelect={() => onSortModeChange?.("priority")}
+                    className="flex-1 justify-between"
+                  >
+                    {t("mail.sort.priority")}
+                    {currentSortMode === "priority" && (
+                      <IconCheck className="size-3.5" />
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      navigate("/settings?section=ai-filter#importance-rules")
+                    }
+                    aria-label={t("mail.sort.priorityEditRules")}
+                    title={t("mail.sort.priorityEditRules")}
+                    className="px-2"
+                  >
+                    <IconSettings className="size-3.5" />
+                  </DropdownMenuItem>
+                </div>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       ) : null,
     [
       isPriorityPending,
       labelParam,
+      navigate,
       showPrioritySort,
       currentSortMode,
       onSortModeChange,
@@ -2163,6 +2425,13 @@ export function EmailList({
     return <MailLoadingState containerRef={containerRef} />;
   }
 
+  if (
+    currentSortMode === "priority" &&
+    priorityWindowEmails.length > cachedPriorityScores.size
+  ) {
+    return <MailLoadingState containerRef={containerRef} />;
+  }
+
   // Client-sliced inbox tabs can have no matches on the first page even when
   // later inbox pages contain matching threads. Keep the sentinel mounted so
   // the infinite query can continue before showing an empty state.
@@ -2275,8 +2544,7 @@ export function EmailList({
     view !== "sent" &&
     view !== "drafts" &&
     view !== "trash";
-  const canTrashInView = view !== "trash";
-
+  const canTrashInView = view !== "inbox" && view !== "trash";
   const virtualItems = rowVirtualizer.getVirtualItems();
 
   return (
@@ -2314,6 +2582,17 @@ export function EmailList({
               >
                 <EmailListItem
                   email={thread.latestMessage}
+                  labelNames={labelNames}
+                  importanceScore={
+                    currentSortMode === "priority"
+                      ? cachedPriorityScores.get(
+                          aiPriorityEmailKey(
+                            thread.latestMessage.accountEmail,
+                            thread.latestMessage.id,
+                          ),
+                        )
+                      : undefined
+                  }
                   thread={thread}
                   isSelected={thread.latestMessage.id === threadId}
                   isFocused={thread.latestMessage.id === focusedId}
@@ -2331,6 +2610,12 @@ export function EmailList({
                   onArchive={handleArchiveThread}
                   onSnooze={handleSnoozeButtonClick}
                   onTrash={handleTrashThread}
+                  onImportanceFeedback={
+                    view === "inbox"
+                      ? (decision) =>
+                          recordPriorityFeedback(thread.latestMessage, decision)
+                      : undefined
+                  }
                   onSendNow={handleSendScheduledNow}
                   onCancelSchedule={handleCancelScheduled}
                   onHover={handleHoverThread}

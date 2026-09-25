@@ -153,6 +153,8 @@ export default {
     untitledAnalysis: "無題の分析",
   },
   settings: {
+    agentObservability: "エージェントの可観測性",
+    reviewPreviewUnavailable: "プレビューを利用できません",
     agentTitle: "エージェントを管理",
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
@@ -1312,6 +1314,7 @@ export default {
     app: "アプリ",
     unknownApp: "不明なアプリ",
     lastSeen: "最終表示",
+    includeZeroMinuteSessions: "0分のセッションを含める",
     duration: "期間",
     events: "イベント",
     chunks: "チャンク",

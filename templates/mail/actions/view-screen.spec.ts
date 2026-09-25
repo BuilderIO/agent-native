@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   readAppStateForCurrentTab: vi.fn(),
   getRequestUserEmail: vi.fn(),
-  getSetting: vi.fn(),
+  getUserSetting: vi.fn(),
+  readLocalEmails: vi.fn(),
   readSettings: vi.fn(),
+  readInboxThreads: vi.fn(),
+  readCachedLabels: vi.fn(),
   isConnected: vi.fn(),
   getClientsWithErrors: vi.fn(),
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT: 100,
@@ -23,11 +26,21 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  getSetting: mocks.getSetting,
+  getUserSetting: mocks.getUserSetting,
+}));
+
+vi.mock("../server/lib/inbox-store.js", () => ({
+  inboxRowToItem: (row: any) => row,
+  readCachedLabels: mocks.readCachedLabels,
+  readInboxThreads: mocks.readInboxThreads,
 }));
 
 vi.mock("../server/lib/mail-settings.js", () => ({
   readSettings: mocks.readSettings,
+}));
+
+vi.mock("../server/lib/local-email-store.js", () => ({
+  readLocalEmails: mocks.readLocalEmails,
 }));
 
 vi.mock("../server/lib/google-auth.js", () => ({
@@ -58,6 +71,7 @@ vi.mock("../server/lib/queued-drafts.js", () => ({
   requireQueuedDraft: vi.fn(),
 }));
 
+import { ALL_TAB_PARAM } from "../shared/inbox-threads.js";
 import action from "./view-screen";
 
 const OWNER = "owner@example.com";
@@ -81,7 +95,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.readAppStateForCurrentTab.mockResolvedValue({ view: "inbox" });
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
-  mocks.getSetting.mockResolvedValue(null);
+  mocks.getUserSetting.mockResolvedValue({ labels: [] });
+  mocks.readLocalEmails.mockResolvedValue([]);
+  mocks.readInboxThreads.mockResolvedValue([]);
+  mocks.readCachedLabels.mockResolvedValue({
+    labels: [],
+    labelMapByAccount: new Map(),
+  });
   mocks.readSettings.mockResolvedValue({ savedFilters: [], pinnedLabels: [] });
   mocks.isConnected.mockResolvedValue(true);
   mocks.getClientsWithErrors.mockResolvedValue({
@@ -121,6 +141,149 @@ describe("view-screen Mail preview", () => {
       complete: true,
       failedAccounts: [],
     });
+  });
+
+  it("keeps the default All preview inclusive of triage and saved-filter mail", async () => {
+    mocks.readSettings.mockResolvedValue({
+      savedFilters: [{ id: "read", name: "Read", query: "is:read" }],
+      pinnedLabels: ["important"],
+    });
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [email("important"), email("ordinary")],
+      errors: [],
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["important", "ordinary"]);
+  });
+
+  it("reads local-only All snapshots from the authenticated owner's mailbox", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "inbox",
+      tab: ALL_TAB_PARAM,
+      activeInboxTab: ALL_TAB_PARAM,
+    });
+    mocks.isConnected.mockResolvedValue(false);
+    mocks.readSettings.mockResolvedValue({
+      showAllTab: true,
+      savedFilters: [],
+      pinnedLabels: [],
+    });
+    mocks.readLocalEmails.mockResolvedValue([email("local-inbox-message")]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.readLocalEmails).toHaveBeenCalledWith(OWNER);
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["local-inbox-message"]);
+    expect(
+      result.emailList.tabs.find(
+        (tab: { id: string }) => tab.id === "__inbox_all__",
+      )?.total,
+    ).toBe(1);
+    expect(mocks.readInboxThreads).not.toHaveBeenCalled();
+  });
+
+  it("matches local saved-filter tabs against the latest inbox thread message", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "inbox",
+      activeInboxTab: "owner-replied",
+    });
+    mocks.isConnected.mockResolvedValue(false);
+    mocks.readSettings.mockResolvedValue({
+      showAllTab: true,
+      savedFilters: [
+        {
+          id: "owner-replied",
+          name: "My replies",
+          query: `from:${OWNER}`,
+        },
+      ],
+      pinnedLabels: [],
+    });
+    mocks.readLocalEmails.mockResolvedValue([
+      {
+        ...email("received"),
+        threadId: "mixed-thread",
+        labelIds: ["inbox"],
+        date: "2026-09-01T00:00:00.000Z",
+      },
+      {
+        ...email("reply"),
+        threadId: "mixed-thread",
+        from: { name: "Owner", email: OWNER },
+        isSent: true,
+        labelIds: ["sent"],
+        date: "2026-09-02T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["reply"]);
+    expect(
+      result.emailList.tabs.find(
+        (tab: { id: string }) => tab.id === "owner-replied",
+      )?.total,
+    ).toBe(1);
+  });
+
+  it("keeps saved-filter inbox tab snapshots scoped to inbox mail", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "inbox",
+      activeInboxTab: "read",
+    });
+    mocks.readSettings.mockResolvedValue({
+      savedFilters: [{ id: "read", name: "Read", query: "is:read" }],
+      pinnedLabels: ["important"],
+    });
+    const inboxMessage = { ...email("inbox-match"), labelIds: ["INBOX"] };
+    const archivedMessage = email("archived-match");
+    mocks.listGmailMessages.mockImplementation(async (query: string) => ({
+      messages: query.includes("in:inbox")
+        ? [inboxMessage]
+        : [inboxMessage, archivedMessage],
+      errors: [],
+    }));
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.listGmailMessages.mock.calls[0][0]).toBe("in:inbox is:read");
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["inbox-match"]);
+  });
+
+  it("uses the visible fallback tab when hidden All is requested", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "inbox",
+      tab: ALL_TAB_PARAM,
+      activeInboxTab: ALL_TAB_PARAM,
+    });
+    mocks.readSettings.mockResolvedValue({
+      showAllTab: false,
+      savedFilters: [],
+      pinnedLabels: ["important"],
+    });
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [
+        { ...email("important"), labelIds: ["agent-native-important"] },
+        email("ordinary"),
+      ],
+      errors: [],
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["important"]);
   });
 
   it("refills after inbox filtering removes the provider sentinel", async () => {

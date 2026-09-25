@@ -213,7 +213,7 @@ describe("McpAppRenderer security helpers", () => {
       ui: { csp: { resourceDomains: ["https://untrusted-cdn.example.com"] } },
     };
 
-    await act(async () => {
+    act(() => {
       root.render(
         React.createElement(McpAppRenderer, {
           app: payload,

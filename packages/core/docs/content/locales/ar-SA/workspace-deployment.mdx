@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-تحت الغطاء، يُبنى كل تطبيق بـ **مسار قاعدة** خاص به، وهو بادئة عنوان URL مثل `/mail` مضبوطة عبر `APP_BASE_PATH`/`VITE_APP_BASE_PATH`، ثم يُحزَم لأجل إعداد Nitro المسبق المستهدف. يوجّه Cloudflare Pages من خلال **عامل مُرسِل** مُولَّد، وهو نص برمجي صغير في `dist/_worker.js` يقرأ المسار الوارد ويُحيل الطلب إلى التطبيق المطابق. يستخدم Netlify دالة واحدة لكل تطبيق بالإضافة إلى عمليات إعادة توجيه مُولَّدة. يكتب Vercel `.vercel/output` على مستوى مساحة العمل باستخدام Build Output API.
+تحت الغطاء، يُبنى كل تطبيق بـ **مسار قاعدة** خاص به، وهو بادئة عنوان URL مثل `/mail` مضبوطة عبر `APP_BASE_PATH`/`VITE_APP_BASE_PATH`، ثم يُحزَم لأجل إعداد Nitro المسبق المستهدف. **Netlify** هو الإعداد الافتراضي: دالة واحدة لكل تطبيق بالإضافة إلى عمليات إعادة توجيه مُولَّدة. يكتب Vercel `.vercel/output` على مستوى مساحة العمل باستخدام Build Output API.
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (افتراضي)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (افتراضي)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },

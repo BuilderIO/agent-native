@@ -1226,6 +1226,11 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 102,
+      name: "content-property-icons",
+      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS icon TEXT`,
+    },
+    {
+      version: 103,
       name: "content-browser-save-attempt-receipts",
       sql: `CREATE TABLE IF NOT EXISTS document_browser_save_attempts (
           id TEXT PRIMARY KEY,
@@ -1244,7 +1249,7 @@ export const runContentMigrations = runMigrations(
           ON document_browser_save_attempts (owner_email, document_id)`,
     },
     {
-      version: 103,
+      version: 104,
       name: "content-document-body-intent-order",
       sql: `CREATE TABLE IF NOT EXISTS document_body_intents (
           id TEXT PRIMARY KEY,
@@ -1267,24 +1272,24 @@ export const runContentMigrations = runMigrations(
           ON document_body_intents (owner_email, document_id, committed_revision)`,
     },
     {
-      version: 104,
+      version: 105,
       name: "content-history-body-revision-provenance",
       sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS body_revision INTEGER;
         CREATE INDEX IF NOT EXISTS document_versions_owner_document_body_revision_idx
           ON document_versions (owner_email, document_id, body_revision)`,
     },
     {
-      version: 105,
+      version: 106,
       name: "content-document-body-intent-candidate-hash",
       sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS candidate_hash TEXT`,
     },
     {
-      version: 106,
+      version: 107,
       name: "content-document-body-intent-metadata-hash",
       sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS metadata_hash TEXT`,
     },
     {
-      version: 107,
+      version: 108,
       name: "content-preview-draft-discarded-generation",
       sql: `ALTER TABLE document_preview_draft_settlements ADD COLUMN IF NOT EXISTS discarded_generation INTEGER`,
     },

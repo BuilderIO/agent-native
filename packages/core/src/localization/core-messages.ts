@@ -1,6 +1,7 @@
 import englishMessages from "./core-messages/en-US.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
+import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";
 import {
   DEFAULT_LOCALE,
   isLocaleCode,
@@ -203,6 +204,7 @@ export async function loadCoreMessagesForLocale(
   return {
     ...nestAgentChatMessages(agentChatMessages),
     environmentBadge: supplementalMessages.environmentBadgeMessages,
+    iconPicker: iconPickerMessagesForLocale(locale),
     settings: {
       ...supplementalMessages.mcpSettingsMessages,
       ...supplementalMessages.privacySettingsMessages,
@@ -213,6 +215,7 @@ export async function loadCoreMessagesForLocale(
 const englishCoreMessages = {
   ...nestAgentChatMessages(englishAgentChatMessages),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
+  iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   settings: {
     ...englishSupplementalMessages.mcpSettingsMessages,
     ...englishSupplementalMessages.privacySettingsMessages,
@@ -224,5 +227,7 @@ export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
   if (locale === DEFAULT_LOCALE || !isLocaleCode(locale)) {
     return englishCoreMessages;
   }
-  return { environmentBadge: environmentBadgeMessagesForLocale(locale) };
+  return {
+    environmentBadge: environmentBadgeMessagesForLocale(locale),
+  };
 }

@@ -317,6 +317,7 @@ export const documentPropertyDefinitions = table(
     name: text("name").notNull(),
     type: text("type").notNull(),
     description: text("description").notNull().default(""),
+    icon: text("icon"),
     visibility: text("visibility").notNull().default("always_show"),
     optionsJson: text("options_json").notNull().default("{}"),
     position: integer("position").notNull().default(0),

@@ -2036,7 +2036,8 @@ async function recordIntegrationUsage(options: {
     (usage.inputTokens <= 0 &&
       usage.outputTokens <= 0 &&
       usage.cacheReadTokens <= 0 &&
-      usage.cacheWriteTokens <= 0)
+      usage.cacheWriteTokens <= 0 &&
+      usage.builderCreditsUsed == null)
   ) {
     return;
   }
@@ -2048,6 +2049,8 @@ async function recordIntegrationUsage(options: {
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens,
       cacheWriteTokens: usage.cacheWriteTokens,
+      builderCreditsUsed: usage.builderCreditsUsed,
+      engineName: usage.engineName,
       model: usage.model,
       label: `integration:${options.incoming.platform}`,
       app: options.appId,

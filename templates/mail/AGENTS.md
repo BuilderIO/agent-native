@@ -58,7 +58,7 @@ Read the relevant skill before deeper work:
 
 | Action | Purpose |
 | --- | --- |
-| `list-inbox-threads` | Inbox tab bar, counts, and rows from one synced-store partition; other views/search use `list-emails`/`search-emails`. |
+| `list-inbox-threads` | Synced inbox partition feeds tabs, counts, and rows; All includes every thread by default. |
 | `resync-inbox` | Force an immediate inbox resync from Gmail, bypassing the freshness window. |
 | `search-emails` / `list-emails` | Query mail by view/query. |
 | `list-labels` | List mailbox labels. |

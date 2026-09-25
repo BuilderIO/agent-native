@@ -1,7 +1,8 @@
 import { z } from "zod";
 
-import { fail, defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { listOutputReviews } from "../reviews.js";
+import { requireObservabilityOrgAdmin } from "./authorization.js";
 
 export default defineAction({
   description:
@@ -9,17 +10,22 @@ export default defineAction({
   schema: z.object({
     sinceMs: z.number().int().nonnegative().optional(),
     limit: z.number().int().positive().max(100).optional(),
+    cacheOrgId: z.string().trim().min(1).max(200).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
   run: async (args, ctx) => {
-    const userId = ctx?.userEmail;
-    if (!userId) fail("Sign in to review agent outputs.", { statusCode: 401 });
+    const { orgId } = await requireObservabilityOrgAdmin(ctx);
+    if (args.cacheOrgId !== undefined && args.cacheOrgId !== orgId) {
+      fail("The active organization changed. Reload human review.", {
+        statusCode: 403,
+      });
+    }
     return listOutputReviews({
       sinceMs: args.sinceMs ?? Date.now() - 7 * 86_400_000,
       limit: args.limit ?? 100,
-      userId,
+      orgId,
     });
   },
 });

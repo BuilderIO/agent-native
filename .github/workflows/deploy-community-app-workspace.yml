@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: app-workspace-${{ github.event_name == 'schedule' || inputs.lane == 'production' && 'production' || 'beta' }}
+  group: app-workspace-${{ (github.event_name == 'schedule' || inputs.lane == 'production') && 'production' || 'beta' }}
   cancel-in-progress: false
 
 jobs:
@@ -33,27 +33,50 @@ jobs:
     timeout-minutes: 45
     env:
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-      NETLIFY_SITE_ID: ${{ github.event_name == 'schedule' || inputs.lane == 'production' && secrets.NETLIFY_COMMUNITY_PRODUCTION_SITE_ID || secrets.NETLIFY_COMMUNITY_BETA_SITE_ID }}
+      NETLIFY_ACCOUNT_ID: ${{ secrets.NETLIFY_ACCOUNT_ID }}
     steps:
-      - name: Check publish lane
-        id: gate
+      - name: Select deployment lane
+        id: lane
+        env:
+          DISPATCH_LANE: ${{ inputs.lane }}
         run: |
           set -euo pipefail
-          ready=true
-          if [[ -z "$NETLIFY_AUTH_TOKEN" || -z "$NETLIFY_SITE_ID" ]]; then
-            ready=false
-            echo "Netlify app-workspace credentials are not configured; skipping publish."
-          elif [[ "$GITHUB_EVENT_NAME" == "schedule" && "$(TZ=America/Los_Angeles date +%H)" != "12" ]]; then
-            ready=false
-            echo "This UTC tick is not noon in America/Los_Angeles; skipping."
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" || "$DISPATCH_LANE" == "production" ]]; then
+            echo "site_id_secret=NETLIFY_COMMUNITY_PRODUCTION_SITE_ID" >> "$GITHUB_OUTPUT"
+            echo "database_url_secret=COMMUNITY_DATABASE_URL" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" || "$DISPATCH_LANE" == "beta" ]]; then
+            echo "site_id_secret=NETLIFY_COMMUNITY_BETA_SITE_ID" >> "$GITHUB_OUTPUT"
+            echo "database_url_secret=COMMUNITY_BETA_DATABASE_URL" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Unsupported app-workspace deployment lane."
+            exit 1
           fi
-          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Check publish lane
+        id: gate
+        env:
+          NETLIFY_SITE_ID: ${{ secrets[steps.lane.outputs.site_id_secret] }}
+          COMMUNITY_DATABASE_URL: ${{ secrets[steps.lane.outputs.database_url_secret] }}
+        run: |
+          set -euo pipefail
+          ready=false
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$(TZ=America/Los_Angeles date +%H)" != "12" ]]; then
+            echo "This UTC tick is not noon in America/Los_Angeles; skipping."
+          elif [[ -z "$NETLIFY_AUTH_TOKEN" || -z "$NETLIFY_ACCOUNT_ID" || -z "$NETLIFY_SITE_ID" ]]; then
+            echo "Netlify app-workspace credentials are not configured; skipping publish."
+          elif [[ -z "$COMMUNITY_DATABASE_URL" ]]; then
+            echo "::error::The selected app-workspace database secret is not configured."
+            exit 1
+          else
+            ready=true
+          fi
           if [[ "$ready" != "true" ]]; then
             {
               echo "### App workspace publish skipped"
               echo "The configured lane was not ready to publish."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         if: steps.gate.outputs.ready == 'true'
@@ -74,16 +97,89 @@ jobs:
         if: steps.gate.outputs.ready == 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Build the bundle
-        if: steps.gate.outputs.ready == 'true'
-        run: pnpm --dir community-templates exec agent-native deploy --preset=netlify --build-only
-
       - name: Install the pinned Netlify CLI
         if: steps.gate.outputs.ready == 'true'
-        run: npm install --global netlify-cli@27.5.2 @netlify/build@36.4.8 --ignore-scripts
+        run: npm install --global netlify-cli@27.9.0 @netlify/build@37.0.0 --ignore-scripts
+
+      - name: Run shared database release migrations
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          CONTEXT: production
+          DATABASE_URL: ${{ secrets[steps.lane.outputs.database_url_secret] }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "::error::The matching Community database secret is required for this app workspace deploy."
+            exit 1
+          fi
+          pnpm --dir community-templates/account-expert migrate:production
+
+      - name: Build the bundle
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          AGENT_NATIVE_RELEASE_MIGRATIONS: "1"
+          CONTEXT: production
+        run: pnpm --dir community-templates exec agent-native deploy --preset=netlify --build-only
+
+      - name: Point the runtime to the migrated database
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          DATABASE_URL: ${{ secrets[steps.lane.outputs.database_url_secret] }}
+          NETLIFY_SITE_ID: ${{ secrets[steps.lane.outputs.site_id_secret] }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "::error::The matching Community database secret is required for this app workspace deploy."
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          const { NETLIFY_AUTH_TOKEN, NETLIFY_ACCOUNT_ID, NETLIFY_SITE_ID, DATABASE_URL } = process.env;
+          const headers = {
+            Authorization: `Bearer ${NETLIFY_AUTH_TOKEN}`,
+            "Content-Type": "application/json",
+          };
+          const query = new URLSearchParams({ site_id: NETLIFY_SITE_ID });
+          const endpoint = `https://api.netlify.com/api/v1/accounts/${encodeURIComponent(NETLIFY_ACCOUNT_ID)}/env`;
+          const readVariables = async () => {
+            const response = await fetch(`${endpoint}?${query}`, { headers });
+            if (!response.ok) throw new Error("Could not read Netlify environment metadata.");
+            return response.json();
+          };
+          const variables = await readVariables();
+          const databaseVariable = variables.find(({ key }) => key === "DATABASE_URL_UNPOOLED");
+          if (
+            databaseVariable?.is_secret !== true ||
+            !databaseVariable.scopes?.includes("functions") ||
+            !databaseVariable.values?.some(({ context }) => ["all", "production"].includes(context))
+          ) {
+            throw new Error("DATABASE_URL_UNPOOLED must be secret, production-scoped, and available to Functions before publishing.");
+          }
+          const appDatabaseOverride = variables.some(({ key, scopes, values }) => {
+            const isPrefixedDatabaseUrl =
+              key.endsWith("_DATABASE_URL") || key.endsWith("_DATABASE_URL_UNPOOLED");
+            const availableToFunctions = !Array.isArray(scopes) || scopes.includes("functions");
+            const availableInProduction =
+              !Array.isArray(values) ||
+              values.some(({ context }) => ["all", "production"].includes(context));
+            return isPrefixedDatabaseUrl && availableToFunctions && availableInProduction;
+          });
+          if (appDatabaseOverride) {
+            throw new Error("A production app-specific database URL would override the shared Community database.");
+          }
+          const updateUrl = `${endpoint}/DATABASE_URL_UNPOOLED?${query}`;
+          const update = await fetch(updateUrl, {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({ context: "production", value: DATABASE_URL }),
+          });
+          if (!update.ok) throw new Error("Could not point the Community Netlify site at its migrated Neon database.");
+          console.log("Runtime database metadata verified for Netlify Functions.");
+          NODE
 
       - name: Publish the prebuilt bundle
         if: steps.gate.outputs.ready == 'true'
+        env:
+          NETLIFY_SITE_ID: ${{ secrets[steps.lane.outputs.site_id_secret] }}
         run: |
           netlify deploy \
             --site "$NETLIFY_SITE_ID" \

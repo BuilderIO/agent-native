@@ -1,4 +1,8 @@
 import type { ScrubRelativeExpression } from "@agent-native/toolkit/design-tweaks";
+
+export type RelativeStyleOperation =
+  | { kind: "delta"; delta: number }
+  | ({ kind: "expression" } & ScrubRelativeExpression);
 import {
   getBreakpointOverrideState,
   type BreakpointOverrideState,
@@ -61,8 +65,11 @@ export interface CapturedStyleTarget {
  */
 export interface StyleChangeMeta {
   phase?: "preview" | "commit" | "cancel";
+  runtimeApplied?: boolean;
+  routePath?: string;
   relativeDelta?: number;
   relativeExpression?: ScrubRelativeExpression;
+  relativeDeltaProperties?: string[];
   interactionState?: InteractionState;
   breakpointReset?: { property: string; maxWidthPx: number };
   /** Source targets captured by an async inspector operation such as image upload. */

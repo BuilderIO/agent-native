@@ -31,6 +31,15 @@ const messages: AgentChatTranslation = {
   "commands.mention": "提及檔案、代理或資源",
   "commands.new": "與 /clear 相同",
   "commands.plan": "切換到唯讀規劃模式",
+  "observability.viewDetails": "查看詳細資料",
+  "observability.hideDetails": "隱藏詳細資料",
+  "observability.input": "輸入",
+  "observability.output": "輸出",
+  "observability.error": "錯誤",
+  "observability.metadata": "中繼資料",
+  "observability.notCaptured": "未擷取",
+  "observability.openFullConversation": "開啟完整對話",
+  "observability.learnAboutTab": "了解此分頁",
   "onboarding.back": "返回",
   "onboarding.chooseRole": "選擇你的角色",
   "onboarding.customizeRole": "讓我們為你客製化。",
@@ -267,6 +276,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "描述您想要建立的技能...",
   "composer.documentTooLarge":
     "「{{name}}」的大小為 {{size}} MB——為符合訊息限制，{{label}} 上限為 {{maxSize}} MB。請縮小檔案或將其分割成較小的部分。",
+  "composer.requestTooLarge":
+    "此訊息及其附件過大，無法傳送。請移除一個附件或縮短訊息。",
   "composer.file": "檔案",
   "composer.imageModel": "圖片模型",
   "composer.imagePreview": "圖片預覽",
@@ -460,7 +471,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AI 供應商暫時拒絕了這個請求。這種情況通常會在一分鐘內恢復,請重試。",
   "errorMessages.startNewChat": "開始新聊天",
-  "errorMessages.upgradeAtBuilder": "在 Builder.io 升級",
+  "errorMessages.addCreditsInBuilder": "在 Builder 中新增點數",
   "feedback.inaccurate": "不準確",
   "feedback.keyboardHint": "{{shortcut}} Enter 送出",
   "feedback.notHelpful": "沒有幫助",
@@ -520,11 +531,13 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "重新產生回應",
   "message.restoreFailed": "還原失敗（{{status}}）。",
   "message.restoreQuestion": "要還原到這裡嗎？",
+  "message.revertQuestion": "要還原到這裡嗎？之後所做的變更將會遺失。",
   "message.restoreRequestFailed": "還原要求失敗。",
   "message.threadNotFound":
     "此聊天串已無法使用。請開始新的聊天；如果這是意外情況，也可以重試。",
   "message.restoring": "正在還原...",
   "message.revertHere": "還原到這裡",
+  "message.revertToBeginning": "還原到開頭",
   "message.sentAt": "傳送於 {{time}}",
   "contextMeter.ariaLabel":
     "上下文 {{percent}}%，共 {{totalTokens}}{{breakdown}}。開啟上下文透視。",
@@ -783,6 +796,20 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "無法傳送確認信。",
   "settings.emailNewLabel": "新電子郵件",
   "settings.emailNewPlaceholder": "輸入新電子郵件",
+  "usage.builderCredits": "Builder 點數",
+  "usage.creditBalance": "工作區餘額",
+  "usage.monthlyPlan": "月度方案",
+  "usage.dailyFreeLimit": "免費每日上限",
+  "usage.creditUsedOfLimit": "已使用 {{used}} / {{limit}}",
+  "usage.creditRemaining": "剩餘 {{amount}}",
+  "usage.creditUsageUnavailable": "無法載入 Builder 點數使用情況。",
+  "usage.estimatedBuilderCredits": "~{{amount}} 預估點數",
+  "usage.otherUsdSpend": "{{amount}} 其他 USD",
+  "usage.noBuilderCredits": "Builder 點數 0",
+  "usage.otherUnclassifiedSpend": "其他或未分類的 USD 支出",
+  "usage.providerSpendDetail": "Builder 計費以外的供應商使用量或舊呼叫",
+  "usage.providerSpendToday": "今日其他或未分類的使用量：{{amount}}",
+  "usage.driverCreditsAndUsd": "Builder 點數 / USD",
 };
 
 export default messages;
