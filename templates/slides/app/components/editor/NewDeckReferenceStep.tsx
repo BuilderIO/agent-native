@@ -73,19 +73,32 @@ export interface ImportedReference {
 
 type FileImportSource = Exclude<ImportedReference["source"], "google-slides">;
 
-// Matches the bare Picker file ID shape accepted by
-// extractGoogleSlidesPresentationId in actions/import-google-slides-reference.ts.
+// Mirrors extractGoogleSlidesPresentationId in
+// actions/import-google-slides-reference.ts: a bare Picker file ID, or a
+// docs.google.com presentation URL. Keep both patterns in sync with that
+// function if its accepted shapes ever change.
 const GOOGLE_PICKER_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+const GOOGLE_SLIDES_PRESENTATION_PATH_PATTERN =
+  /^\/presentation\/(?:u\/\d+\/)?d\/[a-zA-Z0-9_-]+(?:\/|$)/;
 
-function isHttpUrl(value: string): boolean {
+function parseHttpUrl(value: string): URL | null {
   try {
     const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
   } catch {
     // coercion-ok: an unparseable string is a syntactically invalid URL, the
-    // exact "false" this validity check exists to report.
-    return false;
+    // exact "null" this parse exists to report.
+    return null;
   }
+}
+
+function isGoogleSlidesPresentationUrl(value: string): boolean {
+  const url = parseHttpUrl(value);
+  return Boolean(
+    url &&
+    url.hostname === "docs.google.com" &&
+    GOOGLE_SLIDES_PRESENTATION_PATH_PATTERN.test(url.pathname),
+  );
 }
 
 function isValidReferenceSourceValue(
@@ -95,9 +108,12 @@ function isValidReferenceSourceValue(
   const trimmed = value.trim();
   if (!trimmed) return false;
   if (kind === "google-docs") {
-    return isHttpUrl(trimmed) || GOOGLE_PICKER_ID_PATTERN.test(trimmed);
+    return (
+      isGoogleSlidesPresentationUrl(trimmed) ||
+      GOOGLE_PICKER_ID_PATTERN.test(trimmed)
+    );
   }
-  return isHttpUrl(trimmed);
+  return Boolean(parseHttpUrl(trimmed));
 }
 
 interface DesignSystemOption {

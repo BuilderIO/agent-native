@@ -412,6 +412,21 @@ describe("<NewDeckReferenceStep>", () => {
     );
   });
 
+  it("keeps Continue disabled for a URL that is not a Google Slides presentation link", () => {
+    renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "https://example.com" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
   it("only shows Google connection recovery after choosing Slides", () => {
     renderStep();
 
