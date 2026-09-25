@@ -417,6 +417,48 @@ describe("summarizeAnalyticsRun", () => {
         {
           event: {
             type: "tool_start",
+            tool: "get-monitor",
+            id: "monitor-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_done",
+            tool: "get-monitor",
+            id: "monitor-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
+            tool: "list-connected-database-tables",
+            id: "schema-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_done",
+            tool: "list-connected-database-tables",
+            id: "schema-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
+            tool: "test-custom-api-connection",
+            id: "connection-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_done",
+            tool: "test-custom-api-connection",
+            id: "connection-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
             tool: "bigquery",
             id: "query-1",
             input: { sql: "SELECT private_data" },

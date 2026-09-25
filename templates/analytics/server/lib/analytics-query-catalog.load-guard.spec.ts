@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   summaries: [] as Array<Record<string, unknown>>,
   loadCalls: [] as string[][],
+  dashboardCatalogEntries: [] as Array<{
+    defaultDashboardId: string;
+    name: string;
+    description: string;
+    buildConfig: () => Record<string, unknown>;
+  }>,
   userSettings: [] as Array<{
     key: string;
     value: Record<string, unknown>;
@@ -53,7 +59,9 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("./dashboard-catalog", () => ({
-  dashboardCatalogEntries: [],
+  get dashboardCatalogEntries() {
+    return state.dashboardCatalogEntries;
+  },
 }));
 
 vi.mock("./dashboards-store", () => ({
@@ -91,6 +99,7 @@ describe("searchAnalyticsQueryCatalog", () => {
   beforeEach(() => {
     state.summaries = [];
     state.loadCalls = [];
+    state.dashboardCatalogEntries = [];
     state.userSettings = [];
     state.listDashboardSummaries.mockClear();
     state.loadDashboardCatalogDashboards.mockClear();
@@ -210,6 +219,49 @@ describe("searchAnalyticsQueryCatalog", () => {
     expect(warn).toHaveBeenCalledWith(
       "[analytics] Dashboard reference search truncated.",
       { searchedDashboardCount: 200, dashboardSearchTruncated: true },
+    );
+  });
+
+  it("does not use a shipped template when a saved dashboard may be beyond the cap", async () => {
+    state.summaries = Array.from({ length: 201 }, (_, index) => ({
+      ...savedRevenueSummary(),
+      id: `dashboard-${String(index + 1).padStart(3, "0")}`,
+      name: `Unrelated dashboard ${index + 1}`,
+      configName: `Unrelated dashboard ${index + 1}`,
+      description: `Unrelated description ${index + 1}`,
+    }));
+    state.dashboardCatalogEntries = [
+      {
+        defaultDashboardId: "agent-native-templates-first-party",
+        name: "Active Users",
+        description: "Saved active users dashboard",
+        buildConfig: () => ({
+          name: "Active Users",
+          panels: [
+            {
+              id: "active-users",
+              title: "Active Users",
+              source: "bigquery",
+              sql: "SELECT COUNT(DISTINCT user_id) FROM events",
+            },
+          ],
+        }),
+      },
+    ];
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "active users",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 6,
+    });
+
+    expect(result.dashboardSearchTruncated).toBe(true);
+    expect(result.candidates).not.toContainEqual(
+      expect.objectContaining({
+        origin: "dashboard-template",
+        dashboardId: "agent-native-templates-first-party",
+      }),
     );
   });
 

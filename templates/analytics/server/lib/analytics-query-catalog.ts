@@ -883,7 +883,8 @@ export async function searchAnalyticsQueryCatalog(args: {
             ),
           ];
         }),
-        ...templateDashboards,
+        // A truncated window cannot prove a shipped default has no saved version.
+        ...(dashboardSearchTruncated ? [] : templateDashboards),
       ],
       dictionaryEntries,
       limit: args.limit,

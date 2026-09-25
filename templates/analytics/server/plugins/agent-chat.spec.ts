@@ -24,7 +24,10 @@ const {
   getRequestRunContext: vi.fn((): Record<string, any> | null => null),
   retrieveAnalyticsPromptReferences: vi.fn(),
   summarizeAnalyticsRun: vi.fn(
-    (input: { preloadedReferenceCount: number }) => ({
+    (input: {
+      preloadedReferenceCount: number;
+      queryActionNames?: readonly string[];
+    }) => ({
       preloaded_reference_count: input.preloadedReferenceCount,
     }),
   ),
@@ -55,6 +58,24 @@ const {
         description: "Read HubSpot records",
         parameters: { type: "object", properties: {} },
       },
+      run: async () => "ok",
+    },
+    "get-monitor": {
+      readOnly: true,
+      grounding: true,
+      tool: { description: "Get monitor configuration", parameters: {} },
+      run: async () => "ok",
+    },
+    "list-connected-database-tables": {
+      readOnly: true,
+      grounding: true,
+      tool: { description: "Inspect database schema", parameters: {} },
+      run: async () => "ok",
+    },
+    "test-custom-api-connection": {
+      readOnly: true,
+      grounding: true,
+      tool: { description: "Test a provider connection", parameters: {} },
       run: async () => "ok",
     },
     // A shipped source action the guard's retired name list never named.
@@ -248,6 +269,15 @@ describe("Analytics prompt-reference preparation", () => {
         "prometheus",
       ]),
     });
+    const queryActionNames =
+      summarizeAnalyticsRun.mock.calls[0]?.[0].queryActionNames ?? [];
+    expect(queryActionNames).not.toEqual(
+      expect.arrayContaining([
+        "get-monitor",
+        "list-connected-database-tables",
+        "test-custom-api-connection",
+      ]),
+    );
   });
 });
 

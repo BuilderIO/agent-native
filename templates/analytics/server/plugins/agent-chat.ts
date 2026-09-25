@@ -50,6 +50,19 @@ import {
 // keeps the response guard from drifting behind a newly shipped source action.
 const GROUNDING_ACTION_NAMES = deriveGroundingActionNames(actionsRegistry);
 registerGroundingActions(GROUNDING_ACTION_NAMES);
+// Source evidence also includes schema reads, probes, and internal job controls.
+const NON_QUERY_GROUNDING_ACTION_NAMES = new Set([
+  "content-calendar-schema",
+  "get-monitor",
+  "github-repo-files",
+  "list-connected-database-tables",
+  "provider-corpus-job",
+  "run-monitor-check",
+  "test-custom-api-connection",
+]);
+const QUERY_ACTION_NAMES = GROUNDING_ACTION_NAMES.filter(
+  (name) => !NON_QUERY_GROUNDING_ACTION_NAMES.has(name),
+);
 
 const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 // A background job may legitimately spend minutes inside a provider/tool call,
@@ -1301,7 +1314,7 @@ export default createAgentChatPlugin({
       preloadedReferenceCount:
         getRequestRunContext()?.analyticsJevPrefetch?.preloadedReferenceCount ??
         0,
-      queryActionNames: GROUNDING_ACTION_NAMES,
+      queryActionNames: QUERY_ACTION_NAMES,
     });
     const { track } = await import("@agent-native/core/tracking");
     await track("analytics_agent_run_outcome", properties);
