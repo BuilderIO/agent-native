@@ -31,6 +31,7 @@ const messages = {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
     openAgentSettings: "管理代理",
+    editorGroupTitle: "编辑器",
     editorTitle: "VS Code 扩展",
     editorDescription:
       "在 VS Code 的侧边面板中打开并审阅计划，而不是切换到单独的浏览器标签页。",

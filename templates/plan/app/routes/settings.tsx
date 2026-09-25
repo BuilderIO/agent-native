@@ -1,6 +1,6 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -9,6 +9,7 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 
@@ -27,16 +28,23 @@ export default function SettingsRoute() {
   // (see use-navigation-state.ts), so the settings tab must exist too —
   // otherwise /settings/extensions silently falls back to General.
   const agentSettingsTabs = useAgentSettingsTabs({ extensionTools: true });
+  // Core Preferences owns the interface language in the redesigned Settings,
+  // so Plan › General keeps only the editor row.
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key).enabled;
   useSetPageTitle(t("settings.title"));
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
-      {
-        id: "plan-language",
-        label: t("settings.languageTitle"),
-        keywords: "language locale translation i18n",
-        hash: "language",
-      },
+      ...(redesign
+        ? []
+        : [
+            {
+              id: "plan-language",
+              label: t("settings.languageTitle"),
+              keywords: "language locale translation i18n",
+              hash: "language",
+            },
+          ]),
       {
         id: "plan-editor",
         label: t("settings.editorTitle"),
@@ -44,13 +52,31 @@ export default function SettingsRoute() {
         hash: "editor",
       },
     ],
-    [t],
+    [redesign, t],
+  );
+
+  const editorRow = (
+    <SettingsRow
+      id="editor"
+      label={t("settings.editorTitle")}
+      description={t("settings.editorDescription")}
+      control={
+        <Button variant="outline" asChild>
+          <a
+            href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            {t("settings.openEditorExtension")}
+          </a>
+        </Button>
+      }
+    />
   );
 
   return (
     <SettingsTabsPage
       account={<AccountSettingsCard />}
-      teamLabel={t("header.team")}
       extraTabs={agentSettingsTabs}
       generalSearchEntries={generalSearchEntries}
       general={
@@ -70,32 +96,14 @@ export default function SettingsRoute() {
                 </div>
               }
             />
-            <SettingsRow
-              id="editor"
-              label={t("settings.editorTitle")}
-              description={t("settings.editorDescription")}
-              control={
-                <Button variant="outline" asChild>
-                  <a
-                    href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
-                    target="_blank"
-                    rel="noreferrer noopener"
-                  >
-                    {t("settings.openEditorExtension")}
-                  </a>
-                </Button>
-              }
-            />
+            {editorRow}
           </SettingsGroup>
         </div>
       }
-      team={
-        <div className="mx-auto w-full max-w-3xl">
-          <TeamPage
-            showTitle={false}
-            createOrgDescription="Set up a team to share this app with your colleagues."
-          />
-        </div>
+      generalGroups={
+        <SettingsGroup title={t("settings.editorGroupTitle")}>
+          {editorRow}
+        </SettingsGroup>
       }
       whatsNew={
         <div className="mx-auto w-full max-w-2xl">
