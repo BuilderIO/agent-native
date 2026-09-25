@@ -59,7 +59,8 @@ const mocks = vi.hoisted(() => {
     },
     assertAccess: vi.fn(),
     putPrivateBlob: vi.fn(),
-    deletePrivateBlob: vi.fn(),
+    deleteVisualEditSnapshotBlobs: vi.fn(),
+    queueVisualEditSnapshotBlobCleanupInTransaction: vi.fn(),
     sql: vi.fn((chunks: TemplateStringsArray, ...values: unknown[]) => ({
       chunks: [...chunks],
       values,
@@ -92,7 +93,6 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 
 vi.mock("@agent-native/core/private-blob", () => ({
-  deletePrivateBlob: mocks.deletePrivateBlob,
   putPrivateBlob: mocks.putPrivateBlob,
 }));
 
@@ -119,6 +119,11 @@ vi.mock("../server/source-workspace.js", () => ({
     (_designId: string, callback: (tx: typeof mocks.transaction) => unknown) =>
       mocks.getDb().transaction(callback),
   ),
+}));
+vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
+  deleteVisualEditSnapshotBlobs: mocks.deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction:
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
 }));
 
 import { sanitizeVisualEditSnapshotHtml } from "../shared/visual-edit-snapshot.js";
@@ -155,8 +160,12 @@ describe("publish visual-edit fallback snapshot", () => {
     mocks.assertAccess.mockResolvedValue({ role: "owner", resource: design });
     mocks.putPrivateBlob.mockReset();
     mocks.putPrivateBlob.mockResolvedValue(mocks.blob);
-    mocks.deletePrivateBlob.mockReset();
-    mocks.deletePrivateBlob.mockResolvedValue({ deleted: true });
+    mocks.deleteVisualEditSnapshotBlobs.mockReset();
+    mocks.deleteVisualEditSnapshotBlobs.mockResolvedValue(undefined);
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction.mockReset();
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction.mockResolvedValue(
+      undefined,
+    );
     mocks.getDb.mockClear();
     mocks.currentTable = null;
     mocks.snapshotRow = {
@@ -289,7 +298,9 @@ describe("publish visual-edit fallback snapshot", () => {
       }),
     ).resolves.toEqual({ designId, fileId, published: false });
 
-    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(mocks.blob);
+    expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
+      JSON.stringify(mocks.blob),
+    ]);
   });
 
   it("deletes the previous private blob after replacing its snapshot", async () => {
@@ -312,7 +323,12 @@ describe("publish visual-edit fallback snapshot", () => {
       }),
     ).resolves.toMatchObject({ published: true });
 
-    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(oldBlob);
+    expect(
+      mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
+    ).toHaveBeenCalledWith(mocks.transaction, [JSON.stringify(oldBlob)]);
+    expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
+      JSON.stringify(oldBlob),
+    ]);
   });
 
   it("fails closed when private blob storage is unavailable", async () => {
