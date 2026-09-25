@@ -1,6 +1,7 @@
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
+  type Reference,
   useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
@@ -109,7 +110,18 @@ export interface PromptAttachmentActions {
   commit: () => void;
   discard: () => void;
   attachments: ReadonlyArray<PromptChatAttachment>;
+  references: ReadonlyArray<Reference>;
   context?: string;
+}
+
+export function resolveComposerReferenceDeckId(
+  references: ReadonlyArray<Reference>,
+): string | null {
+  return (
+    references.find(
+      (reference) => reference.refType === "deck" && reference.refId,
+    )?.refId ?? null
+  );
 }
 
 export type PromptSubmitResult = "commit" | "retain" | "discard";
@@ -357,7 +369,7 @@ export default function PromptPopover({
     async (
       text: string,
       files: File[],
-      _references: unknown[],
+      references: Reference[],
       options?: PromptComposerSubmitOptions,
     ) => {
       const preUploadChatAttachments = options?.attachments?.length
@@ -398,6 +410,7 @@ export default function PromptPopover({
               setRetainingAttachments(false);
             },
             attachments: chatAttachments,
+            references,
             context: googleDocContext || undefined,
           },
           options,

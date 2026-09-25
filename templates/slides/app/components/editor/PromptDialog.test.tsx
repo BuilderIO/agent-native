@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ensureEmbedAuthFetchInterceptor = vi.hoisted(() => vi.fn());
+const promptReferences = vi.hoisted(() => ({ value: [] as unknown[] }));
 const promptFile = new File(["pdf"], "large.pdf", {
   type: "application/pdf",
 });
@@ -94,11 +95,16 @@ vi.mock("@agent-native/core/client/composer", () => ({
           data-testid="prompt-composer"
           disabled={props.disabled}
           onClick={() =>
-            void props.onSubmit("  make a deck  \n", [promptFile], [], {
-              model: "gpt-5.6-terra",
-              engine: "builder",
-              effort: "high",
-            })
+            void props.onSubmit(
+              "  make a deck  \n",
+              [promptFile],
+              promptReferences.value,
+              {
+                model: "gpt-5.6-terra",
+                engine: "builder",
+                effort: "high",
+              },
+            )
           }
         >
           Prompt composer
@@ -142,7 +148,42 @@ import {
   uploadPromptFiles,
 } from "@/lib/prompt-file-uploads";
 
-import PromptPopover, { createPromptChatAttachments } from "./PromptDialog";
+import PromptPopover, {
+  createPromptChatAttachments,
+  resolveComposerReferenceDeckId,
+} from "./PromptDialog";
+
+describe("resolveComposerReferenceDeckId", () => {
+  it("uses an existing deck selected in the composer as a style reference", () => {
+    expect(
+      resolveComposerReferenceDeckId([
+        {
+          type: "mention",
+          path: "",
+          name: "Brand deck",
+          source: "",
+          refType: "deck",
+          refId: "deck-reference-42",
+        },
+      ]),
+    ).toBe("deck-reference-42");
+  });
+
+  it("does not treat unrelated composer references as deck references", () => {
+    expect(
+      resolveComposerReferenceDeckId([
+        {
+          type: "mention",
+          path: "",
+          name: "Design system",
+          source: "",
+          refType: "design-system",
+          refId: "system-1",
+        },
+      ]),
+    ).toBeNull();
+  });
+});
 
 describe("createPromptChatAttachments", () => {
   it("keeps PDFs and pasted text as display-only chat descriptors", async () => {
@@ -496,7 +537,11 @@ describe("uploadPromptFiles", () => {
 });
 
 describe("PromptPopover import mode", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    promptReferences.value = [];
+    vi.unstubAllGlobals();
+  });
 
   function renderPopover(
     onImport: React.ComponentProps<typeof PromptPopover>["onImport"],
@@ -591,6 +636,15 @@ describe("PromptPopover import mode", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const onSubmit = vi.fn();
+    const selectedDeck = {
+      type: "mention",
+      path: "",
+      name: "Brand deck",
+      source: "",
+      refType: "deck",
+      refId: "deck-reference-42",
+    };
+    promptReferences.value = [selectedDeck];
 
     render(
       <PromptPopover
@@ -632,6 +686,7 @@ describe("PromptPopover import mode", () => {
           commit: expect.any(Function),
           discard: expect.any(Function),
           attachments: [],
+          references: [selectedDeck],
         }),
         {
           model: "gpt-5.6-terra",

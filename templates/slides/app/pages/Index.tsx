@@ -52,6 +52,7 @@ import type {
   PromptImportSelection,
   PromptChatAttachment,
 } from "@/components/editor/PromptDialog";
+import { resolveComposerReferenceDeckId } from "@/components/editor/PromptDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1295,6 +1296,12 @@ export default function Index() {
       options?: PromptComposerSubmitOptions,
     ) => {
       pendingDeckAttachmentActionsRef.current = attachments;
+      const referenceDeckId = resolveComposerReferenceDeckId(
+        attachments.references,
+      );
+      if (referenceDeckId) {
+        rememberReference({ id: referenceDeckId, kind: "deck" });
+      }
       const additionalContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
@@ -1308,7 +1315,10 @@ export default function Index() {
       void runPendingDeckGeneration(
         prompt,
         files,
-        { designSystemId: selectedDesignSystemId },
+        {
+          designSystemId: selectedDesignSystemId,
+          ...(referenceDeckId ? { referenceDeckId } : {}),
+        },
         additionalContext,
         attachments.attachments,
         modelSelection,
@@ -1319,6 +1329,7 @@ export default function Index() {
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
+      rememberReference,
       runPendingDeckGeneration,
       selectedDesignSystemId,
     ],
