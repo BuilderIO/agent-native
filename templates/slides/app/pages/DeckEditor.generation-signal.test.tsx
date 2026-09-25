@@ -122,6 +122,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     questions: [],
     handleSubmit: vi.fn(),
     handleSkip: vi.fn(),
+    refetchPendingQuestion: vi.fn(async () => false),
   }),
 }));
 vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
@@ -728,6 +729,31 @@ describe("DeckEditor generation signal wiring", () => {
     expect(router.state.location.search).toBe("?source=history");
   });
 
+  it("keeps a newer retry journal when an older editor tab has stale context", async () => {
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    const serializedRecovery = JSON.stringify({
+      kind: "retry_rollback",
+      retryAttemptId: "attempt-2",
+      restoreAttemptId: "attempt-1",
+    });
+    window.localStorage.setItem(recoveryKey, serializedRecovery);
+    Object.assign(mocks.deck, {
+      generationContext: {
+        generationAttemptId: "attempt-1",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
+      },
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1?source=history"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(window.localStorage.getItem(recoveryKey)).toBe(serializedRecovery);
+  });
+
   it("shows feedback when retry delivery is rejected", async () => {
     Object.assign(mocks.deck, {
       generationContext: {
@@ -912,6 +938,53 @@ describe("DeckEditor generation signal wiring", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
+  });
+
+  it("restores retry run tracking from the persisted submit-to-tab mapping", async () => {
+    const submitMessageId = "retry-submit";
+    const tabId = "retry-tab";
+    mocks.deck.generationContext = { generationAttemptId: "retry-attempt" };
+    mocks.targetTabId = tabId;
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    window.sessionStorage.setItem(
+      `slides:new-deck-generation:deck-1:${submitMessageId}`,
+      tabId,
+    );
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          `/deck/deck-1?generating=1&generation_attempt_id=retry-attempt&generationSubmitId=${submitMessageId}`,
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    await waitFor(() =>
+      expect(mocks.scopedCalls).toContainEqual({
+        attemptId: "retry-attempt",
+        tabId,
+      }),
+    );
+
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationAttemptId: "retry-attempt",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "retry-attempt",
+      }),
+    );
+    expect(trackEvent).toHaveBeenCalledWith(
+      "generation_failed",
+      expect.objectContaining({
+        generation_attempt_id: "retry-attempt",
+        failure_code: "no_output",
+      }),
+    );
   });
 
   it("keeps a submitted attempt open when pagehide enters the back-forward cache", () => {

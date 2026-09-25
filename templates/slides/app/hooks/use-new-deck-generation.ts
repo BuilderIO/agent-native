@@ -149,6 +149,7 @@ export function useNewDeckGenerationRun(
   submitMessageId: string | null,
 ): {
   generating: boolean;
+  tabId: string | null;
   questionContinuationPending: boolean;
   expectQuestionContinuation: (submitMessageId: string) => void;
   submitQuestionContinuation: (input: {
@@ -414,6 +415,7 @@ export function useNewDeckGenerationRun(
 
   return {
     generating: activeRun.runKey === runKey && activeRun.generating,
+    tabId: currentRun.tabId,
     questionContinuationPending: currentContinuation.submitMessageId !== null,
     expectQuestionContinuation,
     submitQuestionContinuation,

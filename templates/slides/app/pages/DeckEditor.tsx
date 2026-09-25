@@ -590,6 +590,7 @@ export default function DeckEditor() {
     useState(false);
   const {
     generating: newDeckGenerationGenerating,
+    tabId: newDeckGenerationTabId,
     questionContinuationPending,
     submitQuestionContinuation: submitTrackedQuestionContinuation,
   } = useNewDeckGenerationRun(
@@ -935,15 +936,7 @@ export default function DeckEditor() {
       return;
     }
     if (recovery.kind === "retry_rollback") {
-      if (recovery.retryAttemptId !== generationAttemptId) {
-        if (emptyGenerationRecoveryRef.current !== serializedRecovery) {
-          clearEmptyGenerationRecovery(
-            retryRecoveryStorageKey,
-            serializedRecovery,
-          );
-        }
-        return;
-      }
+      if (recovery.retryAttemptId !== generationAttemptId) return;
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
       emptyGenerationRecoveryRef.current = serializedRecovery;
       if (
@@ -966,15 +959,7 @@ export default function DeckEditor() {
         },
       });
     } else if (recovery.kind === "generation_failure") {
-      if (recovery.attemptId !== generationAttemptId) {
-        if (emptyGenerationRecoveryRef.current !== serializedRecovery) {
-          clearEmptyGenerationRecovery(
-            retryRecoveryStorageKey,
-            serializedRecovery,
-          );
-        }
-        return;
-      }
+      if (recovery.attemptId !== generationAttemptId) return;
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
       if (
         generationContext.generationFailureCode === recovery.failureCode &&
@@ -995,15 +980,7 @@ export default function DeckEditor() {
         },
       });
     } else {
-      if (recovery.retryAttemptId !== generationAttemptId) {
-        if (emptyGenerationRecoveryRef.current !== serializedRecovery) {
-          clearEmptyGenerationRecovery(
-            retryRecoveryStorageKey,
-            serializedRecovery,
-          );
-        }
-        return;
-      }
+      if (recovery.retryAttemptId !== generationAttemptId) return;
       if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
       if (
         generationContext.generationFailureCode == null &&
@@ -1080,13 +1057,15 @@ export default function DeckEditor() {
     tabId: string;
   } | null>(() => {
     if (!generationAttemptId || !id) return null;
-    const tabId = getStartedGenerationAttemptTabId(generationAttemptId, id);
+    const tabId =
+      getStartedGenerationAttemptTabId(generationAttemptId, id) ??
+      newDeckGenerationTabId;
     return tabId ? { attemptId: generationAttemptId, tabId } : null;
   });
   const generationAttemptTabId =
     generationAttemptTab?.attemptId === generationAttemptId
       ? generationAttemptTab.tabId
-      : null;
+      : newDeckGenerationTabId;
   const {
     attempt: {
       observedRun: attemptObservedRun,
@@ -1117,14 +1096,12 @@ export default function DeckEditor() {
       !wasNewDeckCreation.current
     )
       return;
-    generationRunStartedRef.current = hasStartedGenerationAttempt(
-      generationAttemptId,
-      id,
-    );
-    const startedTabId = getStartedGenerationAttemptTabId(
-      generationAttemptId,
-      id,
-    );
+    generationRunStartedRef.current =
+      hasStartedGenerationAttempt(generationAttemptId, id) ||
+      newDeckGenerationTabId !== null;
+    const startedTabId =
+      getStartedGenerationAttemptTabId(generationAttemptId, id) ??
+      newDeckGenerationTabId;
     setGenerationAttemptTab(
       startedTabId
         ? { attemptId: generationAttemptId, tabId: startedTabId }
@@ -1154,7 +1131,12 @@ export default function DeckEditor() {
         SLIDES_GENERATION_STARTED_EVENT,
         handleGenerationStarted,
       );
-  }, [generationAttemptId, generationLifecycleOwnedByEditor, id]);
+  }, [
+    generationAttemptId,
+    generationLifecycleOwnedByEditor,
+    id,
+    newDeckGenerationTabId,
+  ]);
 
   useEffect(() => {
     if (
@@ -2021,7 +2003,7 @@ export default function DeckEditor() {
       !id ||
       !submitMessageId ||
       !shouldClearNewDeckGenerationRun({
-        generating: newDeckGenerationGenerating,
+        generating: newDeckGenerationGenerating || newDeckGenerationSignal,
         waitingOnQuestions: waitingOnNewDeckQuestions,
         phase: newDeckGenerationPhase,
       })
@@ -2053,6 +2035,7 @@ export default function DeckEditor() {
   }, [
     id,
     newDeckGenerationGenerating,
+    newDeckGenerationSignal,
     newDeckGenerationPhase,
     refetchPendingQuestion,
     searchParams,
