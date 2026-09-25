@@ -437,7 +437,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     vi.stubGlobal("fetch", fetchMock);
     callActionMock.mockResolvedValue({
       previewToken: "fresh-preview-token",
-      liveEditCapability: "fresh-live-edit-capability",
+      liveEditRegistrationCapability: "fresh-registration-capability",
     });
 
     await act(async () => {
@@ -453,7 +453,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             designId="design_public"
             publicVisualEdit
             previewToken="stale-preview-token"
-            liveEditCapability="test-live-edit-capability"
+            liveEditRegistrationCapability="test-registration-capability"
             zoom={100}
             deviceFrame="none"
             editMode
@@ -488,9 +488,9 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     ).toBe("fresh-preview-token");
     expect(
       (registrationCalls[1]?.[1]?.headers as Record<string, string>)[
-        "x-agent-native-live-edit-capability"
+        "x-agent-native-live-edit-registration-capability"
       ],
-    ).toBe("fresh-live-edit-capability");
+    ).toBe("fresh-registration-capability");
   });
 
   it("re-registers when refresh returns the same deterministic preview token", async () => {
@@ -516,7 +516,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     vi.stubGlobal("fetch", fetchMock);
     callActionMock.mockResolvedValue({
       previewToken: "same-preview-token",
-      liveEditCapability: "fresh-live-edit-capability",
+      liveEditRegistrationCapability: "fresh-registration-capability",
     });
 
     await act(async () => {
@@ -532,7 +532,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             designId="design_public"
             publicVisualEdit
             previewToken="same-preview-token"
-            liveEditCapability="old-live-edit-capability"
+            liveEditRegistrationCapability="old-registration-capability"
             zoom={100}
             deviceFrame="none"
             editMode

@@ -15,6 +15,7 @@ import {
   designConnectManifestsTargetSameApp,
   deriveDesignPreviewAttestationSignature,
   deriveDesignScopedLiveEditCapability,
+  deriveDesignScopedLiveEditRegistrationCapability,
   parseDesignConnectArgs,
   prepareDesignConnectManifest,
   registerConnectionWithServer,
@@ -33,6 +34,20 @@ function liveEditAuth(
       bridge.bridgeToken,
       designId,
     ),
+  };
+}
+
+function liveEditRegistrationAuth(
+  bridge: Awaited<ReturnType<typeof startDesignConnectBridge>>,
+  designId: string,
+) {
+  return {
+    "x-design-preview-token": bridge.previewToken,
+    "x-agent-native-live-edit-registration-capability":
+      deriveDesignScopedLiveEditRegistrationCapability(
+        bridge.bridgeToken,
+        designId,
+      ),
   };
 }
 
@@ -842,6 +857,12 @@ describe("design connect bridge endpoints", () => {
     expect(
       deriveDesignScopedLiveEditCapability("stored-bridge-token", "design_1"),
     ).toBe("35a0a665bdfa09540ba0fa820572e5bdda7b4ce7d3a7906a6d90617063189130");
+    expect(
+      deriveDesignScopedLiveEditRegistrationCapability(
+        "stored-bridge-token",
+        "design_1",
+      ),
+    ).toBe("b0399b9ad730e945aeacb7d5122fb683a175724eff548537fbbace9967ff55c7");
   });
 
   it("isolates local pending visual edits by design", async () => {
@@ -856,6 +877,7 @@ describe("design connect bridge endpoints", () => {
     const base = `http://127.0.0.1:${port}`;
     const authA = liveEditAuth(bridge, "design-1");
     const authB = liveEditAuth(bridge, "design-2");
+    const registrationAuthA = liveEditRegistrationAuth(bridge, "design-1");
     const auth = authA;
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -870,6 +892,39 @@ describe("design connect bridge endpoints", () => {
         authA,
       );
       expect(registered.status).toBe(200);
+      const publicViewerRegistered = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "public-viewer-screen-a",
+          designId: "design-1",
+        },
+        registrationAuthA,
+      );
+      expect(publicViewerRegistered.status).toBe(200);
+      expect(
+        (
+          await getJson(
+            `${base}/live-edit-pending?designId=design-1`,
+            registrationAuthA,
+          )
+        ).status,
+      ).toBe(403);
+      const publicViewerPublish = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 1,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "A copied public link cannot publish agent handoff data.",
+          },
+        },
+        registrationAuthA,
+      );
+      expect(publicViewerPublish.status).toBe(403);
       const secondRegistered = await postJson(
         `${base}/live-edit-bridge`,
         {
@@ -887,7 +942,7 @@ describe("design connect bridge endpoints", () => {
           bridgeKey: "forged-screen-b",
           designId: "design-2",
         },
-        authA,
+        registrationAuthA,
       );
       expect(forgedDesignRegistration.status).toBe(403);
       expect((await getJson(`${base}/live-edit-pending`)).status).toBe(401);
@@ -3352,7 +3407,7 @@ describe("design connect bridge endpoints", () => {
               origin: "https://design.example.com",
               "access-control-request-method": "POST",
               "access-control-request-headers":
-                "content-type,x-design-preview-token,x-agent-native-live-edit-capability",
+                "content-type,x-design-preview-token,x-agent-native-live-edit-registration-capability",
             },
           },
           (response) => {
@@ -3372,6 +3427,9 @@ describe("design connect bridge endpoints", () => {
       expect(
         liveEditPreflight.headers["access-control-allow-headers"],
       ).toContain("x-agent-native-live-edit-capability");
+      expect(
+        liveEditPreflight.headers["access-control-allow-headers"],
+      ).toContain("x-agent-native-live-edit-registration-capability");
 
       const hostile = await getText(
         `${base}/manifest.json?previewToken=${bridge.previewToken}`,

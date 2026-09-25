@@ -1628,6 +1628,10 @@ function DesignEditor() {
     effectiveLiveEditCapabilitiesByScreenId,
     setEffectiveLiveEditCapabilitiesByScreenId,
   ] = useState<Record<string, string>>({});
+  const [
+    effectiveLiveEditRegistrationCapabilitiesByScreenId,
+    setEffectiveLiveEditRegistrationCapabilitiesByScreenId,
+  ] = useState<Record<string, string>>({});
   const [pendingEditSessionMarker, setPendingEditSessionMarker] =
     useState<PendingEditSessionMarkerResult>({ status: "absent" });
   const [
@@ -5731,11 +5735,13 @@ function DesignEditor() {
   const publicVisualEditPreviewTokenQuery = useActionQuery<{
     previewToken?: string;
     liveEditCapability?: string;
+    liveEditRegistrationCapability?: string;
     connections?: Record<
       string,
       {
         previewToken?: string;
         liveEditCapability?: string;
+        liveEditRegistrationCapability?: string;
         bridgeUrl?: string;
       }
     >;
@@ -6799,6 +6805,17 @@ function DesignEditor() {
     },
     [],
   );
+  const handleLiveEditRegistrationCapabilityChange = useCallback(
+    (screenId: string | undefined, capability: string) => {
+      if (!screenId || !capability) return;
+      setEffectiveLiveEditRegistrationCapabilitiesByScreenId((current) =>
+        current[screenId] === capability
+          ? current
+          : { ...current, [screenId]: capability },
+      );
+    },
+    [],
+  );
   const activeScreenBridgeUrl = activeOverviewScreen?.bridgeUrl;
   const activeScreenPreviewToken =
     (activeOverviewScreen?.id
@@ -6819,6 +6836,20 @@ function DesignEditor() {
       : undefined) ??
     (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
       ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
+      : undefined);
+  const activeScreenLiveEditRegistrationCapability =
+    (activeOverviewScreen?.id
+      ? effectiveLiveEditRegistrationCapabilitiesByScreenId[
+          activeOverviewScreen.id
+        ]
+      : undefined) ??
+    (activeOverviewScreen?.connectionId
+      ? publicVisualEditPreviewTokenQuery.data?.connections?.[
+          activeOverviewScreen.connectionId
+        ]?.liveEditRegistrationCapability
+      : undefined) ??
+    (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
+      ? publicVisualEditPreviewTokenQuery.data?.liveEditRegistrationCapability
       : undefined);
   const activeScreenExternalSnapshotHtml = activeFile?.id
     ? liveScreenSnapshotsById[activeFile.id]?.html
@@ -25725,6 +25756,15 @@ function DesignEditor() {
         (screen.connectionId === publicVisualEditConnectionId
           ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
           : undefined);
+      const screenLiveEditRegistrationCapability =
+        effectiveLiveEditRegistrationCapabilitiesByScreenId[screen.id] ??
+        publicVisualEditPreviewTokenQuery.data?.connections?.[
+          screen.connectionId ?? ""
+        ]?.liveEditRegistrationCapability ??
+        (screen.connectionId === publicVisualEditConnectionId
+          ? publicVisualEditPreviewTokenQuery.data
+              ?.liveEditRegistrationCapability
+          : undefined);
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -25862,8 +25902,12 @@ function DesignEditor() {
           nativePreviewActive={screenIsActive}
           previewToken={screenPreviewToken}
           liveEditCapability={screenLiveEditCapability}
+          liveEditRegistrationCapability={screenLiveEditRegistrationCapability}
           onPreviewTokenChange={handleEffectivePreviewTokenChange}
           onLiveEditCapabilityChange={handleLiveEditCapabilityChange}
+          onLiveEditRegistrationCapabilityChange={
+            handleLiveEditRegistrationCapabilityChange
+          }
           onRoutePathChange={handleLiveRoutePathChange}
           publicVisualEdit={publicVisualEdit}
           externalSnapshotHtml={screenSnapshot}
@@ -29325,9 +29369,15 @@ function DesignEditor() {
                         connectionId={activeOverviewScreen?.connectionId}
                         previewToken={activeScreenPreviewToken}
                         liveEditCapability={activeScreenLiveEditCapability}
+                        liveEditRegistrationCapability={
+                          activeScreenLiveEditRegistrationCapability
+                        }
                         onPreviewTokenChange={handleEffectivePreviewTokenChange}
                         onLiveEditCapabilityChange={
                           handleLiveEditCapabilityChange
+                        }
+                        onLiveEditRegistrationCapabilityChange={
+                          handleLiveEditRegistrationCapabilityChange
                         }
                         onRoutePathChange={handleLiveRoutePathChange}
                         publicVisualEdit={publicVisualEdit}

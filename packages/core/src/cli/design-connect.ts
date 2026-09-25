@@ -215,6 +215,8 @@ async function resolveBridgeToken(
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
 const LIVE_EDIT_CAPABILITY_DOMAIN = "agent-native-live-edit-design-v1\0";
+const LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN =
+  "agent-native-live-edit-registration-v1\0";
 const PREVIEW_ATTESTATION_DOMAIN =
   "agent-native-design-preview-attestation-v1\0";
 const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
@@ -246,6 +248,17 @@ export function deriveDesignScopedLiveEditCapability(
   return crypto
     .createHmac("sha256", bridgeToken)
     .update(LIVE_EDIT_CAPABILITY_DOMAIN)
+    .update(designId)
+    .digest("hex");
+}
+
+export function deriveDesignScopedLiveEditRegistrationCapability(
+  bridgeToken: string,
+  designId: string,
+): string {
+  return crypto
+    .createHmac("sha256", bridgeToken)
+    .update(LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN)
     .update(designId)
     .digest("hex");
 }
@@ -868,7 +881,7 @@ function configureBridgeCors(
         "access-control-allow-methods":
           "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
         "access-control-allow-headers":
-          "accept, authorization, content-type, x-agent-native-browser-tab, x-agent-native-build-id, x-agent-native-client-compatibility, x-agent-native-client-platform, x-agent-native-csrf, x-agent-native-desktop-verifier, x-agent-native-embed-target, x-agent-native-embed-transplant, x-agent-native-frontend, x-agent-native-live-edit-capability, x-agent-native-session-id, x-bridge-token, x-csrf-token, x-design-preview-token, x-request-source, x-requested-with, x-xsrf-token, x-user-timezone",
+          "accept, authorization, content-type, x-agent-native-browser-tab, x-agent-native-build-id, x-agent-native-client-compatibility, x-agent-native-client-platform, x-agent-native-csrf, x-agent-native-desktop-verifier, x-agent-native-embed-target, x-agent-native-embed-transplant, x-agent-native-frontend, x-agent-native-live-edit-capability, x-agent-native-live-edit-registration-capability, x-agent-native-session-id, x-bridge-token, x-csrf-token, x-design-preview-token, x-request-source, x-requested-with, x-xsrf-token, x-user-timezone",
         "access-control-allow-credentials": "true",
         "access-control-allow-private-network": "true",
         vary: "Origin",
@@ -2870,6 +2883,14 @@ export async function startDesignConnectBridge(
       readHeader(req, "x-agent-native-live-edit-capability"),
       deriveDesignScopedLiveEditCapability(bridgeToken, designId),
     );
+  const isValidLiveEditRegistrationCapability = (
+    req: IncomingMessage,
+    designId: string,
+  ) =>
+    constantTimeTokenMatches(
+      readHeader(req, "x-agent-native-live-edit-registration-capability"),
+      deriveDesignScopedLiveEditRegistrationCapability(bridgeToken, designId),
+    );
   // Identifies THIS bridge process's in-memory registry, minted fresh every
   // time the bridge boots. `liveEditBridgeScripts` above only lives in
   // process memory, so a bridge restart (crash, machine sleep/wake, manual
@@ -3053,12 +3074,13 @@ export async function startDesignConnectBridge(
             if (
               !designId ||
               !bridgeKey ||
-              !isValidLiveEditCapability(req, designId)
+              (!isValidLiveEditCapability(req, designId) &&
+                !isValidLiveEditRegistrationCapability(req, designId))
             ) {
               sendJson(res, 403, {
                 ok: false,
                 error:
-                  "live-edit registration requires a design-scoped capability",
+                  "live-edit registration requires a design-scoped registration capability",
               });
               return;
             }
