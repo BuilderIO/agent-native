@@ -99,6 +99,7 @@ describe("db/client Postgres URL handling", () => {
 
   it("keeps app-specific database URLs ahead of Netlify's shared env", async () => {
     vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("PLAN_DATABASE_URL", "postgres://plan.example/db");
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     const { getDatabaseUrl } = await import("./client.js");
@@ -128,6 +129,36 @@ describe("db/client Postgres URL handling", () => {
     expect(getRuntimeDatabaseSource()).toBe(
       "ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED",
     );
+  });
+
+  it("keeps an isolated test PGlite URL ahead of inherited hosted aliases", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "true");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "content");
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    vi.stubEnv("CONTENT_DATABASE_URL", "postgres://app.example/db");
+    vi.stubEnv(
+      "CONTENT_DATABASE_URL_UNPOOLED",
+      "postgres://app-direct.example/db",
+    );
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgres://netlify-direct.example/db",
+    );
+
+    const {
+      getDatabaseUrl,
+      getMigrationDatabaseUrl,
+      getRuntimeDatabaseSource,
+      getRuntimeDatabaseUrl,
+    } = await import("./client.js");
+
+    expect(getDatabaseUrl()).toBe("pglite:memory");
+    expect(getRuntimeDatabaseUrl()).toBe("pglite:memory");
+    expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL");
+    expect(getMigrationDatabaseUrl()).toBe("pglite:memory");
   });
 
   it("keeps the Neon foreground pool small on serverless", async () => {
@@ -487,6 +518,7 @@ describe("getMigrationDatabaseUrl", () => {
 
   it("prefers Netlify's explicit unpooled migration URL over a stale generic unpooled URL", async () => {
     vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv(
       "DATABASE_URL_UNPOOLED",
       "postgresql://old:pw@old.example.com/db",
@@ -503,6 +535,7 @@ describe("getMigrationDatabaseUrl", () => {
 
   it("keeps app-specific unpooled migration URLs ahead of Netlify's shared unpooled env", async () => {
     vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv(
       "PLAN_DATABASE_URL_UNPOOLED",
       "postgresql://plan:pw@plan.example.com/db",

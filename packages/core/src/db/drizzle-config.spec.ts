@@ -29,6 +29,21 @@ describe("createDrizzleConfig", () => {
     });
   });
 
+  it("uses an explicit test PGlite URL ahead of an inherited app URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "true");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "content");
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    vi.stubEnv("CONTENT_DATABASE_URL", "postgres://app.example/db");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(createDrizzleConfig()).toMatchObject({
+      driver: "pglite",
+      dbCredentials: { url: "memory://" },
+    });
+  });
+
   // Hosts that pool their DATABASE_URL cannot run DDL through it: a Neon
   // pooler is PgBouncer in transaction mode, so migrations need the direct
   // endpoint while the app keeps querying through the pooler.
