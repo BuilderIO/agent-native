@@ -114,6 +114,15 @@ interface RunDetail extends RunListItem {
   }>;
 }
 
+// Apps don't share chart tokens, and this set is checked for colour-blind separation in both themes.
+const LIGHT_PALETTE =
+  // guard:allow-raw-color — validated categorical palette, light surface
+  "--usage-cache-read: #2a78d6; --usage-cache-write: #eb6834; --usage-fresh-input: #1baf7a; --usage-output: #eda100;";
+const DARK_PALETTE =
+  // guard:allow-raw-color — same palette stepped for the dark surface
+  "--usage-cache-read: #3987e5; --usage-cache-write: #d95926; --usage-fresh-input: #199e70; --usage-output: #c98500;";
+const PALETTE_CSS = `.usage-insights, .usage-insights-panel { ${LIGHT_PALETTE} } .dark .usage-insights, .dark .usage-insights-panel { ${DARK_PALETTE} }`;
+
 const WRITE_VERBS = new Set([
   "add",
   "apply",
@@ -577,7 +586,7 @@ function RunRow({ run, onOpen }: { run: RunListItem; onOpen: () => void }) {
         </div>
         <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           {run.status === "error" ? (
-            <span className="flex min-w-0 items-center gap-1 text-red-700 dark:text-red-400">
+            <span className="flex min-w-0 items-center gap-1 text-destructive">
               <IconCircleX aria-hidden className="size-3.5 shrink-0" />
               <span className="truncate">
                 {t("agentChat.usage.insights.stoppedWithError")}
@@ -769,7 +778,7 @@ function StepList({ turns }: { turns: RunTurn[] }) {
                 </span>
               ) : null}
               {failed ? (
-                <span className="shrink-0 text-red-700 dark:text-red-400">
+                <span className="shrink-0 text-destructive">
                   {t("agentChat.usage.insights.toolFailedTag")}
                 </span>
               ) : null}
@@ -809,9 +818,7 @@ function StepList({ turns }: { turns: RunTurn[] }) {
                   <p
                     key={callIndex}
                     className={
-                      call.status === "error"
-                        ? "text-red-700 dark:text-red-400"
-                        : ""
+                      call.status === "error" ? "text-destructive" : ""
                     }
                   >
                     {humanizeTool(t, call.name)} ·{" "}
@@ -935,7 +942,7 @@ function RunPanel({
       <div className="border-b border-border/70 px-5 pb-4 pt-5">
         <div className="flex items-center gap-2 pr-20">
           {run.status === "error" ? (
-            <IconCircleX className="size-4 shrink-0 text-red-600 dark:text-red-400" />
+            <IconCircleX className="size-4 shrink-0 text-destructive" />
           ) : run.status === "unknown" ? (
             <IconInfoCircle className="size-4 shrink-0 text-muted-foreground" />
           ) : (
@@ -1005,7 +1012,7 @@ function RunPanel({
                     key={tool.name}
                     type="button"
                     onClick={() => setShowSteps(true)}
-                    className={`rounded-full border px-2 py-0.5 text-[11px] ${tool.failed ? "border-red-500/40 text-red-700 dark:text-red-400" : "border-border/70 text-muted-foreground hover:text-foreground"}`}
+                    className={`rounded-full border px-2 py-0.5 text-[11px] ${tool.failed ? "border-destructive/40 text-destructive" : "border-border/70 text-muted-foreground hover:text-foreground"}`}
                   >
                     {tool.calls > 1
                       ? t("agentChat.usage.insights.timesCount", {
@@ -1055,7 +1062,7 @@ function RunPanel({
             {failures.slice(0, 1).map((tool) => (
               <div
                 key={tool.name}
-                className="rounded-lg border border-red-500/30 bg-red-500/5 px-3.5 py-3 text-xs leading-5"
+                className="rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-3 text-xs leading-5"
               >
                 <p className="text-foreground">
                   {run.status === "success"
@@ -1258,10 +1265,7 @@ export function UsageInsightsSection({
 
   return (
     <div className="usage-insights space-y-4 pt-2">
-      <style>
-        {".usage-insights, .usage-insights-panel { --usage-cache-read: #2a78d6; --usage-cache-write: #eb6834; --usage-fresh-input: #1baf7a; --usage-output: #eda100; }" +
-          ".dark .usage-insights, .dark .usage-insights-panel { --usage-cache-read: #3987e5; --usage-cache-write: #d95926; --usage-fresh-input: #199e70; --usage-output: #c98500; }"}
-      </style>
+      <style>{PALETTE_CSS}</style>
 
       <section className="rounded-lg border border-border/70 bg-card p-5">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">

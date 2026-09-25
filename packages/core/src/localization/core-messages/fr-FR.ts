@@ -911,8 +911,8 @@ const messages: AgentChatTranslation = {
     "{{amount}} dépensé pour {{count}} prompt au cours des {{days}} derniers jours.",
   "usage.insights.spentSummary_other":
     "{{amount}} dépensé pour {{count}} prompts au cours des {{days}} derniers jours.",
-  "usage.insights.handledLabel": "Pris en charge par Agent Native :",
-  "usage.insights.handledHeading": "Pris en charge par Agent Native",
+  "usage.insights.handledLabel": "Pris en charge par Agent-Native :",
+  "usage.insights.handledHeading": "Pris en charge par Agent-Native",
   "usage.insights.handledParallel":
     "A exécuté {{count}} appels d'outils en même temps, environ {{duration}} plus vite qu'un par un.",
   "usage.insights.handledRecovered_one":

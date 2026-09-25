@@ -86,8 +86,7 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "اعتمادات الذكاء الاصطناعي جاهزة للاستخدام. تتطلب تعديلات التعليمات البرمجية السحابية مشروع Builder في إعدادات الوكيل في الخلفية.",
   "onboarding.openBackgroundAgentSettings": "فتح إعدادات الوكيل في الخلفية",
-  "onboarding.capability.llm.keySummary":
-    "اربط نموذج الذكاء الاصطناعي الخاص بك",
+  "onboarding.capability.llm.keySummary": "اربط نموذج الذكاء الاصطناعي الخاص بك",
   "onboarding.capability.fileStorage.keySummary": "تحميل الملفات وتخزينها",
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
   "onboarding.fileStorage.description":
@@ -549,8 +548,7 @@ const messages: AgentChatTranslation = {
   "limit.maxSteps": "الحد الأقصى للخطوات",
   "limit.namedOrganization": "مؤسسة {{organization}}",
   "limit.organization": "المؤسسة",
-  "limit.ownerOnly":
-    "لا يمكن تغيير هذا الحد إلا بواسطة مالكي المؤسسة ومشرفيها.",
+  "limit.ownerOnly": "لا يمكن تغيير هذا الحد إلا بواسطة مالكي المؤسسة ومشرفيها.",
   "limit.reached": "تم بلوغ حد الخطوات",
   "limit.saveAndContinue": "الحفظ والمتابعة",
   "message.actions": "إجراءات الرسالة",
@@ -760,8 +758,7 @@ const messages: AgentChatTranslation = {
   "share.owner": "المالك",
   "share.peopleWithAccess": "الأشخاص الذين لديهم صلاحية الوصول",
   "share.private": "خاص",
-  "share.privateDescription":
-    "يمكن للأشخاص الذين لديهم صلاحية الوصول فقط العرض",
+  "share.privateDescription": "يمكن للأشخاص الذين لديهم صلاحية الوصول فقط العرض",
   "share.public": "عام",
   "share.publicDescription": "يمكن لأي شخص لديه الرابط العرض",
   "share.remove": "إزالة",
@@ -872,8 +869,8 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
   "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
   "usage.insights.verdictSmooth": "يعمل بسلاسة",
-  "usage.insights.handledLabel": "تمت معالجته بواسطة Agent Native:",
-  "usage.insights.handledHeading": "تمت معالجته بواسطة Agent Native",
+  "usage.insights.handledLabel": "تمت معالجته بواسطة Agent-Native:",
+  "usage.insights.handledHeading": "تمت معالجته بواسطة Agent-Native",
   "usage.insights.handledParallel":
     "شغّل {{count}} استدعاء أداة في الوقت نفسه، أسرع بحوالي {{duration}} من تنفيذها واحدًا تلو الآخر.",
   "usage.insights.avgPerPrompt": "المتوسط لكل برومبت",

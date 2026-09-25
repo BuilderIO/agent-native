@@ -844,8 +844,8 @@ const messages: AgentChatTranslation = {
   "usage.insights.verdictProblems_other": "문제 {{count}}개",
   "usage.insights.spentSummary_other":
     "지난 {{days}}일 동안 프롬프트 {{count}}개에 {{amount}}를 사용했습니다.",
-  "usage.insights.handledLabel": "Agent Native가 처리:",
-  "usage.insights.handledHeading": "Agent Native가 처리",
+  "usage.insights.handledLabel": "Agent-Native가 처리:",
+  "usage.insights.handledHeading": "Agent-Native가 처리",
   "usage.insights.handledParallel":
     "도구 호출 {{count}}개를 동시에 실행해 하나씩 실행할 때보다 약 {{duration}} 더 빨랐습니다.",
   "usage.insights.handledRecovered_other":

@@ -141,7 +141,7 @@ export function numberField(row: Record<string, unknown>, key: string): number {
   return Number(row[key] ?? 0) || 0;
 }
 
-function stringField(row: Record<string, unknown>, key: string): string {
+export function stringField(row: Record<string, unknown>, key: string): string {
   return String(row[key] ?? "");
 }
 

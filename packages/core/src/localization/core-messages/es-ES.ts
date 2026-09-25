@@ -904,8 +904,8 @@ const messages: AgentChatTranslation = {
     "{{amount}} gastado en {{count}} prompt en los últimos {{days}} días.",
   "usage.insights.spentSummary_other":
     "{{amount}} gastado en {{count}} prompts en los últimos {{days}} días.",
-  "usage.insights.handledLabel": "Gestionado por Agent Native:",
-  "usage.insights.handledHeading": "Gestionado por Agent Native",
+  "usage.insights.handledLabel": "Gestionado por Agent-Native:",
+  "usage.insights.handledHeading": "Gestionado por Agent-Native",
   "usage.insights.handledParallel":
     "Ejecutó {{count}} llamadas a herramientas a la vez, unos {{duration}} más rápido que una por una.",
   "usage.insights.handledRecovered_one":

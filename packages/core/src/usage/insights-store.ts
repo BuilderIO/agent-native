@@ -4,6 +4,7 @@ import {
   loadRunExchanges,
   numberField,
   resolveScope,
+  stringField,
   usageAppScope,
   type UsageMetricsAccessInput,
   type UsageMetricsScope,
@@ -174,7 +175,7 @@ function costBreakdown(
 /** Token-priced breakdown for one model's rows, carrying their recorded spend. */
 function recordedBreakdown(row: Record<string, unknown>): UsageCostBreakdown {
   return {
-    ...costBreakdown(tokensFromRow(row), String(row.model ?? "")),
+    ...costBreakdown(tokensFromRow(row), stringField(row, "model")),
     totalCents: numberField(row, "cost_cents_x100") / 100,
   };
 }
@@ -521,9 +522,9 @@ function runListItem(
   return {
     runId: String(row.run_id),
     createdAt: numberField(row, "created_at"),
-    ownerEmail: String(row.owner_email ?? ""),
-    label: String(row.label || "chat"),
-    model: String(row.model || "unknown"),
+    ownerEmail: stringField(row, "owner_email"),
+    label: stringField(row, "label") || "chat",
+    model: stringField(row, "model") || "unknown",
     prompt,
     status,
     tokens,

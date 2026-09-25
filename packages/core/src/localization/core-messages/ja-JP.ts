@@ -860,8 +860,8 @@ const messages: AgentChatTranslation = {
   "usage.insights.verdictProblems_other": "問題が{{count}}件",
   "usage.insights.spentSummary_other":
     "過去{{days}}日間で{{count}}件のプロンプトに{{amount}}使用しました。",
-  "usage.insights.handledLabel": "Agent Native が処理:",
-  "usage.insights.handledHeading": "Agent Native が処理",
+  "usage.insights.handledLabel": "Agent-Native が処理:",
+  "usage.insights.handledHeading": "Agent-Native が処理",
   "usage.insights.handledParallel":
     "{{count}}件のツール呼び出しを同時に実行し、1件ずつ実行するより約{{duration}}速く完了しました。",
   "usage.insights.handledRecovered_other":

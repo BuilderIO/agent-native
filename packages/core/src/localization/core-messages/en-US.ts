@@ -854,8 +854,8 @@ const messages = {
     "{{amount}} spent on {{count}} prompt in the last {{days}} days.",
   "usage.insights.spentSummary_other":
     "{{amount}} spent on {{count}} prompts in the last {{days}} days.",
-  "usage.insights.handledLabel": "Handled by Agent Native:",
-  "usage.insights.handledHeading": "Handled by Agent Native",
+  "usage.insights.handledLabel": "Handled by Agent-Native:",
+  "usage.insights.handledHeading": "Handled by Agent-Native",
   "usage.insights.handledParallel":
     "Ran {{count}} tool calls at the same time, about {{duration}} faster than one by one.",
   "usage.insights.handledRecovered_one":

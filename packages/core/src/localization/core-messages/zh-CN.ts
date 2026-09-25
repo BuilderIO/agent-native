@@ -810,8 +810,8 @@ const messages: AgentChatTranslation = {
   "usage.insights.verdictProblems_other": "{{count}} 个问题",
   "usage.insights.spentSummary_other":
     "过去 {{days}} 天内在 {{count}} 个提示词上花费了 {{amount}}。",
-  "usage.insights.handledLabel": "由 Agent Native 处理：",
-  "usage.insights.handledHeading": "由 Agent Native 处理",
+  "usage.insights.handledLabel": "由 Agent-Native 处理：",
+  "usage.insights.handledHeading": "由 Agent-Native 处理",
   "usage.insights.handledParallel":
     "同时运行了 {{count}} 个工具调用，比逐个执行快了约 {{duration}}。",
   "usage.insights.handledRecovered_other":
