@@ -16,8 +16,8 @@ The framework supports pluggable AI engines beneath the agent loop. The **Anthro
 
 | Tool | Purpose |
 |---|---|
-| `list-agent-engines` | List all registered engines, their capabilities, and the current selection |
-| `set-agent-engine` | Set the active engine and model (persisted in settings) |
+| `list-agent-engines` | List all registered engines, their capabilities, the current selection, and whether you can change the organization default (`canUpdateDefault`) |
+| `set-agent-engine` | Set the organization's default engine and model (owners and admins only) |
 | `test-agent-engine` | Send a trivial prompt to verify the engine works (connectivity + API key) |
 
 ## Checking the Current Engine
@@ -34,11 +34,11 @@ Returns the registry of all engines (name, label, capabilities, supported models
 set-agent-engine --engine "ai-sdk:openai" --model "gpt-4o"
 ```
 
-Changes take effect on the next conversation. The setting is persisted via the settings store (`agent-engine` key).
+Changes take effect on the next conversation. The default belongs to the organization (the `agent-engine` org setting), and only owners and admins can change it. A member's call is refused with an error to relay: ask an owner or admin, or pick a model for this chat in the model picker. A user with no organization sets their own default.
 
 Resolution order (highest priority first):
 1. Explicit `engine` option passed to `createAgentChatPlugin()` in the server plugin
-2. Settings store (`agent-engine` key)
+2. The organization's default (`agent-engine` org setting)
 3. `AGENT_ENGINE` environment variable
 4. Default: `"anthropic"` (requires `ANTHROPIC_API_KEY`)
 

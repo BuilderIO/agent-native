@@ -69,6 +69,7 @@ import {
   fetchOllamaModels,
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
+  type AgentEngineDefaultModelOutcome,
 } from "../agent-engine-key.js";
 import { AgentWorkspaceContent } from "../agent-page/AgentWorkspaceContent.js";
 import {
@@ -818,10 +819,13 @@ interface ChatGPTSubscriptionStatus {
 
 function ChatGPTSubscriptionCard({
   currentEngine,
+  canUpdateDefault,
   onConfigured,
   grouped = false,
 }: {
   currentEngine: string;
+  /** "Use in chat" changes the default model, so it needs owner/admin. */
+  canUpdateDefault: boolean | null;
   onConfigured: () => void;
   grouped?: boolean;
 }) {
@@ -991,7 +995,7 @@ function ChatGPTSubscriptionCard({
     </Button>
   ) : (
     <>
-      {!inUse ? (
+      {!inUse && canUpdateDefault !== false ? (
         <Button
           type="button"
           intent="primary"
@@ -1137,6 +1141,10 @@ function LLMSectionInner({
   const [applyNote, setApplyNote] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  // null until the catalog answers; the server enforces it either way.
+  const [canUpdateDefault, setCanUpdateDefault] = useState<boolean | null>(
+    null,
+  );
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
     | { ok: true; latencyMs: number; model: string }
@@ -1249,10 +1257,16 @@ function LLMSectionInner({
           const engineData = data as {
             engines?: EngineInfo[];
             current?: { engine?: string; model?: string };
+            canUpdateDefault?: boolean;
           };
           if (!Array.isArray(engineData.engines)) return;
           setEngines(engineData.engines);
           setEngineCatalogAvailable(true);
+          setCanUpdateDefault(
+            typeof engineData.canUpdateDefault === "boolean"
+              ? engineData.canUpdateDefault
+              : null,
+          );
           const cur = engineData.current ?? {};
           setSelectionState((previous) => {
             const dirty =
@@ -1369,6 +1383,10 @@ function LLMSectionInner({
   const endpointChanged =
     isEndpointProvider && (!!baseUrl.trim() || clearBaseUrl);
   const providerSettingsChanged = !!apiKey.trim() || endpointChanged;
+  // Saving picks the provider too, so there is no separate Apply step. Only
+  // owners and admins change the organization's default model.
+  const canSelectDefault = engineChanged && canUpdateDefault !== false;
+  const keyEntryVisible = !!envVar && !(envConfigured || settingsConfigured);
 
   // Ask the Ollama server itself which models it has pulled, instead of only
   // offering the static suggestion list. Triggered explicitly by the "Find
@@ -1418,14 +1436,23 @@ function LLMSectionInner({
     setProviderSettingsError(null);
     try {
       const nextBaseUrl = isEndpointProvider ? baseUrl.trim() : "";
-      await saveAgentEngineProviderSettings({
+      const result = await saveAgentEngineProviderSettings({
         provider: selectedProvider,
         ...(envVar ? { key: envVar } : {}),
         ...(apiKey.trim() ? { apiKey } : {}),
         ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
         ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
         scope: "org",
+        ...(canSelectDefault
+          ? {
+              defaultModel: {
+                engine: selectedEngine,
+                model: selectedModel || selectedEngineInfo?.defaultModel,
+              },
+            }
+          : {}),
       });
+      applyDefaultModelOutcome(result.defaultModel);
       setSaved(true);
       setSelectionState((previous) => ({
         ...previous,
@@ -1517,25 +1544,40 @@ function LLMSectionInner({
     }
   };
 
-  const handleApply = async () => {
+  const showSavedSelection = (selection: { engine: string; model: string }) => {
+    setSelectionState((previous) => ({
+      ...previous,
+      currentEngine: selection.engine,
+      currentModel: selection.model,
+      selectedEngine: selection.engine,
+      selectedModel: selection.model,
+    }));
+    setApplyNote(true);
+    setTimeout(() => setApplyNote(false), 4000);
+  };
+
+  const applyDefaultModelOutcome = (
+    outcome: AgentEngineDefaultModelOutcome | undefined,
+  ) => {
+    setApplyError(null);
+    setApplyNote(false);
+    if (outcome?.status === "selected") showSavedSelection(outcome);
+    else if (outcome?.status === "failed") setApplyError(outcome.error);
+  };
+
+  // A provider that needs no new key or endpoint: saving only picks it.
+  const handleSaveSelection = async () => {
     if (applying) return;
     setApplying(true);
     setApplyError(null);
     setApplyNote(false);
     try {
-      const selection = await setAgentEngineProvider({
-        provider: selectedProvider,
-        model: selectedModel,
-      });
-      setSelectionState((previous) => ({
-        ...previous,
-        currentEngine: selection.engine,
-        currentModel: selection.model,
-        selectedEngine: selection.engine,
-        selectedModel: selection.model,
-      }));
-      setApplyNote(true);
-      setTimeout(() => setApplyNote(false), 4000);
+      showSavedSelection(
+        await setAgentEngineProvider({
+          provider: selectedProvider,
+          model: selectedModel,
+        }),
+      );
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1571,6 +1613,7 @@ function LLMSectionInner({
         <>
           <ChatGPTSubscriptionCard
             currentEngine={currentEngine}
+            canUpdateDefault={canUpdateDefault}
             onConfigured={notifyConfigChanged}
             grouped={isPage && grouped}
           />
@@ -1990,8 +2033,15 @@ function LLMSectionInner({
                       <Button
                         intent="primary"
                         emphasis="solid"
-                        onClick={handleSave}
-                        disabled={!providerSettingsChanged || saving}
+                        onClick={
+                          providerSettingsChanged
+                            ? handleSave
+                            : handleSaveSelection
+                        }
+                        disabled={
+                          (!providerSettingsChanged && !canSelectDefault) ||
+                          saving
+                        }
                         className={pillButtonClass(isPage, "solid")}
                       >
                         {saving ? (
@@ -2046,17 +2096,19 @@ function LLMSectionInner({
                         <IconExternalLink size={isPage ? 14 : 10} />
                       </a>
                     ) : null}
-                    {engineChanged && (
-                      <Button
-                        intent="primary"
-                        emphasis="solid"
-                        onClick={handleApply}
-                        className={pillButtonClass(isPage, "solid")}
-                      >
-                        Apply
-                      </Button>
-                    )}
-                    {settingsStatus != null && (
+                    {canSelectDefault &&
+                      !providerSettingsChanged &&
+                      !keyEntryVisible && (
+                        <Button
+                          intent="primary"
+                          emphasis="solid"
+                          onClick={handleSaveSelection}
+                          className={pillButtonClass(isPage, "solid")}
+                        >
+                          Save
+                        </Button>
+                      )}
+                    {settingsStatus != null && canUpdateDefault !== false && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -2072,8 +2124,8 @@ function LLMSectionInner({
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          Clear the saved engine — the app will fall back to the
-                          default until you re-apply.
+                          Clear the default model. Chats use the next available
+                          provider until you save one again.
                         </TooltipContent>
                       </Tooltip>
                     )}
@@ -2129,7 +2181,7 @@ function LLMSectionInner({
                         isPage ? "text-xs" : "text-[10px]",
                       )}
                     >
-                      Apply failed: {applyError}
+                      Save failed: {applyError}
                     </p>
                   )}
                   {applyNote && (

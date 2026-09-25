@@ -43,6 +43,13 @@ export {
 } from "./registry.js";
 
 export {
+  readDefaultAgentEngineSetting,
+  readDefaultAgentEngineSettingDetailed,
+  type DefaultAgentEngineRead,
+  type DefaultAgentEngineSource,
+} from "../default-agent-engine.js";
+
+export {
   createBuilderEngine,
   BUILDER_DEFAULT_MODEL,
   BUILDER_SUPPORTED_MODELS,

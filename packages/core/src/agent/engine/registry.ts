@@ -37,12 +37,12 @@ import {
   getRequestContext,
   getRequestUserEmail,
 } from "../../server/request-context.js";
-import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
   CHATGPT_SUBSCRIPTION_ENGINE_NAME,
   CHATGPT_SUBSCRIPTION_LAB_KEY,
 } from "../chatgpt-subscription-contract.js";
+import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   OLLAMA_DEFAULT_BASE_URL,
@@ -1368,7 +1368,7 @@ export async function getConfiguredEngineNameForRequest(
 
   let stored: { engine?: unknown; config?: unknown } | null = null;
   try {
-    stored = (await getSetting("agent-engine")) as {
+    stored = (await readDefaultAgentEngineSetting()) as {
       engine?: unknown;
       config?: unknown;
     } | null;
@@ -1391,7 +1391,7 @@ export async function getConfiguredEngineNameForRequest(
  * 1. Explicit `engineOption` from plugin options (string name, instance, or {name, config})
  * 2. Env var AGENT_ENGINE
  * 3. Org/user app-template default, when usable
- * 4. Settings store key "agent-engine" → { engine: string }, when usable
+ * 4. Default model ("agent-engine", org-scoped) → { engine: string }, when usable
  * 5. Current request's app_secrets; Builder wins by default when connected
  * 6. Auto-detect deployment env credentials
  * 7. Default "anthropic" (requires ANTHROPIC_API_KEY)
@@ -1517,7 +1517,7 @@ export async function resolveEngine(
 
   let stored: { engine?: unknown; config?: unknown } | null = null;
   try {
-    stored = (await getSetting("agent-engine")) as typeof stored;
+    stored = (await readDefaultAgentEngineSetting()) as typeof stored;
   } catch {
     // Settings not available — fall through
   }
@@ -1608,7 +1608,8 @@ export async function resolveEngine(
 }
 
 /**
- * Read the user-selected model for an engine from the `agent-engine` setting.
+ * Read the selected model for an engine from the default model (the
+ * org-scoped `agent-engine` setting).
  *
  * The settings UI writes `{engine, model}` via the `manage-agent-engine` action="set",
  * but `resolveEngine` only uses the stored engine (the model is a separate
@@ -1640,7 +1641,7 @@ export async function getStoredModelForEngine(
   }
 
   try {
-    const stored = await getSetting("agent-engine");
+    const stored = await readDefaultAgentEngineSetting();
     if (
       stored &&
       typeof stored.engine === "string" &&

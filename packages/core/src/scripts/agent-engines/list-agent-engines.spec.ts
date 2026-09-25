@@ -2,6 +2,11 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 
 describe("list-agent-engines", () => {
   let readAppSecrets: ReturnType<typeof vi.fn>;
+  let defaultSetting: {
+    value: Record<string, unknown> | null;
+    source: string;
+  };
+  let defaultAuthority: { allowed: boolean };
 
   beforeEach(() => {
     vi.resetModules();
@@ -23,6 +28,12 @@ describe("list-agent-engines", () => {
     }));
     vi.doMock("../../agent/app-model-defaults.js", () => ({
       getAgentAppModelDefaultForCurrentRequest: vi.fn().mockResolvedValue(null),
+    }));
+    defaultSetting = { value: null, source: "none" };
+    defaultAuthority = { allowed: true };
+    vi.doMock("../../agent/default-agent-engine.js", () => ({
+      readDefaultAgentEngineSettingDetailed: vi.fn(async () => defaultSetting),
+      resolveDefaultAgentEngineAuthority: vi.fn(async () => defaultAuthority),
     }));
     readAppSecrets = vi.fn().mockResolvedValue(new Map());
     vi.doMock("../../secrets/storage.js", () => ({
@@ -110,6 +121,25 @@ describe("list-agent-engines", () => {
       model: getAgentEngineEntry("anthropic")?.defaultModel,
     });
     expect(result.current.model).toMatch(/^claude-/);
+  });
+
+  it("reports the org default and whether the caller can change it", async () => {
+    defaultSetting = {
+      value: { engine: "ai-sdk:openrouter", model: "vendor/custom-model" },
+      source: "org",
+    };
+    defaultAuthority = { allowed: false };
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test-example");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(await run());
+
+    expect(result.current).toEqual({
+      engine: "ai-sdk:openrouter",
+      model: "vendor/custom-model",
+    });
+    expect(result.canUpdateDefault).toBe(false);
+    expect(result.defaultSource).toBe("org");
   });
 
   it("reports that OpenRouter preserves custom model IDs", async () => {

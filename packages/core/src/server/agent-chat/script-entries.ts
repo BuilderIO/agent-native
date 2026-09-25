@@ -842,14 +842,19 @@ export async function createAgentEngineScriptEntries(
           allowedValues: { action: ["list"] },
           description: "Plan mode allows listing available agent engines.",
         },
-        run: (args) =>
-          mod.run({
-            ...args,
-            appId:
-              typeof args.appId === "string" && args.appId.trim()
-                ? args.appId
-                : (appId ?? ""),
-          }),
+        // The context carries the caller the owner/admin check audits; the
+        // check itself lives in the action so HTTP and agent calls share it.
+        run: (args, context) =>
+          mod.run(
+            {
+              ...args,
+              appId:
+                typeof args.appId === "string" && args.appId.trim()
+                  ? args.appId
+                  : (appId ?? ""),
+            },
+            context,
+          ),
       },
     };
   } catch {

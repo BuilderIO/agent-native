@@ -17,6 +17,10 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
 import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
+import {
+  readDefaultModelSelectionRequest,
+  selectDefaultModelForSavedKey,
+} from "./agent-engine-default-model-route.js";
 import { getSession } from "./auth.js";
 import {
   clearProviderCredentialAuthFailure,
@@ -303,12 +307,17 @@ export function createAgentEngineApiKeyHandler() {
       return { error: "Method not allowed" };
     }
 
-    const payload = normalizeAgentEngineApiKeyPayload(
-      await readBody(event).catch(() => ({})),
-    );
+    // coercion-ok: an unreadable body normalizes to a 400 below, never a save.
+    const body = await readBody(event).catch(() => ({}));
+    const payload = normalizeAgentEngineApiKeyPayload(body);
     if (!payload.ok) {
       setResponseStatus(event, payload.statusCode);
       return { error: payload.error };
+    }
+    const defaultModelRequest = readDefaultModelSelectionRequest(body);
+    if (!defaultModelRequest.ok) {
+      setResponseStatus(event, 400);
+      return { error: defaultModelRequest.error };
     }
 
     const resolved = await resolveAgentEngineApiKeyWriteTarget(
@@ -424,6 +433,14 @@ export function createAgentEngineApiKeyHandler() {
       );
     }
 
+    const defaultModel = defaultModelRequest.request
+      ? await selectDefaultModelForSavedKey(event, {
+          keyScope: resolved.target.scope,
+          keyScopeId: resolved.target.scopeId,
+          request: defaultModelRequest.request,
+        })
+      : undefined;
+
     return {
       ok: true,
       key: payload.key,
@@ -436,6 +453,7 @@ export function createAgentEngineApiKeyHandler() {
           }
         : {}),
       scope: resolved.target.scope,
+      ...(defaultModel ? { defaultModel } : {}),
     };
   });
 }

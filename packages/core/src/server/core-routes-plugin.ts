@@ -17,6 +17,7 @@ import {
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
 
+import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import {
@@ -144,6 +145,7 @@ import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { createAgentEngineDisconnectHandler } from "./agent-engine-default-model-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
 import {
   readAnalyticsClientPlatformHeader,
@@ -448,7 +450,7 @@ export async function resolveAgentEngineStatus<
 function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
   return {
     readStoredEngine: async () =>
-      (await getSetting("agent-engine")) as {
+      (await readDefaultAgentEngineSetting()) as {
         engine?: string;
         model?: string;
       } | null,
@@ -4944,32 +4946,11 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // POST /_agent-native/agent-engine/disconnect — clear the agent-engine
-      // setting. Env vars are left alone so the next chat turn falls back to
-      // resolveEngine's env/default resolution.
+      // POST /_agent-native/agent-engine/disconnect — clear the default model
+      // for the caller's organization (owners and admins only).
       getH3App(nitroApp).use(
         `${P}/agent-engine/disconnect`,
-        defineEventHandler(async (event: H3Event) => {
-          if (getMethod(event) !== "POST") {
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }
-          const session = await getSession(event).catch(() => null);
-          if (!session?.email) {
-            setResponseStatus(event, 401);
-            return { error: "unauthorized" };
-          }
-          try {
-            await deleteSetting("agent-engine");
-            return { ok: true };
-          } catch (err) {
-            setResponseStatus(event, 500);
-            return {
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            };
-          }
-        }),
+        createAgentEngineDisconnectHandler(),
       );
 
       // GET/PUT/DELETE /_agent-native/agent-loop-settings — org/user-scoped

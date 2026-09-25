@@ -843,8 +843,12 @@ export async function getOwnerActiveApiKey(
   ownerEmail: string | null | undefined,
 ): Promise<string | undefined> {
   try {
-    const { getSetting } = await import("../settings/store.js");
-    const engineSetting = await getSetting("agent-engine");
+    const { readDefaultAgentEngineSetting } =
+      await import("./default-agent-engine.js");
+    const engineSetting = await readDefaultAgentEngineSetting({
+      userEmail: ownerEmail ?? getRequestUserEmail(),
+      orgId: getRequestOrgId(),
+    });
     const activeEngine =
       (engineSetting?.engine as string | undefined) ?? "anthropic";
     return (await getOwnerApiKeyForEngine(activeEngine, ownerEmail)).apiKey;

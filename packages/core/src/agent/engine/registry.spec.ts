@@ -431,6 +431,38 @@ describe("AgentEngine registry", () => {
       ).toBeUndefined();
     });
 
+    it("reads the request org's default before the legacy deployment row", async () => {
+      const stored: Record<string, Record<string, unknown>> = {
+        "o:org-a:agent-engine": {
+          engine: "ai-sdk:openrouter",
+          model: "org-a/model",
+        },
+        "agent-engine": {
+          engine: "ai-sdk:openrouter",
+          model: "legacy/model",
+        },
+      };
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn(async (key: string) => stored[key] ?? null),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+      const { runWithRequestContext } =
+        await import("../../server/request-context.js");
+
+      await expect(
+        runWithRequestContext(
+          { userEmail: "a@example.test", orgId: "org-a" },
+          () => getStoredModelForEngine("ai-sdk:openrouter"),
+        ),
+      ).resolves.toBe("org-a/model");
+      await expect(
+        runWithRequestContext(
+          { userEmail: "b@example.test", orgId: "org-b" },
+          () => getStoredModelForEngine("ai-sdk:openrouter"),
+        ),
+      ).resolves.toBe("legacy/model");
+    });
+
     it("swallows settings-store errors", async () => {
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi

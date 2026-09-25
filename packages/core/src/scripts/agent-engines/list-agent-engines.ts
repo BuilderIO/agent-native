@@ -4,6 +4,10 @@
 
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
 import {
+  readDefaultAgentEngineSettingDetailed,
+  resolveDefaultAgentEngineAuthority,
+} from "../../agent/default-agent-engine.js";
+import {
   listAgentEngines,
   registerBuiltinEngines,
   detectEngineFromEnv,
@@ -18,11 +22,10 @@ import {
 import type { ActionTool } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
 import { prefetchSecrets } from "../../server/credential-provider.js";
-import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
   description:
-    'List all available AI agent engines (Anthropic, OpenAI, Gemini, Groq, etc.) and the currently selected engine. Use this to check what engines are available before calling manage-agent-engine with action="set".',
+    'List all available AI agent engines (Anthropic, OpenAI, Gemini, Groq, etc.), the currently selected engine, and whether the caller can change the organization default (canUpdateDefault). Use this to check what engines are available before calling manage-agent-engine with action="set".',
   parameters: {
     type: "object",
     properties: {},
@@ -44,9 +47,12 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         .flatMap((entry) => entry.requiredEnvVars),
     ),
   ]);
-  const currentSetting = await getSetting("agent-engine");
-  const current = currentSetting
-    ? (currentSetting as { engine?: string; model?: string })
+  const [defaultSetting, defaultAuthority] = await Promise.all([
+    readDefaultAgentEngineSettingDetailed(),
+    resolveDefaultAgentEngineAuthority(),
+  ]);
+  const current = defaultSetting.value
+    ? (defaultSetting.value as { engine?: string; model?: string })
     : null;
 
   // Same priority chain resolveEngine uses after explicit request options:
@@ -162,6 +168,8 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
             engine: currentEntry.name,
             model: currentModel,
           },
+    canUpdateDefault: defaultAuthority.allowed,
+    defaultSource: defaultSetting.source,
   };
 
   return JSON.stringify(result, null, 2);

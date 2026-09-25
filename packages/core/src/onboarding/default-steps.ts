@@ -6,6 +6,7 @@
  * `id` after these have been registered.
  */
 
+import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import {
   PROVIDER_ENV_META,
   PROVIDER_ENV_VARS,
@@ -22,7 +23,6 @@ import {
   readDeployCredentialEnv,
   resolveSecret,
 } from "../server/credential-provider.js";
-import { getSetting } from "../settings/store.js";
 import { registerOnboardingStep } from "./registry.js";
 import type { OnboardingMethod, OnboardingStep } from "./types.js";
 
@@ -164,7 +164,9 @@ const llmStep: OnboardingStep = {
       return true;
     }
     try {
-      return isAgentEngineSettingConfigured(await getSetting("agent-engine"));
+      return isAgentEngineSettingConfigured(
+        await readDefaultAgentEngineSetting(),
+      );
     } catch {
       return false;
     }

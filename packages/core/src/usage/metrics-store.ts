@@ -507,8 +507,9 @@ async function hydrateRecentPrompts(
 
 async function detectUsageEngineName(): Promise<string | null> {
   try {
-    const { getSetting } = await import("../settings/store.js");
-    const stored = (await getSetting("agent-engine")) as {
+    const { readDefaultAgentEngineSetting } =
+      await import("../agent/default-agent-engine.js");
+    const stored = (await readDefaultAgentEngineSetting()) as {
       engine?: unknown;
     } | null;
     if (typeof stored?.engine === "string" && stored.engine.trim()) {

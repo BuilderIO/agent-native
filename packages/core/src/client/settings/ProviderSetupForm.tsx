@@ -183,19 +183,24 @@ export function AgentProviderSetupForm({
     setSaving(true);
     setError(null);
     try {
+      const selectedModel = model.trim() || active.defaultModel;
       if (active.key || endpoint.trim()) {
-        await saveAgentEngineProviderSettings({
+        // The save also picks the provider when the caller may change the
+        // default model; members only save the key.
+        const result = await saveAgentEngineProviderSettings({
           provider,
           ...(active.key ? { key: active.key } : {}),
           ...(apiKey.trim() ? { apiKey } : {}),
           ...(endpoint.trim() ? { baseUrl: endpoint } : {}),
           scope: "org",
+          defaultModel: { model: selectedModel },
         });
+        if (result.defaultModel?.status === "failed") {
+          throw new Error(result.defaultModel.error);
+        }
+      } else {
+        await setAgentEngineProvider({ provider, model: selectedModel });
       }
-      await setAgentEngineProvider({
-        provider,
-        model: model.trim() || active.defaultModel,
-      });
       setApiKey("");
       setSaved(true);
       void refreshProviderKeyStatus();

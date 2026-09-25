@@ -51,11 +51,31 @@ export interface SaveAgentEngineProviderSettingsOptions {
   clearBaseUrl?: boolean;
   /** @deprecated Agent provider keys are always saved at organization scope. */
   scope?: "user" | "org";
+  /**
+   * Also make this provider the default model in the same save when the
+   * caller may change it (owners and admins; a user with no organization).
+   * Otherwise only the key is saved. `engine` defaults to the provider's.
+   */
+  defaultModel?: { engine?: string; model?: string };
 }
 
 export interface SavedAgentEngineSelection {
   engine: string;
   model: string;
+}
+
+/**
+ * What a key save did to the default model. `skipped` means only the key was
+ * saved: the caller can't change the default, or saved a personal key.
+ */
+export type AgentEngineDefaultModelOutcome =
+  | { status: "selected"; engine: string; model: string }
+  | { status: "skipped"; reason: "not-allowed" | "personal-key" }
+  | { status: "failed"; error: string };
+
+export interface SaveAgentEngineProviderSettingsResult {
+  /** Present only when `defaultModel` was requested. */
+  defaultModel?: AgentEngineDefaultModelOutcome;
 }
 
 export interface AgentEngineProviderKeyStatus {
@@ -279,13 +299,21 @@ export async function saveAgentEngineProviderSettings({
   apiKey,
   baseUrl,
   clearBaseUrl,
-}: SaveAgentEngineProviderSettingsOptions): Promise<void> {
+  defaultModel,
+}: SaveAgentEngineProviderSettingsOptions): Promise<SaveAgentEngineProviderSettingsResult> {
   const trimmed = apiKey?.trim() ?? "";
   const endpoint = baseUrl?.trim() ?? "";
   if (!trimmed && !endpoint && !clearBaseUrl) {
     throw new Error("Enter an API key or endpoint URL first.");
   }
   const envVar = resolveProviderEnvVar(provider, key);
+  const defaultModelEngine = defaultModel
+    ? defaultModel.engine?.trim() ||
+      (provider ? getAgentProviderOption(provider).engine : "")
+    : "";
+  if (defaultModel && !defaultModelEngine) {
+    throw new Error("Choose a provider first.");
+  }
   const res = await fetch(
     agentNativePath("/_agent-native/agent-engine/api-key"),
     {
@@ -297,6 +325,16 @@ export async function saveAgentEngineProviderSettings({
         ...(endpoint ? { baseUrl: endpoint } : {}),
         ...(clearBaseUrl ? { clearBaseUrl: true } : {}),
         scope: "org",
+        ...(defaultModel
+          ? {
+              defaultModel: {
+                engine: defaultModelEngine,
+                ...(defaultModel.model?.trim()
+                  ? { model: defaultModel.model.trim() }
+                  : {}),
+              },
+            }
+          : {}),
       }),
     },
   );
@@ -309,7 +347,43 @@ export async function saveAgentEngineProviderSettings({
           : `Could not save provider settings (HTTP ${res.status}).`),
     );
   }
+  let outcome: AgentEngineDefaultModelOutcome | undefined;
+  if (defaultModel) {
+    // coercion-ok: an unreadable body decodes to "failed", never a selection.
+    outcome = decodeDefaultModelOutcome(await res.json().catch(() => null));
+  }
   dispatchConfiguredChanged();
+  return outcome ? { defaultModel: outcome } : {};
+}
+
+function decodeDefaultModelOutcome(
+  body: unknown,
+): AgentEngineDefaultModelOutcome {
+  const raw = isRecord(body) ? body.defaultModel : undefined;
+  if (isRecord(raw)) {
+    if (
+      raw.status === "selected" &&
+      typeof raw.engine === "string" &&
+      typeof raw.model === "string"
+    ) {
+      return { status: "selected", engine: raw.engine, model: raw.model };
+    }
+    if (
+      raw.status === "skipped" &&
+      (raw.reason === "not-allowed" || raw.reason === "personal-key")
+    ) {
+      return { status: "skipped", reason: raw.reason };
+    }
+    if (raw.status === "failed" && typeof raw.error === "string") {
+      return { status: "failed", error: raw.error };
+    }
+  }
+  // The key saved, but the answer about the default is unreadable; say so
+  // instead of reporting it as selected or skipped.
+  return {
+    status: "failed",
+    error: "The key was saved, but the default model could not be confirmed.",
+  };
 }
 
 /**
@@ -354,9 +428,11 @@ export async function fetchOllamaModels(baseUrl?: string): Promise<string[]> {
 }
 
 /**
- * Select the provider and model for the next conversation. This is separate
- * from saving credentials so keyless local providers such as Ollama can use
- * the same setup surface as API-key providers.
+ * Make a provider and model the default model (the organization's, or a
+ * no-organization user's own). Only owners and admins may change an
+ * organization's default; for anyone else this throws the server's refusal.
+ * To save a key and select its provider in one step, pass `defaultModel` to
+ * {@link saveAgentEngineProviderSettings} instead.
  */
 export async function setAgentEngineProvider({
   provider,

@@ -13,6 +13,7 @@ vi.mock("@agent-native/core/agent/engine", () => ({
   getAgentEngineEntry: vi.fn(() => null),
   isAgentEngineSettingConfigured: vi.fn(() => false),
   isStoredEngineUsable: vi.fn(() => false),
+  readDefaultAgentEngineSetting: vi.fn(async () => null),
   registerBuiltinEngines: () => mocks.registerBuiltinEngines(),
 }));
 
@@ -25,10 +26,6 @@ vi.mock("@agent-native/core/db", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: () => mocks.getRequestOrgId(),
   getRequestUserEmail: () => mocks.getRequestUserEmail(),
-}));
-
-vi.mock("@agent-native/core/settings", () => ({
-  getSetting: vi.fn(async () => null),
 }));
 
 vi.mock("@agent-native/core/usage", () => ({
