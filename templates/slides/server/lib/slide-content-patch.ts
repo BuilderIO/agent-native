@@ -117,12 +117,13 @@ export async function formatSlideHtml(content: string): Promise<string> {
       import("prettier/plugins/estree"),
     ]);
     const protectedContent = protectPreformattedBlocks(content);
-    const formatted = await format(protectedContent.content, {
+    const protectedText = protectHtmlText(protectedContent.content);
+    const formatted = await format(protectedText.content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
       plugins,
     });
-    return protectedContent.restore(formatted);
+    return protectedContent.restore(protectedText.restore(formatted));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
@@ -225,6 +226,130 @@ function findPreformattedBlocks(
   }
 
   return blocks;
+}
+
+function protectHtmlText(content: string): {
+  content: string;
+  restore: (formatted: string) => string;
+} {
+  const ranges = findHtmlText(content);
+  if (ranges.length === 0) return { content, restore: (html) => html };
+
+  let markerPrefix = "slides-text-node";
+  while (content.includes(markerPrefix)) markerPrefix += "-";
+
+  const replacements = ranges.map((range, index) => ({
+    ...range,
+    marker: `${markerPrefix}-${index}`,
+  }));
+  let protectedContent = "";
+  let cursor = 0;
+  for (const range of replacements) {
+    protectedContent +=
+      content.slice(cursor, range.start) +
+      (range.comment ? `<!--${range.marker}-->` : range.marker);
+    cursor = range.end;
+  }
+  protectedContent += content.slice(cursor);
+
+  return {
+    content: protectedContent,
+    restore(formatted) {
+      let restored = formatted;
+      for (const range of replacements) {
+        const placeholder = range.comment
+          ? `<!--${range.marker}-->`
+          : range.marker;
+        if (!restored.includes(placeholder)) {
+          throw new Error("Unable to restore slide text content");
+        }
+        restored = restored.replace(
+          placeholder,
+          content.slice(range.start, range.end),
+        );
+      }
+      return restored;
+    },
+  };
+}
+
+function findHtmlText(
+  html: string,
+): Array<{ start: number; end: number; comment?: boolean }> {
+  const ranges: Array<{ start: number; end: number; comment?: boolean }> = [];
+  const addTextRange = (start: number, end: number) => {
+    if (start < end && !/^[\t\n\f\r ]*$/.test(html.slice(start, end))) {
+      ranges.push({ start, end });
+    }
+  };
+  let cursor = 0;
+  let textStart = 0;
+
+  while (cursor < html.length) {
+    const tagStart = html.indexOf("<", cursor);
+    if (tagStart === -1) break;
+
+    if (html.startsWith("<!--", tagStart)) {
+      addTextRange(textStart, tagStart);
+      const commentEnd = html.indexOf("-->", tagStart + 4);
+      const end = commentEnd === -1 ? html.length : commentEnd + 3;
+      ranges.push({ start: tagStart, end, comment: true });
+      cursor = end;
+      textStart = end;
+      continue;
+    }
+
+    const closing = html[tagStart + 1] === "/";
+    const nameStart = tagStart + (closing ? 2 : 1);
+    const tagName = tagNameAt(html, nameStart);
+    if (!tagName) {
+      cursor = tagStart + 1;
+      continue;
+    }
+    const tagEnd = tagEndIndex(html, nameStart + tagName.length);
+    if (tagEnd === -1) {
+      cursor = tagStart + 1;
+      continue;
+    }
+
+    addTextRange(textStart, tagStart);
+
+    if (!closing && RAW_TEXT_TAG_NAMES.has(tagName)) {
+      const rawClose = rawTextCloseIndex(html, tagName, tagEnd + 1);
+      if (tagName === "style" || tagName === "script") {
+        if (rawClose === -1) {
+          cursor = html.length;
+          textStart = html.length;
+          break;
+        }
+        cursor = rawClose;
+        textStart = rawClose;
+        continue;
+      }
+      if (rawClose === -1) {
+        addTextRange(tagEnd + 1, html.length);
+        cursor = html.length;
+        textStart = html.length;
+        break;
+      }
+      ranges.push({ start: tagEnd + 1, end: rawClose });
+      const closeEnd = tagEndIndex(html, rawClose + tagName.length + 2);
+      if (closeEnd === -1) {
+        cursor = html.length;
+        textStart = html.length;
+        break;
+      }
+      cursor = closeEnd + 1;
+      textStart = cursor;
+      continue;
+    }
+
+    cursor = tagEnd + 1;
+    textStart = cursor;
+  }
+
+  addTextRange(textStart, html.length);
+  return ranges.filter((range) => range.start < range.end);
 }
 
 function applyEdit(

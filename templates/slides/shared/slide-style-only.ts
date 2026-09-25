@@ -59,26 +59,37 @@ const protectedStyleProperties = new Set([
   "margin-left",
   "border",
   "border-width",
+  "border-style",
   "border-block",
   "border-block-width",
+  "border-block-style",
   "border-block-start",
   "border-block-start-width",
+  "border-block-start-style",
   "border-block-end",
   "border-block-end-width",
+  "border-block-end-style",
   "border-inline",
   "border-inline-width",
+  "border-inline-style",
   "border-inline-start",
   "border-inline-start-width",
+  "border-inline-start-style",
   "border-inline-end",
   "border-inline-end-width",
+  "border-inline-end-style",
   "border-top",
   "border-top-width",
+  "border-top-style",
   "border-right",
   "border-right-width",
+  "border-right-style",
   "border-bottom",
   "border-bottom-width",
+  "border-bottom-style",
   "border-left",
   "border-left-width",
+  "border-left-style",
   "gap",
   "row-gap",
   "column-gap",
@@ -142,10 +153,13 @@ const protectedStyleProperties = new Set([
   "text-wrap-mode",
   "text-wrap-style",
   "line-break",
+  "line-clamp",
   "hyphens",
   "word-spacing",
   "word-break",
   "overflow-wrap",
+  "text-overflow",
+  "text-transform",
   "all",
   "direction",
   "unicode-bidi",
@@ -183,6 +197,7 @@ const protectedStyleProperties = new Set([
   "place-items",
   "place-self",
   "transform",
+  "transform-origin",
   "translate",
   "rotate",
   "scale",
@@ -194,6 +209,7 @@ const protectedStyleProperties = new Set([
   "object-fit",
   "object-position",
   "contain",
+  "zoom",
   "contain-intrinsic-size",
   "contain-intrinsic-width",
   "contain-intrinsic-height",
@@ -208,6 +224,9 @@ const protectedStyleProperties = new Set([
   "offset-position",
   "offset-anchor",
   "offset-rotate",
+  "table-layout",
+  "border-spacing",
+  "border-collapse",
 ]);
 
 function protectedStyleInvariant(content: string): string {
@@ -250,6 +269,16 @@ function decodeCssIdentifier(identifier: string): string {
   );
 }
 
+function cssAtRuleName(node: postcss.AtRule, css: string): string {
+  const offset = node.source?.start?.offset;
+  const source = offset === undefined ? "" : css.slice(offset);
+  const match =
+    /^@((?:[A-Za-z0-9_-]|\\(?:[0-9a-fA-F]{1,6}(?:\r\n|[\t\n\f\r ])?|[^\r\n\f]))+)/.exec(
+      source,
+    );
+  return decodeCssIdentifier(match?.[1] ?? node.name).toLowerCase();
+}
+
 function isProtectedStyleProperty(property: string): boolean {
   const unprefixed = property.replace(/^-(?:webkit|moz|ms|o)-/, "");
   return (
@@ -288,10 +317,19 @@ function appendProtectedCssSignatures(
   const root = postcss.parse(css);
   root.walk((node) => {
     if (node.type === "atrule") {
+      const name = cssAtRuleName(node, css);
+      if (
+        name !== "import" &&
+        name !== "charset" &&
+        name !== "namespace" &&
+        !(name === "layer" && node.nodes === undefined)
+      ) {
+        return;
+      }
       signatures.push(
         JSON.stringify([
           ...cssNodeContext(node.parent, source),
-          `at:${node.name}`,
+          `at:${name}`,
           node.params,
           `hasBlock:${node.nodes !== undefined}`,
         ]),

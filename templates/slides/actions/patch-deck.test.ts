@@ -222,6 +222,17 @@ describe("applyOperation — patch-slide", () => {
     ["inset-inline-end", "0", "1px"],
     ["border", "1px solid black", "4px solid black"],
     ["border-width", "1px", "4px"],
+    ["border-style", "solid", "none"],
+    ["border-block-style", "solid", "none"],
+    ["border-block-start-style", "solid", "none"],
+    ["border-block-end-style", "solid", "none"],
+    ["border-inline-style", "solid", "none"],
+    ["border-inline-start-style", "solid", "none"],
+    ["border-inline-end-style", "solid", "none"],
+    ["border-top-style", "solid", "none"],
+    ["border-right-style", "solid", "none"],
+    ["border-bottom-style", "solid", "none"],
+    ["border-left-style", "solid", "none"],
     ["border-left", "1px solid black", "4px solid black"],
     ["border-block-start-width", "1px", "4px"],
     ["font", "16px Arial", "20px Arial"],
@@ -229,10 +240,13 @@ describe("applyOperation — patch-slide", () => {
     ["text-wrap-mode", "wrap", "nowrap"],
     ["text-wrap-style", "auto", "pretty"],
     ["line-break", "auto", "loose"],
+    ["line-clamp", "2", "3"],
     ["hyphens", "none", "manual"],
     ["word-spacing", "0", "4px"],
     ["float", "none", "left"],
     ["clear", "none", "both"],
+    ["text-overflow", "clip", "ellipsis"],
+    ["text-transform", "none", "uppercase"],
     ["inline-size", "100px", "200px"],
     ["min-inline-size", "100px", "200px"],
     ["max-inline-size", "100px", "200px"],
@@ -244,8 +258,13 @@ describe("applyOperation — patch-slide", () => {
     ["place-items", "start", "center"],
     ["place-self", "start", "center"],
     ["translate", "none", "10px"],
+    ["transform-origin", "50% 50%", "0 0"],
     ["rotate", "0deg", "45deg"],
     ["scale", "1", "2"],
+    ["zoom", "1", "1.2"],
+    ["table-layout", "auto", "fixed"],
+    ["border-spacing", "0", "4px"],
+    ["border-collapse", "separate", "collapse"],
     ["columns", "1", "2"],
     ["column-count", "1", "2"],
     ["contain", "none", "layout"],
@@ -361,10 +380,36 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[0].content).toBe(source);
   });
 
+  it("allows a media-query change around an unprotected color restyle", () => {
+    const source =
+      '<style>@media (min-width:600px){.fmd-slide{background:red}}</style><div class="fmd-slide"></div>';
+    const nextContent = source.replace("min-width:600px", "min-width:800px");
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: nextContent },
+      baseContentHash: hashSlideContent(source),
+      styleOnly: true,
+    });
+
+    expect(deck.slides[0].content).toBe(nextContent);
+  });
+
   it.each([
     ["font", "16px Arial", "20px Arial"],
     ["border-width", "1px", "4px"],
+    ["border-style", "solid", "none"],
     ["text-wrap", "wrap", "nowrap"],
+    ["line-clamp", "2", "3"],
+    ["text-overflow", "clip", "ellipsis"],
+    ["text-transform", "none", "uppercase"],
+    ["transform-origin", "50% 50%", "0 0"],
+    ["zoom", "1", "1.2"],
+    ["table-layout", "auto", "fixed"],
+    ["border-spacing", "0", "4px"],
+    ["border-collapse", "separate", "collapse"],
     ["line-break", "auto", "loose"],
     ["translate", "none", "10px"],
     ["rotate", "0deg", "45deg"],
@@ -1735,11 +1780,26 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(formatted).toContain(pre);
   });
 
+  it.each(["pre", "pre-wrap", "break-spaces"])(
+    "preserves text in elements with white-space: %s",
+    async (whiteSpace) => {
+      const text = "  alpha\n    beta   \ngamma  ";
+      const element = `<div style="white-space: ${whiteSpace}">${text}</div>`;
+      const formatted = await formatSlideHtml(
+        `<section><h1>Title</h1>${element}<p>After</p></section>`,
+      );
+
+      expect(formatted).toContain(element);
+    },
+  );
+
   it("accepts formatted styleOnly batch CSS after formatter spacing changes", async () => {
     const pre = "<pre>  alpha\n    beta   \ngamma  </pre>";
+    const whiteSpaceText =
+      '<div style="white-space: pre">  keep  these\n    spaces   </div>';
     const source =
       `<style>@media (min-width:600px){.fmd-slide{padding:10px;background:red;}}</style>` +
-      `<div class="fmd-slide">${pre}</div>`;
+      `<div class="fmd-slide">${pre}${whiteSpaceText}</div>`;
     const formattedSource = await formatSlideHtml(source);
     const nextContent = formattedSource.replace(
       /background:\s*red/,
@@ -1791,6 +1851,9 @@ describe("run() — asynchronous layout fit metadata", () => {
       nextContent,
     );
     expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toContain(pre);
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toContain(
+      whiteSpaceText,
+    );
   });
 
   it("returns pending hashes for every content-changed slide", async () => {

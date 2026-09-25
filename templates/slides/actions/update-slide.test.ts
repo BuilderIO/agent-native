@@ -729,7 +729,7 @@ describe("update-slide", () => {
         {
           id: "slide-1",
           content:
-            '<style>.fmd-slide { background: #000; }</style><div class="fmd-slide"><p>Headline</p><pre>  alpha\n    beta   \ngamma  </pre></div>',
+            '<style>.fmd-slide { background: #000; }</style><div class="fmd-slide"><p>Headline</p><div style="white-space: pre-wrap">  keep  these\n    spaces   </div><pre>  alpha\n    beta   \ngamma  </pre></div>',
         },
       ],
     });
@@ -747,6 +747,9 @@ describe("update-slide", () => {
       .content as string;
     expect(savedContent).toContain("background: #fff");
     expect(savedContent).toContain("Headline");
+    expect(savedContent).toContain(
+      '<div style="white-space: pre-wrap">  keep  these\n    spaces   </div>',
+    );
     expect(savedContent).toContain("<pre>  alpha\n    beta   \ngamma  </pre>");
   });
 
