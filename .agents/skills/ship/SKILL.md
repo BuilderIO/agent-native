@@ -159,10 +159,10 @@ Keep these claims separate in the PR and final report:
 ## 4. Babysit
 
 Run /babysit-pr <number> immediately after PR creation and follow that skill
-for the durable heartbeat, serialized PR lease, local-change ownership checks,
-review handling, conflict recovery, and cadence. Do not duplicate its lease
-protocol here or end the task after opening the PR without either its watcher
-or a foreground loop.
+for monitoring and local-change ownership. Its lease only serializes the
+optional background watcher: lease contention or renewal failure must never
+block fixes, publishing, review handling, conflict recovery, or the authorized
+merge. Continue in the foreground when no watcher can be held.
 
 If a live PR is CONFLICTING, let babysit-pr recover it only after:
 

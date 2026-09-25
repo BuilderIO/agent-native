@@ -191,6 +191,13 @@ const PATTERNS = [
     re: SHIPPING_CHURN_RE,
   },
   {
+    // Added 2026-09-25 after lease contention stopped requested PR shipping.
+    key: "babysit-lease-blocks-work",
+    label: "Asked to keep shipping after a babysit lease failure",
+    fixedBy: ".agents/skills/babysit-pr foreground fallback (2026-09-25)",
+    re: /\b(?:lease|lock)\b[^.!?\n]{0,120}\b(?:fail(?:ed|ure)?|unavailable|contention|block(?:ed|ing)?|stall(?:ed)?|stop(?:ped|ping)?|renew(?:al|ed|ing)?|couldn['’]?t|could not)\b|\b(?:fail(?:ed|ure)?|unavailable|contention|block(?:ed|ing)?|stall(?:ed)?|stop(?:ped|ping)?|couldn['’]?t|could not)\b[^.!?\n]{0,120}\b(?:lease|lock)\b/i,
+  },
+  {
     key: "branch-moves",
     label: "Unrequested branch creation / movement",
     fixedBy: ".agents/skills/new-branch (activation guard, 2026-07-28)",
