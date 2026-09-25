@@ -55,7 +55,7 @@ afterAll(async () => {
 });
 
 describe("visual-edit pending revision migration", () => {
-  it("publishes and reads back a Date.now() revision after migrations", async () => {
+  it("publishes and reads a Date.now() revision through the external API", async () => {
     const revision = Date.now();
     const prompt = "Update the Clips library heading.";
 
@@ -77,7 +77,7 @@ describe("visual-edit pending revision migration", () => {
       sql: `SELECT data_type
             FROM information_schema.columns
             WHERE table_name = 'design_visual_edit_pending'
-              AND column_name = 'revision'`,
+              AND column_name = 'revision_bigint'`,
     });
     expect(rows[0]?.data_type).toBe("bigint");
 

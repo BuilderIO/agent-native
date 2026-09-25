@@ -6122,6 +6122,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
+  var runtimeStructureInsertTransactionKey = Symbol(
+    "agent-native-runtime-structure-transaction",
+  );
   // Figma parity on the infinite-canvas board: a plain click resolves to the
   // outermost child of this container (the screen root, i.e. null, by default)
   // rather than the raw deepest hit. Double-click drilling
@@ -27423,6 +27426,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
         return;
       }
+      var insertTransactionId =
+        typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+      if (insertTransactionId) {
+        (parsedInsertEl as unknown as Record<symbol, string>)[
+          runtimeStructureInsertTransactionKey
+        ] = insertTransactionId;
+      }
       if (replaceInsertAnchor) {
         var replaceParent = insertAnchor.parentElement;
         if (!replaceParent) {
@@ -27688,15 +27698,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (e.data.type === "runtime-structure-rollback-insert") {
       var rollbackRequestId = String(e.data.requestId || "");
-      var rollbackTarget = findUniqueRuntimeStructureTarget(
-        String(e.data.selector || ""),
-        typeof e.data.sourceId === "string" ? e.data.sourceId : "",
-      );
-      if (
-        !rollbackRequestId ||
-        !rollbackTarget ||
-        !rollbackTarget.parentElement
-      ) {
+      var rollbackTransactionId =
+        typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+      var rollbackTargets = rollbackTransactionId
+        ? Array.from(document.querySelectorAll("*")).filter(
+            (element) =>
+              (element as unknown as Record<symbol, string>)[
+                runtimeStructureInsertTransactionKey
+              ] === rollbackTransactionId,
+          )
+        : [];
+      if (rollbackTargets.length === 0) {
+        var rollbackTarget = findUniqueRuntimeStructureTarget(
+          String(e.data.selector || ""),
+          typeof e.data.sourceId === "string" ? e.data.sourceId : "",
+        );
+        if (rollbackTarget) rollbackTargets = [rollbackTarget];
+      }
+      if (!rollbackRequestId || rollbackTargets.length === 0) {
         (window.parent as Window).postMessage(
           {
             type: "runtime-structure-rollback-result",
@@ -27709,7 +27728,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         return;
       }
-      rollbackTarget.parentElement.removeChild(rollbackTarget);
+      for (var rollbackTarget of rollbackTargets) {
+        if (
+          rollbackTarget === selectedEl ||
+          rollbackTarget.contains(selectedEl)
+        ) {
+          selectedEl = null;
+        }
+        if (
+          rollbackTarget === hoveredEl ||
+          rollbackTarget.contains(hoveredEl)
+        ) {
+          hoveredEl = null;
+        }
+        rollbackTarget.parentElement?.removeChild(rollbackTarget);
+      }
       publishSourceDocumentProvenance(undefined, true);
       refreshOverlays();
       (window.parent as Window).postMessage(

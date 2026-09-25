@@ -126,21 +126,13 @@ describe("DesignEditor pending source handoff", () => {
       "canEditDesign && pendingVisualEditCount > 0",
     );
 
-    const publication = source.slice(
-      source.indexOf("const clearRequested = pending.pending === null;"),
-      source.indexOf("const visualEditPromptResult"),
+    expect(source).toContain("shouldPublishVisualEditPending({");
+    expect(source).toContain("canEditDesign,");
+    expect(source).toContain(
+      "canEditLiveScreen: canEditLiveScreen(activeOverviewScreen?.id)",
     );
-    const durablePublish = publication.slice(
-      publication.indexOf("if (canEditDesign) {"),
-      publication.indexOf("} else {"),
-    );
-    expect(durablePublish).toContain(
-      'callAction("publish-visual-edit-pending", pending)',
-    );
-    expect(publication).toContain(
-      "if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;",
-    );
-    expect(publication).toContain("JSON.stringify(pending)");
+    expect(source).toContain("runPublishVisualEditPending({");
+    expect(source).toContain("activeScreenBridgeUrl,");
   });
 
   it("routes interaction-state edits through the selected screen", () => {

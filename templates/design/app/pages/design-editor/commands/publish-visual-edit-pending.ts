@@ -32,6 +32,16 @@ export interface PublishVisualEditPendingArgs {
   showHandoffErrorToast: () => void;
 }
 
+export function shouldPublishVisualEditPending(args: {
+  designId: string | null | undefined;
+  canEditDesign: boolean;
+  canEditLiveScreen: boolean;
+}): boolean {
+  return (
+    Boolean(args.designId) && (args.canEditDesign || args.canEditLiveScreen)
+  );
+}
+
 export async function runPublishVisualEditPending(
   args: PublishVisualEditPendingArgs,
 ): Promise<void> {

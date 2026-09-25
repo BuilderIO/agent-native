@@ -673,7 +673,10 @@ import {
 import { runCreatePrimitive } from "./design-editor/commands/create-primitive";
 import { runCreateScreenFrame } from "./design-editor/commands/create-screen-frame";
 import { runCrossScreenElementDrop } from "./design-editor/commands/cross-screen-element-drop";
-import { scheduleCrossScreenInsertTimeout } from "./design-editor/commands/cross-screen-insert-timeout";
+import {
+  scheduleCrossScreenInsertTimeout,
+  scheduleCrossScreenRollbackTimeout,
+} from "./design-editor/commands/cross-screen-insert-timeout";
 import { runDeleteFiles } from "./design-editor/commands/delete-files";
 import { runDeleteSelection } from "./design-editor/commands/delete-selection";
 import { runDetachInstanceMenuAction } from "./design-editor/commands/detach-instance-menu-action";
@@ -743,7 +746,10 @@ import { runPendingTextHostCommit } from "./design-editor/commands/pending-text-
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
-import { runPublishVisualEditPending } from "./design-editor/commands/publish-visual-edit-pending";
+import {
+  runPublishVisualEditPending,
+  shouldPublishVisualEditPending,
+} from "./design-editor/commands/publish-visual-edit-pending";
 import { runRecordPendingLiveLayerStateEdit } from "./design-editor/commands/record-pending-live-layer-state-edit";
 import {
   commitPendingLiveStructureEdits,
@@ -6648,7 +6654,7 @@ function DesignEditor() {
   // grant a local capability without a normal Design sign-in. Gating this on
   // `isSignedIn` would leave that user unable to grant write consent.
   useEffect(() => {
-    if (!id) return;
+    if (!id || !canEditDesign) return;
     let cancelled = false;
     const key = `design-localhost-write-consent-request:${id}`;
     void (async () => {
@@ -17068,6 +17074,38 @@ function DesignEditor() {
     ],
   );
 
+  const discardPendingLiveStructureTransaction = useCallback(
+    (transactionId: string) => {
+      const matchesTransaction = (edit: PendingLiveStructureEdit) =>
+        pendingLiveStructureEditsFromEdit(edit).some(
+          (member) => member.transactionId === transactionId,
+        );
+      const nextPending = pendingLiveNonStyleEditsRef.current.filter(
+        (edit) => edit.kind !== "structure" || !matchesTransaction(edit),
+      );
+      const nextUndo = pendingLiveNonStyleUndoStackRef.current.filter(
+        (entry) =>
+          entry.kind !== "structure" ||
+          !pendingLiveStructureEditsFromUndoEntry(entry).some(
+            (edit) => edit.transactionId === transactionId,
+          ),
+      );
+      const nextRedo = pendingLiveNonStyleRedoStackRef.current.filter(
+        (entry) =>
+          entry.kind !== "structure" ||
+          !pendingLiveStructureEditsFromUndoEntry(entry).some(
+            (edit) => edit.transactionId === transactionId,
+          ),
+      );
+      pendingLiveNonStyleEditsRef.current = nextPending;
+      pendingLiveNonStyleUndoStackRef.current = nextUndo;
+      pendingLiveNonStyleRedoStackRef.current = nextRedo;
+      setPendingLiveNonStyleEdits(nextPending);
+      syncUndoRedoState();
+    },
+    [syncUndoRedoState],
+  );
+
   const handleRuntimeStructureInsertRejected = useCallback(
     (reason: string, transactionId?: string) => {
       if (reason.startsWith("verification-")) {
@@ -17087,40 +17125,30 @@ function DesignEditor() {
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
-      const isBoardTimeout = reason === "board-drop-timeout";
+      const isInsertTimeout =
+        reason === "board-drop-timeout" ||
+        reason === "cross-screen-insert-timeout";
       let rollbackScheduled = false;
       if (
-        isBoardTimeout &&
+        isInsertTimeout &&
         transactionId &&
         runtimeStructureInsertRequest?.transactionId === transactionId
       ) {
-        const insertedNodeId = runtimeStructureInsertRequest.html.match(
-          /\bdata-agent-native-node-id\s*=\s*["']([^"']+)["']/i,
-        )?.[1];
-        if (insertedNodeId) {
-          runtimeStructureRollbackRevisionRef.current += 1;
-          setRuntimeStructureRollbackRequest({
-            screenId: runtimeStructureInsertRequest.screenId,
-            requestId: `${transactionId}:timeout-rollback:${runtimeStructureRollbackRevisionRef.current}`,
-            transactionId,
-            selector: "",
-            sourceId: insertedNodeId,
-          });
-          rollbackScheduled = true;
-        } else if (
-          runtimeStructurePendingTransactionRef.current === transactionId
-        ) {
-          // There is no stable target to reconcile. Release the admission
-          // lock so a later runtime edit cannot be blocked forever.
-          runtimeStructurePendingTransactionRef.current = null;
-        }
-        setRuntimeStructureDeleteRequest((current) =>
-          current?.transactionId === transactionId ? null : current,
-        );
+        runtimeStructureRollbackRevisionRef.current += 1;
+        setRuntimeStructureRollbackRequest({
+          screenId: runtimeStructureInsertRequest.screenId,
+          requestId: `${transactionId}:timeout-rollback:${runtimeStructureRollbackRevisionRef.current}`,
+          transactionId,
+          selector: "",
+        });
+        rollbackScheduled = true;
       }
       if (transactionId) {
+        if (reason === "target-canvas-unmounted") {
+          discardPendingLiveStructureTransaction(transactionId);
+        }
         if (
-          !isBoardTimeout &&
+          !rollbackScheduled &&
           runtimeStructurePendingTransactionRef.current === transactionId
         ) {
           runtimeStructurePendingTransactionRef.current = null;
@@ -17128,17 +17156,27 @@ function DesignEditor() {
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
-        setRuntimeStructureDeleteRequest((current) =>
-          current?.transactionId === transactionId ? null : current,
-        );
+        if (
+          reason === "target-canvas-unmounted" &&
+          runtimeStructureRollbackRequest?.transactionId === transactionId
+        ) {
+          setRuntimeStructureRollbackRequest(null);
+        }
+        if (!rollbackScheduled) {
+          setRuntimeStructureDeleteRequest((current) =>
+            current?.transactionId === transactionId ? null : current,
+          );
+        }
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
       return rollbackScheduled;
     },
     [
       cancelPendingStructureVerification,
+      discardPendingLiveStructureTransaction,
       runtimeStructurePendingTransactionRef,
       runtimeStructureInsertRequest,
+      runtimeStructureRollbackRequest,
       setRuntimeStructureRollbackRequest,
       t,
     ],
@@ -17313,6 +17351,7 @@ function DesignEditor() {
       ) {
         return;
       }
+      let rollbackScheduled = false;
       if (
         request.transactionId &&
         request.rollbackScreenId &&
@@ -17326,51 +17365,28 @@ function DesignEditor() {
           selector: request.rollbackSelector,
           sourceId: request.rollbackSourceId,
         });
+        rollbackScheduled = true;
       }
       if (
+        !rollbackScheduled &&
         request.transactionId &&
         runtimeStructurePendingTransactionRef.current === request.transactionId
       ) {
         runtimeStructurePendingTransactionRef.current = null;
       }
-      setRuntimeStructureDeleteRequest(null);
+      if (!rollbackScheduled) setRuntimeStructureDeleteRequest(null);
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure delete rejected", details);
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     },
-    [runtimeStructureDeleteRequest, runtimeStructurePendingTransactionRef, t],
-  );
-  const discardPendingLiveStructureTransaction = useCallback(
-    (transactionId: string) => {
-      const matchesTransaction = (edit: PendingLiveStructureEdit) =>
-        pendingLiveStructureEditsFromEdit(edit).some(
-          (member) => member.transactionId === transactionId,
-        );
-      const nextPending = pendingLiveNonStyleEditsRef.current.filter(
-        (edit) => edit.kind !== "structure" || !matchesTransaction(edit),
-      );
-      const nextUndo = pendingLiveNonStyleUndoStackRef.current.filter(
-        (entry) =>
-          entry.kind !== "structure" ||
-          !pendingLiveStructureEditsFromUndoEntry(entry).some(
-            (edit) => edit.transactionId === transactionId,
-          ),
-      );
-      const nextRedo = pendingLiveNonStyleRedoStackRef.current.filter(
-        (entry) =>
-          entry.kind !== "structure" ||
-          !pendingLiveStructureEditsFromUndoEntry(entry).some(
-            (edit) => edit.transactionId === transactionId,
-          ),
-      );
-      pendingLiveNonStyleEditsRef.current = nextPending;
-      pendingLiveNonStyleUndoStackRef.current = nextUndo;
-      pendingLiveNonStyleRedoStackRef.current = nextRedo;
-      setPendingLiveNonStyleEdits(nextPending);
-      syncUndoRedoState();
-    },
-    [syncUndoRedoState],
+    [
+      runtimeStructureDeleteRequest,
+      runtimeStructurePendingTransactionRef,
+      setRuntimeStructureDeleteRequest,
+      setRuntimeStructureRollbackRequest,
+      t,
+    ],
   );
   const handleRuntimeStructureRollbackResult = useCallback(
     (details: {
@@ -17382,19 +17398,22 @@ function DesignEditor() {
       if (runtimeStructureRollbackRequest?.requestId !== details.requestId) {
         return;
       }
-      if (details.applied && runtimeStructureRollbackRequest?.transactionId) {
-        discardPendingLiveStructureTransaction(
-          runtimeStructureRollbackRequest.transactionId,
-        );
+      const transactionId = runtimeStructureRollbackRequest?.transactionId;
+      if (transactionId) {
+        discardPendingLiveStructureTransaction(transactionId);
       }
       if (
-        runtimeStructureRollbackRequest?.transactionId &&
-        runtimeStructurePendingTransactionRef.current ===
-          runtimeStructureRollbackRequest.transactionId
+        transactionId &&
+        runtimeStructurePendingTransactionRef.current === transactionId
       ) {
         runtimeStructurePendingTransactionRef.current = null;
       }
       setRuntimeStructureRollbackRequest(null);
+      if (transactionId) {
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+      }
       if (!details.applied) {
         toast.error(t("designEditor.toasts.layerMoveFailed"), {
           duration: 4000,
@@ -17405,9 +17424,24 @@ function DesignEditor() {
       discardPendingLiveStructureTransaction,
       runtimeStructureRollbackRequest,
       runtimeStructurePendingTransactionRef,
+      setRuntimeStructureDeleteRequest,
+      setRuntimeStructureRollbackRequest,
       t,
     ],
   );
+  useEffect(() => {
+    if (!runtimeStructureRollbackRequest?.transactionId) return;
+    return scheduleCrossScreenRollbackTimeout(
+      runtimeStructureRollbackRequest,
+      (request) =>
+        handleRuntimeStructureRollbackResult({
+          requestId: request.requestId,
+          transactionId: request.transactionId,
+          applied: false,
+          reason: "rollback-timeout",
+        }),
+    );
+  }, [handleRuntimeStructureRollbackResult, runtimeStructureRollbackRequest]);
   const handleRuntimeLayerRenameApplied = useCallback(
     (
       screenId: string,
@@ -20099,7 +20133,16 @@ function DesignEditor() {
     ],
   );
   useEffect(() => {
-    if (!id || !canEditDesign) return;
+    if (
+      !id ||
+      !shouldPublishVisualEditPending({
+        designId: id,
+        canEditDesign,
+        canEditLiveScreen: canEditLiveScreen(activeOverviewScreen?.id),
+      })
+    ) {
+      return;
+    }
     if (
       pendingVisualEditCount === 0 &&
       pendingVisualEditClearRequestedRef.current !== id &&
@@ -20162,6 +20205,8 @@ function DesignEditor() {
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
+    activeOverviewScreen?.id,
+    canEditLiveScreen,
     canEditDesign,
     id,
     pendingVisualEditCount,
@@ -25582,6 +25627,11 @@ function DesignEditor() {
               ? runtimeStructureRollbackRequest
               : null
           }
+          runtimeStructureTargetTransactionId={
+            runtimeStructureDeleteRequest?.rollbackScreenId === screen.id
+              ? runtimeStructureDeleteRequest.transactionId
+              : null
+          }
           runtimeLayerRenameRequest={runtimeLayerRenameForScreen(screen.id)}
           runtimeLayerSnapshotRequest={runtimeLayerSnapshotRequest}
           onRuntimeStructureInsertRejected={
@@ -29018,6 +29068,12 @@ function DesignEditor() {
                           runtimeStructureRollbackRequest?.screenId ===
                           activeFile.id
                             ? runtimeStructureRollbackRequest
+                            : null
+                        }
+                        runtimeStructureTargetTransactionId={
+                          runtimeStructureDeleteRequest?.rollbackScreenId ===
+                          activeFile.id
+                            ? runtimeStructureDeleteRequest.transactionId
                             : null
                         }
                         runtimeLayerRenameRequest={runtimeLayerRenameForScreen(

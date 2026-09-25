@@ -1,4 +1,7 @@
-import type { RuntimeStructureInsertRequest } from "@/components/design/types";
+import type {
+  RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
+} from "@/components/design/types";
 
 export const CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS = 2_200;
 
@@ -13,6 +16,18 @@ export function scheduleCrossScreenInsertTimeout(
   }
   const timeout = window.setTimeout(
     () => onTimeout(transactionId),
+    CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
+  );
+  return () => window.clearTimeout(timeout);
+}
+
+export function scheduleCrossScreenRollbackTimeout(
+  request: RuntimeStructureRollbackRequest | null,
+  onTimeout: (request: RuntimeStructureRollbackRequest) => void,
+): () => void {
+  if (!request?.transactionId) return () => {};
+  const timeout = window.setTimeout(
+    () => onTimeout(request),
     CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
   );
   return () => window.clearTimeout(timeout);

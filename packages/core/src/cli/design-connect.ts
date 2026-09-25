@@ -2633,7 +2633,7 @@ export async function startDesignConnectBridge(
     }),
   );
   let liveEditBridgeScript = "";
-  let pendingVisualEditPayload: Record<string, unknown> | null = null;
+  const pendingVisualEditPayloads = new Map<string, Record<string, unknown>>();
   // One bridge process serves every URL-backed screen in an overview. The
   // editor script carries screen-specific state (notably screenId), so a
   // single global slot lets parallel iframe registrations overwrite each
@@ -2641,6 +2641,8 @@ export async function startDesignConnectBridge(
   // for modern clients while retaining the unkeyed slot for older clients.
   const liveEditBridgeScripts = new Map<string, string>();
   const liveEditBridgeDesignIds = new Map<string, string>();
+  const isRegisteredDesign = (designId: string) =>
+    Array.from(liveEditBridgeDesignIds.values()).includes(designId);
   // Identifies THIS bridge process's in-memory registry, minted fresh every
   // time the bridge boots. `liveEditBridgeScripts` above only lives in
   // process memory, so a bridge restart (crash, machine sleep/wake, manual
@@ -2878,7 +2880,25 @@ export async function startDesignConnectBridge(
       if (pathname === "/live-edit-pending") {
         if (req.method === "GET") {
           if (rejectInvalidPreviewToken()) return;
-          sendJson(res, 200, { ok: true, pending: pendingVisualEditPayload });
+          const designId = requestUrl.searchParams.get("designId")?.trim();
+          if (!designId) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "designId is required to read pending visual edits",
+            });
+            return;
+          }
+          if (!isRegisteredDesign(designId)) {
+            sendJson(res, 403, {
+              ok: false,
+              error: "pending read is not authorized for this design",
+            });
+            return;
+          }
+          sendJson(res, 200, {
+            ok: true,
+            pending: pendingVisualEditPayloads.get(designId) ?? null,
+          });
           return;
         }
         if (req.method !== "POST") {
@@ -2925,9 +2945,7 @@ export async function startDesignConnectBridge(
                 : body.designId;
             if (
               typeof pendingDesignId !== "string" ||
-              !Array.from(liveEditBridgeDesignIds.values()).includes(
-                pendingDesignId,
-              )
+              !isRegisteredDesign(pendingDesignId)
             ) {
               sendJson(res, 403, {
                 ok: false,
@@ -2936,7 +2954,7 @@ export async function startDesignConnectBridge(
               return;
             }
             if (pending === null) {
-              pendingVisualEditPayload = null;
+              pendingVisualEditPayloads.delete(pendingDesignId);
               sendJson(res, 200, { ok: true, pending: null });
               return;
             }
@@ -2970,14 +2988,15 @@ export async function startDesignConnectBridge(
               });
               return;
             }
-            pendingVisualEditPayload = {
+            const publishedPending = {
               designId: candidate.designId,
               pendingEditCount: candidate.pendingEditCount,
               status: candidate.status,
               prompt: candidate.prompt,
               updatedAt: new Date().toISOString(),
             };
-            sendJson(res, 200, { ok: true, pending: pendingVisualEditPayload });
+            pendingVisualEditPayloads.set(candidate.designId, publishedPending);
+            sendJson(res, 200, { ok: true, pending: publishedPending });
           } catch (error) {
             sendJson(
               res,
@@ -3852,6 +3871,7 @@ Options:
 Pending visual edits:
   --bridge-url <url>      Paired local bridge URL (default http://127.0.0.1:${DEFAULT_BRIDGE_PORT})
   --root <path>           App/repo root containing .agent-native/design-bridge-token
+  --design-id <id>        Design ID whose pending visual edits to retrieve
   --preview-token <token> Read-only preview token when the root token is unavailable
 
 Element provenance (resolveNodeToFile):
@@ -4005,6 +4025,13 @@ export async function runDesign(argv: string[]) {
     const bridgeUrl = (
       readFlag("--bridge-url") ?? `http://127.0.0.1:${DEFAULT_BRIDGE_PORT}`
     ).replace(/\/$/, "");
+    const designId = readFlag("--design-id")?.trim();
+    if (!designId) {
+      console.error(
+        "Pass --design-id to select the visual-edit handoff to retrieve.",
+      );
+      return 1;
+    }
     const bridgeToken = readFlag("--preview-token");
     const token =
       bridgeToken ??
@@ -4017,7 +4044,9 @@ export async function runDesign(argv: string[]) {
       );
       return 1;
     }
-    const response = await fetch(`${bridgeUrl}/live-edit-pending`, {
+    const pendingUrl = new URL(`${bridgeUrl}/live-edit-pending`);
+    pendingUrl.searchParams.set("designId", designId);
+    const response = await fetch(pendingUrl, {
       headers: { "x-design-preview-token": token },
     });
     if (!response.ok) {

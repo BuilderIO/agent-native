@@ -24,6 +24,15 @@ function isDrizzleTable(value: unknown): value is object {
 
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
+export const designVisualEditPendingBigintRevisionMigration = {
+  version: 32,
+  name: "design-visual-edit-pending-bigint-revision",
+  sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS revision_bigint BIGINT NOT NULL DEFAULT 0;
+UPDATE design_visual_edit_pending
+SET revision_bigint = revision
+WHERE revision_bigint = 0 AND revision IS NOT NULL`,
+};
+
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
@@ -443,8 +452,9 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
     {
       version: 31,
       name: "design-visual-edit-pending-revision",
-      sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0`,
+      sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0`,
     },
+    designVisualEditPendingBigintRevisionMigration,
   ],
   { table: "design_migrations" },
 );

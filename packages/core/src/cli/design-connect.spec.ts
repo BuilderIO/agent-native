@@ -602,7 +602,7 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("publishes and retrieves pending visual edits without the Design tab", async () => {
+  it("isolates local pending visual edits by design", async () => {
     const root = tmpDir();
     const port = await freePort();
     const manifest = await prepareDesignConnectManifest({
@@ -614,6 +614,7 @@ describe("design connect bridge endpoints", () => {
     const base = `http://127.0.0.1:${port}`;
     const auth = { "x-design-preview-token": bridge.previewToken };
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const registered = await postJson(
         `${base}/live-edit-bridge`,
@@ -625,11 +626,41 @@ describe("design connect bridge endpoints", () => {
         auth,
       );
       expect(registered.status).toBe(200);
+      const secondRegistered = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "screen-b",
+          designId: "design-2",
+        },
+        auth,
+      );
+      expect(secondRegistered.status).toBe(200);
       expect((await getJson(`${base}/live-edit-pending`)).status).toBe(401);
-      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
-        ok: true,
-        pending: null,
-      });
+      const unscopedRead = await getJson(`${base}/live-edit-pending`, auth);
+      expect(unscopedRead.status).toBe(400);
+      expect(unscopedRead.body.error).toMatch(/designId is required/);
+      const unregisteredRead = await getJson(
+        `${base}/live-edit-pending?designId=design-3`,
+        auth,
+      );
+      expect(unregisteredRead.status).toBe(403);
+      await expect(
+        runDesign([
+          "pending",
+          "--bridge-url",
+          base,
+          "--preview-token",
+          bridge.previewToken,
+        ]),
+      ).resolves.toBe(1);
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("--design-id"),
+      );
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body,
+      ).toEqual({ ok: true, pending: null });
       expect(
         (
           await postJson(
@@ -749,11 +780,36 @@ describe("design connect bridge endpoints", () => {
         prompt: "Apply the two pending visual edits.",
       });
 
-      const pulled = await getJson(`${base}/live-edit-pending`, auth);
+      const secondPublished = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-2",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Apply design two's visual edits.",
+          },
+        },
+        auth,
+      );
+      expect(secondPublished.status).toBe(200);
+
+      const pulled = await getJson(
+        `${base}/live-edit-pending?designId=design-1`,
+        auth,
+      );
       expect(pulled.status).toBe(200);
       expect(pulled.body.pending).toMatchObject({
         designId: "design-1",
         prompt: "Apply the two pending visual edits.",
+      });
+      const pulledSecond = await getJson(
+        `${base}/live-edit-pending?designId=design-2`,
+        auth,
+      );
+      expect(pulledSecond.body.pending).toMatchObject({
+        designId: "design-2",
+        prompt: "Apply design two's visual edits.",
       });
 
       await expect(
@@ -763,6 +819,8 @@ describe("design connect bridge endpoints", () => {
           base,
           "--preview-token",
           bridge.previewToken,
+          "--design-id",
+          "design-1",
         ]),
       ).resolves.toBe(0);
       expect(log).toHaveBeenCalledWith(
@@ -789,12 +847,17 @@ describe("design connect bridge endpoints", () => {
         auth,
       );
       expect(cleared.status).toBe(200);
-      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
-        ok: true,
-        pending: null,
-      });
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body,
+      ).toEqual({ ok: true, pending: null });
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-2`, auth))
+          .body.pending,
+      ).toMatchObject({ designId: "design-2" });
     } finally {
       log.mockRestore();
+      error.mockRestore();
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );

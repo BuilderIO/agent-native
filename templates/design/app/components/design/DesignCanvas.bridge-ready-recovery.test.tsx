@@ -73,6 +73,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       ),
     );
     const onRuntimeStructureInsertRejected = vi.fn();
+    const onRuntimeStructureRollbackResult = vi.fn();
 
     const render = async (
       insertRequest: {
@@ -84,6 +85,14 @@ describe("DesignCanvas one-shot bridge queue", () => {
         anchor: { selector: string; sourceId?: string };
         placement: "before" | "after" | "inside";
       } | null,
+      rollbackRequest?: {
+        requestId: string;
+        transactionId?: string;
+        screenId: string;
+        selector: string;
+        sourceId?: string;
+      } | null,
+      targetTransactionId?: string | null,
     ) => {
       await act(async () => {
         root.render(
@@ -95,7 +104,10 @@ describe("DesignCanvas one-shot bridge queue", () => {
             bridgeUrl={bridgeUrl}
             previewToken="ready-recovery-preview-token"
             runtimeStructureInsertRequest={insertRequest}
+            runtimeStructureRollbackRequest={rollbackRequest}
+            runtimeStructureTargetTransactionId={targetTransactionId}
             onRuntimeStructureInsertRejected={onRuntimeStructureInsertRejected}
+            onRuntimeStructureRollbackResult={onRuntimeStructureRollbackResult}
             zoom={100}
             deviceFrame="none"
             editMode
@@ -255,6 +267,31 @@ describe("DesignCanvas one-shot bridge queue", () => {
       "target-canvas-unmounted",
       "move-1",
     );
+
+    onRuntimeStructureInsertRejected.mockClear();
+    await render(null, {
+      screenId: "screen-live",
+      requestId: "move-2:rollback",
+      transactionId: "move-2",
+      selector: "",
+    });
+    await act(async () => root.render(null));
+    expect(onRuntimeStructureRollbackResult).toHaveBeenCalledExactlyOnceWith({
+      requestId: "move-2:rollback",
+      transactionId: "move-2",
+      applied: false,
+      reason: "target-canvas-unmounted",
+    });
+    expect(onRuntimeStructureInsertRejected).not.toHaveBeenCalled();
+
+    onRuntimeStructureRollbackResult.mockClear();
+    await render(null, null, "move-3");
+    await act(async () => root.render(null));
+    expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(
+      "target-canvas-unmounted",
+      "move-3",
+    );
+    expect(onRuntimeStructureRollbackResult).not.toHaveBeenCalled();
   });
 
   it("keeps a live iframe bridge ready when its source snapshot key changes", async () => {

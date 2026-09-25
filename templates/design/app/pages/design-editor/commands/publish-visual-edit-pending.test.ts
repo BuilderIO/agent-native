@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { runPublishVisualEditPending } from "./publish-visual-edit-pending";
+import {
+  runPublishVisualEditPending,
+  shouldPublishVisualEditPending,
+} from "./publish-visual-edit-pending";
 
 function makeArgs(
   overrides: Partial<Parameters<typeof runPublishVisualEditPending>[0]> = {},
@@ -31,6 +34,30 @@ function makeArgs(
 }
 
 describe("runPublishVisualEditPending", () => {
+  it("publishes local handoffs for public live-screen viewers without granting design edit access", () => {
+    expect(
+      shouldPublishVisualEditPending({
+        designId: "design-1",
+        canEditDesign: false,
+        canEditLiveScreen: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPublishVisualEditPending({
+        designId: "design-1",
+        canEditDesign: false,
+        canEditLiveScreen: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPublishVisualEditPending({
+        designId: null,
+        canEditDesign: true,
+        canEditLiveScreen: false,
+      }),
+    ).toBe(false);
+  });
+
   it("skips the durable action and its error state for a viewer, but still posts to the local bridge", async () => {
     const args = makeArgs({ canEditDesign: false });
 

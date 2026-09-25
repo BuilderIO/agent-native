@@ -493,10 +493,12 @@ acknowledge that revision and pull again. If the MCP server is unavailable,
 recover the bridge handoff with:
 
 \`\`\`bash
-npx @agent-native/core@latest design pending --root .
+npx @agent-native/core@latest design pending --root . --design-id <design-id-from-visual-edit-url>
 \`\`\`
 
-It prints the source prompt; empty JSON means this bridge has no pending edits.
+Use the ID in the path segment after visual-edit in the Design URL. It prints
+only that design's source prompt; empty JSON means that design has no pending
+edits.
 
 Canvas edits on a localhost screen do not write source as you make them. They
 accumulate as pending edits and the editor shows an **Apply design updates**

@@ -723,6 +723,8 @@ interface DesignCanvasProps {
   runtimeStructureDeleteRequest?: RuntimeStructureDeleteRequest | null;
   /** One-shot cleanup for a destination whose paired source delete failed. */
   runtimeStructureRollbackRequest?: RuntimeStructureRollbackRequest | null;
+  /** Transaction whose destination this canvas currently owns. */
+  runtimeStructureTargetTransactionId?: string | null;
   runtimeLayerRenameRequest?: RuntimeLayerRenameRequest | null;
   runtimeLayerSnapshotRequest?: number | null;
   /** The bridge could not honor a runtimeStructureInsertRequest. */
@@ -1543,6 +1545,7 @@ export function DesignCanvas({
   runtimeStructureInsertRequest,
   runtimeStructureDeleteRequest,
   runtimeStructureRollbackRequest,
+  runtimeStructureTargetTransactionId,
   runtimeLayerRenameRequest,
   runtimeLayerSnapshotRequest,
   onRuntimeStructureInsertRejected,
@@ -6316,16 +6319,41 @@ export function DesignCanvas({
 
   const lastRuntimeStructureInsertRequestIdRef = useRef<number | null>(null);
   const insertRequestAtUnmountRef = useRef(runtimeStructureInsertRequest);
+  const rollbackRequestAtUnmountRef = useRef(runtimeStructureRollbackRequest);
+  const targetTransactionAtUnmountRef = useRef(
+    runtimeStructureTargetTransactionId,
+  );
   const rejectInsertAtUnmountRef = useRef(onRuntimeStructureInsertRejected);
+  const rollbackResultAtUnmountRef = useRef(onRuntimeStructureRollbackResult);
   insertRequestAtUnmountRef.current = runtimeStructureInsertRequest;
+  rollbackRequestAtUnmountRef.current = runtimeStructureRollbackRequest;
+  targetTransactionAtUnmountRef.current = runtimeStructureTargetTransactionId;
   rejectInsertAtUnmountRef.current = onRuntimeStructureInsertRejected;
+  rollbackResultAtUnmountRef.current = onRuntimeStructureRollbackResult;
   useEffect(
     () => () => {
-      const request = insertRequestAtUnmountRef.current;
-      if (request?.transactionId) {
+      const rollbackRequest = rollbackRequestAtUnmountRef.current;
+      const transactionId = rollbackRequest?.transactionId;
+      if (
+        rollbackRequest?.transactionId &&
+        rollbackResultAtUnmountRef.current
+      ) {
+        rollbackResultAtUnmountRef.current({
+          requestId: rollbackRequest.requestId,
+          transactionId,
+          applied: false,
+          reason: "target-canvas-unmounted",
+        });
+        return;
+      }
+      const insertTransactionId =
+        transactionId ??
+        insertRequestAtUnmountRef.current?.transactionId ??
+        targetTransactionAtUnmountRef.current;
+      if (insertTransactionId) {
         rejectInsertAtUnmountRef.current?.(
           "target-canvas-unmounted",
-          request.transactionId,
+          insertTransactionId,
         );
       }
     },
