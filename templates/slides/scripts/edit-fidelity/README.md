@@ -130,8 +130,10 @@ them per slide. For each target and scenario:
 
 1. **Restore.** Write the stored slide back through `patch-deck`, then load
    `/deck/<id>?slide=N` fresh, with chrome masked, caret and transitions off,
-   `fonts.ready` awaited and two animation frames waited. Scenarios never
-   contaminate each other.
+   and two animation frames waited once every stylesheet has loaded and
+   `document.fonts` reports `loaded`. The renderer injects a webfont
+   stylesheet per slide font, so `fonts.ready` alone can resolve before the
+   slide's font is requested. Scenarios never contaminate each other.
 2. **View.** Capture `view.png` and a style snapshot of the slide.
 3. **Enter edit.** Try click, then a second click, then double-click. The
    gesture that worked is recorded. If none enters edit, the status is
@@ -175,7 +177,9 @@ deltas for editing/after, the html diff, and the violation count.
 - **Pixels.** pixelmatch runs at threshold 0.1 on view→editing, view→after
   and after→reload. Each pair is measured over the whole slide and again
   "outside" the edited element: the element's old and new rects, padded 4px,
-  are blanked and left out of the denominator.
+  are blanked and left out of the denominator. A rect covers the element's
+  content as well as its box, because text that overflows a fixed-size box
+  (a freeform object, an imported text frame) is still the edited element.
   - Every scenario: view→editing outside must be ~0, and after→reload whole
     must be ~0.
   - `noop` / `typedelete` / `clickout`: view→editing and view→after whole
