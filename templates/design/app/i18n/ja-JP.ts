@@ -585,6 +585,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "ライブコラボレーション",
+      description:
+        "オーナーの localhost にアクセスできない人も、このデザインのライブコピーを表示・編集できるようにします。",
+      enabled: "オン",
+      disabled: "オフ",
+      saving: "保存中…",
+      enableError: "ライブコラボレーションを更新できませんでした。",
+    },
     vectorEndpoints: {
       startPoint: "始点",
       endPoint: "終点",

@@ -587,6 +587,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Collaboration en direct",
+      description:
+        "Permet aux personnes qui n'ont pas accès au localhost du propriétaire de voir et de modifier une copie en direct de ce design.",
+      enabled: "Activée",
+      disabled: "Désactivée",
+      saving: "Enregistrement…",
+      enableError: "Impossible de mettre à jour la collaboration en direct.",
+    },
     vectorEndpoints: {
       startPoint: "Point de départ",
       endPoint: "Point d'arrivée",

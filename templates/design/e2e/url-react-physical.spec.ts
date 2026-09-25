@@ -34,6 +34,12 @@ type CrossScreenDropSample = {
   visibility: string;
 };
 
+const redactDiagnostic = (value: string) =>
+  value
+    .replace(/(https?:\/\/[^\s"'<>?]+)\?[^\s"'<>]*/g, "$1?[redacted]")
+    .replace(/\b[A-Fa-f0-9]{64}\b/g, "[redacted]")
+    .slice(0, 400);
+
 async function physicalFrameElementBox(
   frame: FrameLocator,
   iframe: Locator,
@@ -88,6 +94,20 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
   const componentDetailsRequests: string[] = [];
   const dragDebugMessages: string[] = [];
   const failedBridgeRequests: string[] = [];
+  const bridgeResponses: string[] = [];
+  const previewCredentialResponses: string[] = [];
+  const clientErrors: string[] = [];
+  const collaborationSnapshotRequests: string[] = [];
+  page.on("request", (request) => {
+    const actionPath = new URL(request.url()).pathname.split("/");
+    const action = actionPath[actionPath.length - 1];
+    if (
+      action === "reserve-visual-edit-snapshot" ||
+      action === "publish-visual-edit-snapshot"
+    ) {
+      collaborationSnapshotRequests.push(action);
+    }
+  });
   page.on("console", (message) => {
     if (message.text().includes("[dnd")) {
       dragDebugMessages.push(message.text());
@@ -95,13 +115,51 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     if (message.text().includes("live-edit bridge registration failed")) {
       failedBridgeRequests.push(`browser console: ${message.text()}`);
     }
+    if (message.type() === "error") {
+      clientErrors.push(redactDiagnostic(message.text()));
+    }
   });
+  page.on("pageerror", (error) =>
+    clientErrors.push(redactDiagnostic(error.message)),
+  );
   page.on("requestfailed", (request) => {
     const url = new URL(request.url());
     if (url.origin === baseURL) return;
     failedBridgeRequests.push(
       `${url.origin}${url.pathname}: ${request.failure()?.errorText ?? "unknown"}`,
     );
+  });
+  page.on("response", (response) => {
+    const url = new URL(response.url());
+    if (url.pathname.endsWith("/live-edit-bridge")) {
+      bridgeResponses.push(`${response.status()} ${url.origin}${url.pathname}`);
+    }
+    if (url.pathname.endsWith("/actions/refresh-localhost-preview-token")) {
+      void response
+        .json()
+        .then((payload: unknown) => {
+          const credentials =
+            payload && typeof payload === "object"
+              ? (payload as Record<string, unknown>)
+              : {};
+          const connections =
+            credentials.connections &&
+            typeof credentials.connections === "object"
+              ? (credentials.connections as Record<
+                  string,
+                  Record<string, unknown>
+                >)
+              : {};
+          previewCredentialResponses.push(
+            `${response.status()} ${url.pathname} keys=${Object.keys(credentials).sort().join(",")} connection-keys=${Object.keys(connections).join(",")} nested-registration=${Object.values(connections).some((entry) => Boolean(entry.liveEditRegistrationCapability))} nested-live-edit=${Object.values(connections).some((entry) => Boolean(entry.liveEditCapability))}`,
+          );
+        })
+        .catch(() => {
+          previewCredentialResponses.push(
+            `${response.status()} ${url.pathname} body-unreadable`,
+          );
+        });
+    }
   });
   await page.addInitScript(() => {
     const win = window as Window & { __physicalInputTrace?: unknown[] };
@@ -300,7 +358,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
         },
       ],
       navigate: false,
-      publicReadOnly: false,
+      publicReadOnly: true,
     });
     bridge = await startDesignConnectBridge(manifest, {
       bridgeToken: opened.bridgeToken,
@@ -315,8 +373,13 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
         { timeout: 15_000 },
       )
       .toBe(true);
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
     await page.goto(
-      `${baseURL}/visual-edit/${opened.designId}?editorView=overview`,
+      `${baseURL}/visual-edit/${opened.designId}?editorView=overview&zoom=31`,
       { waitUntil: "domcontentloaded" },
     );
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -334,6 +397,38 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     await expect(page.locator("[data-design-editor]")).toBeVisible({
       timeout: 30_000,
     });
+    const allowLocalAccess = page.getByRole("button", {
+      name: "Allow local access",
+    });
+    if (await allowLocalAccess.isVisible().catch(() => false)) {
+      const promptGeometry: {
+        box: Awaited<ReturnType<typeof allowLocalAccess.boundingBox>>;
+      } = { box: null };
+      await expect
+        .poll(async () => {
+          if (!(await allowLocalAccess.isVisible().catch(() => false))) {
+            promptGeometry.box = null;
+            return "dismissed";
+          }
+          promptGeometry.box = await allowLocalAccess
+            .boundingBox()
+            .catch(() => null);
+          return promptGeometry.box ? "ready" : "transitioning";
+        })
+        .not.toBe("transitioning");
+      const promptStillVisible = await allowLocalAccess
+        .isVisible()
+        .catch(() => false);
+      const promptBox = promptStillVisible
+        ? await allowLocalAccess.boundingBox().catch(() => null)
+        : null;
+      if (promptBox) {
+        await page.mouse.click(
+          promptBox.x + promptBox.width / 2,
+          promptBox.y + promptBox.height / 2,
+        );
+      }
+    }
     const call = (name: string, args: Record<string, unknown> = {}) =>
       page.evaluate(
         async ({ name, args }) =>
@@ -350,7 +445,19 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
         { name, args },
       );
     const liveFrames = page.locator("iframe[data-design-preview-iframe]");
-    await expect(liveFrames).toHaveCount(2);
+    try {
+      await expect(liveFrames).toHaveCount(2);
+    } catch (error) {
+      const pendingStates = await page
+        .locator("text=Preparing live editor")
+        .allTextContents();
+      const connectionErrors = await page
+        .locator("text=Live editing is waiting for a connection")
+        .allTextContents();
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; bridge=${bridgeResponses.join(" | ")}; credential=${previewCredentialResponses.join(" | ")}; failed=${failedBridgeRequests.join(" | ")}; client-errors=${clientErrors.slice(-8).join(" | ")}; preparing=${pendingStates.length}; connection-errors=${connectionErrors.length}`,
+      );
+    }
     const liveFrameIds = await liveFrames.evaluateAll((iframes) =>
       iframes.map((iframe) => iframe.dataset.screenIframeId ?? ""),
     );
@@ -368,6 +475,34 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
       ),
     );
+    try {
+      await expect
+        .poll(async () =>
+          Promise.all(
+            candidateFrames.map((candidate) =>
+              candidate
+                .locator("html")
+                .evaluate((html) =>
+                  Number.parseFloat(
+                    getComputedStyle(html).getPropertyValue(
+                      "--agent-native-editor-chrome-scale-x",
+                    ),
+                  ),
+                ),
+            ),
+          ).then((scales) =>
+            scales.every(
+              (scale) =>
+                Number.isFinite(scale) && Math.abs(scale - 1 / 0.31) < 0.1,
+            ),
+          ),
+        )
+        .toBe(true);
+    } catch (error) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; bridge=${bridgeResponses.join(" | ")}; failed=${failedBridgeRequests.join(" | ")}; credentials=${previewCredentialResponses.join(" | ")}; client-errors=${clientErrors.slice(-8).join(" | ")}`,
+      );
+    }
     const frameAssignment = async () => {
       const nodeCounts = await Promise.all(
         candidateFrames.map(async (candidate) =>
@@ -2081,6 +2216,20 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       "Next route",
     );
     await expect(reloadedIframe).toHaveAttribute("data-probe-marker", "keep");
+    await expect
+      .poll(
+        () =>
+          reloadedFrame.evaluate(
+            () =>
+              typeof (
+                window as typeof window & {
+                  __forceReactDocumentRemount?: () => void;
+                }
+              ).__forceReactDocumentRemount,
+          ),
+        { timeout: 15_000 },
+      )
+      .toBe("function");
     await reloadedFrame.evaluate(() => {
       const remount = (
         window as typeof window & {
@@ -2156,6 +2305,20 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     );
     if (!healedBox)
       throw new Error("missing post-hydration selection geometry");
+    const differentSelectionBox = await physicalFrameElementBox(
+      reloaded,
+      reloadedIframe,
+      '[data-agent-native-node-id="v2"]',
+    );
+    if (!differentSelectionBox)
+      throw new Error("missing sibling selection geometry after hydration");
+    await page.evaluate(() => ((window as any).__bridge = []));
+    await page.mouse.click(
+      differentSelectionBox.x + differentSelectionBox.width / 2,
+      differentSelectionBox.y + differentSelectionBox.height / 2,
+    );
+    expect((await waitForSelection("v2")).payload.sourceId).toBe("v2");
+    await page.evaluate(() => ((window as any).__bridge = []));
     const healedModifier = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.down(healedModifier);
     try {
@@ -2260,6 +2423,81 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     }
     const rootReplacementSelection = await waitForSelection("v2");
     expect(rootReplacementSelection.payload.sourceId).toBe("v2");
+
+    const escapeTargetSelector = '[data-agent-native-node-id="v2"]';
+    const escapeStart = await physicalFrameElementBox(
+      reloaded,
+      reloadedIframe,
+      escapeTargetSelector,
+    );
+    if (!escapeStart) throw new Error("missing Escape drag geometry");
+    const escapeOrigin = await reloaded
+      .locator(escapeTargetSelector)
+      .evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          parent: el.parentElement?.getAttribute("data-agent-native-node-id"),
+          index: el.parentElement
+            ? [...el.parentElement.children].indexOf(el)
+            : -1,
+          x: rect.x,
+          y: rect.y,
+        };
+      });
+    await page.mouse.move(
+      escapeStart.x + escapeStart.width / 2,
+      escapeStart.y + escapeStart.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      escapeStart.x + escapeStart.width / 2,
+      escapeStart.y + escapeStart.height / 2 + 24,
+      { steps: 8 },
+    );
+    await expect
+      .poll(() =>
+        physicalFrameElementBox(reloaded, reloadedIframe, escapeTargetSelector),
+      )
+      .not.toEqual(escapeStart);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+    await expect
+      .poll(() =>
+        reloaded.locator(escapeTargetSelector).evaluate((el) => {
+          const rect = el.getBoundingClientRect();
+          return {
+            parent: el.parentElement?.getAttribute("data-agent-native-node-id"),
+            index: el.parentElement
+              ? [...el.parentElement.children].indexOf(el)
+              : -1,
+            x: rect.x,
+            y: rect.y,
+          };
+        }),
+      )
+      .toEqual(escapeOrigin);
+    const churnNode = await reloaded.locator("body").evaluate(() => {
+      const node = document.createElement("span");
+      node.dataset.snapshotChurnProbe = "";
+      document.body.append(node);
+      let count = 0;
+      window.setInterval(() => {
+        node.textContent = String(++count);
+      }, 250);
+      return node.dataset.snapshotChurnProbe;
+    });
+    expect(churnNode).toBe("");
+    await expect
+      .poll(
+        async () =>
+          Number(
+            await reloaded.locator("[data-snapshot-churn-probe]").textContent(),
+          ),
+        { timeout: 5_000 },
+      )
+      .toBeGreaterThanOrEqual(8);
+    expect(collaborationSnapshotRequests).toEqual([]);
     expect(componentDetailsRequests).toEqual([]);
   } finally {
     await bridge?.server.close();

@@ -1871,13 +1871,12 @@ export function DesignCanvas({
   const lastRuntimeReplacementContentRef = useRef(runtimeReplacementContent);
   // Bridge-ready handshake (see EDITOR_CHROME_BRIDGE_SCRIPT's
   // agent-native:editor-chrome-ready post on install). One-shot commands —
-  // begin-text-edit, set-editor-chrome-scale, style-change, delete-element,
+  // begin-text-edit, style-change, delete-element,
   // replace-document-content — are fire-and-forget postMessages with no retry:
   // if the iframe document is still loading (fresh srcdoc, screen switch, or a
   // mid-flight reload) the bridge script hasn't attached its message listener
-  // yet and the command is silently dropped. replayIframeEditorState only
-  // re-sends steady-state selection/hover/tweak/motion values, never these
-  // one-shot commands, so a dropped one-shot never recovers on its own.
+  // yet and the command is silently dropped. Persistent editor state, including
+  // chrome scale, is replayed on every ready handshake.
   // Queue them here until ready fires (or the iframe finishes loading, as a
   // fallback for older/interact-mode documents that never inject the chrome
   // bridge and thus never post ready) and flush in order.
@@ -2280,6 +2279,7 @@ export function DesignCanvas({
   // it. The load handler below needs this to skip redundant pushes.
   const renderedContentRef = useRef(renderedContent);
   renderedContentRef.current = renderedContent;
+  const runtimeLayerSnapshotGenerationRef = useRef(0);
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
@@ -4254,13 +4254,7 @@ export function DesignCanvas({
             requestId: e.data.requestId,
             ...(reservationToken ? { reservationToken } : {}),
           });
-        if (!onReserveVisualEditSnapshot || sourceType !== "localhost") {
-          grantSnapshot();
-        } else {
-          void onReserveVisualEditSnapshot(screenId)
-            .then(({ reservationToken }) => grantSnapshot(reservationToken))
-            .catch(() => grantSnapshot());
-        }
+        grantSnapshot();
         return;
       }
       if (e.data.type === "agent-native:live-route-path") {
@@ -4391,18 +4385,46 @@ export function DesignCanvas({
           payload.html.length <= 2_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
-          onRuntimeLayerSnapshot?.({
+          const snapshotGeneration =
+            ++runtimeLayerSnapshotGenerationRef.current;
+          const snapshot = {
             html: payload.html,
             nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
             documentId:
               typeof payload.documentId === "string"
                 ? payload.documentId
                 : undefined,
-            reservationToken:
-              typeof payload.reservationToken === "string"
-                ? payload.reservationToken
-                : undefined,
-          });
+          };
+          const reservationToken =
+            typeof payload.reservationToken === "string"
+              ? payload.reservationToken
+              : undefined;
+          onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
+          if (
+            !reservationToken &&
+            onReserveVisualEditSnapshot &&
+            sourceType === "localhost"
+          ) {
+            void onReserveVisualEditSnapshot(screenId)
+              .then(({ reservationToken: reservedToken }) => {
+                if (
+                  runtimeLayerSnapshotGenerationRef.current !==
+                  snapshotGeneration
+                ) {
+                  return;
+                }
+                onRuntimeLayerSnapshot?.({
+                  ...snapshot,
+                  reservationToken: reservedToken,
+                });
+              })
+              .catch((error: unknown) => {
+                console.warn(
+                  "[design:visual-edit] shared snapshot reservation failed",
+                  { screenId, error },
+                );
+              });
+          }
         }
         return;
       }
@@ -5583,6 +5605,14 @@ export function DesignCanvas({
     const iframe = iframeRef.current;
     if (!iframe) return;
     iframe.contentWindow?.postMessage(
+      {
+        type: "set-editor-chrome-scale",
+        scaleX: effectiveEditorChromeScaleX,
+        scaleY: effectiveEditorChromeScaleY,
+      },
+      "*",
+    );
+    iframe.contentWindow?.postMessage(
       { type: "set-interaction-mode", interact: interactModeRef.current },
       "*",
     );
@@ -5730,6 +5760,8 @@ export function DesignCanvas({
     );
   }, [
     handToolActive,
+    effectiveEditorChromeScaleX,
+    effectiveEditorChromeScaleY,
     hoveredSelector,
     hoveredSelectorCandidates,
     hiddenSelectors,
@@ -5923,33 +5955,6 @@ export function DesignCanvas({
       previewStyles: statePreviewTarget?.previewStyles ?? null,
     });
   }, [postOneShotBridgeMessage, statePreviewTarget]);
-
-  // Push the constant-size chrome scale into the iframe LIVE (CSS vars only) when
-  // overview zoom settles. This is intentionally separate from the srcdoc build so
-  // a scale change never rebuilds srcdoc / reloads the iframe (which flashes the
-  // content white). The baked __EDITOR_CHROME_SCALE__ values cover first paint.
-  // Routed through the one-shot queue too: a zoom settle that lands while the
-  // iframe is mid-reload would otherwise be silently dropped, leaving the
-  // chrome at a stale scale until the next zoom change.
-  //
-  // readyIframeDocumentIdentity is a dep for the same reason it's one on the
-  // embedded-canvas-gesture-mode effect below: a document swap resets
-  // bridgeReadyRef and wipes pendingOneShotMessagesRef, silently dropping this
-  // message if it queued before the swap. Without this dep, a URL-backed frame
-  // that loads at a non-1 overview scale never gets a live scale push after the
-  // swap (only the baked-at-1 script value applies) until the next zoom change.
-  useEffect(() => {
-    postOneShotBridgeMessage({
-      type: "set-editor-chrome-scale",
-      scaleX: effectiveEditorChromeScaleX,
-      scaleY: effectiveEditorChromeScaleY,
-    });
-  }, [
-    effectiveEditorChromeScaleX,
-    effectiveEditorChromeScaleY,
-    postOneShotBridgeMessage,
-    readyIframeDocumentIdentity,
-  ]);
 
   // Overview/focused placement is presentation state, not document identity.
   // Update gesture routing in place when entering responsive Interact.

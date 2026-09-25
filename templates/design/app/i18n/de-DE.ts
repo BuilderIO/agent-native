@@ -586,6 +586,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Live-Zusammenarbeit",
+      description:
+        "Ermögliche Personen ohne Zugriff auf den localhost des Eigentümers, eine Live-Kopie dieses Designs anzusehen und zu bearbeiten.",
+      enabled: "Ein",
+      disabled: "Aus",
+      saving: "Wird gespeichert…",
+      enableError: "Live-Zusammenarbeit konnte nicht aktualisiert werden.",
+    },
     vectorEndpoints: {
       startPoint: "Startpunkt",
       endPoint: "Endpunkt",

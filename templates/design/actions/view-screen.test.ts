@@ -128,6 +128,7 @@ describe("view-screen", () => {
       role: "editor",
       resource: {
         title: "Shared checkout",
+        liveCollaborationEnabled: true,
         designSystemId: "system-7",
         data: '{"canvasFrames":[]}',
       },
@@ -158,6 +159,7 @@ describe("view-screen", () => {
       expect.objectContaining({ compact: "true" }),
     );
     expect(result.design?.designSystemId).toBe("system-7");
+    expect(result.design?.liveCollaborationEnabled).toBe(true);
     expect(result.design?.designSystem).toMatchObject({
       status: "available",
       scope: "summary",

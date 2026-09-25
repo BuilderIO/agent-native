@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => {
     query,
     fileQuery,
     design: {
+      liveCollaborationEnabled: true,
       data: JSON.stringify({
         sourceType: "localhost",
         screenMetadata: {
@@ -153,6 +154,29 @@ describe("get visual-edit fallback snapshot", () => {
       "screen-one",
       "http://localhost:5173/",
     );
+  });
+
+  it("returns an empty fallback without reading stored snapshots when collaboration is off", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: { ...mocks.design, liveCollaborationEnabled: false },
+    });
+
+    await expect(
+      getSnapshotAction.run(
+        { designId: "design-one", fileId: "screen-one" },
+        { caller: "frontend" },
+      ),
+    ).resolves.toEqual({
+      designId: "design-one",
+      fileId: "screen-one",
+      html: null,
+      updatedAt: null,
+      publishedRevision: null,
+      unchanged: false,
+    });
+    expect(mocks.getDb).not.toHaveBeenCalled();
+    expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
   });
 
   it("refuses a stale or non-Localhost screen before returning a saved fallback", async () => {

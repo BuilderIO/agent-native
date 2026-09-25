@@ -1,19 +1,21 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import {
+  assertVisualEditAccountEditor,
+  requireVisualEditCollaboration,
+} from "../server/lib/visual-edit-collaboration.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { assertLocalhostScreenMetadata } from "./publish-visual-edit-snapshot.js";
 
 export default defineAction({
   description:
-    "Reserve the next server-ordered HTML capture for one Localhost screen before capturing it. Requires editor access to the Design.",
+    "Reserve the next server-ordered HTML capture for one Localhost screen before capturing it. Requires a signed-in editor and enabled live collaboration.",
   requiresAuth: true,
   agentTool: false,
   mcpTool: false,
-  capabilityScopes: ["visual-edit"],
   schema: z
     .object({
       designId: z.string().min(1).describe("Design project ID."),
@@ -21,12 +23,13 @@ export default defineAction({
     })
     .strict(),
   run: async ({ designId, fileId }) => {
-    await assertAccess("design", designId, "editor");
+    await assertVisualEditAccountEditor(designId);
 
     return withDesignSourceMutationTransaction(designId, async (tx) => {
       const [design] = await tx
         .select({
           data: schema.designs.data,
+          liveCollaborationEnabled: schema.designs.liveCollaborationEnabled,
           visibility: schema.designs.visibility,
           ownerEmail: schema.designs.ownerEmail,
           orgId: schema.designs.orgId,
@@ -39,6 +42,7 @@ export default defineAction({
           errorCode: "design_not_found",
         });
       }
+      requireVisualEditCollaboration(design.liveCollaborationEnabled);
 
       const [file] = await tx
         .select({

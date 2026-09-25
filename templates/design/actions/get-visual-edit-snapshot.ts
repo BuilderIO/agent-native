@@ -40,6 +40,16 @@ export default defineAction({
   run: async ({ designId, fileId, knownUpdatedAt, knownPublishedRevision }) => {
     const access = await assertAccess("design", designId, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;
+    if (design.liveCollaborationEnabled !== true) {
+      return {
+        designId,
+        fileId,
+        html: null,
+        updatedAt: null,
+        publishedRevision: null,
+        unchanged: false,
+      };
+    }
 
     const db = getDb();
     const [file] = await db

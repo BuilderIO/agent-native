@@ -575,6 +575,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "التعاون المباشر",
+      description:
+        "اسمح للأشخاص الذين لا يستطيعون الوصول إلى localhost الخاص بالمالك بمشاهدة نسخة مباشرة من هذا التصميم وتحريرها.",
+      enabled: "مفعّل",
+      disabled: "متوقف",
+      saving: "جارٍ الحفظ…",
+      enableError: "تعذّر تحديث إعداد التعاون المباشر.",
+    },
     vectorEndpoints: {
       startPoint: "نقطة البداية",
       endPoint: "نقطة النهاية",
