@@ -362,6 +362,30 @@ describe("mergeRenderedEdits", () => {
     expect(save().html).toBe(`${commented}<p>New</p>`);
   });
 
+  it("never writes the <tbody> the parser adds to a stored table", () => {
+    const stored =
+      '<div class="fmd-slide"><table style="width:100%"><tr><td>A</td><td>B</td></tr></table><p>after</p></div>';
+    const edited = mount(stored);
+    q(edited.root, "td").textContent = "A ok";
+    expect(edited.save()).toEqual({
+      html: stored.replace(">A<", ">A ok<"),
+      changed: true,
+    });
+    expect(mount(stored).save()).toEqual({ html: stored, changed: false });
+  });
+
+  it("keeps the <tbody> of a table added during the edit", () => {
+    const stored = '<div class="fmd-slide"><p>x</p></div>';
+    const edited = mount(stored);
+    q(edited.root, "p").insertAdjacentHTML(
+      "afterend",
+      "<table><tbody><tr><td>new</td></tr></tbody></table>",
+    );
+    expect(edited.save().html).toBe(
+      '<div class="fmd-slide"><p>x</p><table><tbody><tr><td>new</td></tr></tbody></table></div>',
+    );
+  });
+
   it("applies a change to a shorthand that holds var()", () => {
     const withVar =
       '<div class="fmd-slide"><div class="card" style="border-left: 3px solid var(--accent); padding: 8px">x</div></div>';

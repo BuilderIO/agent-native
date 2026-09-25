@@ -881,11 +881,13 @@ function drainPendingDeckOps(
     const sent =
       sentSlideContent.get(deckId) ??
       new Map<string, { content: string; over: string }>();
-    sent.set(op.slideId, {
-      content: op.fields.content,
-      over: draftCommittedContent.get(op) ?? op.fields.content,
-    });
-    sentSlideContent.set(deckId, sent);
+    const over = draftCommittedContent.get(op);
+    // A committed write is what the server holds from now on, so nothing
+    // earlier needs settling; only a draft keeps its slide's HTML here.
+    if (over === undefined) sent.delete(op.slideId);
+    else sent.set(op.slideId, { content: op.fields.content, over });
+    if (sent.size > 0) sentSlideContent.set(deckId, sent);
+    else sentSlideContent.delete(deckId);
   }
   const persistedResultHandlers =
     pendingPersistedResultHandlers.get(deckId) ?? [];
@@ -2915,6 +2917,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       discardPendingDeckOps(deckId);
       deckLocalWriteSeq.delete(deckId);
       slideLocalWriteSequences.delete(deckId);
+      sentSlideContent.delete(deckId);
       activeInlineEditSlides.delete(deckId);
     }
 

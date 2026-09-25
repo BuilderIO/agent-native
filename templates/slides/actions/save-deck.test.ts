@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { stampChangedSlideRevisions } from "./save-deck";
+import {
+  assertNoDeckRenderArtifacts,
+  stampChangedSlideRevisions,
+} from "./save-deck";
 
 describe("stampChangedSlideRevisions", () => {
   it("preserves fit identity for non-render changes and invalidates render changes", () => {
@@ -85,5 +88,54 @@ describe("stampChangedSlideRevisions", () => {
     expect(next.slides[0].layoutFitRevision).not.toBe("old-one");
     expect(next.slides[1].layoutFitRevision).toEqual(expect.any(String));
     expect(next.slides[1].layoutFitRevision).not.toBe("old-two");
+  });
+});
+
+describe("assertNoDeckRenderArtifacts", () => {
+  const stored = JSON.stringify({
+    slides: [
+      { id: "a", content: '<div class="fmd-slide"><p>A</p></div>' },
+      {
+        id: "legacy",
+        content: '<div class="fmd-slide"><p data-builder-id="b-1">L</p></div>',
+      },
+    ],
+  });
+
+  it("refuses a full-deck save that adds rendered editor markup to a slide", () => {
+    expect(() =>
+      assertNoDeckRenderArtifacts(stored, {
+        slides: [
+          {
+            id: "a",
+            content:
+              '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p{color:red}</style><p>A</p></div>',
+          },
+        ],
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+      }),
+    );
+  });
+
+  it("saves slides that keep or copy markup the deck already stored", () => {
+    expect(() =>
+      assertNoDeckRenderArtifacts(stored, {
+        slides: [
+          {
+            id: "legacy",
+            content:
+              '<div class="fmd-slide"><p data-builder-id="b-1">L2</p></div>',
+          },
+          {
+            id: "copy",
+            content:
+              '<div class="fmd-slide"><p data-builder-id="b-1">L</p></div>',
+          },
+        ],
+      }),
+    ).not.toThrow();
   });
 });

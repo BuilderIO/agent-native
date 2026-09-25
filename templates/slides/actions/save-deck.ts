@@ -46,6 +46,7 @@ import {
   nextDeckRevision,
   type DeckPayload,
 } from "./_deck-write.js";
+import { assertNoRenderArtifacts } from "./_render-artifacts.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function shouldSnapshotDeckWrite(
@@ -154,6 +155,7 @@ export default defineAction({
           ? deckDesignSystemId(deck)
           : (access.resource.designSystemId ?? null);
         await assertDesignSystemReadable(nextDesignSystemId);
+        assertNoDeckRenderArtifacts(access.resource.data, deck);
         if (!shouldSnapshotDeckWrite(access.resource, title, deck)) {
           return { ...deck, updatedAt: access.resource.updatedAt };
         }
@@ -235,5 +237,36 @@ export function stampChangedSlideRevisions(
     } else {
       delete slide.layoutFitRevision;
     }
+  }
+}
+
+/**
+ * The full-payload write's half of the save boundary: every slide is checked
+ * against its stored predecessor, and a slide new to the deck against the whole
+ * stored deck, so a copy of an older flattened slide still saves.
+ */
+export function assertNoDeckRenderArtifacts(
+  previousData: string | null | undefined,
+  nextDeck: DeckPayload,
+): void {
+  const previousSlides = (
+    previousData
+      ? ((JSON.parse(previousData) as { slides?: unknown }).slides ?? [])
+      : []
+  ) as Array<Record<string, unknown>>;
+  const contentOf = (slide: Record<string, unknown> | undefined) =>
+    typeof slide?.content === "string" ? slide.content : "";
+  const wholeDeck = previousSlides.map(contentOf).join("\n");
+  const nextSlides = Array.isArray(nextDeck.slides)
+    ? (nextDeck.slides as Array<Record<string, unknown>>)
+    : [];
+  for (const slide of nextSlides) {
+    if (typeof slide.content !== "string") continue;
+    const prior = previousSlides.find((candidate) => candidate.id === slide.id);
+    assertNoRenderArtifacts(
+      prior ? contentOf(prior) : wholeDeck,
+      slide.content,
+      String(slide.id),
+    );
   }
 }

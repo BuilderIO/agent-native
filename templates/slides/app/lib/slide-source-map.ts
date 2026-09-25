@@ -548,13 +548,20 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     }
   }
   const scratch = inert.createElement("div").style;
+  // The parser adds <tbody>/<colgroup> to a stored <table> that omits them;
+  // they have no source, so writing them would change the stored bytes.
+  const isImplied = (el: Element) =>
+    (el.tagName === "TBODY" || el.tagName === "COLGROUP") &&
+    stampOf(el) === null &&
+    el.parentElement?.tagName === "TABLE" &&
+    stampOf(el.parentElement) !== null;
 
   const kids = (node: ParentNode): Kid[] => {
     const out: Kid[] = [];
     const push = (child: Node) => {
       if (child.nodeType === 1) {
         const el = child as Element;
-        if (el.matches(TRANSPARENT) || rebuilt.has(el)) {
+        if (el.matches(TRANSPARENT) || rebuilt.has(el) || isImplied(el)) {
           el.childNodes.forEach(push);
           return;
         }

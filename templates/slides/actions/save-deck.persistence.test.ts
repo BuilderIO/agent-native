@@ -137,6 +137,28 @@ describe("save-deck design-system relation persistence", () => {
     expect(state.updatedFields?.designSystemId).toBe("brand-1");
   });
 
+  it("refuses a full replacement that stores rendered editor markup", async () => {
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-1",
+          deck: {
+            title: "Existing",
+            slides: [
+              {
+                id: "slide-1",
+                content:
+                  '<p data-builder-id="b-1" contenteditable="false">old</p>',
+              },
+            ],
+          },
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(state.updatedFields).toBeUndefined();
+  });
+
   it("skips a full replacement when only updatedAt differs", async () => {
     const result = await saveDeckAction.run(
       {
