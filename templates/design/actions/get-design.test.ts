@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => {
     where: vi.fn(),
     orderBy: vi.fn(),
   };
+  const select = vi.fn((_fields: Record<string, unknown>) => selectChain);
   selectChain.from.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);
 
@@ -14,10 +15,11 @@ const mocks = vi.hoisted(() => {
     and: vi.fn((...conditions) => ({ conditions })),
     eq: vi.fn((left, right) => ({ left, right })),
     getDb: vi.fn(() => ({
-      select: vi.fn(() => selectChain),
+      select,
     })),
     resolveAccess: vi.fn(),
     selectChain,
+    select,
     track: vi.fn(),
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
       id,
@@ -66,6 +68,7 @@ import action from "./get-design.js";
 describe("get-design", () => {
   beforeEach(() => {
     mocks.resolveAccess.mockReset();
+    mocks.select.mockClear();
     mocks.selectChain.orderBy.mockReset();
     mocks.asc.mockClear();
     mocks.resolveAccess.mockResolvedValue({
@@ -132,6 +135,10 @@ describe("get-design", () => {
     expect(result.data).not.toContain("bridgeToken");
     expect(result.data).not.toContain("previewToken");
     expect(result.data).not.toContain("example-private-bridge-token");
+    expect(mocks.select.mock.calls[0]?.[0]).toHaveProperty(
+      "content",
+      "designFiles.content",
+    );
   });
 
   it("includes readable linked design-system context", async () => {
@@ -182,6 +189,7 @@ describe("get-design", () => {
     });
 
     expect(mocks.selectChain.orderBy).toHaveBeenCalled();
+    expect(mocks.select.mock.calls[0]?.[0]).not.toHaveProperty("content");
     expect(result.files).toEqual([
       expect.objectContaining({
         id: "file_123",
