@@ -289,6 +289,15 @@ describe("pull-request governance", () => {
       "No sanitizer vulnerability was found.",
       "The sanitizer vulnerability was fixed.",
       "The sanitizer's vulnerability was fixed.",
+      "No API token vulnerabilities were found.",
+      "No untrusted HTML issues were found.",
+      "No OAuth redirect issues were found.",
+      "No CORS issues were found.",
+      "No authentication bypass vulnerabilities were found.",
+      "No authorization issues were found.",
+      "No XSS, CSRF, or authentication vulnerabilities were found.",
+      "XSS, CSRF, and authentication vulnerabilities were fixed.",
+      "This change reduces prompt tokens by 500.",
     ]) {
       expect(
         hasActiveCredibleSafetyFinding([{ state: "commented", body }], []),
@@ -320,6 +329,12 @@ describe("pull-request governance", () => {
       "The API token is exposed in client output.",
       "An API key is leaked to logs.",
       "The webhook token is returned to an untrusted caller.",
+      "The user password is sent to the client.",
+      "Untrusted HTML is rendered without escaping, so scripts can run.",
+      "The Markdown renderer permits event-handler attributes.",
+      "OAuth callback accepts arbitrary redirect URLs.",
+      "CORS permits untrusted origins.",
+      "Open redirect lets an attacker steal tokens.",
     ]) {
       expect(
         hasActiveCredibleSafetyFinding([{ state: "commented", body }], []),
@@ -568,6 +583,7 @@ describe("pull-request governance", () => {
     const shomixPullRequest = {
       ...cleanInternalBug,
       author: "Shomix",
+      authorId: 100691266,
       changedFiles: [
         "templates/factory/server/lib/factory-automation-preview.ts",
       ],
@@ -580,6 +596,12 @@ describe("pull-request governance", () => {
       autoApprove: true,
       autoMerge: false,
     });
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        authorId: 1,
+      }),
+    ).toMatchObject({ ownerException: null, autoApprove: false });
     expect(
       decidePullRequestGovernance({
         ...shomixPullRequest,
@@ -885,6 +907,14 @@ describe("pull-request governance", () => {
       "templates/forms/scripts/db/reset-database.ts",
       "templates/forms/actions/update-user-role.ts",
       "templates/forms/server/csrf-protection.ts",
+      "templates/design/app/lib/figma-svg-copy.ts",
+      "templates/design/app/pages/design-editor/commands/pasted-svg.ts",
+      "templates/plan/server/plan-content.ts",
+      "templates/design/server/routes/api/qa-figma-import-assets/[assetId].get.ts",
+      "packages/core/src/client/chat/markdown-renderer.tsx",
+      "packages/docs/app/components/MarkdownRenderer.tsx",
+      ".claude/settings.json",
+      "scripts/hooks/file-lease.mjs",
       "templates/forms/actions/delete-form.ts",
       "templates/clips/actions/delete-recording-permanent.ts",
       "templates/tasks/actions/bulk-delete-tasks.ts",

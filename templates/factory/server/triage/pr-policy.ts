@@ -13,6 +13,7 @@ export type PullRequestOwnerException =
 export type PullRequestTrustException = "liamdebeasi";
 
 const LIAMDEBEASI_USER_ID = 2721089;
+const SHOMIX_USER_ID = 100691266;
 export const FACTORY_APPROVAL_BODY_MARKER =
   "Factory auto-approved under decision ";
 
@@ -233,7 +234,7 @@ export function decidePullRequestGovernance(
 export function detectPullRequestOwnerException(
   input: Pick<
     PullRequestGovernanceInput,
-    "author" | "repository" | "changedFiles"
+    "author" | "authorId" | "repository" | "changedFiles"
   >,
 ): PullRequestOwnerException | null {
   const author = input.author.trim().toLowerCase();
@@ -241,6 +242,7 @@ export function detectPullRequestOwnerException(
 
   if (
     author === "shomix" &&
+    input.authorId === SHOMIX_USER_ID &&
     input.repository.trim().toLowerCase() === "builderio/agent-native"
   ) {
     return "shomix";
@@ -491,6 +493,18 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.startsWith("packages/core/src/guards/no-unscoped-queries.") ||
       normalized.startsWith("templates/mail/app/lib/sanitize-html.") ||
       normalized.startsWith("templates/analytics/app/components/markdown.") ||
+      normalized.startsWith("templates/design/app/lib/figma-svg-copy.") ||
+      normalized.startsWith(
+        "templates/design/app/pages/design-editor/commands/pasted-svg.",
+      ) ||
+      normalized.startsWith("templates/plan/server/plan-content.") ||
+      normalized.startsWith(
+        "templates/design/server/routes/api/qa-figma-import-assets/",
+      ) ||
+      normalized.startsWith(
+        "packages/core/src/client/chat/markdown-renderer.",
+      ) ||
+      normalized.startsWith("packages/docs/app/components/markdownrenderer.") ||
       normalized.startsWith("templates/slides/app/lib/sanitize-slide-html.") ||
       normalized.startsWith("templates/design/shared/capture-sanitize.") ||
       normalized.startsWith(
@@ -504,6 +518,8 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
         "templates/calendar/app/lib/sanitize-description.",
       ) ||
       normalized.endsWith("/migrate-production.ts") ||
+      normalized === ".claude/settings.json" ||
+      normalized.startsWith("scripts/hooks/") ||
       /(^|\/)db\/schema(?:-[^/]+)?\.tsx?$/.test(normalized) ||
       /(^|\/)actions\/(?:[a-z0-9]+-)*(?:delete|remove|purge|erase|destroy|drop|reset)-[^/]+\.(?:ts|tsx)$/.test(
         normalized,
@@ -552,9 +568,11 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
 }
 
 const SAFETY_FINDING_PATTERN =
-  /\b(auth|authentication|authorization|credential|secret|api[- ]keys?|tokens?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|sanitiz(?:e|ers?|ations?|ed|ing))\b/i;
+  /\b(auth|authentication|authorization|credential|secret|api[- ]keys?|api[- ]tokens?|webhook[- ]tokens?|(?:access|refresh|bearer|session|service|signing|oauth|auth)[- ]tokens?|tokens?\s+(?:is|are|was|were)\s+(?:exposed|leaked|returned|sent|logged|stolen|disclosed)|passwords?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|oauth|cors|redirects?|open redirect|(?:untrusted|raw|unsafe|unsanitized|unescaped)\s+html|event[- ]handlers?|script(?:s|[- ]tags?|[- ]execution|[- ]injection)|sanitiz(?:e|ers?|ations?|ed|ing))\b/i;
 const COMPOUND_SAFETY_FINDING_PATTERN =
-  /\b(?:auth(?:entication)?\s+bypass|(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|ssrf|rce|sanitiz(?:e|ers?|ations?|ed|ing))(?:['’]s)?\s+vulnerabilit(?:y|ies)|api[- ](?:keys?|tokens?)\s+vulnerabilit(?:y|ies)|csp\s+(?:and|&)\s+auth(?:entication)?\s+bypass|tenant\s+isolation|access\s+control|privilege\s+escalation)\b/i;
+  /\b(?:auth(?:entication)?\s+bypass|(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|ssrf|rce|sanitiz(?:e|ers?|ations?|ed|ing))(?:['’]s)?\s+vulnerabilit(?:y|ies)|api[- ](?:keys?|tokens?)\s+vulnerabilit(?:y|ies)|(?:xss|csrf|csp)(?:(?:\s*,\s*|\s*,?\s+(?:and|or)\s+)(?:xss|csrf|csp|auth(?:entication)?)){1,3}\s+vulnerabilit(?:y|ies)|csp\s+(?:and|&)\s+auth(?:entication)?\s+bypass|oauth(?:\s+callback)?\s+redirects?|cors\s+vulnerabilit(?:y|ies)|tenant\s+isolation|access\s+control|privilege\s+escalation)\b/i;
+const NEGATED_FINDING_PATTERN =
+  /\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?[\s\S]{0,60}?\b(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilit(?:y|ies))|issues?|findings?|concerns?|risks?|vulnerabilit(?:y|ies)|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b/i;
 const NON_FINDING_PATTERN =
   /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:(?:api[- ]keys?|tokens?|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+(?:or|and)\s+)*(?:(?:api[- ]keys?|tokens?|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+)?(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilit(?:y|ies))|issues?|findings?|concerns?|risks?|vulnerabilit(?:y|ies)|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|api[- ]keys?|tokens?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|api[- ]keys?|tokens?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
 
@@ -569,16 +587,19 @@ export function hasActiveCredibleSafetyFinding(
 ): boolean {
   const isFinding = (body: string) =>
     body
-      .split(/(?:[.!?]\s+|;\s*|\r?\n+|,\s*|\s+(?:but|however|while)\s+)/i)
+      .split(/(?:[.!?]\s+|;\s*|\r?\n+|\s+(?:but|however|while)\s+)/i)
       .some((sentence) => {
         const safetyTerms = Array.from(
           sentence.matchAll(new RegExp(SAFETY_FINDING_PATTERN.source, "gi")),
         );
         if (safetyTerms.length === 0) return false;
 
-        const nonFindings = Array.from(
-          sentence.matchAll(new RegExp(NON_FINDING_PATTERN.source, "gi")),
-        );
+        const nonFindings = [
+          ...sentence.matchAll(new RegExp(NON_FINDING_PATTERN.source, "gi")),
+          ...sentence.matchAll(
+            new RegExp(NEGATED_FINDING_PATTERN.source, "gi"),
+          ),
+        ];
         return safetyTerms.some((safetyTerm) => {
           const index = safetyTerm.index ?? 0;
           const coveringNonFinding = nonFindings.find((match) => {
