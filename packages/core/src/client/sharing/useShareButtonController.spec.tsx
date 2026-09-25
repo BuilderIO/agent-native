@@ -159,6 +159,78 @@ describe("useShareButtonController", () => {
     expect(mocks.share.mutate.mock.calls[0]?.[0]).not.toHaveProperty("message");
   });
 
+  it("reports a successfully added share to its host", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.setInviteEmail("new-member@example.test"));
+    act(() => (controller as ShareButtonController).handleAdd());
+
+    const mutation = mocks.share.mutate.mock.calls[0]?.[1];
+    act(() => mutation?.onSuccess?.());
+
+    expect(onShareSuccess).toHaveBeenCalledOnce();
+  });
+
+  it("does not report an update to an existing share as a first share", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.setInviteEmail("member@example.test"));
+    act(() => (controller as ShareButtonController).handleAdd());
+
+    const mutation = mocks.share.mutate.mock.calls[0]?.[1];
+    act(() => mutation?.onSuccess?.({ updated: true }));
+
+    expect(onShareSuccess).not.toHaveBeenCalled();
+  });
+
+  it("reports a private plan becoming shared to its host", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.handleVisibility("org"));
+
+    const mutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    await act(async () => {
+      mutation?.onSuccess?.({ visibility: "org" });
+      await Promise.resolve();
+    });
+
+    expect(onShareSuccess).toHaveBeenCalledOnce();
+  });
+
+  it("reports a rapid private-to-shared visibility sequence from its final result", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.handleVisibility("org"));
+    const staleMutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    act(() => (controller as ShareButtonController).handleVisibility("public"));
+    const latestMutation = mocks.setVisibility.mutate.mock.calls[1]?.[1];
+
+    await act(async () => {
+      staleMutation?.onSuccess?.({ visibility: "org" });
+      latestMutation?.onSuccess?.({ visibility: "public" });
+      await Promise.resolve();
+    });
+
+    expect(onShareSuccess).toHaveBeenCalledOnce();
+  });
+
+  it("ignores stale visibility success and requires an authoritative shared result", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.handleVisibility("org"));
+    const staleMutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    act(() => result.handleVisibility("org"));
+    const latestMutation = mocks.setVisibility.mutate.mock.calls[1]?.[1];
+
+    await act(async () => {
+      staleMutation?.onSuccess?.({ visibility: "org" });
+      latestMutation?.onSuccess?.({ visibility: "private" });
+      await Promise.resolve();
+    });
+
+    expect(onShareSuccess).not.toHaveBeenCalled();
+  });
+
   it("restores the exact cache snapshot when visibility fails", async () => {
     const initial: ShareButtonSharesResponse = {
       ...mocks.query.data!,
@@ -191,6 +263,43 @@ describe("useShareButtonController", () => {
     expect((controller as ShareButtonController).shareError).toBe(
       "visibility failed",
     );
+  });
+
+  it("restores the sequence snapshot and refetches when the latest visibility update fails", async () => {
+    const initial: ShareButtonSharesResponse = {
+      ...mocks.query.data!,
+      shares: [...mocks.query.data!.shares],
+    };
+    const shareQueryKey = [
+      "action",
+      "list-resource-shares",
+      { resourceType: "document", resourceId: "doc-1" },
+    ] as const;
+    queryClient.setQueryData(shareQueryKey, initial);
+    const result = await render();
+    let firstPromise!: Promise<void>;
+    act(() => {
+      firstPromise = result.handleVisibilityChange("org");
+    });
+    const firstMutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    let latestPromise!: Promise<void>;
+    act(() => {
+      latestPromise = (
+        controller as ShareButtonController
+      ).handleVisibilityChange("public");
+    });
+    const latestMutation = mocks.setVisibility.mutate.mock.calls[1]?.[1];
+
+    await act(async () => {
+      firstMutation?.onError(new Error("stale visibility failure"));
+      latestMutation?.onError(new Error("latest visibility failure"));
+      await Promise.allSettled([firstPromise, latestPromise]);
+    });
+
+    expect(queryClient.getQueryData(shareQueryKey)).toEqual(initial);
+    expect(mocks.query.refetch).toHaveBeenCalled();
+    expect((controller as ShareButtonController).visibilityOverride).toBeNull();
+    expect((controller as ShareButtonController).visibility).toBe("private");
   });
 
   it("gates every sharing mutation for non-managers", async () => {

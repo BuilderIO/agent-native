@@ -474,6 +474,49 @@ export function mergeRenderedEdits(input: MergeRenderedEditsInput): {
 }
 
 /**
+ * Replays an edit of `stored` (`edited`, its merged result) onto `next`, a
+ * newer version of the slide someone else wrote. The edit moves as the
+ * smallest stored element around it that `next` still holds exactly once.
+ * Null when `next` changed that element too: both cannot be kept.
+ */
+export function rebaseSlideEdit(
+  stored: string,
+  ranges: readonly SlideSourceRange[],
+  edited: string,
+  next: string,
+): string | null {
+  if (edited === stored) return next;
+  if (next === stored) return edited;
+  const shorter = Math.min(stored.length, edited.length);
+  let start = 0;
+  while (start < shorter && stored[start] === edited[start]) start += 1;
+  let tail = 0;
+  while (
+    tail < shorter - start &&
+    stored[stored.length - 1 - tail] === edited[edited.length - 1 - tail]
+  ) {
+    tail += 1;
+  }
+  const end = stored.length - tail;
+  const growth = edited.length - stored.length;
+  const enclosing = ranges
+    .filter((range) => range.openStart <= start && range.closeEnd >= end)
+    .sort((a, b) => a.closeEnd - a.openStart - (b.closeEnd - b.openStart));
+  for (const range of enclosing) {
+    const before = stored.slice(range.openStart, range.closeEnd);
+    const at = next.indexOf(before);
+    if (at < 0) return null;
+    if (next.indexOf(before, at + 1) >= 0) continue;
+    return (
+      next.slice(0, at) +
+      edited.slice(range.openStart, range.closeEnd + growth) +
+      next.slice(at + before.length)
+    );
+  }
+  return null;
+}
+
+/**
  * The stored-form HTML of one live element (or a detached copy of one): its
  * stored source with its own changes applied, free of stamps and of anything
  * the renderer added. Clipboard copies use this, so a pasted logo does not

@@ -40,6 +40,7 @@ export function buildCreateRecordingRequestBody(
     hasCamera,
     hasAudio,
     spaceIds: [],
+    recordingPlatform: "desktop",
     ...(options?.visibility ? { visibility: options.visibility } : {}),
     ...(options?.requestStreaming
       ? {

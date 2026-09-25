@@ -3,6 +3,17 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-24
+
+### Added
+
+- Builder-connected workspaces can generate brand-safe images and videos in Assets.
+
+### Fixed
+
+- Video generation avoids duplicate Gemini jobs when a start response is lost
+- Video generation runs recover after temporary provider or storage failures.
+
 ## 2026-09-23
 
 ### Fixed

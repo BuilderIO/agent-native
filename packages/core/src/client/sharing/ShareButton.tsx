@@ -69,6 +69,8 @@ export interface ShareButtonProps {
    *  button next to an iframe use this to disable the iframe's pointer events
    *  while the popover is open, so popover hover/clicks aren't swallowed. */
   onOpenChange?: (open: boolean) => void;
+  /** Called after a new share or a private-to-shared visibility change succeeds. */
+  onShareSuccess?: () => void;
   /** Open the popover on first render. Useful after an upgrade/create flow that
    *  lands the user directly in the shareable resource. */
   defaultOpen?: boolean;
@@ -315,6 +317,7 @@ export function ShareButton(props: ShareButtonProps) {
     resourceId: props.resourceId,
     defaultOpen: props.defaultOpen,
     onOpenChange: props.onOpenChange,
+    onShareSuccess: props.onShareSuccess,
     shareTabs: props.shareTabs,
     shareUrl: props.shareUrl,
     allowedRoles: props.allowedRoles,

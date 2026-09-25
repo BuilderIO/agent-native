@@ -108,6 +108,8 @@ describe("post-finalize dispatch", () => {
       kind: "media-ready",
       delayMs: 5_000,
       retryAttempt: 1,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
       requireAccepted: true,
     });
 
@@ -119,6 +121,8 @@ describe("post-finalize dispatch", () => {
           kind: "media-ready",
           delayMs: 5_000,
           retryAttempt: 1,
+          uploadAttemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
           token: "signed-job-token",
         }),
       }),

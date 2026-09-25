@@ -9,10 +9,16 @@ import {
   isRawHtmlSlide,
   prepareImportedFonts,
   resolveImportedFont,
+  renderRawSlideHtml,
+  SLIDE_CONTENT_REPLACE_EVENT,
   slideDeclaresTextColor,
   SlideInner,
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
+import {
+  captureSlideImageUploadProvenance,
+  registerSlideImageUploadProvenance,
+} from "@/lib/slide-image-replacement";
 import { mergeRenderedEdits, SOURCE_STAMP_ATTR } from "@/lib/slide-source-map";
 
 vi.mock("./MermaidRenderer", () => ({
@@ -43,6 +49,15 @@ function rect(left: number, top: number, width: number, height: number) {
     bottom: top + height,
     toJSON: () => ({}),
   } as DOMRect;
+}
+
+function renderUploadSnapshot(root: HTMLElement, content: string): string {
+  const source = getRenderedSlideSource(root)!;
+  const scopeId = root.getAttribute("data-slide-content-scope")!;
+  return renderRawSlideHtml(content, {
+    scopeSelector: `[data-slide-content-scope="${scopeId}"]`,
+    stampNonce: source.nonce,
+  }).html;
 }
 
 describe("computeSlideFitTransform", () => {
@@ -232,6 +247,197 @@ describe("SlideInner source stamps", () => {
         "position:absolute; top:24px; left: 80px",
       ),
     );
+  });
+  it("never re-renders a root whose text is being edited", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const slide = { id: "slide-c", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption typed";
+    rerender(
+      <SlideInner
+        slide={{ ...slide, content: content.replace("Caption", "Agent") }}
+        stampSource
+      />,
+    );
+    expect(root.querySelector("p")).toBe(edited);
+    expect(edited.textContent).toBe("Caption typed");
+    expect(errors).toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it("applies an upload's image swap under an open edit and merges the edit onto it", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const slide = { id: "slide-f", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption typed";
+    const uploaded = content.replace("blob:preview", "https://cdn.test/a.png");
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      renderUploadSnapshot(root, content),
+    )!;
+    registerSlideImageUploadProvenance(slide.id, uploaded, provenance);
+    rerender(
+      <SlideInner slide={{ ...slide, content: uploaded }} stampSource />,
+    );
+    await waitFor(() =>
+      expect(image.getAttribute("src")).toBe("https://cdn.test/a.png"),
+    );
+    expect(root.querySelector("p")).toBe(edited);
+    expect(errors).not.toHaveBeenCalled();
+    const source = getRenderedSlideSource(root)!;
+    expect(source.stored).toBe(uploaded);
+    expect(
+      mergeRenderedEdits({ ...source, live: root.cloneNode(true) as Element })
+        .html,
+    ).toBe(uploaded.replace("Caption", "Caption typed"));
+
+    const remote = uploaded.replace(
+      "<p>Caption</p>",
+      "<h2>Agent</h2><p>Caption</p>",
+    );
+    const commit = vi.fn((event: Event) => {
+      expect((event as CustomEvent).detail).toEqual({ content: remote });
+      edited.removeAttribute("contenteditable");
+    });
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: remote }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(getRenderedSlideSource(root)?.stored).toBe(remote);
+    errors.mockRestore();
+  });
+
+  it("commits an open edit with the incoming source, then applies another write to the same slide", () => {
+    const titled = content.replace("<p>", "<h2>Title</h2><p>");
+    const slide = { id: "slide-g", content: titled, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    const remote = titled.replace("Title", "Agent title");
+    const commit = vi.fn((event: Event) => {
+      expect((event as CustomEvent).detail).toEqual({ content: remote });
+      edited.removeAttribute("contenteditable");
+    });
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: remote }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("h2")!.textContent).toBe("Agent title");
+    expect(getRenderedSlideSource(root)?.stored).toBe(remote);
+  });
+
+  it("commits instead of patching images when more than the images changed", () => {
+    const titled = content.replace("<p>", "<h2>Title</h2><p>");
+    const slide = { id: "slide-h", content: titled, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    const mixed = titled
+      .replace("blob:preview", "https://cdn.test/a.png")
+      .replace("Title", "Agent title");
+    const commit = vi.fn(() => edited.removeAttribute("contenteditable"));
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: mixed }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("h2")!.textContent).toBe("Agent title");
+    expect(root.querySelector("img")!.getAttribute("src")).toBe(
+      "https://cdn.test/a.png",
+    );
+    expect(getRenderedSlideSource(root)?.stored).toBe(mixed);
+  });
+
+  it("commits a mixed upload when its edited-node snapshot no longer matches", () => {
+    const slide = { id: "slide-j", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption typed";
+    const draft = content.replace("Caption", "Caption ty");
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      renderUploadSnapshot(root, draft),
+    )!;
+    const remote = content
+      .replace("blob:preview", "https://cdn.test/a.png")
+      .replace("Caption", "Agent caption");
+    registerSlideImageUploadProvenance(slide.id, remote, provenance);
+    const commit = vi.fn((event: Event) => {
+      expect((event as CustomEvent).detail).toEqual({ content: remote });
+      edited.removeAttribute("contenteditable");
+    });
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: remote }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("p")!.textContent).toBe("Agent caption");
+    expect(getRenderedSlideSource(root)?.stored).toBe(remote);
+  });
+
+  it("keeps an edit open when an upload carries its captured edited-node snapshot", async () => {
+    const slide = { id: "slide-i", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    const draft = content.replace("Caption", "Caption ty");
+    edited.textContent = "Caption typed";
+    const uploaded = draft.replace("blob:preview", "https://cdn.test/a.png");
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      renderUploadSnapshot(root, draft),
+    )!;
+    const commit = vi.fn();
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    registerSlideImageUploadProvenance(slide.id, uploaded, provenance);
+    rerender(
+      <SlideInner
+        slide={{
+          ...slide,
+          content: uploaded,
+        }}
+        stampSource
+      />,
+    );
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    await waitFor(() =>
+      expect(image.getAttribute("src")).toBe("https://cdn.test/a.png"),
+    );
+    expect(commit).not.toHaveBeenCalled();
+    expect(root.querySelector("p")).toBe(edited);
+    expect(edited.textContent).toBe("Caption typed");
+  });
+
+  it("asks the editor to commit before another slide replaces an edit", () => {
+    const slide = { id: "slide-d", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    const commit = vi.fn(() => edited.removeAttribute("contenteditable"));
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(
+      <SlideInner
+        slide={
+          { id: "slide-e", content: "<p>Next</p>", layout: "blank" } as Slide
+        }
+        stampSource
+      />,
+    );
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(root.textContent).toContain("Next");
   });
 });
 

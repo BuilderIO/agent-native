@@ -78,9 +78,9 @@ describe("McpIntegrationLogo", () => {
     act(() => {
       root.render(
         <McpIntegrationLogo
-          name="Notion"
+          name="GitHub"
           logoUrl="data:image/svg+xml,<svg />"
-          integrationId="notion"
+          integrationId="github"
         />,
       );
     });

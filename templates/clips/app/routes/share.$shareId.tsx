@@ -519,6 +519,10 @@ export default function ShareRoute() {
     status: sessionStatus,
     retry: retrySession,
   } = useSession();
+  // appPath("/") always renders the public marketing shell (root.tsx's
+  // isMarketingHome), even for a signed-in viewer - never use it as a
+  // signed-in destination.
+  const homeHref = session ? appPath("/home") : appPath("/");
   const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<
     {
@@ -1174,6 +1178,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.somethingWentWrong")}
           message={t("sharePage.pleaseTryAgain")}
+          homeHref={homeHref}
           action={
             <Button
               size="sm"
@@ -1215,6 +1220,7 @@ export default function ShareRoute() {
           icon={<IconLock className="h-5 w-5" aria-hidden="true" />}
           title={t("sharePage.beingEdited")}
           message={t("sharePage.beingEditedMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1227,6 +1233,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.linkExpired")}
           message={t("sharePage.linkExpiredMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1248,6 +1255,7 @@ export default function ShareRoute() {
               ? "sharePage.privateClipMessage"
               : "sharePage.privateClipSignedOutMessage",
           )}
+          homeHref={homeHref}
           error={canRequestAccess ? accessRequestError : null}
           action={
             canRequestAccess ? (
@@ -1302,6 +1310,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.clipUnavailable")}
           message={t("sharePage.clipUnavailableMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1314,6 +1323,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.somethingWentWrong")}
           message={dataQ.data?.data?.error ?? t("sharePage.pleaseTryAgain")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -2170,12 +2180,14 @@ function EndState({
   message,
   error,
   action,
+  homeHref,
 }: {
   icon?: ReactNode;
   title: string;
   message: string;
   error?: string | null;
   action?: ReactNode;
+  homeHref: string;
 }) {
   const t = useT();
 
@@ -2201,7 +2213,7 @@ function EndState({
       <div className="flex flex-wrap items-center justify-center gap-2">
         {action}
         <Button asChild variant="ghost" size="sm">
-          <a href={appPath("/")}>{t("clipsFinalRaw.goHome")}</a>
+          <a href={homeHref}>{t("clipsFinalRaw.goHome")}</a>
         </Button>
       </div>
     </div>

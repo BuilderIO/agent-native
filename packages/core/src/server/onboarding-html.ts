@@ -2497,9 +2497,8 @@ ${marketingStyles}
       flex: none;
       width: 100%;
       min-height: auto;
-      padding: 2rem 1rem 5rem;
+      padding: 1.5rem 1.25rem;
       border-inline-start: 0;
-      border-top: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
     }
     .auth-marketing-home .auth-marketing-layout { min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
@@ -2732,6 +2731,10 @@ ${marketingStyles}
     }
   }
   @media (max-width: 900px) {
+    .auth-marketing-home {
+      min-height: 100vh;
+      min-height: 100svh;
+    }
     .auth-marketing-home .auth-marketing-shell-with-top-right {
       flex-direction: column;
     }
@@ -2753,11 +2756,31 @@ ${marketingStyles}
     }
     .auth-marketing-home .form-panel {
       order: 1;
-      padding: 3rem 1rem 5rem;
+      padding: max(1.5rem, env(safe-area-inset-top)) 1.25rem max(1.5rem, env(safe-area-inset-bottom));
       border-inline-start: 0;
-      border-top: 1px solid var(--auth-marketing-border);
     }
-    .auth-marketing-home .marketing-panel { order: 2; }
+    .auth-marketing-home .marketing-panel { display: none; }
+    .auth-marketing-home .card h1 {
+      font-size: clamp(1.625rem, 6vw, 2rem);
+      line-height: 1.15;
+      margin-bottom: 0.5rem;
+    }
+    .auth-marketing-home .card .subtitle {
+      margin-bottom: 1.5rem;
+      font-size: 1rem;
+      line-height: 1.4;
+    }
+    .auth-marketing-home .card .divider { margin: 1rem 0; }
+    .auth-marketing-home .card .legal-note { margin-top: 1.5rem; }
+    .auth-marketing-home .card input,
+    .auth-marketing-home .card button {
+      min-height: 2.75rem;
+    }
+    body.has-marketing .locale-trigger {
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+    }
+    .auth-marketing-home .card input { font-size: 1rem; }
   }
 `;
   const authClientScriptPath = authClientAssetPath(appBasePath);

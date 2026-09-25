@@ -137,8 +137,10 @@ them per slide. For each target and scenario:
    slide's font is requested. Scenarios never contaminate each other.
 2. **View.** Capture `view.png` and a style snapshot of the slide.
 3. **Enter edit.** Try click, then a second click, then double-click. The
-   gesture that worked is recorded. If none enters edit, the status is
-   `no-edit`; the scenario fails and is never skipped.
+   gesture that worked is recorded. A double-click selects the word under
+   it, so that selection is collapsed to a caret before any keys. If none
+   enters edit, the status is `no-edit`; the scenario fails and is never
+   skipped.
 4. **Editing.** Capture `editing.png` and a snapshot before typing.
 5. **Keys.**
    - `noop`: none.
