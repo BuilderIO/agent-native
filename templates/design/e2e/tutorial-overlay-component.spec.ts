@@ -101,13 +101,23 @@ async function setFillColor(page: Page, layerName: string, hex: string) {
   await layerRow(page, layerName).click();
   const fill = inspectorSection(page, /^Fill$/i);
   await expect(fill).toBeVisible();
-  const swatch = fill.getByRole("button", { name: "Open color picker" });
-  // A closed pen path starts stroke-only, like Figma; Add fill opens the picker.
+  let swatch = fill.getByRole("button", { name: "Open color picker" });
+  // A closed pen path starts stroke-only, like Figma. Add fill on a vector
+  // element (fill-properties.tsx addFill()'s isVectorFillElement branch)
+  // commits the default shape fill directly and does not open the picker,
+  // so open the swatch it creates afterward instead of assuming a popover.
+  // An empty Fill section also renders "Add fill" twice — the header's own
+  // click-to-add title and the action-rail "+" icon — so scope to the
+  // action rail (present in every state) instead of the ambiguous name.
   if ((await swatch.count()) === 0) {
-    await fill.getByRole("button", { name: "Add fill" }).click();
-  } else {
-    await swatch.click();
+    await fill
+      .locator("[data-inspector-action-rail]")
+      .getByRole("button", { name: "Add fill" })
+      .click();
+    swatch = fill.getByRole("button", { name: "Open color picker" });
+    await expect(swatch).toBeVisible();
   }
+  await swatch.click();
   const input = page.getByRole("textbox", { name: "Hex", exact: true });
   await expect(input).toBeVisible();
   await input.fill(hex);
