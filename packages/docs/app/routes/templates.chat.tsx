@@ -1,4 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import type { LEGACY_TRACKING_EVENT_NAME_ALIASES } from "@agent-native/core/shared";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import type { MouseEvent } from "react";
 
@@ -44,6 +45,9 @@ export const meta = () =>
   );
 
 const template = templates.find((t) => t.slug === "chat")!;
+// Retain the registered legacy event; trackEvent emits its canonical alias too.
+const HOSTED_DEMO_EVENT =
+  "open hosted demo" satisfies keyof typeof LEGACY_TRACKING_EVENT_NAME_ALIASES;
 
 const USE_CASES = [
   {
@@ -141,7 +145,7 @@ export default function ChatTemplate() {
               style={{ gap: "4px" }}
               onClick={(event: MouseEvent<HTMLAnchorElement>) => {
                 applyFirstTouchAttributionToLink(event.currentTarget);
-                trackEvent("open_hosted_demo", {
+                trackEvent(HOSTED_DEMO_EVENT, {
                   template: template.slug,
                   location: "landing_page_hero",
                 });

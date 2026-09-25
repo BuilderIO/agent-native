@@ -401,7 +401,7 @@ function ResponseAgent() {
 
 function AgentSidebarHeader() {
   return (
-    <div className="forms-agent-head">
+    <div className="forms-agent-head" inert>
       <button className="forms-agent-new-chat">
         <span>＋</span> New chat
       </button>

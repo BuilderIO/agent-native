@@ -740,7 +740,7 @@ export function AnalyticsLandingMock({
       role="img"
       aria-label={label}
     >
-      <div className="an-screen" aria-hidden="true">
+      <div className="an-screen" aria-hidden="true" inert>
         {showSidebar && <AnalyticsSidebar mode={mode} />}
         <main className="an-main">
           <div className="an-topbar">

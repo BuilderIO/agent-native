@@ -682,7 +682,7 @@ export function CalendarLandingMock({
       role="img"
       aria-label={label}
     >
-      <div className="cl-screen" aria-hidden="true">
+      <div className="cl-screen" aria-hidden="true" inert>
         {showSidebar && <CalendarSidebar mode={mode} />}
         <main className="cl-main">
           <div className="cl-toolbar">
