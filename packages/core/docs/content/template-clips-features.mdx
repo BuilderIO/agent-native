@@ -171,7 +171,9 @@ Backup transcription, transcript cleanup, and AI titles and summaries run on Bui
 
 ## Non-destructive editing
 
-Use the timeline to trim and split clips, remove silences or filler words, combine clips, and add redactions. Drag cut boundaries to adjust them, and use undo or redo to review edits. Changes stay layered over the original recording. Nothing is baked into a new file until you export.
+Use the timeline to trim and split clips, remove silences or filler words, and combine clips. Drag cut boundaries to adjust them, and use undo or redo to review edits. These changes stay layered over the original recording, and nothing is baked into a new file until you export.
+
+Redactions work differently. Drawing a redaction box only covers the area in the editor — the underlying pixels are still in the file. Nothing is actually hidden until you **Burn in** the redactions: that re-encodes the video, permanently destroys the covered pixels, and deletes the original file. There's no undo after a burn, so treat it as the one truly irreversible step here.
 
 <Video
   src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"
