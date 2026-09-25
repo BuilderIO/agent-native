@@ -175,6 +175,8 @@ export function BuilderConnectPopover({
     );
   }
 
+  // z-330 stays above the model menu (z-320) and the New Deck dialog (z-200),
+  // and under alert dialogs (z-340). A lower layer hides this choice.
   const popover = (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
@@ -184,7 +186,7 @@ export function BuilderConnectPopover({
         sideOffset={-40}
         aria-labelledby="builder-connect-popover-title"
         data-testid={contentTestId}
-        className="z-[110] w-80 max-w-[calc(100vw-2rem)] p-3 text-left"
+        className="z-[330] w-80 max-w-[calc(100vw-2rem)] p-3 text-left"
       >
         <div className="space-y-2.5">
           <h2
