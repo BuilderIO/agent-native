@@ -184,6 +184,8 @@ describe("run recovery surfaces", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    window.history.replaceState(null, "", "/");
   });
 
   it("loads Builder connect UI only when a setup surface is reached", async () => {
@@ -442,6 +444,33 @@ describe("run recovery surfaces", () => {
     expect(customKeysLink?.textContent).toBe("Custom keys");
     expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(container.textContent).not.toContain("Choose a provider");
+  });
+
+  it("keeps the Custom keys link within a mounted workspace app", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "dispatch", path: "/dispatch" }]),
+    );
+    window.history.replaceState(null, "", "/dispatch/ask");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupContent />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const customKeysLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/dispatch/settings/keys"]',
+    );
+    expect(customKeysLink?.textContent).toBe("Custom keys");
+    expect(container.querySelector('input[type="password"]')).toBeNull();
   });
 
   it("keeps sidebar provider actions in a horizontal row", async () => {
