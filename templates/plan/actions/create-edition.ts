@@ -1,4 +1,5 @@
 import { ActionContractError, defineAction } from "@agent-native/core";
+import { isUniqueViolation } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -23,11 +24,30 @@ const LABEL = "Creating an edition";
 /** `null` is a stat that could not be resolved; `0` is a real zero. */
 const statSchema = z.number().int().nullable().optional();
 
+/**
+ * Stored link targets are rendered straight into reader anchors, and React
+ * does not refuse a `javascript:` href — only the scheme check does.
+ */
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+const linkUrlSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .refine(isHttpUrl, "must be an http(s) URL");
+
 const recapRefSchema = z.object({
   recapId: z.string().trim().min(1).optional(),
   repo: z.string().trim().min(1),
   prNumber: z.coerce.number().int().positive(),
-  prUrl: z.string().trim().min(1),
+  prUrl: linkUrlSchema,
   authorLogin: z.string().trim().optional(),
   filesChanged: statSchema,
   additions: statSchema,
@@ -64,7 +84,7 @@ const coveragePrSchema = z.object({
   repo: z.string().trim().min(1),
   prNumber: z.coerce.number().int().positive(),
   title: z.string().trim().min(1),
-  url: z.string().trim().min(1),
+  url: linkUrlSchema,
 });
 
 const coverageSchema = z.object({
@@ -302,8 +322,12 @@ export default defineAction({
         // edition that exists and is complete.
         if (existing) throw error;
         const raced = await findExistingEdition();
-        if (!raced) throw error;
-        return await publish(raced);
+        if (raced) return await publish(raced);
+        // Or a publish for a DIFFERENT window took the issue number this one
+        // allocated. Nothing to adopt — re-read the high-water mark, which now
+        // includes the winner, and take the next one.
+        if (isUniqueViolation(error)) return await publish(undefined);
+        throw error;
       }
     }),
   link: ({ result }) => {

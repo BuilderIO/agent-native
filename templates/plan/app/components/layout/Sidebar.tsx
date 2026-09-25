@@ -312,16 +312,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
   });
   const selectedPlanId = (location.pathname.match(/^\/plans\/([^/]+)/) ??
     location.pathname.match(/^\/recaps\/([^/]+)/))?.[1];
-  const { enabled: editionsEnabled } = useEditionsLab();
-  // Issues published before the lab was turned back off would otherwise sit
-  // here as rows whose only destination is a route the gate redirects away.
-  const allPlans = useMemo(
-    () =>
-      (plansQuery.data ?? []).filter(
-        (plan) => editionsEnabled || plan.kind !== "edition",
-      ),
-    [editionsEnabled, plansQuery.data],
-  );
+  const allPlans = useMemo(() => plansQuery.data ?? [], [plansQuery.data]);
   const plans = useMemo(
     () => allPlans.filter((p) => p.status !== "archived").slice(0, 10),
     [allPlans],
@@ -547,7 +538,7 @@ export function Sidebar({
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const { session, isLoading: sessionLoading } = useSession();
   const t = useT();
-  const { enabled: editionsEnabled } = useEditionsLab();
+  const editionsEnabled = useEditionsLab();
   const returnPath = planReturnPathFromLocation(location);
 
   const secondaryItems: AppSidebarItemDefinition[] = [

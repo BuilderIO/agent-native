@@ -1,12 +1,11 @@
-import { useLabState } from "@agent-native/core/client/labs";
+import { useLab } from "@agent-native/core/client/labs";
 import { PLAN_EDITIONS } from "@shared/labs";
 
 /**
- * `resolved` stays false for signed-out readers, who have no labs to read:
- * treating that as "off" would bounce a shared issue link to the home page
- * instead of the sign-in prompt.
+ * False only once Labs has answered. A signed-out reader and Plan's no-login
+ * local mode never load labs at all, and treating that as "off" would hide the
+ * reader from the one setup that has no way to turn the lab on.
  */
-export function useEditionsLab(): { enabled: boolean; resolved: boolean } {
-  const { enabled, isSuccess } = useLabState(PLAN_EDITIONS.key);
-  return { enabled, resolved: isSuccess };
+export function useEditionsLab(): boolean {
+  return useLab(PLAN_EDITIONS.key);
 }

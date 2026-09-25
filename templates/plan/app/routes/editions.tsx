@@ -21,7 +21,7 @@ export function HydrateFallback() {
 }
 
 export default function EditionsRoute() {
-  const { enabled, resolved } = useEditionsLab();
-  if (resolved && !enabled) return <Navigate to="/plans" replace />;
+  const editionsEnabled = useEditionsLab();
+  if (!editionsEnabled) return <Navigate to="/plans" replace />;
   return <EditionPage />;
 }

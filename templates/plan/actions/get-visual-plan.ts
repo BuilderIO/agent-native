@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { assertEditionsLabEnabled } from "../server/lib/editions-lab.js";
 import {
   exportPlanContentToMdxFolder,
   referencedBlockIdsForPlanComments,
@@ -67,6 +68,8 @@ export default defineAction({
   },
   run: async (args, ctx) => {
     const bundle = await loadPlanBundle(args.id);
+    // An edition read through the generic action is still an edition read.
+    if (bundle.plan.kind === "edition") await assertEditionsLabEnabled();
     // The interactive web viewer renders modern (structured-`content`) plans
     // with the React `PlanContentRenderer` and never reads the server-built
     // `html` or `mdx`: `html` only feeds the legacy iframe path (plans with no

@@ -119,26 +119,29 @@ export default defineAction({
           ),
           sql`${MERGED_AT} >= ${args.windowStart}`,
           sql`${MERGED_AT} < ${args.windowEnd}`,
+          // In SQL, not over `rows`: filtering after `.limit()` lets recaps
+          // from unrelated repos spend the limit and reports a repo that did
+          // ship as a quiet window.
+          ...(args.repos?.length
+            ? [inArray(schema.plans.sourceRepo, args.repos)]
+            : []),
         ),
       )
       .orderBy(desc(MERGED_AT))
       .limit(args.limit);
 
-    const repoFilter = args.repos?.length ? new Set(args.repos) : null;
-    const candidates = rows
-      .filter((row) => !repoFilter || (row.repo && repoFilter.has(row.repo)))
-      .map((row) => ({
-        recapId: row.id,
-        title: row.title,
-        brief: briefSnippet(row.brief),
-        repo: row.repo ?? "",
-        prNumber: row.prNumber,
-        prUrl: row.sourceUrl ?? "",
-        authorLogin: row.authorLogin ?? undefined,
-        mergedAt: row.mergedAt ?? row.updatedAt,
-        mergedAtIsExact: row.mergedAt !== null,
-        recapUrl: planPath(row.id, "recap"),
-      }));
+    const candidates = rows.map((row) => ({
+      recapId: row.id,
+      title: row.title,
+      brief: briefSnippet(row.brief),
+      repo: row.repo ?? "",
+      prNumber: row.prNumber,
+      prUrl: row.sourceUrl ?? "",
+      authorLogin: row.authorLogin ?? undefined,
+      mergedAt: row.mergedAt ?? row.updatedAt,
+      mergedAtIsExact: row.mergedAt !== null,
+      recapUrl: planPath(row.id, "recap"),
+    }));
 
     // An empty candidate list has two completely different causes, and an
     // edition written from the wrong one is a confident lie. "No recaps are

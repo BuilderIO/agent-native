@@ -218,7 +218,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useEditionsLab } from "@/hooks/use-editions-lab";
 import {
   planBundleQueryKey,
   localPlanBundleQueryKey,
@@ -2159,12 +2158,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const plansQuery = usePlans(ALL_PLANS_QUERY_ARGS, {
     enabled: Boolean(session && !selectedId && !localPlanMode),
   });
-  const { enabled: editionsEnabled } = useEditionsLab();
-  // Issues published before the lab was turned back off would otherwise sit
-  // here as rows whose only destination is a route the gate redirects away.
-  const plans = (plansQuery.data ?? []).filter(
-    (plan) => editionsEnabled || plan.kind !== "edition",
-  );
+  const plans = plansQuery.data ?? [];
   // Identity for collaborative cursor labels. Only a signed-in user enables
   // real-time multi-user prose editing; guests/anonymous keep single-user editing.
   const collabUser = useMemo<RichMarkdownCollabUser | null>(

@@ -35,7 +35,10 @@ export function useNavigationState() {
     const planMatch =
       location.pathname.match(/^\/plans\/([^/]+)/) ??
       location.pathname.match(/^\/recaps\/([^/]+)/);
-    if (localPlanMatch) {
+    const editionMatch = location.pathname.match(/^\/editions\/([^/]+)/);
+    if (editionMatch) {
+      state.editionId = decodeURIComponent(editionMatch[1] ?? "");
+    } else if (localPlanMatch) {
       const slug = decodeURIComponent(localPlanMatch[1] ?? "");
       state.planId = `local-${slug}`;
       state.localPlanSlug = slug;

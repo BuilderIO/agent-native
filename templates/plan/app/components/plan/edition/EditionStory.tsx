@@ -15,6 +15,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { storySources } from "./editionSources";
 import {
   Collapsible,
   CollapsibleContent,
@@ -241,23 +242,10 @@ function StoryDisclosure({
   );
 }
 
-/** Every PR the story covers, ascending, for the sources line. */
-function storyPrNumbers(story: EditionReaderStory): number[] {
-  const numbers = new Set<number>();
-  for (const cohort of story.cohorts) {
-    for (const prNumber of cohort.prNumbers) numbers.add(prNumber);
-  }
-  if (numbers.size === 0) {
-    for (const recap of story.recaps) numbers.add(recap.prNumber);
-  }
-  return [...numbers].sort((a, b) => a - b);
-}
-
 /** Techmeme's `More:` line: the whole cluster as bare numbers, nothing else. */
 function SourcesLine({ story }: { story: EditionReaderStory }) {
-  const numbers = storyPrNumbers(story);
-  const urls = new Map(story.recaps.map((r) => [r.prNumber, r.prUrl]));
-  if (numbers.length === 0) return null;
+  const sources = storySources(story);
+  if (sources.length === 0) return null;
   return (
     <p
       className={cn(
@@ -265,12 +253,12 @@ function SourcesLine({ story }: { story: EditionReaderStory }) {
         "flex flex-wrap gap-x-1.5 gap-y-1 leading-relaxed",
       )}
     >
-      {numbers.map((prNumber, index) => {
-        const url = urls.get(prNumber);
-        const label = `#${prNumber}${index < numbers.length - 1 ? "," : ""}`;
+      {sources.map((source, index) => {
+        const { key, prNumber, url } = source;
+        const label = `#${prNumber}${index < sources.length - 1 ? "," : ""}`;
         return url ? (
           <a
-            key={prNumber}
+            key={key}
             href={url}
             target="_blank"
             rel="noopener noreferrer"
@@ -279,7 +267,7 @@ function SourcesLine({ story }: { story: EditionReaderStory }) {
             {label}
           </a>
         ) : (
-          <span key={prNumber} className="tabular-nums">
+          <span key={key} className="tabular-nums">
             {label}
           </span>
         );
@@ -372,7 +360,7 @@ export function EditionLeadStory({
           ))}
         </ul>
       )}
-      {(restBlocks.length > 0 || storyPrNumbers(story).length > 0) && (
+      {(restBlocks.length > 0 || storySources(story).length > 0) && (
         <div className="mt-5">
           <StoryDisclosure label={t("edition.story.sources")}>
             <div className="flex flex-col gap-5">

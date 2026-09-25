@@ -78,6 +78,7 @@ let listCandidates: AnyAction;
 let createEdition: AnyAction;
 let getEdition: AnyAction;
 let listEditions: AnyAction;
+let listPlans: AnyAction;
 
 const OWNER = "owner@example.com";
 const ORG = "org-1";
@@ -91,11 +92,13 @@ async function insertRecap(opts: {
   id: string;
   prNumber: number;
   mergedAt: string;
+  repo?: string;
   ownerEmail?: string;
   visibility?: string;
   orgId?: string | null;
   content?: string;
 }) {
+  const repo = opts.repo ?? REPO;
   await client.query(
     `INSERT INTO plans (id, title, brief, kind, status, source, created_at, updated_at,
       source_url, source_type, source_repo, source_pr_number, source_pr_state,
@@ -106,8 +109,8 @@ async function insertRecap(opts: {
       `Recap for #${opts.prNumber}`,
       `What PR ${opts.prNumber} changed.`,
       opts.mergedAt,
-      `https://github.com/${REPO}/pull/${opts.prNumber}`,
-      REPO,
+      `https://github.com/${repo}/pull/${opts.prNumber}`,
+      repo,
       opts.prNumber,
       opts.ownerEmail ?? OWNER,
       opts.orgId === undefined ? ORG : opts.orgId,
@@ -183,6 +186,8 @@ beforeAll(async () => {
   await execute(`
     ${PLANS_TABLE_DDL};
     CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL, notified_at TEXT);
+    CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT, sort_order INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE plan_comments (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, status TEXT, deleted_at TEXT);
     CREATE TABLE plan_edition_stories (
       id TEXT PRIMARY KEY, edition_id TEXT NOT NULL, story_id TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0, is_lead BOOLEAN NOT NULL DEFAULT FALSE,
@@ -211,6 +216,7 @@ beforeAll(async () => {
   createEdition = (await import("./create-edition.js")).default as AnyAction;
   getEdition = (await import("./get-edition.js")).default as AnyAction;
   listEditions = (await import("./list-editions.js")).default as AnyAction;
+  listPlans = (await import("./list-visual-plans.js")).default as AnyAction;
 });
 
 afterAll(async () => {
@@ -254,6 +260,40 @@ describe("list-edition-candidates", () => {
     expect(result.candidateCount).toBe(0);
     expect(result.coverage).toBeNull();
     expect(result.coverageKnown).toBe(false);
+  });
+
+  it("scopes to the requested repos before spending the limit", async () => {
+    await insertRecap({
+      id: "recap-other-repo",
+      prNumber: 900,
+      mergedAt: "2026-09-20T23:00:00.000Z",
+      repo: "BuilderIO/builder",
+    });
+    await insertRecap({
+      id: "recap-wanted",
+      prNumber: 5447,
+      mergedAt: "2026-09-20T09:00:00.000Z",
+    });
+
+    const result = await asOwner(() =>
+      listCandidates.run({
+        ...WINDOW,
+        limit: 1,
+        repos: [REPO],
+        mergedPrLedger: [
+          {
+            repo: REPO,
+            prNumber: 5447,
+            title: "fix(design): grouped drops",
+            url: `https://github.com/${REPO}/pull/5447`,
+          },
+        ],
+      }),
+    );
+
+    expect(
+      result.candidates.map((c: { recapId: string }) => c.recapId),
+    ).toEqual(["recap-wanted"]);
   });
 
   it("selects in-window recaps and names the merged PRs that have no recap", async () => {
@@ -773,6 +813,32 @@ describe("get-edition", () => {
 });
 
 describe("editions lab", () => {
+  it("keeps editions out of the generic plan list while the lab is off", async () => {
+    await asOwner(() =>
+      createEdition.run({
+        title: "hidden",
+        brief: "hidden",
+        ...WINDOW,
+        stories: [storyFixture()],
+      }),
+    );
+
+    const visible = (await asOwner(() => listPlans.run({}))) as {
+      kind: string;
+    }[];
+    expect(visible.some((plan) => plan.kind === "edition")).toBe(true);
+
+    labs.editionsEnabled = false;
+    try {
+      const gated = (await asOwner(() => listPlans.run({}))) as {
+        kind: string;
+      }[];
+      expect(gated.some((plan) => plan.kind === "edition")).toBe(false);
+    } finally {
+      labs.editionsEnabled = true;
+    }
+  });
+
   it("refuses every edition action while the lab is off", async () => {
     labs.editionsEnabled = false;
     try {
@@ -798,5 +864,53 @@ describe("editions lab", () => {
     } finally {
       labs.editionsEnabled = true;
     }
+  });
+});
+
+describe("edition link safety", () => {
+  const parseArgs = (overrides: Record<string, unknown>) =>
+    (
+      createEdition as unknown as {
+        schema: { parse: (value: unknown) => unknown };
+      }
+    ).schema.parse({
+      title: "t",
+      brief: "b",
+      ...WINDOW,
+      stories: [storyFixture()],
+      ...overrides,
+    });
+
+  it("refuses story and coverage links that are not http(s)", () => {
+    expect(() => parseArgs({})).not.toThrow();
+
+    expect(() =>
+      parseArgs({
+        stories: [
+          storyFixture({
+            recaps: [
+              { repo: REPO, prNumber: 5447, prUrl: "javascript:alert(1)" },
+            ],
+          }),
+        ],
+      }),
+    ).toThrow(/http/i);
+
+    expect(() =>
+      parseArgs({
+        coverage: {
+          mergedPrCount: 1,
+          recapCount: 0,
+          missingPrs: [
+            {
+              repo: REPO,
+              prNumber: 5485,
+              title: "missing",
+              url: "javascript:alert(1)",
+            },
+          ],
+        },
+      }),
+    ).toThrow(/http/i);
   });
 });

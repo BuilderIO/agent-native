@@ -185,3 +185,54 @@ describe("migration 40 — plan-edition-window", () => {
     expect((rows.rows[0] as { n: number }).n).toBe(4);
   });
 });
+
+describe("migration 44 — plan-edition-issue-number-unique", () => {
+  async function applyEditionMigrations(): Promise<void> {
+    await applyStatements(migration40Sql());
+    await applyStatements(migration41Sql());
+    await applyStatements(migration42Sql());
+    await applyStatements(migrationSql("plan-edition-issue-number-unique"));
+  }
+
+  function insertEdition(
+    id: string,
+    issueNumber: number,
+    dateKey: string,
+    series: string | null = "daily",
+  ): Promise<unknown> {
+    return client.query(
+      `INSERT INTO plans (id, title, brief, kind, status, source, created_at, updated_at,
+        owner_email, org_id, visibility, edition_date_key, edition_series, edition_issue_number)
+       VALUES ($1,$2,'b','edition','complete','imported','2026-02-03','2026-02-03',
+        'u@x.com','org-1','org',$3,$4,$5)`,
+      [id, `Issue ${issueNumber}`, dateKey, series, issueNumber],
+    );
+  }
+
+  it("refuses a second edition holding the same issue number", async () => {
+    await applyEditionMigrations();
+    await insertEdition("ed-1", 7, "2026-02-03");
+
+    await expect(insertEdition("ed-2", 7, "2026-02-04")).rejects.toThrow(
+      /unique/i,
+    );
+  });
+
+  it("treats a NULL series as `daily`, the way the allocator does", async () => {
+    await applyEditionMigrations();
+    await insertEdition("ed-1", 7, "2026-02-03", null);
+
+    await expect(insertEdition("ed-2", 7, "2026-02-04")).rejects.toThrow(
+      /unique/i,
+    );
+  });
+
+  it("leaves another series free to reuse the number", async () => {
+    await applyEditionMigrations();
+    await insertEdition("ed-1", 7, "2026-02-03");
+
+    await expect(
+      insertEdition("ed-2", 7, "2026-02-04", "weekly"),
+    ).resolves.toBeDefined();
+  });
+});

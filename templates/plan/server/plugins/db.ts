@@ -450,6 +450,17 @@ CREATE INDEX IF NOT EXISTS plans_edition_series_idx ON plans(kind, edition_serie
       postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS edition_notes TEXT`,
     },
   },
+  {
+    version: 44,
+    name: "plan-edition-issue-number-unique",
+    // Scoped exactly like nextIssueNumber()'s MAX: a NULL series is `daily`
+    // there, so bucketing it as '' here would let two rows share a number.
+    sql: {
+      postgres: `CREATE UNIQUE INDEX IF NOT EXISTS plans_edition_issue_number_unique_idx
+ON plans(owner_email, COALESCE(org_id, ''), COALESCE(edition_series, 'daily'), edition_issue_number)
+WHERE kind = 'edition' AND edition_issue_number IS NOT NULL`,
+    },
+  },
 ];
 
 export const runPlanMigrations = runMigrations(planMigrations, {
