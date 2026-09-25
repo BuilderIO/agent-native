@@ -45,13 +45,15 @@ describe("chat-first macOS window controls", () => {
   });
 
   it("hides the hover pill and reveals maximize controls over settings", () => {
-    expect(shellCss).toContain(".platform-darwin:has(.settings-overlay)");
-    expect(shellCss).not.toContain(".shell:has(.settings-overlay)");
     expect(shellCss).toContain(
-      ".platform-darwin:has(.settings-overlay)\n  .collapsed-mac-window-controls:hover::before,\n.platform-darwin:has(.settings-overlay)\n  .collapsed-mac-window-controls:focus-within::before {\n  opacity: 0;",
+      ".platform-darwin\n  .shell:has(.settings-overlay)",
+    );
+    expect(shellCss).not.toContain(".platform-darwin:has(.settings-overlay)");
+    expect(shellCss).toContain(
+      ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls:hover::before,\n.platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls:focus-within::before {\n  opacity: 0;",
     );
     expect(shellCss).toContain(
-      ".platform-darwin:has(.settings-overlay)\n  .collapsed-mac-window-controls\n  .win-btn--maximize {\n  opacity: 1;\n  pointer-events: auto;",
+      ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls\n  .win-btn--maximize {\n  opacity: 1;\n  pointer-events: auto;",
     );
   });
 
