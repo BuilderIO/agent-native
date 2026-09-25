@@ -73,6 +73,15 @@ function BuilderConnectProbe({
       >
         Connect
       </button>
+      {flow.connecting ? (
+        <button
+          type="button"
+          data-testid="cancel-connect"
+          onClick={flow.cancel}
+        >
+          Cancel
+        </button>
+      ) : null}
       <output data-testid="status">
         {flow.configured ? "configured" : "not-configured"}{" "}
         {flow.connecting ? "connecting" : "idle"}{" "}
@@ -1505,7 +1514,316 @@ describe("useBuilderConnectFlow", () => {
     expect(openSpy).toHaveBeenCalled();
   });
 
-  it("does not cancel a real success that confirms shortly after the popup-close grace window", async () => {
+  it("resets after the desktop OAuth popup closes without a Window handle", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
+    let notifyPopupClosed: ((attemptId: string | null) => void) | null = null;
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          onPopupClosed: (callback: (attemptId: string | null) => void) => {
+            notifyPopupClosed = callback;
+            return () => {
+              notifyPopupClosed = null;
+            };
+          },
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(openSpy).toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8000);
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+
+    const openedUrl = (openSpy.mock.calls[0] as unknown as [string])[0];
+    const attemptId = new URL(openedUrl).searchParams.get(
+      "_an_connect_attempt",
+    );
+    expect(attemptId).toBeTruthy();
+    await act(async () => {
+      notifyPopupClosed?.(attemptId);
+      await vi.advanceTimersByTimeAsync(24_000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+  });
+
+  it("keeps a delayed desktop success when its OAuth popup closes itself", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
+    let notifyPopupClosed: ((attemptId: string | null) => void) | null = null;
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          onPopupClosed: (callback: (attemptId: string | null) => void) => {
+            notifyPopupClosed = callback;
+            return () => {
+              notifyPopupClosed = null;
+            };
+          },
+        },
+      },
+    });
+
+    let connectStartedAt = Date.now();
+    vi.mocked(fetch).mockImplementation(async () => {
+      const configured = Date.now() - connectStartedAt >= 45_000;
+      return jsonResponse(
+        configured
+          ? connectedBuilderStatus
+          : {
+              configured: false,
+              envManaged: false,
+              builderEnabled: true,
+              orgName: null,
+              connectUrl: signedConnectUrl,
+              appHost: "https://builder.io",
+              apiHost: "https://api.builder.io",
+              publicKeyConfigured: false,
+              privateKeyConfigured: false,
+            },
+      );
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      connectStartedAt = Date.now();
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const openedUrl = String(openSpy.mock.calls[0]?.[0]);
+    const attemptId = new URL(openedUrl).searchParams.get(
+      "_an_connect_attempt",
+    );
+    expect(attemptId).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: { type: "builder-connect-success", attemptId },
+        }),
+      );
+      notifyPopupClosed?.(attemptId);
+      await vi.advanceTimersByTimeAsync(26_000);
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(container.textContent).not.toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+  });
+
+  it("ends the desktop popup wait when callback confirmation stays unconfigured", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
+    let notifyPopupClosed: ((attemptId: string | null) => void) | null = null;
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          onPopupClosed: (callback: (attemptId: string | null) => void) => {
+            notifyPopupClosed = callback;
+            return () => {
+              notifyPopupClosed = null;
+            };
+          },
+        },
+      },
+    });
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+        appHost: "https://builder.io",
+        apiHost: "https://api.builder.io",
+        publicKeyConfigured: false,
+        privateKeyConfigured: false,
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const openedUrl = String(openSpy.mock.calls[0]?.[0]);
+    const attemptId = new URL(openedUrl).searchParams.get(
+      "_an_connect_attempt",
+    );
+    expect(attemptId).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: { type: "builder-connect-success", attemptId },
+        }),
+      );
+      notifyPopupClosed?.(attemptId);
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+  });
+
+  it("asks Electron to close the matching OAuth window when cancelled", async () => {
+    setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
+    const cancelPopup = vi.fn();
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          cancelPopup,
+          onPopupClosed: () => () => {},
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    const openedUrl = String(openSpy.mock.calls[0]?.[0]);
+    const attemptId = new URL(openedUrl).searchParams.get(
+      "_an_connect_attempt",
+    );
+    expect(attemptId).toBeTruthy();
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+    });
+    expect(cancelPopup).toHaveBeenCalledWith(attemptId);
+  });
+
+  it("refreshes status but keeps waiting when system-browser focus returns", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
+    let notifySystemBrowserReturned:
+      | ((attemptId: string | null) => void)
+      | null = null;
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          onSystemBrowserReturned: (
+            callback: (attemptId: string | null) => void,
+          ) => {
+            notifySystemBrowserReturned = callback;
+            return () => {
+              notifySystemBrowserReturned = null;
+            };
+          },
+          onPopupClosed: () => () => {},
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+    const openedUrl = (openSpy.mock.calls[0] as unknown as [string])[0];
+    const attemptId = new URL(openedUrl).searchParams.get(
+      "_an_connect_attempt",
+    );
+    expect(attemptId).toBeTruthy();
+    const fetchCountBeforeReturn = vi.mocked(fetch).mock.calls.length;
+
+    await act(async () => {
+      notifySystemBrowserReturned?.(attemptId);
+      await vi.advanceTimersByTimeAsync(26_000);
+    });
+
+    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(
+      fetchCountBeforeReturn,
+    );
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("Didn't finish connecting");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+      await vi.advanceTimersByTimeAsync(24_000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+  });
+
+  it("keeps a real success during the explicit cancel grace window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -1549,9 +1867,12 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured connecting");
 
-    // The popup closes almost immediately, as it does when the OAuth
-    // success page closes itself right after posting the success message.
-    (popup as unknown as { closed: boolean }).closed = true;
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+    });
+    expect(popup.close).toHaveBeenCalledOnce();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20_000);
@@ -1576,6 +1897,150 @@ describe("useBuilderConnectFlow", () => {
     // branch racing ahead of the callback-success retry loop.
     expect(container.textContent).toContain("configured idle resolved");
     expect(container.textContent).not.toContain("Didn't finish connecting");
+  });
+
+  it("allows cancellation after success confirmation retries exhaust", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+        appHost: "https://builder.io",
+        apiHost: "https://api.builder.io",
+        publicKeyConfigured: false,
+        privateKeyConfigured: false,
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+      await vi.advanceTimersByTimeAsync(22_000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+  });
+
+  it("releases the cancellation grace while callback status confirmation is stalled", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    let stallNextStatus = false;
+    let releaseStalledStatus: (() => void) | null = null;
+    let callbackStatusSignal: AbortSignal | null = null;
+    vi.mocked(fetch).mockImplementation((_input, init) => {
+      if (stallNextStatus) {
+        stallNextStatus = false;
+        callbackStatusSignal = init?.signal ?? null;
+        return new Promise<Response>((resolve) => {
+          releaseStalledStatus = () =>
+            resolve(
+              jsonResponse({
+                configured: false,
+                envManaged: false,
+                builderEnabled: true,
+                orgName: null,
+                connectUrl: signedConnectUrl,
+                appHost: "https://builder.io",
+                apiHost: "https://api.builder.io",
+                publicKeyConfigured: false,
+                privateKeyConfigured: false,
+              }),
+            );
+        });
+      }
+      return Promise.resolve(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        }),
+      );
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    stallNextStatus = true;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(callbackStatusSignal).not.toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(callbackStatusSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(22_000);
+    });
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+    releaseStalledStatus?.();
   });
 
   it("does not replace the desktop webview when Electron reports a handled popup as null", async () => {
@@ -1669,6 +2134,84 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("Allow popups");
+  });
+
+  it("does not open the MCP host after cancelling a pending embedded startup", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    setEmbeddedWindow(true);
+    let releaseStartupStatus: ((response: Response) => void) | undefined;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ configured: false }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseStartupStatus = resolve;
+          }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+    expect(releaseStartupStatus).toBeTypeOf("function");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+      releaseStartupStatus?.(jsonResponse({ configured: false }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+
+  it("does not continue a browser popup startup after cancel", async () => {
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    let releaseStartupStatus: ((response: Response) => void) | undefined;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ configured: false }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseStartupStatus = resolve;
+          }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+    expect(releaseStartupStatus).toBeTypeOf("function");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+      releaseStartupStatus?.(
+        jsonResponse({ configured: false, connectUrl: signedConnectUrl }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(popup.close).toHaveBeenCalled();
+    expect(popup.location.href).toBe("");
+    expect(container.textContent).not.toContain(
+      "Couldn't navigate the Builder popup",
+    );
   });
 
   it("does not abort a reconnect popup because the old credential was rejected", async () => {

@@ -279,6 +279,8 @@ const messages = {
   "composer.describeSkill": "Describe the skill you want to create...",
   "composer.documentTooLarge":
     '"{{name}}" is {{size}} MB. {{label}} are capped at {{maxSize}} MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+  "composer.requestTooLarge":
+    "This message and its attachments are too large to send. Remove an attachment or shorten the message.",
   "composer.file": "file",
   "composer.imageModel": "Image model",
   "composer.imagePreview": "Image preview",

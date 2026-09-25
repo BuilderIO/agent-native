@@ -274,6 +274,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "صِف المهارة التي تريد إنشاءها...",
   "composer.documentTooLarge":
     'حجم "{{name}}" هو {{size}} MB — الحد الأقصى لـ {{label}} هو {{maxSize}} MB للالتزام بحدود الرسائل. يُرجى تقليل حجم الملف أو تقسيمه إلى أجزاء أصغر.',
+  "composer.requestTooLarge":
+    "هذه الرسالة ومرفقاتها كبيرة جدًا بحيث يتعذر إرسالها. أزل مرفقًا أو اختصر الرسالة.",
   "composer.file": "ملف",
   "composer.imageModel": "نموذج الصور",
   "composer.imagePreview": "معاينة الصورة",

@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  clearFirstRunOnboardingBuildMarker,
+  readFirstRunOnboardingBuildMarker,
+  resolveFirstRunOnboardingBuildReplacement,
+  writeFirstRunOnboardingBuildMarker,
 } from "./agent-native-config-loader.js";
 
 const temporaryRoots: string[] = [];
@@ -125,5 +129,79 @@ describe("agent-native config loading", () => {
         { environment: { AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT: "beta" } },
       ),
     ).resolves.toEqual({ deployment: { environment: "production" } });
+  });
+});
+
+describe("resolveFirstRunOnboardingBuildReplacement", () => {
+  it("embeds the configured mode", () => {
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "off" } },
+        {},
+      ),
+    ).toBe("off");
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "connect-and-integrations" } },
+        {},
+      ),
+    ).toBe("connect-and-integrations");
+  });
+
+  it("reports unknown when neither config nor env sets onboarding", () => {
+    expect(resolveFirstRunOnboardingBuildReplacement({}, {})).toBe("");
+  });
+
+  it("lets the client's env override win over the configured mode", () => {
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "connect" } },
+        { VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING: "false" },
+      ),
+    ).toBe("off");
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "off" } },
+        { VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING: "true" },
+      ),
+    ).toBe("connect");
+  });
+});
+
+describe("first-run onboarding build marker", () => {
+  it("round-trips the mode, including a recorded unknown", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+
+    expect(readFirstRunOnboardingBuildMarker(root)).toBeUndefined();
+    writeFirstRunOnboardingBuildMarker(root, "off");
+    expect(readFirstRunOnboardingBuildMarker(root)).toBe("off");
+    writeFirstRunOnboardingBuildMarker(root, "");
+    expect(readFirstRunOnboardingBuildMarker(root)).toBe("");
+  });
+
+  it("drops a previous build's marker when a new build starts", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+    writeFirstRunOnboardingBuildMarker(root, "off");
+
+    clearFirstRunOnboardingBuildMarker(root);
+
+    expect(readFirstRunOnboardingBuildMarker(root)).toBeUndefined();
+    expect(() => clearFirstRunOnboardingBuildMarker(root)).not.toThrow();
+  });
+
+  it("rejects a marker that is not a known mode", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agent-native"));
+    fs.writeFileSync(
+      path.join(root, ".agent-native", "first-run-onboarding"),
+      "sometimes",
+    );
+
+    expect(() => readFirstRunOnboardingBuildMarker(root)).toThrow(
+      /Invalid first-run onboarding build marker/,
+    );
   });
 });

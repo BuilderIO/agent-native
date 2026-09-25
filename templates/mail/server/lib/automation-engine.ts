@@ -33,6 +33,7 @@ import {
 } from "@shared/ai-filter.js";
 import {
   AI_PRIORITY_DEFAULT_INSTRUCTION,
+  aiPriorityEmailKey,
   type AiPriorityEmail,
 } from "@shared/ai-priority.js";
 import { mailLabelsInclude } from "@shared/gmail-labels.js";
@@ -969,22 +970,25 @@ export async function previewAutomationPriority(
     model: TYPESAFE_AUTOMATION_MODEL,
   };
 
-  const messages: EmailSummary[] = emails
+  const messages = emails
     .filter(
       (email) =>
         !email.isArchived &&
         !email.isTrashed &&
         mailLabelsInclude(email.labelIds, "inbox"),
     )
-    .map((email) => ({
-      id: email.id,
-      threadId: email.threadId,
-      from: email.from,
-      to: email.to,
-      subject: email.subject,
-      snippet: email.snippet,
-      labelIds: email.labelIds,
-      date: email.date,
+    .map((email, index) => ({
+      key: aiPriorityEmailKey(email.accountEmail, email.id),
+      summary: {
+        id: `priority-${index}`,
+        threadId: email.threadId,
+        from: email.from,
+        to: email.to,
+        subject: email.subject,
+        snippet: email.snippet,
+        labelIds: email.labelIds,
+        date: email.date,
+      },
     }));
 
   const scores = new Map<string, PriorityScore>();
@@ -992,13 +996,16 @@ export async function previewAutomationPriority(
     signal?.throwIfAborted();
     const batch = messages.slice(i, i + 50);
     const batchScores = await evaluatePriorityWithJev(
-      batch,
+      batch.map(({ summary }) => summary),
       instruction,
       ownerEmail,
       jevCredentials,
       signal,
     );
-    for (const [emailId, score] of batchScores) scores.set(emailId, score);
+    for (const { key, summary } of batch) {
+      const score = batchScores.get(summary.id);
+      if (score) scores.set(key, score);
+    }
   }
   return { scores, model };
 }

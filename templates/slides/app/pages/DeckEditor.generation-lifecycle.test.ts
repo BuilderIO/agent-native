@@ -156,10 +156,12 @@ describe("new-deck generation signal wiring", () => {
       "const isNewDeckGenerating =",
     );
     const progressEnd = deckEditorSource.indexOf(
-      "const { designSystem, imageStyleReferenceUrls }",
+      "const fillingPlaceholderSlideId =",
       progressStart,
     );
     const progressBody = deckEditorSource.slice(progressStart, progressEnd);
+    const lifecycleStart = deckEditorSource.indexOf("useNewDeckGeneration({");
+    const lifecycleBody = deckEditorSource.slice(lifecycleStart, progressStart);
     const cleanupStart = deckEditorSource.indexOf(
       "shouldClearNewDeckGeneratingState({",
     );
@@ -168,14 +170,17 @@ describe("new-deck generation signal wiring", () => {
 
     expect(deckEditorSource).toContain("} = useNewDeckGenerationSignal({");
     expect(deckEditorSource).toContain("tabId: generationAttemptTabId");
-    expect(progressBody).toContain("generating: newDeckGenerationSignal");
-    expect(progressBody).toContain(
-      "generationStarted: newDeckGenerationStarted",
+    expect(lifecycleBody).toContain("generating: newDeckGenerationSignal");
+    expect(lifecycleBody).toContain(
+      "waitingOnQuestions: waitingOnNewDeckQuestions",
     );
+    expect(progressBody).toContain("generating: newDeckGenerationSignal");
+    expect(progressBody).toContain("phase: newDeckGenerationPhase");
     expect(cleanupBody).toContain("generating: newDeckGenerationSignal");
     expect(cleanupBody).toContain(
-      "generationStarted: newDeckGenerationStarted",
+      "waitingOnQuestions: waitingOnNewDeckQuestions",
     );
+    expect(cleanupBody).toContain("phase: newDeckGenerationPhase");
     expect(cleanupBody).not.toContain("generating,");
   });
 });

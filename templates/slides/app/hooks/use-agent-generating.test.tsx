@@ -186,6 +186,20 @@ describe("useAgentGenerating", () => {
     window.removeEventListener(SLIDES_GENERATION_STARTED_EVENT, listener);
   });
 
+  it("preserves a submit id supplied by the new deck route", () => {
+    const { result } = renderHook(() => useAgentGenerating());
+
+    act(() =>
+      result.current.submit("Create a deck", "context", {
+        submitMessageId: "deck-submit-1",
+      }),
+    );
+
+    expect(agentChatState.send).toHaveBeenCalledWith(
+      expect.objectContaining({ submitMessageId: "deck-submit-1" }),
+    );
+  });
+
   it("scopes its chat status to a selected tab", () => {
     renderHook(() => useAgentGenerating({ tabId: "generation-tab" }));
     expect(agentChatState.tabId).toBe("generation-tab");

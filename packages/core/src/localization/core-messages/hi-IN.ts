@@ -274,6 +274,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "बताएँ कि आप कौन-सी स्किल बनाना चाहते हैं...",
   "composer.documentTooLarge":
     '"{{name}}" का आकार {{size}} MB है — संदेश सीमा के भीतर रखने के लिए {{label}} की अधिकतम सीमा {{maxSize}} MB है। कृपया फ़ाइल का आकार कम करें या उसे छोटे भागों में बाँटें।',
+  "composer.requestTooLarge":
+    "यह संदेश और इसके अटैचमेंट भेजने के लिए बहुत बड़े हैं। कोई अटैचमेंट हटाएँ या संदेश छोटा करें।",
   "composer.file": "फ़ाइल",
   "composer.imageModel": "इमेज मॉडल",
   "composer.imagePreview": "इमेज प्रीव्यू",

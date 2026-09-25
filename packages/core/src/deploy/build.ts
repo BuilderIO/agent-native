@@ -37,6 +37,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
+import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -86,6 +87,8 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  readFirstRunOnboardingBuildMarker,
+  resolveFirstRunOnboardingBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import {
   cloneServerBundleForFunction,
@@ -6132,6 +6135,7 @@ export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
+  firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6208,6 +6212,12 @@ export function resolveNitroBuildReplacements(
       JSON.stringify(
         env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || "",
       ),
+    // org/context.ts's eligibility-marker write must not read
+    // agent-native.json at runtime (not shipped into the deployed function),
+    // so embed the mode resolved from the full app config. "" is unknown.
+    "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
+      firstRunOnboardingMode,
+    ),
   };
 }
 
@@ -6350,6 +6360,12 @@ export default bundle;
     replace: resolveNitroBuildReplacements(
       nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
+      cwd,
+      readFirstRunOnboardingBuildMarker(cwd) ??
+        resolveFirstRunOnboardingBuildReplacement(
+          nitroAgentConfig,
+          nitroEnvironment,
+        ),
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real

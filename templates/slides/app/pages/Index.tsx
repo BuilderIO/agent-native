@@ -888,6 +888,7 @@ export default function Index() {
     const deckId = deck.id;
     const generationAttemptId = nanoid();
     let generationFailureTracked = false;
+    const generationSubmitMessageId = nanoid();
     trackEvent("generation_started", {
       app_name: "slides",
       template_name: "slides",
@@ -902,7 +903,7 @@ export default function Index() {
     // agent context hydration can take several seconds, so the editor's
     // generation state is the only useful surface while that work finishes.
     void navigate(
-      `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}`,
+      `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
       {
         replace: true,
         flushSync: true,
@@ -1200,6 +1201,7 @@ export default function Index() {
         newTab: true,
         reuseEmptyTab: true,
         openSidebar: true,
+        submitMessageId: generationSubmitMessageId,
         generationAttemptId,
         generationOutputId: deckId,
         ...getUploadedImageAgentOptions(filesForGeneration),

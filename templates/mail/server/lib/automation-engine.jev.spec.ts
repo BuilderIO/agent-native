@@ -68,7 +68,9 @@ vi.mock("./automation-model.js", () => ({
 vi.mock("./google-api.js", () => ({}));
 vi.mock("./google-auth.js", () => ({}));
 
+import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import {
+  previewAutomationPriority,
   previewAutomationRules,
   processAutomationsForAccount,
 } from "./automation-engine.js";
@@ -166,6 +168,35 @@ describe("Mail Jev automation routing", () => {
       expect.objectContaining({ model: "jev-latest" }),
       { timeoutMs: 12_000 },
     );
+  });
+
+  it("keeps Jev priority answers distinct for matching IDs across accounts", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({
+      answers: {
+        q_0: { noul: 0.2 },
+        q_1: { noul: 0.9 },
+      },
+    });
+    const result = await previewAutomationPriority(
+      [
+        { ...email, accountEmail: "first@example.test" },
+        { ...email, accountEmail: "second@example.test" },
+      ],
+      "owner@example.com",
+      "Prioritize work messages.",
+      { builderAuth } as never,
+    );
+
+    expect(
+      result.scores.get(aiPriorityEmailKey("first@example.test", email.id)),
+    ).toMatchObject({
+      score: 0.2,
+    });
+    expect(
+      result.scores.get(aiPriorityEmailKey("second@example.test", email.id)),
+    ).toMatchObject({
+      score: 0.9,
+    });
   });
 
   it("does not use a deployment key as direct fallback", async () => {

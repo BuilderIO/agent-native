@@ -56,6 +56,7 @@ type AgentGeneratingSubmitOptions = Pick<
   | "model"
   | "engine"
   | "effort"
+  | "submitMessageId"
 > & {
   reuseEmptyTab?: boolean;
   attachments?: ReadonlyArray<unknown>;
@@ -245,9 +246,15 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
       context: string,
       options?: AgentGeneratingSubmitOptions,
     ) => {
-      const { generationAttemptId, generationOutputId, ...agentOptions } =
-        options ?? {};
-      const submitMessageId = `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const {
+        generationAttemptId,
+        generationOutputId,
+        submitMessageId: requestedSubmitMessageId,
+        ...agentOptions
+      } = options ?? {};
+      const submitMessageId =
+        requestedSubmitMessageId ??
+        `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setTimedOut(false);
       setRunError(false);
       clearWatchdog();
