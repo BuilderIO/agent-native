@@ -1421,21 +1421,32 @@ describe("createAgentChatAdapter", () => {
 
     const prompt = "p".repeat(750_000);
     const pdfData = `data:application/pdf;base64,${"a".repeat(3_000_000)}`;
-    const fetchSpy = vi.fn().mockResolvedValueOnce(
-      sseResponse([
-        { type: "text", text: "I am reading the PDF." },
-        {
-          type: "error",
-          error: "The worker was interrupted.",
-          errorCode: "stale_run",
-          recoverable: true,
-        },
-      ]),
-    );
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith("/stream-token")) {
+        return Promise.resolve(jsonResponse({ token: "test-stream-token" }));
+      }
+      if (init?.method === "POST") {
+        return Promise.resolve(
+          sseResponse([
+            { type: "text", text: "I am reading the PDF." },
+            {
+              type: "error",
+              error: "The worker was interrupted.",
+              errorCode: "stale_run",
+              recoverable: true,
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse({ error: "unexpected request" }, 500),
+      );
+    });
     vi.stubGlobal("fetch", fetchSpy);
 
     const adapter = createAgentChatAdapter({
       apiUrl: "/_agent-native/agent-chat",
+      streamingUrl: "https://stream.example.com/agent-chat",
       tabId: "chat-oversized-recovery",
       threadId: "thread-oversized-recovery",
     });
@@ -1467,11 +1478,14 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(1000);
     const results = await promise;
     const posts = fetchSpy.mock.calls.filter(
-      ([url, init]) =>
-        url === "/_agent-native/agent-chat" && init?.method === "POST",
+      ([, init]) => init?.method === "POST",
+    );
+    const streamTokenRequests = fetchSpy.mock.calls.filter(([url]) =>
+      url.endsWith("/stream-token"),
     );
 
     expect(posts).toHaveLength(1);
+    expect(streamTokenRequests).toHaveLength(1);
     expect(
       new TextEncoder().encode(posts[0][1].body as string).byteLength,
     ).toBeLessThan(MAX_REQUEST_BODY_BYTES);

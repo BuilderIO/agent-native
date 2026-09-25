@@ -4243,12 +4243,6 @@ export function createAgentChatAdapter(
           try {
             runId = null;
             lastSeq = -1;
-            const requestTarget = await resolveChatRequestTarget(
-              headers,
-              abortSignal,
-              streamTransportFallbackUsed,
-            );
-            requestUsedStreamingOrigin = requestTarget.usesStreamingOrigin;
             const requestBody = JSON.stringify({
               message: currentMessageText,
               displayMessage: userMessageText,
@@ -4289,6 +4283,12 @@ export function createAgentChatAdapter(
                 retryable: false,
               });
             }
+            const requestTarget = await resolveChatRequestTarget(
+              headers,
+              abortSignal,
+              streamTransportFallbackUsed,
+            );
+            requestUsedStreamingOrigin = requestTarget.usesStreamingOrigin;
             const res = await fetchWithStartupTimeout(
               requestTarget.url,
               {
