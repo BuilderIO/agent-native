@@ -46,6 +46,7 @@ export interface ScreenVisualStyleChangeArgs {
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
       routePath?: string;
+      runtimeApplied?: boolean;
     },
   ) => void;
   overviewScreens: OverviewScreen[];
@@ -90,6 +91,7 @@ export function runScreenVisualStyleChange(
     originalStyles?: Record<string, string>;
     preserveSelection?: boolean;
     routePath?: string;
+    runtimeApplied?: boolean;
   },
 ) {
   const overviewScreen = overviewScreens.find(
@@ -119,13 +121,11 @@ export function runScreenVisualStyleChange(
   // pattern below.
   if (screenSourceType === "localhost") {
     if (!canEditScreen) return;
-    recordPendingVisualStyleEdit(
-      screenId,
-      selector,
-      styles,
-      elementInfo,
-      metadata,
-    );
+    recordPendingVisualStyleEdit(screenId, selector, styles, elementInfo, {
+      originalStyles: metadata?.originalStyles,
+      preserveSelection: metadata?.preserveSelection,
+      routePath: metadata?.routePath,
+    });
     return;
   }
   if (!canEditDesign) return;

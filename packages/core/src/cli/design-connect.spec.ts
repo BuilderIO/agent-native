@@ -716,6 +716,19 @@ describe("design connect bridge endpoints", () => {
       );
       expect(textPlainWrite.status).toBe(415);
 
+      const unwrapped = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          pendingEditCount: 2,
+          status: "ready",
+          prompt: "Unwrapped visual edits.",
+        },
+        auth,
+      );
+      expect(unwrapped.status).toBe(400);
+      expect(unwrapped.body.error).toBe("pending must be an object or null");
+
       const published = await postJson(
         `${base}/live-edit-pending`,
         {

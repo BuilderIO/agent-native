@@ -1163,6 +1163,7 @@ export default {
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
+      copyFullPrompt: "複製完整提示",
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
       sentToast: "樣式編輯已傳送給 Design 代理",
@@ -1174,6 +1175,8 @@ export default {
       sourceCheckFailedToast:
         "無法驗證連接的來源檔案。預覽已保留，您可以重試或復原。",
       copiedToast: "樣式提示已複製",
+      copiedToastDescription:
+        "將它貼到您的程式設計代理，並請它套用這些視覺變更。",
       abortedToast: "已捨棄待處理的預覽",
       interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
       leaveTitle: "離開前要套用設計更新嗎？",

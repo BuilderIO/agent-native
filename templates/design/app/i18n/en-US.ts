@@ -1201,6 +1201,7 @@ export default {
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
+      copyFullPrompt: "Copy full prompt",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Design updates sent to the agent",
@@ -1212,6 +1213,8 @@ export default {
       sourceCheckFailedToast:
         "Could not verify the connected source files. The preview was kept so you can retry or undo.",
       copiedToast: "Style prompt copied",
+      copiedToastDescription:
+        "Paste it into your coding agent and ask it to apply the visual changes.",
       abortedToast: "Pending preview discarded",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",

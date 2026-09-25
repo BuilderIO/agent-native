@@ -1163,6 +1163,7 @@ export default {
       verifying: "正在验证源文件和运行时…",
       retryWithAgent: "重试源文件验证",
       copyPrompt: "将提示复制给你的代理",
+      copyFullPrompt: "复制完整提示",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",
       sentToast: "设计更新已发送给代理",
@@ -1174,6 +1175,8 @@ export default {
       sourceCheckFailedToast:
         "无法验证已连接的源文件。预览已保留，你可以重试或撤销。",
       copiedToast: "样式提示已复制",
+      copiedToastDescription:
+        "将其粘贴到你的编程代理中，并让它应用这些视觉更改。",
       abortedToast: "待处理的预览已丢弃",
       interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
       leaveTitle: "离开前应用设计更新？",

@@ -1205,6 +1205,7 @@ export default {
       verifying: "ソースとランタイムを検証中…",
       retryWithAgent: "ソース検証を再試行",
       copyPrompt: "エージェントにプロンプトをコピー",
+      copyFullPrompt: "完全なプロンプトをコピー",
       abortPreview: "プレビューを中止して操作",
       agentMessage:
         "保留中のビジュアルスタイル編集をソースに適用してください。",
@@ -1217,6 +1218,8 @@ export default {
       sourceCheckFailedToast:
         "接続されたソースファイルを検証できませんでした。再試行または元に戻せるよう、プレビューは保持されています。",
       copiedToast: "スタイルプロンプトをコピーしました",
+      copiedToastDescription:
+        "コーディングエージェントに貼り付けて、ビジュアルの変更を適用するよう依頼してください。",
       abortedToast: "保留中のプレビューを破棄しました",
       interactBlocked:
         "操作モードに切り替える前に、保留中のライブ編集を適用するか中止してください。",

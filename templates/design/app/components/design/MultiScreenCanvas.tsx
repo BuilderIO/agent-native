@@ -141,6 +141,10 @@ import {
   parseGradientCss,
   type GradientStopValue,
 } from "./inspector/GradientEditor";
+import {
+  sendLinkedScreenPreviewCancelPendingDelete,
+  sendLinkedScreenPreviewPendingDelete,
+} from "./multi-screen/linked-screen-preview";
 import type {
   AltHoverMeasurement,
   AltHoverMeasurementLine,
@@ -1364,6 +1368,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const crossScreenDragMsgRef = useRef<{
     selector: string;
     sourceId?: string;
+    sourceDeleteRequestId?: string;
     sourceProvenance?: SourceNodeProvenance;
     sourcePointerOffset?: Point;
     sourceElementSize?: { width: number; height: number };
@@ -3402,6 +3407,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       payload: {
         selector: string;
         sourceId?: string;
+        sourceDeleteRequestId?: string;
         sourceProvenance?: SourceNodeProvenance;
         sourcePointerOffset?: Point;
         sourceElementSize?: { width: number; height: number };
@@ -3443,11 +3449,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         canvasMountedRef.current && crossScreenDropSeqRef.current === dropSeq;
       crossScreenLastBoardPointRef.current = null;
       const hasIdentifier = !!(payload.selector || payload.sourceId);
+      const sourceDeleteCandidates = [
+        payload.selector,
+        payload.sourceId
+          ? `[data-agent-native-node-id="${CSS.escape(payload.sourceId)}"]`
+          : "",
+      ].filter(Boolean);
+      const cancelPendingSourceDelete = () => {
+        if (!payload.sourceDeleteRequestId) return;
+        sendLinkedScreenPreviewCancelPendingDelete(sourceScreenId, {
+          selector: payload.selector,
+          selectorCandidates: sourceDeleteCandidates,
+          requestId: payload.sourceDeleteRequestId,
+        });
+      };
       if (!hasIdentifier || !sourceScreenId) {
+        cancelPendingSourceDelete();
         clearCrossScreenDrag();
         return;
       }
       if (!lastBoardPoint) {
+        cancelPendingSourceDelete();
         clearCrossScreenDrag();
         return;
       }
@@ -3464,6 +3486,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastBoardPoint.y >= sourceFrameGeometry.y &&
         lastBoardPoint.y <= sourceFrameGeometry.y + sourceFrameGeometry.height;
       if (droppedInsideSourceScreen) {
+        cancelPendingSourceDelete();
         clearCrossScreenDrag();
         return;
       }
@@ -3494,8 +3517,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceScreen: sourceScreenId,
           lastBoardPoint,
         });
+        cancelPendingSourceDelete();
         clearCrossScreenDrag();
         return;
+      }
+      const shouldPreviewSourceDelete =
+        !payload.duplicate &&
+        Boolean(payload.sourceDeleteRequestId) &&
+        editableScreenIds?.has(sourceScreenId) === true &&
+        (targetCandidate.id === boardFileId ||
+          editableScreenIds?.has(targetCandidate.id) === true);
+      if (payload.sourceDeleteRequestId) {
+        if (shouldPreviewSourceDelete) {
+          sendLinkedScreenPreviewPendingDelete(sourceScreenId, {
+            selector: payload.selector,
+            selectorCandidates: sourceDeleteCandidates,
+            requestId: payload.sourceDeleteRequestId,
+          });
+        } else {
+          cancelPendingSourceDelete();
+        }
       }
       crossScreenHostCommittedRef.current = true;
       if (targetCandidate.id === boardFileId) {
@@ -3551,7 +3592,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             dropMode,
             anchorRect,
           }) => {
-            if (!isCurrentDrop()) return;
+            if (!isCurrentDrop()) {
+              cancelPendingSourceDelete();
+              return;
+            }
             const hasAnchor = Boolean(
               anchorNodeId || pendingNodeId || anchorSelector,
             );
@@ -3560,6 +3604,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onCrossScreenElementDropRef.current?.({
               sourceSelector: payload.selector,
               sourceNodeId: payload.sourceId,
+              sourceDeleteRequestId: payload.sourceDeleteRequestId,
               sourceProvenance: payload.sourceProvenance,
               targetAnchorProvenance,
               sourceScreenId,
@@ -3603,8 +3648,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               finishBoardCrossScreenDrop({
                 preserveTransaction: transactionBeforeDrop !== null,
               });
+              cancelPendingSourceDelete();
             }
           },
+          () => cancelPendingSourceDelete(),
         );
         return;
       }
@@ -3623,7 +3670,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           dropMode,
           anchorRect,
         }) => {
-          if (!isCurrentDrop()) return;
+          if (!isCurrentDrop()) {
+            cancelPendingSourceDelete();
+            return;
+          }
           const targetAnchorPlacement = isCrossScreenDropPlacement(placement)
             ? placement
             : undefined;
@@ -3631,9 +3681,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             targetCandidate,
             lastBoardPoint,
           );
+          const transactionBeforeDrop =
+            runtimeStructurePendingTransactionRef?.current ?? null;
           onCrossScreenElementDropRef.current?.({
             sourceSelector: payload.selector,
             sourceNodeId: payload.sourceId,
+            sourceDeleteRequestId: payload.sourceDeleteRequestId,
             sourceProvenance: payload.sourceProvenance,
             targetAnchorProvenance,
             sourceScreenId,
@@ -3657,7 +3710,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             styleSnapshot: payload.styleSnapshot,
             styleSnapshotCaptureFailed: payload.styleSnapshotCaptureFailed,
           });
+          const transactionAfterDrop =
+            runtimeStructurePendingTransactionRef?.current ?? null;
+          if (
+            !transactionAfterDrop ||
+            transactionAfterDrop === transactionBeforeDrop
+          ) {
+            cancelPendingSourceDelete();
+          }
         },
+        () => cancelPendingSourceDelete(),
       );
     };
 
@@ -3696,6 +3758,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         screenId?: string;
         selector?: string;
         sourceId?: string;
+        sourceDeleteRequestId?: string;
         sourceProvenance?: unknown;
         iframeX?: number;
         iframeY?: number;
@@ -3836,6 +3899,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         crossScreenDragMsgRef.current = {
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
+          sourceDeleteRequestId: msg.sourceDeleteRequestId,
           sourceProvenance,
           sourcePointerOffset,
           sourceElementSize,
@@ -3910,6 +3974,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const payload = crossScreenDragMsgRef.current ?? {
             selector: msg.selector ?? "",
             sourceId: msg.sourceId,
+            sourceDeleteRequestId: msg.sourceDeleteRequestId,
             sourceProvenance,
             sourcePointerOffset,
             sourceElementSize,
@@ -4091,6 +4156,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceId: crossScreenDragMsgRef.current
             ? crossScreenDragMsgRef.current.sourceId
             : sourceId,
+          sourceDeleteRequestId:
+            crossScreenDragMsgRef.current?.sourceDeleteRequestId ??
+            msg.sourceDeleteRequestId,
           sourceProvenance: crossScreenDragMsgRef.current
             ? crossScreenDragMsgRef.current.sourceProvenance
             : sourceProvenance,
@@ -4190,6 +4258,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           : {
               selector: msg.selector ?? "",
               sourceId: msg.sourceId,
+              sourceDeleteRequestId: msg.sourceDeleteRequestId,
               sourceProvenance,
               sourcePointerOffset,
               sourceElementSize,

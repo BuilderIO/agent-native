@@ -149,3 +149,103 @@ describe("a canceled style gesture", () => {
     expect(commitVisualStyles).not.toHaveBeenCalled();
   });
 });
+
+describe("a batched edit from a non-active screen", () => {
+  it("keeps the selected screen identity for preview and commit", () => {
+    const sent: Array<{
+      screenId: string;
+      selector: string;
+      styles: Record<string, string>;
+      phase?: string;
+    }> = [];
+    const selectedElement = elementInfo();
+    selectedElement.sourceLayerIdentity = {
+      screenId: "library",
+      nodeId: "library-button",
+    };
+    const args = {
+      commitInteractionStateStyles: vi.fn(() => false),
+      commitRelativeStyleDeltaToSelectedLayers: vi.fn(() => false),
+      commitStylesToSelectedLayers: vi.fn(() => false),
+      commitCapturedStyleTargets: () => {},
+      commitVisualStyles: vi.fn(),
+      handleClearBreakpointOverride: vi.fn(() => false),
+      previewInteractionStateStyles: vi.fn(),
+      selectedCanvasSelectorCandidates: [],
+      selectedElement,
+      selectedScreenStyleChange: (
+        screenId: string,
+        selector: string,
+        styles: Record<string, string>,
+        _elementInfo?: ElementInfo,
+        metadata?: { phase?: string },
+      ) => sent.push({ screenId, selector, styles, phase: metadata?.phase }),
+      selectedLayerTargetsRef: { current: [] },
+      textEditingState: { active: false },
+    };
+
+    runStylesChange(
+      args,
+      { opacity: "0.5", borderRadius: "12px" },
+      { phase: "preview" },
+    );
+    runStylesChange(
+      args,
+      { opacity: "0.5", borderRadius: "12px" },
+      { phase: "commit" },
+    );
+
+    expect(sent).toEqual([
+      {
+        screenId: "library",
+        selector: ROW_SELECTOR,
+        styles: { opacity: "0.5", borderRadius: "12px" },
+        phase: "preview",
+      },
+      {
+        screenId: "library",
+        selector: ROW_SELECTOR,
+        styles: { opacity: "0.5", borderRadius: "12px" },
+        phase: "commit",
+      },
+    ]);
+  });
+
+  it("routes a scrub commit to the selected screen before relative fallback", () => {
+    const selectedScreenStyleChange = vi.fn();
+    const commitRelativeStyleDeltaToSelectedLayers = vi.fn(() => true);
+    const selectedElement = elementInfo();
+    selectedElement.sourceLayerIdentity = {
+      screenId: "library",
+      nodeId: "library-row",
+    };
+
+    runStylesChange(
+      {
+        commitInteractionStateStyles: vi.fn(() => false),
+        commitRelativeStyleDeltaToSelectedLayers,
+        commitStylesToSelectedLayers: vi.fn(() => false),
+        commitCapturedStyleTargets: () => {},
+        commitVisualStyles: vi.fn(),
+        handleClearBreakpointOverride: vi.fn(() => false),
+        previewInteractionStateStyles: vi.fn(),
+        selectedCanvasSelectorCandidates: [],
+        selectedElement,
+        selectedScreenStyleChange,
+        selectedLayerTargetsRef: { current: [] },
+        textEditingState: { active: false },
+      },
+      { width: "220px" },
+      { phase: "commit", relativeDelta: 10 },
+    );
+
+    expect(selectedScreenStyleChange).toHaveBeenCalledWith(
+      "library",
+      ROW_SELECTOR,
+      { width: "220px" },
+      selectedElement,
+      expect.objectContaining({ relativeDelta: 10 }),
+    );
+    expect(commitRelativeStyleDeltaToSelectedLayers).not.toHaveBeenCalled();
+  });
+});

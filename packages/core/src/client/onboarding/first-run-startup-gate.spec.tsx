@@ -96,6 +96,31 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBeNull();
   });
 
+  it("treats an inaccessible cookie as absent in a sandboxed embed", () => {
+    const cookie = vi
+      .spyOn(document, "cookie", "get")
+      .mockImplementation(() => {
+        throw new DOMException("Sandboxed document", "SecurityError");
+      });
+
+    try {
+      act(() => {
+        root.render(
+          <FirstRunOnboardingStartupGate>
+            <div data-testid="app-content">app</div>
+          </FirstRunOnboardingStartupGate>,
+        );
+      });
+    } finally {
+      cookie.mockRestore();
+    }
+
+    expect(mocks.fetchStatus).not.toHaveBeenCalled();
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+  });
+
   it("holds the app behind a neutral screen while eligibility is unresolved", () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);

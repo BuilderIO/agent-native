@@ -247,6 +247,111 @@ describe("DesignCanvas one-shot bridge queue", () => {
     ]);
   });
 
+  it("keeps a live iframe bridge ready when its source snapshot key changes", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    const render = async (contentKey: string) => {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/"
+            contentKey={contentKey}
+            screenId="screen-live"
+            sourceType="localhost"
+            bridgeUrl={bridgeUrl}
+            previewToken="snapshot-refresh-preview-token"
+            zoom={100}
+            deviceFrame="none"
+            editMode
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+    };
+
+    await render("snapshot-before");
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    const posted: unknown[] = [];
+    iframeWindow.postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    posted.length = 0;
+
+    await render("snapshot-after");
+    expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
+      iframe,
+    );
+    posted.length = 0;
+    const sendStyleChange = (
+      window as unknown as {
+        __designCanvasSendStyleForScreen?: (
+          screenId: string,
+          selector: string,
+          property: string,
+          value: string,
+        ) => boolean;
+      }
+    ).__designCanvasSendStyleForScreen;
+    expect(sendStyleChange).toBeTypeOf("function");
+    await act(async () => {
+      expect(sendStyleChange!("screen-live", "#probe", "opacity", "0.5")).toBe(
+        true,
+      );
+    });
+
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: "style-change",
+        selector: "#probe",
+        property: "opacity",
+        value: "0.5",
+      }),
+    );
+  });
+
   it("does not roll back a runtime insert from its informational structure echo", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -566,30 +671,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       sourceId: "card",
       styles: { color: "red" },
     };
-    await render("screen-live", "screen-live-remount", [pendingPatch]);
-    expect(typesOf("style-change")).toHaveLength(0);
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "agent-native:text-edit-status-result",
-            correlationId: "",
-            status: false,
-          },
-          origin: bridgeUrl,
-          source: iframeWindow,
-        }),
-      );
-    });
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
-          origin: bridgeUrl,
-          source: iframeWindow,
-        }),
-      );
-    });
+    await render("screen-live", "screen-live-snapshot-refresh", [pendingPatch]);
     expect(typesOf("style-change")).toContainEqual({
       type: "style-change",
       selector: "#card",

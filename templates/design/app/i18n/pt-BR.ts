@@ -1202,6 +1202,7 @@ export default {
       verifying: "Verificando origem e runtime…",
       retryWithAgent: "Tentar verificar a origem novamente",
       copyPrompt: "Copiar prompt para seu agente",
+      copyFullPrompt: "Copiar o prompt completo",
       abortPreview: "Cancelar prévia e interagir",
       agentMessage: "Aplique as edições visuais de estilo pendentes à origem.",
       sentToast: "Atualizações de design enviadas ao agente",
@@ -1213,6 +1214,8 @@ export default {
       sourceCheckFailedToast:
         "Não foi possível verificar os arquivos de origem conectados. A prévia foi mantida para tentar novamente ou desfazer.",
       copiedToast: "Prompt de estilo copiado",
+      copiedToastDescription:
+        "Cole no seu agente de programação e peça para aplicar as alterações visuais.",
       abortedToast: "Prévia pendente descartada",
       interactBlocked:
         "Aplique ou cancele as edições ao vivo pendentes antes de mudar para Interagir.",

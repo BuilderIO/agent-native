@@ -1187,6 +1187,7 @@ export default {
       verifying: "Source और runtime सत्यापित हो रहे हैं…",
       retryWithAgent: "Source verification फिर करें",
       copyPrompt: "Prompt अपने agent को कॉपी करें",
+      copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",
       sentToast: "Design updates agent को भेजे गए",
@@ -1198,6 +1199,8 @@ export default {
       sourceCheckFailedToast:
         "Connected source files सत्यापित नहीं हो सके। Retry या undo के लिए preview रखा गया है।",
       copiedToast: "Style prompt कॉपी हुआ",
+      copiedToastDescription:
+        "इसे अपने कोडिंग एजेंट में पेस्ट करें और उससे विज़ुअल बदलाव लागू करने को कहें।",
       abortedToast: "लंबित preview हटा दिया गया",
       interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
       leaveTitle: "छोड़ने से पहले design updates लागू करें?",

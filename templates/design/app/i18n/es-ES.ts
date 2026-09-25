@@ -1206,6 +1206,7 @@ export default {
       verifying: "Verificando el código y el runtime…",
       retryWithAgent: "Reintentar verificación del código",
       copyPrompt: "Copiar prompt a tu agente",
+      copyFullPrompt: "Copiar el prompt completo",
       abortPreview: "Cancelar vista previa e interactuar",
       agentMessage:
         "Aplica las ediciones visuales de estilo pendientes al código fuente.",
@@ -1218,6 +1219,8 @@ export default {
       sourceCheckFailedToast:
         "No se pudieron verificar los archivos conectados. Se conservó la vista previa para reintentar o deshacer.",
       copiedToast: "Prompt de estilo copiado",
+      copiedToastDescription:
+        "Pégalo en tu agente de programación y pídele que aplique los cambios visuales.",
       abortedToast: "Vista previa pendiente descartada",
       interactBlocked:
         "Aplica o cancela las ediciones en vivo pendientes antes de cambiar a Interactuar.",

@@ -343,7 +343,10 @@ import {
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
-import { sendLinkedScreenPreviewInteractionStateStyle } from "@/components/design/multi-screen/linked-screen-preview";
+import {
+  sendLinkedScreenPreviewInteractionStateStyle,
+  sendLinkedScreenPreviewStyleChange,
+} from "@/components/design/multi-screen/linked-screen-preview";
 import {
   designPreviewWindows,
   designPreviewWindowsForScreen,
@@ -993,6 +996,7 @@ import {
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
   getPendingVisualEditCount,
+  isVisualEditHandoffAcknowledged,
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
   pendingLiveStructureEditsFromEdit,
@@ -2184,6 +2188,33 @@ function DesignEditor() {
   );
   const canEditSelectedLiveLayerRef = useRef(false);
   const selectedLayerTargetsRef = useRef<SelectedLayerTarget[]>([]);
+  const selectedScreenStyleChangeRef = useRef<
+    | ((
+        screenId: string,
+        selector: string,
+        styles: Record<string, string>,
+        elementInfo?: ElementInfo,
+        metadata?: StyleChangeMeta,
+      ) => void)
+    | null
+  >(null);
+  const routeSelectedScreenStyleChange = useCallback(
+    (
+      screenId: string,
+      selector: string,
+      styles: Record<string, string>,
+      elementInfo?: ElementInfo,
+      metadata?: StyleChangeMeta,
+    ) =>
+      selectedScreenStyleChangeRef.current?.(
+        screenId,
+        selector,
+        styles,
+        elementInfo,
+        metadata,
+      ),
+    [],
+  );
   const renderedElementInfoByLayerKeyRef = useRef<Map<string, ElementInfo>>(
     new Map(),
   );
@@ -6574,7 +6605,7 @@ function DesignEditor() {
   // grant a local capability without a normal Design sign-in. Gating this on
   // `isSignedIn` would leave that user unable to grant write consent.
   useEffect(() => {
-    if (!id || !canEditDesign) return;
+    if (!id) return;
     let cancelled = false;
     const key = `design-localhost-write-consent-request:${id}`;
     void (async () => {
@@ -13364,6 +13395,7 @@ function DesignEditor() {
     (property: string, value: string, meta?: StyleChangeMeta) =>
       runStyleChange(
         {
+          canEditLiveScreen,
           commitInteractionStateStyles,
           commitRelativeStyleDeltaToSelectedLayers: (
             property,
@@ -13393,6 +13425,7 @@ function DesignEditor() {
           previewInteractionStateStyles,
           selectedCanvasSelectorCandidates,
           selectedElement,
+          selectedScreenStyleChange: routeSelectedScreenStyleChange,
           selectedLayerTargetsRef,
           textEditingState,
         },
@@ -13402,6 +13435,7 @@ function DesignEditor() {
       ),
     [
       commitInteractionStateStyles,
+      canEditLiveScreen,
       previewInteractionStateStyles,
       commitRelativeStyleDeltaToSelectedLayers,
       commitStylesToSelectedLayers,
@@ -13412,6 +13446,7 @@ function DesignEditor() {
       selectedElement?.selector,
       selectedElement?.sourceId,
       selectedCanvasSelectorCandidates,
+      routeSelectedScreenStyleChange,
       textEditingState.active,
       textEditingState.hasRange,
       textEditingState.selector,
@@ -13499,6 +13534,7 @@ function DesignEditor() {
     (styles: Record<string, string>, meta?: StyleChangeMeta) =>
       runStylesChange(
         {
+          canEditLiveScreen,
           commitInteractionStateStyles,
           commitRelativeStyleDeltaToSelectedLayers: (
             property,
@@ -13528,6 +13564,7 @@ function DesignEditor() {
           previewInteractionStateStyles,
           selectedCanvasSelectorCandidates,
           selectedElement,
+          selectedScreenStyleChange: routeSelectedScreenStyleChange,
           selectedLayerTargetsRef,
           textEditingState,
         },
@@ -13536,6 +13573,7 @@ function DesignEditor() {
       ),
     [
       commitInteractionStateStyles,
+      canEditLiveScreen,
       previewInteractionStateStyles,
       commitRelativeStyleDeltaToSelectedLayers,
       commitStylesToSelectedLayers,
@@ -13546,6 +13584,7 @@ function DesignEditor() {
       selectedCanvasSelectorCandidates,
       selectedElement?.selector,
       selectedElement?.sourceId,
+      routeSelectedScreenStyleChange,
       textEditingState.active,
       textEditingState.hasRange,
       textEditingState.selector,
@@ -13623,6 +13662,7 @@ function DesignEditor() {
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
         routePath?: string;
+        runtimeApplied?: boolean;
       },
     ) => {
       if (!activeFile?.id) return;
@@ -13661,7 +13701,7 @@ function DesignEditor() {
       });
       const affectsEveryRow = gestureTarget !== selector;
       commitVisualStyles(gestureTarget, styles, {
-        runtimeApplied: !affectsEveryRow,
+        runtimeApplied: metadata?.runtimeApplied ?? !affectsEveryRow,
         elementInfo,
         originalStyles: metadata?.originalStyles,
         preserveSelection: metadata?.preserveSelection,
@@ -14041,6 +14081,8 @@ function DesignEditor() {
         phase?: "preview" | "commit";
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
+        routePath?: string;
+        runtimeApplied?: boolean;
       },
     ) =>
       runScreenVisualStyleChange(
@@ -14078,6 +14120,123 @@ function DesignEditor() {
       recordPendingVisualStyleEdit,
     ],
   );
+
+  const handleInspectorScreenStyleChange = useCallback(
+    (
+      screenId: string,
+      selector: string,
+      styles: Record<string, string>,
+      elementInfo?: ElementInfo,
+      metadata?: StyleChangeMeta,
+    ) => {
+      if (!canEditDesign && !canEditLiveScreen(screenId)) return;
+      const selectorCandidates = Array.from(
+        new Set(
+          [
+            selector,
+            elementInfo?.runtimeSelector,
+            elementInfo?.selector,
+            ...selectedCanvasSelectorCandidates,
+          ].filter((candidate): candidate is string => Boolean(candidate)),
+        ),
+      );
+      const interactionState = metadata?.interactionState;
+      if (interactionState) {
+        const routePath =
+          metadata.routePath ?? liveRoutePathsByScreenIdRef.current[screenId];
+        const previewInteractionState = (nextStyles: Record<string, string>) =>
+          sendLinkedScreenPreviewInteractionStateStyle(screenId, {
+            routePath,
+            selector,
+            selectorCandidates,
+            nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId ?? "",
+            state: interactionState,
+            styles: nextStyles,
+          });
+        if (metadata.phase === "preview" || metadata.phase === "cancel") {
+          previewInteractionState(styles);
+          return;
+        }
+        const screenSourceType = resolveOverviewScreenSourceType(
+          overviewScreens.find((screen) => screen.id === screenId),
+          designSourceType,
+        );
+        if (isRunningAppSourceType(screenSourceType)) {
+          if (screenId === activeFile?.id) {
+            commitInteractionStateStyles(interactionState, styles);
+          } else {
+            recordPendingVisualStyleEdit(
+              screenId,
+              selector,
+              styles,
+              elementInfo,
+              { interactionState, routePath },
+            );
+            previewInteractionState(styles);
+          }
+          return;
+        }
+        if (!canEditDesign || !elementInfo?.sourceId) return;
+        if (screenId === activeFile?.id) {
+          commitInteractionStateStyles(interactionState, styles);
+          return;
+        }
+        const baseContent = getScreenContent(screenId);
+        const nextContent = applyInteractionStateStyleCommit(
+          baseContent,
+          elementInfo.sourceId,
+          interactionState,
+          styles,
+          activeBreakpointUpperBoundPx,
+        );
+        if (nextContent === baseContent) return;
+        applyFileContentUpdate(screenId, nextContent, {
+          refreshPreview: false,
+          forcePreviewFullDocument: true,
+        });
+        previewInteractionState(
+          Object.fromEntries(
+            Object.keys(styles).map((property) => [property, ""]),
+          ),
+        );
+        return;
+      }
+      for (const [property, value] of Object.entries(styles)) {
+        sendLinkedScreenPreviewStyleChange(
+          screenId,
+          selector,
+          property,
+          value,
+          {
+            selectorCandidates,
+            nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
+          },
+        );
+      }
+      if (metadata?.phase === "preview" || metadata?.phase === "cancel") return;
+      handleScreenVisualStyleChange(screenId, selector, styles, elementInfo, {
+        phase: metadata?.phase === "commit" ? "commit" : undefined,
+        runtimeApplied: true,
+        routePath:
+          metadata?.routePath ?? liveRoutePathsByScreenIdRef.current[screenId],
+      });
+    },
+    [
+      activeBreakpointUpperBoundPx,
+      activeFile?.id,
+      applyFileContentUpdate,
+      canEditDesign,
+      canEditLiveScreen,
+      commitInteractionStateStyles,
+      designSourceType,
+      getScreenContent,
+      handleScreenVisualStyleChange,
+      overviewScreens,
+      recordPendingVisualStyleEdit,
+      selectedCanvasSelectorCandidates,
+    ],
+  );
+  selectedScreenStyleChangeRef.current = handleInspectorScreenStyleChange;
 
   const handleScreenVisualStructureChange = useCallback(
     (
@@ -16541,6 +16700,7 @@ function DesignEditor() {
     (arg0: {
       sourceSelector: string;
       sourceNodeId?: string;
+      sourceDeleteRequestId?: string;
       sourceProvenance?: SourceNodeProvenance;
       targetAnchorProvenance?: SourceNodeProvenance;
       sourceScreenId: string;
@@ -19647,6 +19807,19 @@ function DesignEditor() {
       ),
     [pendingLiveNonStyleEdits, pendingVisualStyleEdits],
   );
+  const pendingVisualEditHandoffQuery = useActionQuery<{
+    status: "empty" | "ready";
+    revision: number | null;
+  }>(
+    "get-visual-edit-pending",
+    { designId: id! },
+    {
+      enabled: Boolean(id) && canEditDesign && pendingVisualEditCount > 0,
+      refetchInterval:
+        canEditDesign && pendingVisualEditCount > 0 ? 10_000 : false,
+      refetchIntervalInBackground: false,
+    },
+  );
   useEffect(() => {
     if (!id) return;
     if (pendingVisualEditCount > 0) {
@@ -19734,7 +19907,7 @@ function DesignEditor() {
     ],
   );
   useEffect(() => {
-    if (!id) return;
+    if (!id || !canEditDesign) return;
     if (
       pendingVisualEditCount === 0 &&
       pendingVisualEditClearRequestedRef.current !== id &&
@@ -19770,25 +19943,29 @@ function DesignEditor() {
     }
     const clearRequested = pending.pending === null;
     const publish = async () => {
-      try {
-        await callAction("publish-visual-edit-pending", pending);
-        setPendingVisualEditPublicationFailed(false);
-        if (
-          clearRequested &&
-          pendingVisualEditClearRequestedRef.current === id
-        ) {
-          pendingVisualEditClearRequestedRef.current = null;
-          pendingVisualEditHadPendingRef.current = null;
+      if (canEditDesign) {
+        try {
+          await callAction("publish-visual-edit-pending", pending);
+          setPendingVisualEditPublicationFailed(false);
+          if (
+            clearRequested &&
+            pendingVisualEditClearRequestedRef.current === id
+          ) {
+            pendingVisualEditClearRequestedRef.current = null;
+            pendingVisualEditHadPendingRef.current = null;
+          }
+        } catch (error) {
+          console.error(
+            "[design:visual-edit] durable handoff publication failed",
+            error,
+          );
+          setPendingVisualEditPublicationFailed(true);
+          toast.error(t("designEditor.toasts.codingHandoffError"), {
+            id: "design-visual-edit-pending-publication",
+          });
         }
-      } catch (error) {
-        console.error(
-          "[design:visual-edit] durable handoff publication failed",
-          error,
-        );
-        setPendingVisualEditPublicationFailed(true);
-        toast.error(t("designEditor.toasts.codingHandoffError"), {
-          id: "design-visual-edit-pending-publication",
-        });
+      } else {
+        setPendingVisualEditPublicationFailed(false);
       }
 
       if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
@@ -19801,7 +19978,7 @@ function DesignEditor() {
               "content-type": "application/json",
               "x-design-preview-token": activeScreenPreviewToken,
             },
-            body: JSON.stringify(pending.pending),
+            body: JSON.stringify(pending),
           },
         );
         if (!response.ok) {
@@ -19828,10 +20005,45 @@ function DesignEditor() {
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
+    canEditDesign,
     id,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
     t,
+  ]);
+  useEffect(() => {
+    if (
+      !id ||
+      !canEditDesign ||
+      pendingVisualEditHadPendingRef.current !== id ||
+      pendingVisualEditClearRequestedRef.current === id
+    ) {
+      return;
+    }
+    const localPendingCount =
+      pendingVisualStyleEditsRef.current.length +
+      pendingLiveNonStyleEditsRef.current.length;
+    const currentRevision = pendingVisualEditPublicationRevisionRef.current;
+    const handoff = pendingVisualEditHandoffQuery.data;
+    if (
+      !handoff ||
+      !isVisualEditHandoffAcknowledged({
+        currentRevision,
+        pendingEditCount: localPendingCount,
+        revision: handoff.revision,
+        status: handoff.status,
+      })
+    ) {
+      return;
+    }
+    clearPendingLiveEditStateRef.current();
+  }, [
+    clearPendingLiveEditState,
+    canEditDesign,
+    id,
+    pendingLiveNonStyleEdits,
+    pendingVisualEditHandoffQuery.data,
+    pendingVisualStyleEdits,
   ]);
   const visualEditPromptResult = useCallback<
     () => VisualEditPromptResult
@@ -19947,40 +20159,45 @@ function DesignEditor() {
     requestPendingVisualStyleRevert,
     t,
   ]);
-  const handleCopyPendingVisualStylePrompt = useCallback(async () => {
-    if (
-      pendingVisualStyleEdits.length === 0 &&
-      pendingLiveNonStyleEdits.length === 0
-    ) {
-      return;
-    }
-    try {
-      const host =
-        externalAgentHost?.id === "chatgpt" ||
-        externalAgentHost?.id === "claude"
-          ? externalAgentHost.id
-          : pageHasWebMcpHost()
-            ? "webmcp"
-            : null;
-      const clipboardPrompt = formatVisualEditClipboardPrompt(
-        pendingVisualStylePrompt,
-        host,
-      );
-      if (!(await writeClipboardText(clipboardPrompt))) {
-        toast.error(t("designEditor.toasts.clipboardBlocked"));
+  const handleCopyPendingVisualStylePrompt = useCallback(
+    async (fullPrompt = false) => {
+      if (
+        pendingVisualStyleEdits.length === 0 &&
+        pendingLiveNonStyleEdits.length === 0
+      ) {
         return;
       }
-      toast.success(t("designEditor.pendingVisualStyles.copiedToast"));
-    } catch {
-      toast.error(t("designEditor.toasts.clipboardBlocked"));
-    }
-  }, [
-    pendingLiveNonStyleEdits.length,
-    pendingVisualStyleEdits.length,
-    pendingVisualStylePrompt,
-    externalAgentHost,
-    t,
-  ]);
+      try {
+        const host =
+          externalAgentHost?.id ?? (pageHasWebMcpHost() ? "webmcp" : null);
+        const clipboardPrompt = formatVisualEditClipboardPrompt(
+          pendingVisualStylePrompt,
+          host,
+          fullPrompt,
+          id,
+        );
+        if (!(await writeClipboardText(clipboardPrompt))) {
+          toast.error(t("designEditor.toasts.clipboardBlocked"));
+          return;
+        }
+        toast.success(t("designEditor.pendingVisualStyles.copiedToast"), {
+          description: t(
+            "designEditor.pendingVisualStyles.copiedToastDescription",
+          ),
+        });
+      } catch {
+        toast.error(t("designEditor.toasts.clipboardBlocked"));
+      }
+    },
+    [
+      pendingLiveNonStyleEdits.length,
+      pendingVisualStyleEdits.length,
+      pendingVisualStylePrompt,
+      externalAgentHost,
+      id,
+      t,
+    ],
+  );
 
   // ── Export: HTML, ZIP, PNG, PDF, SVG, Figma ────────────────────────────────
   const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
@@ -28121,7 +28338,7 @@ function DesignEditor() {
                           onClick={
                             canApplyPendingVisualEditsWithAgent
                               ? handleApplyPendingVisualStylesWithAgent
-                              : handleCopyPendingVisualStylePrompt
+                              : () => handleCopyPendingVisualStylePrompt(false)
                           }
                         >
                           {applyingViaHost ? (
@@ -28170,11 +28387,23 @@ function DesignEditor() {
                                 )}
                               </DropdownMenuLabel>
                               <DropdownMenuItem
-                                onClick={handleCopyPendingVisualStylePrompt}
+                                onClick={() =>
+                                  handleCopyPendingVisualStylePrompt(false)
+                                }
                               >
                                 <IconClipboard className="mr-2 h-4 w-4" />
                                 {t(
                                   "designEditor.pendingVisualStyles.copyPrompt",
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleCopyPendingVisualStylePrompt(true)
+                                }
+                              >
+                                <IconClipboard className="mr-2 h-4 w-4" />
+                                {t(
+                                  "designEditor.pendingVisualStyles.copyFullPrompt",
                                 )}
                               </DropdownMenuItem>
                               <DropdownMenuItem

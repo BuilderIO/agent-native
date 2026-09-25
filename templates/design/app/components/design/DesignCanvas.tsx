@@ -1738,6 +1738,15 @@ export function DesignCanvas({
   const liveRoutePathRef = useRef<string | null>(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
   const pendingOneShotMessagesRef = useRef<unknown[]>([]);
+  const pendingRuntimeDeletePreviewRef = useRef<{
+    requestId: string;
+    selector: string;
+    selectorCandidates: string[];
+    transactionId?: string;
+    documentIdentity: string | null;
+    awaitingTransaction: boolean;
+  } | null>(null);
+  const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
   const flushPendingOneShotMessages = useCallback(() => {
     const iframe = iframeRef.current;
     const win = iframe?.contentWindow;
@@ -3372,17 +3381,16 @@ export function DesignCanvas({
       previousContentKeyRef.current = contentKey;
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
-      // A content-key change rebuilds srcdoc, which reloads the iframe with a
-      // brand-new document. The previous document's ready handshake (and any
-      // one-shot commands still queued against it) no longer apply — reset
-      // synchronously here rather than on the iframe's `load` event, since
-      // `load` fires AFTER the freshly (re)injected editor-chrome bridge script
-      // has already run and posted its own new ready message; resetting on
-      // `load` would incorrectly clobber that just-arrived ready signal.
-      bridgeReadyRef.current = false;
-      editorChromeReadyRef.current = false;
-      bootReadyRef.current = false;
-      pendingOneShotMessagesRef.current = [];
+      // A content-key change rebuilds srcdoc, but a URL-backed preview keeps
+      // its live document. Its bridge readiness and queued edits remain valid.
+      if (!externalPreviewUrl) {
+        // Reset synchronously rather than on `load`: load fires after the new
+        // srcdoc bridge has already posted its ready handshake.
+        bridgeReadyRef.current = false;
+        editorChromeReadyRef.current = false;
+        bootReadyRef.current = false;
+        pendingOneShotMessagesRef.current = [];
+      }
       setRenderedDocument({
         content,
         sourceContent: authoredSourceContent ?? content,
@@ -3396,6 +3404,7 @@ export function DesignCanvas({
   }, [
     content,
     contentKey,
+    externalPreviewUrl,
     runtimeReplacementContent,
     runtimeReplacementKey,
     authoredSourceContent,
@@ -3844,9 +3853,62 @@ export function DesignCanvas({
         // document's ready handshake clears this fallback again.
         if (usesLiveEditEditorBridge) {
           bootReadyRef.current = false;
+          bridgeReadyRef.current = false;
+          editorChromeReadyRef.current = false;
           liveRoutePathRef.current = null;
           onBootStart?.();
           setReadyIframeDocumentIdentity(null);
+          const pendingDelete =
+            runtimeStructureDeleteRequest ??
+            pendingRuntimeDeletePreviewRef.current;
+          if (pendingDelete) {
+            const queueOnce = (message: Record<string, unknown>) => {
+              const alreadyQueued = pendingOneShotMessagesRef.current.some(
+                (queued) =>
+                  (queued as { type?: unknown; requestId?: unknown } | null)
+                    ?.type === message.type &&
+                  (queued as { requestId?: unknown } | null)?.requestId ===
+                    message.requestId,
+              );
+              if (!alreadyQueued) {
+                pendingOneShotMessagesRef.current.push(message);
+              }
+            };
+            queueOnce({
+              type: "pending-delete-element",
+              selector: pendingDelete.selector,
+              selectorCandidates: pendingDelete.selectorCandidates ?? [],
+              requestId: pendingDelete.requestId,
+              transactionId: pendingDelete.transactionId,
+            });
+            if (
+              runtimeStructureDeleteRequest &&
+              !runtimeStructureDeleteRequest.waitForInsertTransaction
+            ) {
+              queueOnce({
+                type: "delete-element",
+                selector: pendingDelete.selector,
+                selectorCandidates: pendingDelete.selectorCandidates ?? [],
+                requestId: pendingDelete.requestId,
+                transactionId: pendingDelete.transactionId,
+              });
+              lastRuntimeStructureDeleteRequestIdRef.current =
+                pendingDelete.requestId;
+            }
+            pendingRuntimeDeletePreviewRef.current = {
+              requestId: pendingDelete.requestId,
+              selector: pendingDelete.selector,
+              selectorCandidates: pendingDelete.selectorCandidates ?? [],
+              transactionId: pendingDelete.transactionId,
+              documentIdentity: null,
+              awaitingTransaction:
+                runtimeStructureDeleteRequest === null ||
+                runtimeStructureDeleteRequest === undefined
+                  ? pendingRuntimeDeletePreviewRef.current
+                      ?.awaitingTransaction === true
+                  : false,
+            };
+          }
         }
         return;
       }
@@ -6113,7 +6175,65 @@ export function DesignCanvas({
     });
   }, [postOneShotBridgeMessage, runtimeStructureInsertRequest]);
 
-  const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const request = runtimeStructureDeleteRequest;
+    const currentPreview = pendingRuntimeDeletePreviewRef.current;
+    const requestMatchesPreview =
+      Boolean(request) && request?.requestId === currentPreview?.requestId;
+    if (
+      currentPreview &&
+      !requestMatchesPreview &&
+      (request !== null || !currentPreview.awaitingTransaction)
+    ) {
+      postOneShotBridgeMessage({
+        type: "cancel-pending-delete-element",
+        selector: currentPreview.selector,
+        selectorCandidates: currentPreview.selectorCandidates,
+        requestId: currentPreview.requestId,
+        transactionId: currentPreview.transactionId,
+      });
+      pendingRuntimeDeletePreviewRef.current = null;
+    }
+    if (requestMatchesPreview && currentPreview) {
+      currentPreview.transactionId = request?.transactionId;
+      currentPreview.awaitingTransaction = false;
+    }
+    if (!request?.waitForInsertTransaction) return;
+    if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
+      if (currentPreview?.requestId === request.requestId) {
+        currentPreview.documentIdentity = null;
+      }
+      return;
+    }
+    const latestPreview = pendingRuntimeDeletePreviewRef.current;
+    if (
+      latestPreview?.requestId === request.requestId &&
+      latestPreview.documentIdentity === readyIframeDocumentIdentity
+    ) {
+      return;
+    }
+    postOneShotBridgeMessage({
+      type: "pending-delete-element",
+      selector: request.selector,
+      selectorCandidates: request.selectorCandidates ?? [],
+      requestId: request.requestId,
+      transactionId: request.transactionId,
+    });
+    pendingRuntimeDeletePreviewRef.current = {
+      requestId: request.requestId,
+      selector: request.selector,
+      selectorCandidates: request.selectorCandidates ?? [],
+      transactionId: request.transactionId,
+      documentIdentity: readyIframeDocumentIdentity,
+      awaitingTransaction: false,
+    };
+  }, [
+    iframeDocumentIdentity,
+    postOneShotBridgeMessage,
+    readyIframeDocumentIdentity,
+    runtimeStructureDeleteRequest,
+  ]);
+
   useEffect(() => {
     if (!runtimeStructureDeleteRequest) return;
     if (runtimeStructureDeleteRequest.waitForInsertTransaction) return;
@@ -6538,10 +6658,53 @@ export function DesignCanvas({
     return registerLinkedScreenPreviewHandlers(frameId, {
       replaceContent: replacePreviewContentFromHost,
       sendStyleChange,
+      pendingDelete: ({
+        selector,
+        selectorCandidates,
+        requestId,
+        transactionId,
+      }) => {
+        pendingRuntimeDeletePreviewRef.current = {
+          requestId,
+          selector,
+          selectorCandidates,
+          transactionId,
+          documentIdentity: readyIframeDocumentIdentity,
+          awaitingTransaction: !transactionId,
+        };
+        return postOneShotBridgeMessage({
+          type: "pending-delete-element",
+          selector,
+          selectorCandidates,
+          requestId,
+          transactionId,
+        });
+      },
+      cancelPendingDelete: ({
+        selector,
+        selectorCandidates,
+        requestId,
+        transactionId,
+      }) => {
+        const current = pendingRuntimeDeletePreviewRef.current;
+        if (current?.requestId === requestId) {
+          pendingRuntimeDeletePreviewRef.current = null;
+        }
+        return postOneShotBridgeMessage({
+          type: "cancel-pending-delete-element",
+          selector: selector ?? current?.selector ?? "",
+          selectorCandidates:
+            selectorCandidates ?? current?.selectorCandidates ?? [],
+          requestId,
+          transactionId: transactionId ?? current?.transactionId,
+        });
+      },
       sendInteractionStatePreviewStyle,
     });
   }, [
     previewFrameId,
+    postOneShotBridgeMessage,
+    readyIframeDocumentIdentity,
     replacePreviewContentFromHost,
     sendInteractionStatePreviewStyle,
     screenId,

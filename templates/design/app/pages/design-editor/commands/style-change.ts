@@ -11,6 +11,7 @@ import { shouldSkipVisualStyleCommitForPreview } from "@/pages/design-editor/edi
 import { styleWriteTarget } from "./style-write-target";
 
 export interface StyleChangeArgs {
+  canEditLiveScreen?: (screenId: string | null | undefined) => boolean;
   commitInteractionStateStyles: (
     state: InteractionState,
     styles: Record<string, string>,
@@ -48,12 +49,20 @@ export interface StyleChangeArgs {
   ) => void;
   selectedCanvasSelectorCandidates: string[];
   selectedElement: ElementInfo | null;
+  selectedScreenStyleChange?: (
+    screenId: string,
+    selector: string,
+    styles: Record<string, string>,
+    elementInfo?: ElementInfo,
+    metadata?: StyleChangeMeta,
+  ) => void;
   selectedLayerTargetsRef: RefObject<SelectedLayerTarget[]>;
   textEditingState: { active: boolean; selector?: string; hasRange?: boolean };
 }
 
 export function runStyleChange(
   {
+    canEditLiveScreen,
     commitInteractionStateStyles,
     commitRelativeStyleDeltaToSelectedLayers,
     commitStylesToSelectedLayers,
@@ -63,6 +72,7 @@ export function runStyleChange(
     previewInteractionStateStyles,
     selectedCanvasSelectorCandidates,
     selectedElement,
+    selectedScreenStyleChange,
     selectedLayerTargetsRef,
     textEditingState,
   }: StyleChangeArgs,
@@ -70,9 +80,48 @@ export function runStyleChange(
   value: string,
   meta?: StyleChangeMeta,
 ) {
+  const selectedScreenId =
+    selectedLayerTargetsRef.current.length <= 1
+      ? (selectedLayerTargetsRef.current[0]?.fileId ??
+        selectedElement?.sourceLayerIdentity?.screenId)
+      : null;
+  const selector = selectedElement?.selector ?? "body";
+  const target = styleWriteTarget({ selector, selectedElement });
+  const capturedLiveTarget =
+    meta?.capturedStyleTargets?.length === 1
+      ? meta.capturedStyleTargets[0]
+      : undefined;
+  if (
+    capturedLiveTarget &&
+    canEditLiveScreen?.(capturedLiveTarget.fileId) &&
+    selectedScreenStyleChange
+  ) {
+    const capturedElement = capturedLiveTarget.elementInfo;
+    selectedScreenStyleChange(
+      capturedLiveTarget.fileId,
+      styleWriteTarget({
+        selector: capturedElement.selector ?? "body",
+        selectedElement: capturedElement,
+      }),
+      { [property]: value },
+      capturedElement,
+      meta,
+    );
+    return;
+  }
+
   // Gesture cancellation is paired with a preceding preview that restored the
   // pointerdown value. It must not enter this command's preview or commit path.
   if (meta?.phase === "cancel") {
+    if (selectedScreenId && selectedScreenStyleChange) {
+      selectedScreenStyleChange(
+        selectedScreenId,
+        target,
+        { [property]: value },
+        selectedElement ?? undefined,
+        meta,
+      );
+    }
     commitStylesToSelectedLayers({}, "cancel");
     return;
   }
@@ -85,6 +134,16 @@ export function runStyleChange(
     return;
   }
   if (meta?.interactionState) {
+    if (selectedScreenId && selectedScreenStyleChange) {
+      selectedScreenStyleChange(
+        selectedScreenId,
+        target,
+        { [property]: value },
+        selectedElement ?? undefined,
+        meta,
+      );
+      return;
+    }
     if (meta.phase === "preview") {
       previewInteractionStateStyles(meta.interactionState, {
         [property]: value,
@@ -106,9 +165,31 @@ export function runStyleChange(
     );
     return;
   }
-  const selector = selectedElement?.selector ?? "body";
-  const target = styleWriteTarget({ selector, selectedElement });
+  if (
+    meta?.phase === "preview" &&
+    selectedScreenId &&
+    selectedScreenStyleChange
+  ) {
+    selectedScreenStyleChange(
+      selectedScreenId,
+      target,
+      { [property]: value },
+      selectedElement ?? undefined,
+      meta,
+    );
+    return;
+  }
   if (textEditingState.hasRange && textEditingState.selector === selector) {
+    if (selectedScreenId && selectedScreenStyleChange) {
+      selectedScreenStyleChange(
+        selectedScreenId,
+        target,
+        { [property]: value },
+        selectedElement ?? undefined,
+        meta,
+      );
+      return;
+    }
     const sendStyleChange = (window as any).__designCanvasSendStyle;
     if (typeof sendStyleChange === "function") {
       sendStyleChange(selector, property, value, {
@@ -146,6 +227,16 @@ export function runStyleChange(
     }
     // No live bridge available for this preview tick (e.g. inactive
     // screen) — nothing cheap to do; wait for the gesture's "commit".
+    return;
+  }
+  if (selectedScreenId && selectedScreenStyleChange) {
+    selectedScreenStyleChange(
+      selectedScreenId,
+      target,
+      { [property]: value },
+      selectedElement ?? undefined,
+      meta,
+    );
     return;
   }
   if (meta?.relativeExpression) {

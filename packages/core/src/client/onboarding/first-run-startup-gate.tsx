@@ -27,10 +27,17 @@ const FirstRunOnboardingGateContext = createContext(false);
 function hasFirstRunOnboardingCookie(): boolean {
   if (typeof document === "undefined") return true;
   const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
-  return document.cookie.split(";").some((cookie) => {
-    const entry = cookie.trim();
-    return entry.startsWith(prefix) && entry.slice(prefix.length) === "1";
-  });
+  try {
+    return document.cookie.split(";").some((cookie) => {
+      const entry = cookie.trim();
+      return entry.startsWith(prefix) && entry.slice(prefix.length) === "1";
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "SecurityError") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export function useFirstRunOnboardingGateOwnsSurface(): boolean {

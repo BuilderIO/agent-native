@@ -1211,6 +1211,7 @@ export default {
       verifying: "Quelle und Laufzeit werden überprüft…",
       retryWithAgent: "Quellprüfung wiederholen",
       copyPrompt: "Prompt an deinen Agent kopieren",
+      copyFullPrompt: "Vollständigen Prompt kopieren",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:
         "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
@@ -1223,6 +1224,8 @@ export default {
       sourceCheckFailedToast:
         "Die verbundenen Quelldateien konnten nicht überprüft werden. Die Vorschau wurde zum Wiederholen oder Rückgängigmachen beibehalten.",
       copiedToast: "Stil-Prompt kopiert",
+      copiedToastDescription:
+        "Füge ihn in deinen Programmier-Agenten ein und bitte ihn, die visuellen Änderungen umzusetzen.",
       abortedToast: "Ausstehende Vorschau verworfen",
       interactBlocked:
         "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",

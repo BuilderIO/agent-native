@@ -26,9 +26,25 @@ export type LinkedScreenPreviewInteractionStateFn = (args: {
   routePath?: string;
 }) => boolean;
 
+export type LinkedScreenPreviewPendingDeleteFn = (args: {
+  selector: string;
+  selectorCandidates: string[];
+  requestId: string;
+  transactionId?: string;
+}) => boolean;
+
+export type LinkedScreenPreviewCancelPendingDeleteFn = (args: {
+  selector?: string;
+  selectorCandidates?: string[];
+  requestId: string;
+  transactionId?: string;
+}) => boolean;
+
 type LinkedPreviewHandlers = {
   replaceContent: LinkedScreenPreviewReplaceFn;
   sendStyleChange: LinkedScreenPreviewStyleFn;
+  pendingDelete?: LinkedScreenPreviewPendingDeleteFn;
+  cancelPendingDelete?: LinkedScreenPreviewCancelPendingDeleteFn;
   sendInteractionStatePreviewStyle?: LinkedScreenPreviewInteractionStateFn;
 };
 
@@ -112,6 +128,32 @@ export function sendLinkedScreenPreviewStyleChange(
     if (handlers.sendStyleChange(selector, property, value, options)) {
       sent = true;
     }
+  }
+  return sent;
+}
+
+export function sendLinkedScreenPreviewPendingDelete(
+  screenId: string,
+  args: Parameters<LinkedScreenPreviewPendingDeleteFn>[0],
+): boolean {
+  if (!screenId) return false;
+  let sent = false;
+  for (const [frameId, handlers] of linkedPreviewHandlersByFrameId) {
+    if (!isLinkedScreenPreviewFrameId(screenId, frameId)) continue;
+    if (handlers.pendingDelete?.(args)) sent = true;
+  }
+  return sent;
+}
+
+export function sendLinkedScreenPreviewCancelPendingDelete(
+  screenId: string,
+  args: Parameters<LinkedScreenPreviewCancelPendingDeleteFn>[0],
+): boolean {
+  if (!screenId) return false;
+  let sent = false;
+  for (const [frameId, handlers] of linkedPreviewHandlersByFrameId) {
+    if (!isLinkedScreenPreviewFrameId(screenId, frameId)) continue;
+    if (handlers.cancelPendingDelete?.(args)) sent = true;
   }
   return sent;
 }
