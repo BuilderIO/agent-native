@@ -55,21 +55,12 @@ continue the post-merge path here. Standalone and ready-only invocations report
 an unexpected merge without rotating.
 
 1. Run one foreground tick immediately and continue here until this mode's
-   endpoint. Never create or resume a heartbeat or acquire a lease. Before PR
-   mutations on each tick, pause an existing heartbeat only when its full
-   persisted name and prompt identify this exact `/babysit-pr <number>`. Read
-   its `ship_mode`; pause only if this invocation carries the same or stronger
-   authorization, never replacing a `merge-authorized` watcher with a less-
-   authorized run. Send the complete persisted definition to the update
-   operation with only `status` changed to `PAUSED`, then reread and verify the
-   id, kind, name, prompt, target, mode, status, and unchanged fields. If identity,
-   mode, pause, or verification is uncertain, leave it alone and keep this
-   invocation read-only until that watcher is inactive or its authorization is
-   carried forward. A verified pause stops future ticks, not an in-flight turn;
-   if its target is another task, confirm that task is no longer running before
-   mutating the PR. If no exact same-PR heartbeat exists or its pause and target
-   are safe, continue foreground work.
-   Never touch unrelated automations. A lease has no role in foreground PR work.
+   endpoint. Never create, resume, pause, or mutate an automation, and never
+   acquire a lease. Before each PR write, reread the live state. Push normally
+   (never force); if a concurrent push advances the branch or the push is
+   rejected, fetch and restart the tick from the new head. Guard merges with
+   `--match-head-commit <live_head_oid>`. A stale-head rejection is a retry
+   signal, not a reason to stop the requested work.
 2. Track the last actionable item: new human/bot feedback, a CI fix, conflict
    resolution, or an intentional commit/push.
 3. For standalone `/babysit-pr`, stop after 30 minutes with green GitHub Actions
@@ -438,9 +429,7 @@ PR's soak. Stop only after the endpoint is reached and both audits have a dispos
 A post-merge follow-up with the source branch retained is a valid final
 disposition.
 
-## Cleanup
+## Final state
 
-No watcher or lease is created by this workflow. At any endpoint that ends this
-invocation, use the ownership-verified heartbeat cleanup from Setup, including
-when standalone or `ready-only` leaves the PR open. Leave other automations
-untouched. Verify the PR's final state.
+Verify the PR's final state. This workflow creates no automation, so it has no
+automation cleanup step.
