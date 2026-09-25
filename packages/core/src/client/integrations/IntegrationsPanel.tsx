@@ -561,7 +561,7 @@ function IntegrationDetail({
 
 // ─── Main panel ──────────────────────────────────────────────────────────────
 
-function startMcpOAuthReconnect(server: McpServer): void {
+export function startMcpOAuthReconnect(server: McpServer): void {
   const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const params = new URLSearchParams({
     serverId: server.id,
@@ -651,7 +651,7 @@ function McpServerStatus({
  * keeps the richer diagnostic card (reason + reconnect) since that detail
  * doesn't fit a one-line row.
  */
-function McpServerRows({
+export function McpServerRows({
   servers,
   role,
   deleteTarget,
@@ -765,7 +765,7 @@ function McpServerRows({
   );
 }
 
-function useMcpIntegrationsController({
+export function useMcpIntegrationsController({
   integrations: integrationOptions,
 }: {
   integrations?: DefaultMcpIntegration[];
@@ -1442,7 +1442,7 @@ export function IntegrationsPanel() {
           const builderItem: IntegrationGridItem = {
             id: "builder-cms",
             name: "Builder.io",
-            badge: t("integrations.recommended"),
+            badge: builderConnected ? undefined : t("integrations.recommended"),
             description: viewModel.description,
             logo: (
               <McpIntegrationLogo

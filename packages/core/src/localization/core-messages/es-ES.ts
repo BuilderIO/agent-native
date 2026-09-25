@@ -1135,12 +1135,110 @@ const messages: AgentChatTranslation = {
   "settingsShell.appFallbackName": "Aplicación",
   "settingsShell.backToApp": "Volver a {{app}}",
   "settingsShell.breadcrumbLabel": "Ruta de navegación",
+  "settingsShell.builder.connect": "Conectar",
+  "settingsShell.builder.connected": "Conectado",
+  "settingsShell.builder.connectedTo": "Conectado · {{space}}",
+  "settingsShell.builder.connection": "Conexión",
+  "settingsShell.builder.disconnect": "Desconectar",
+  "settingsShell.builder.disconnectBody":
+    "Afecta a todas las personas de {{org}} que no hayan conectado su propia cuenta.",
+  "settingsShell.builder.disconnectFailed":
+    "No se pudo desconectar Builder.io.",
+  "settingsShell.builder.disconnectTitle": "¿Desconectar Builder.io?",
+  "settingsShell.builder.grantsFailed":
+    "No se pudieron leer las conexiones de Builder.io.",
+  "settingsShell.builder.loss.defaultStops":
+    "Los chats se detienen hasta que añadas un proveedor de la organización.",
+  "settingsShell.builder.loss.defaultSwitches":
+    "El modelo predeterminado cambia a {{next}}.",
+  "settingsShell.builder.loss.modelPicker":
+    "Los modelos de Builder.io desaparecen del selector de modelos.",
+  "settingsShell.builder.loss.serviceStops":
+    "Deja de funcionar hasta que se configure otro proveedor.",
+  "settingsShell.builder.loss.stops": "Deja de funcionar.",
+  "settingsShell.builder.loss.uploadsFail":
+    "Las subidas fallan hasta que configures el almacenamiento.",
+  "settingsShell.builder.manage": "Gestionar",
+  "settingsShell.builder.needsReconnect": "Hay que volver a conectarlo.",
+  "settingsShell.builder.orgFallback": "tu organización",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "No conectado. Cuando lo conectes, todas las personas de {{org}} podrán usarlo.",
+  "settingsShell.builder.orgNotConnectedMember":
+    "No conectado. Una persona propietaria o administradora puede conectarlo.",
+  "settingsShell.builder.organization": "Organización",
+  "settingsShell.builder.personal": "Personal",
+  "settingsShell.builder.personalConnected": "Conectado. Solo lo usas tú.",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "Conectado. Solo lo usas tú, en lugar de la conexión de la organización.",
+  "settingsShell.builder.personalConnectedTo":
+    "Conectado · {{space}}. Solo lo usas tú.",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "Conectado · {{space}}. Solo lo usas tú, en lugar de la conexión de la organización.",
+  "settingsShell.builder.personalNotConnected":
+    "Conecta tu propia cuenta. Solo la usas tú.",
+  "settingsShell.builder.personalRestricted":
+    "Las personas propietarias y administradoras restringieron las claves de API personales.",
+  "settingsShell.builder.personalRestrictedUnused":
+    "No se usa mientras las claves de API personales estén restringidas.",
+  "settingsShell.builder.reconnect": "Volver a conectar",
+  "settingsShell.builder.retry": "Reintentar",
+  "settingsShell.builder.use.aiModel": "Modelo de IA",
+  "settingsShell.builder.use.aiModelDefaultNote":
+    "El modelo predeterminado, {{model}}.",
+  "settingsShell.builder.use.aiModelNote":
+    "Los modelos de Builder.io están en el selector de modelos.",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "Hace cambios de código desde producción.",
+  "settingsShell.builder.use.browserAutomationNote":
+    "Permite que el agente use un navegador en producción.",
+  "settingsShell.builder.use.designSystem":
+    "Inteligencia del sistema de diseño",
+  "settingsShell.builder.use.designSystemNote":
+    "Mantiene las diapositivas y los diseños generados fieles a la marca.",
+  "settingsShell.builder.use.embeddings": "Embeddings",
+  "settingsShell.builder.use.embeddingsNote": "Búsqueda en Brain.",
+  "settingsShell.builder.use.fileStorageNote":
+    "Las nuevas subidas se guardan en Builder.io.",
+  "settingsShell.builder.use.images": "Generación de imágenes",
+  "settingsShell.builder.use.imagesNote": "Slides y Design.",
+  "settingsShell.builder.use.voice": "Entrada de voz",
+  "settingsShell.builder.use.voiceNote": "Dictado en todas las apps.",
+  "settingsShell.builder.usedFor": "Se usa para",
+  "settingsShell.builder.usedForFootnote":
+    "Elige qué se ejecuta en Builder.io en {{link}}.",
+  "settingsShell.builder.usedForLoadFailed":
+    "No se pudo comprobar qué servicios se ejecutan en Builder.io.",
+  "settingsShell.builder.whatHappens": "Qué pasa",
   "settingsShell.clearSearch": "Borrar búsqueda",
   "settingsShell.group.account": "Cuenta",
   "settingsShell.group.agent": "Agente",
   "settingsShell.group.connections": "Conexiones",
   "settingsShell.group.organization": "Organización",
   "settingsShell.interfaceLanguage": "Idioma de la interfaz",
+  "settingsShell.integrations.addCustom": "Añadir integración personalizada",
+  "settingsShell.integrations.builderDescription":
+    "Acceso a modelos, automatización del navegador, almacenamiento de archivos e identidad del espacio de trabajo. Hay un plan gratuito.",
+  "settingsShell.integrations.builderStatusFailed":
+    "No se pudo comprobar la conexión de Builder.io.",
+  "settingsShell.integrations.category.analytics": "Analítica",
+  "settingsShell.integrations.category.design": "Diseño",
+  "settingsShell.integrations.category.engineering": "Ingeniería",
+  "settingsShell.integrations.category.finance": "Finanzas",
+  "settingsShell.integrations.category.other": "Otras",
+  "settingsShell.integrations.category.productivity": "Productividad",
+  "settingsShell.integrations.category.sales": "Ventas",
+  "settingsShell.integrations.category.support": "Soporte",
+  "settingsShell.integrations.connectName": "Conectar {{name}}",
+  "settingsShell.integrations.footnote":
+    "Estas son las herramientas que usa el agente. Para usar {{app}} desde Claude, ChatGPT o Cursor, consulta {{link}}.",
+  "settingsShell.integrations.noResults":
+    "Ninguna integración coincide. Prueba con otro nombre.",
+  "settingsShell.integrations.retry": "Reintentar",
+  "settingsShell.integrations.seeMoreMany": "Ver {{first}}, {{second}} y más",
+  "settingsShell.integrations.seeMoreOne": "Ver {{first}}",
+  "settingsShell.integrations.seeMoreTwo": "Ver {{first}} y {{second}}",
+  "settingsShell.integrations.serversLoadFailed":
+    "No se pudieron cargar tus integraciones conectadas.",
   "settingsShell.learnings": "Aprendizajes",
   "settingsShell.loading": "Cargando configuración",
   "settingsShell.navLabel": "Configuración",

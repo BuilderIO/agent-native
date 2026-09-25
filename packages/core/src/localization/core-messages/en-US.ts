@@ -1069,12 +1069,109 @@ const messages = {
   "settingsShell.appFallbackName": "App",
   "settingsShell.backToApp": "Back to {{app}}",
   "settingsShell.breadcrumbLabel": "Breadcrumb",
+  "settingsShell.builder.connect": "Connect",
+  "settingsShell.builder.connected": "Connected",
+  "settingsShell.builder.connectedTo": "Connected · {{space}}",
+  "settingsShell.builder.connection": "Connection",
+  "settingsShell.builder.disconnect": "Disconnect",
+  "settingsShell.builder.disconnectBody":
+    "This affects everyone in {{org}} who hasn't connected their own account.",
+  "settingsShell.builder.disconnectFailed": "Couldn't disconnect Builder.io.",
+  "settingsShell.builder.disconnectTitle": "Disconnect Builder.io?",
+  "settingsShell.builder.grantsFailed":
+    "Couldn't read the Builder.io connections.",
+  "settingsShell.builder.loss.defaultStops":
+    "Chats stop until you add an organization provider.",
+  "settingsShell.builder.loss.defaultSwitches":
+    "The default model switches to {{next}}.",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io models leave the model picker.",
+  "settingsShell.builder.loss.serviceStops":
+    "Stops until another provider is set up.",
+  "settingsShell.builder.loss.stops": "Stops working.",
+  "settingsShell.builder.loss.uploadsFail":
+    "Uploads fail until you set up storage.",
+  "settingsShell.builder.manage": "Manage",
+  "settingsShell.builder.needsReconnect": "Needs to be reconnected.",
+  "settingsShell.builder.orgFallback": "your organization",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "Not connected. When you connect it, everyone in {{org}} can use it.",
+  "settingsShell.builder.orgNotConnectedMember":
+    "Not connected. An owner or admin can connect it.",
+  "settingsShell.builder.organization": "Organization",
+  "settingsShell.builder.personal": "Personal",
+  "settingsShell.builder.personalConnected": "Connected. Only you use it.",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "Connected. Only you use it, instead of the organization's connection.",
+  "settingsShell.builder.personalConnectedTo":
+    "Connected · {{space}}. Only you use it.",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "Connected · {{space}}. Only you use it, instead of the organization's connection.",
+  "settingsShell.builder.personalNotConnected":
+    "Connect your own account. Only you use it.",
+  "settingsShell.builder.personalRestricted":
+    "Owners and admins restricted personal API keys.",
+  "settingsShell.builder.personalRestrictedUnused":
+    "Not used while personal API keys are restricted.",
+  "settingsShell.builder.reconnect": "Reconnect",
+  "settingsShell.builder.retry": "Retry",
+  "settingsShell.builder.use.aiModel": "AI model",
+  "settingsShell.builder.use.aiModelDefaultNote":
+    "The default model, {{model}}.",
+  "settingsShell.builder.use.aiModelNote":
+    "Builder.io models are in the model picker.",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "Makes code changes from production.",
+  "settingsShell.builder.use.browserAutomationNote":
+    "Lets the agent use a browser in production.",
+  "settingsShell.builder.use.designSystem": "Design system intelligence",
+  "settingsShell.builder.use.designSystemNote":
+    "Keeps generated slides and designs on brand.",
+  "settingsShell.builder.use.embeddings": "Embeddings",
+  "settingsShell.builder.use.embeddingsNote": "Search in Brain.",
+  "settingsShell.builder.use.fileStorageNote":
+    "New uploads are stored on Builder.io.",
+  "settingsShell.builder.use.images": "Image generation",
+  "settingsShell.builder.use.imagesNote": "Slides and Design.",
+  "settingsShell.builder.use.voice": "Voice input",
+  "settingsShell.builder.use.voiceNote": "Dictation in every app.",
+  "settingsShell.builder.usedFor": "Used for",
+  "settingsShell.builder.usedForFootnote":
+    "Choose what runs on Builder.io in {{link}}.",
+  "settingsShell.builder.usedForLoadFailed":
+    "Couldn't check which services run on Builder.io.",
+  "settingsShell.builder.whatHappens": "What happens",
   "settingsShell.clearSearch": "Clear search",
   "settingsShell.group.account": "Account",
   "settingsShell.group.agent": "Agent",
   "settingsShell.group.connections": "Connections",
   "settingsShell.group.organization": "Organization",
   "settingsShell.interfaceLanguage": "Interface language",
+  "settingsShell.integrations.addCustom": "Add custom integration",
+  "settingsShell.integrations.builderDescription":
+    "Model access, browser automation, file storage, and workspace identity. Free tier available.",
+  "settingsShell.integrations.builderStatusFailed":
+    "Couldn't check the Builder.io connection.",
+  "settingsShell.integrations.category.analytics": "Analytics",
+  "settingsShell.integrations.category.design": "Design",
+  "settingsShell.integrations.category.engineering": "Engineering",
+  "settingsShell.integrations.category.finance": "Finance",
+  "settingsShell.integrations.category.other": "Other",
+  "settingsShell.integrations.category.productivity": "Productivity",
+  "settingsShell.integrations.category.sales": "Sales",
+  "settingsShell.integrations.category.support": "Support",
+  "settingsShell.integrations.connectName": "Connect {{name}}",
+  "settingsShell.integrations.footnote":
+    "These are tools the agent uses. To use {{app}} from Claude, ChatGPT, or Cursor, see {{link}}.",
+  "settingsShell.integrations.noResults":
+    "No integrations match. Try another name.",
+  "settingsShell.integrations.retry": "Retry",
+  "settingsShell.integrations.seeMoreMany":
+    "See {{first}}, {{second}}, and more",
+  "settingsShell.integrations.seeMoreOne": "See {{first}}",
+  "settingsShell.integrations.seeMoreTwo": "See {{first}} and {{second}}",
+  "settingsShell.integrations.serversLoadFailed":
+    "Couldn't load your connected integrations.",
   "settingsShell.learnings": "Learnings",
   "settingsShell.loading": "Loading settings",
   "settingsShell.navLabel": "Settings",

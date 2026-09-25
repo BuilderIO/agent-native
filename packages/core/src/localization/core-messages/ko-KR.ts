@@ -1063,12 +1063,107 @@ const messages: AgentChatTranslation = {
   "settingsShell.appFallbackName": "앱",
   "settingsShell.backToApp": "{{app}}(으)로 돌아가기",
   "settingsShell.breadcrumbLabel": "탐색 경로",
+  "settingsShell.builder.connect": "연결",
+  "settingsShell.builder.connected": "연결됨",
+  "settingsShell.builder.connectedTo": "연결됨 · {{space}}",
+  "settingsShell.builder.connection": "연결",
+  "settingsShell.builder.disconnect": "연결 해제",
+  "settingsShell.builder.disconnectBody":
+    "{{org}}에서 자신의 계정을 연결하지 않은 모든 사람에게 영향을 줍니다.",
+  "settingsShell.builder.disconnectFailed":
+    "Builder.io 연결을 해제하지 못했습니다.",
+  "settingsShell.builder.disconnectTitle": "Builder.io 연결을 해제할까요?",
+  "settingsShell.builder.grantsFailed": "Builder.io 연결을 읽지 못했습니다.",
+  "settingsShell.builder.loss.defaultStops":
+    "조직 제공자를 추가할 때까지 채팅이 중지됩니다.",
+  "settingsShell.builder.loss.defaultSwitches":
+    "기본 모델이 {{next}}(으)로 바뀝니다.",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io 모델이 모델 선택기에서 사라집니다.",
+  "settingsShell.builder.loss.serviceStops":
+    "다른 제공업체를 설정할 때까지 중지됩니다.",
+  "settingsShell.builder.loss.stops": "작동이 중지됩니다.",
+  "settingsShell.builder.loss.uploadsFail":
+    "스토리지를 설정할 때까지 업로드가 실패합니다.",
+  "settingsShell.builder.manage": "관리",
+  "settingsShell.builder.needsReconnect": "다시 연결해야 합니다.",
+  "settingsShell.builder.orgFallback": "조직",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "연결되지 않았습니다. 연결하면 {{org}}의 모든 사람이 사용할 수 있습니다.",
+  "settingsShell.builder.orgNotConnectedMember":
+    "연결되지 않았습니다. 소유자나 관리자가 연결할 수 있습니다.",
+  "settingsShell.builder.organization": "조직",
+  "settingsShell.builder.personal": "개인",
+  "settingsShell.builder.personalConnected": "연결됨. 나만 사용합니다.",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "연결됨. 조직 연결 대신 나만 사용합니다.",
+  "settingsShell.builder.personalConnectedTo":
+    "연결됨 · {{space}}. 나만 사용합니다.",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "연결됨 · {{space}}. 조직 연결 대신 나만 사용합니다.",
+  "settingsShell.builder.personalNotConnected":
+    "내 계정을 연결하세요. 나만 사용합니다.",
+  "settingsShell.builder.personalRestricted":
+    "소유자와 관리자가 개인 API 키를 제한했습니다.",
+  "settingsShell.builder.personalRestrictedUnused":
+    "개인 API 키가 제한된 동안에는 사용되지 않습니다.",
+  "settingsShell.builder.reconnect": "다시 연결",
+  "settingsShell.builder.retry": "다시 시도",
+  "settingsShell.builder.use.aiModel": "AI 모델",
+  "settingsShell.builder.use.aiModelDefaultNote": "기본 모델, {{model}}.",
+  "settingsShell.builder.use.aiModelNote":
+    "Builder.io 모델은 모델 선택기에 있습니다.",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "프로덕션에서 코드를 변경합니다.",
+  "settingsShell.builder.use.browserAutomationNote":
+    "프로덕션에서 에이전트가 브라우저를 사용할 수 있게 합니다.",
+  "settingsShell.builder.use.designSystem": "디자인 시스템 인텔리전스",
+  "settingsShell.builder.use.designSystemNote":
+    "생성된 슬라이드와 디자인을 브랜드에 맞게 유지합니다.",
+  "settingsShell.builder.use.embeddings": "임베딩",
+  "settingsShell.builder.use.embeddingsNote": "Brain에서 검색.",
+  "settingsShell.builder.use.fileStorageNote":
+    "새 업로드는 Builder.io에 저장됩니다.",
+  "settingsShell.builder.use.images": "이미지 생성",
+  "settingsShell.builder.use.imagesNote": "Slides 및 Design.",
+  "settingsShell.builder.use.voice": "음성 입력",
+  "settingsShell.builder.use.voiceNote": "모든 앱에서 받아쓰기.",
+  "settingsShell.builder.usedFor": "사용처",
+  "settingsShell.builder.usedForFootnote":
+    "Builder.io에서 실행할 항목은 {{link}}에서 선택하세요.",
+  "settingsShell.builder.usedForLoadFailed":
+    "Builder.io에서 실행되는 서비스를 확인하지 못했습니다.",
+  "settingsShell.builder.whatHappens": "영향",
   "settingsShell.clearSearch": "검색 지우기",
   "settingsShell.group.account": "계정",
   "settingsShell.group.agent": "에이전트",
   "settingsShell.group.connections": "연결",
   "settingsShell.group.organization": "조직",
   "settingsShell.interfaceLanguage": "인터페이스 언어",
+  "settingsShell.integrations.addCustom": "사용자 지정 통합 추가",
+  "settingsShell.integrations.builderDescription":
+    "모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID. 무료 요금제가 있습니다.",
+  "settingsShell.integrations.builderStatusFailed":
+    "Builder.io 연결을 확인하지 못했습니다.",
+  "settingsShell.integrations.category.analytics": "분석",
+  "settingsShell.integrations.category.design": "디자인",
+  "settingsShell.integrations.category.engineering": "엔지니어링",
+  "settingsShell.integrations.category.finance": "재무",
+  "settingsShell.integrations.category.other": "기타",
+  "settingsShell.integrations.category.productivity": "생산성",
+  "settingsShell.integrations.category.sales": "영업",
+  "settingsShell.integrations.category.support": "지원",
+  "settingsShell.integrations.connectName": "{{name}} 연결",
+  "settingsShell.integrations.footnote":
+    "에이전트가 사용하는 도구입니다. Claude, ChatGPT, Cursor에서 {{app}}을(를) 사용하려면 {{link}}을(를) 참고하세요.",
+  "settingsShell.integrations.noResults":
+    "일치하는 통합이 없습니다. 다른 이름으로 시도해 보세요.",
+  "settingsShell.integrations.retry": "다시 시도",
+  "settingsShell.integrations.seeMoreMany": "{{first}}, {{second}} 외 더 보기",
+  "settingsShell.integrations.seeMoreOne": "{{first}} 보기",
+  "settingsShell.integrations.seeMoreTwo": "{{first}} 및 {{second}} 보기",
+  "settingsShell.integrations.serversLoadFailed":
+    "연결된 통합을 불러오지 못했습니다.",
   "settingsShell.learnings": "학습 내용",
   "settingsShell.loading": "설정을 불러오는 중",
   "settingsShell.navLabel": "설정",

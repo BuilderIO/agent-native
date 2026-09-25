@@ -27,6 +27,7 @@ import {
 } from "@tabler/icons-react";
 import { lazy } from "react";
 
+import { DEFAULT_MCP_INTEGRATIONS } from "../../resources/mcp-integration-catalog.js";
 import { SIGN_OUT_SEARCH_TERMS } from "../../sign-out.js";
 import {
   PREFERENCES_SEARCH_ENTRIES,
@@ -49,6 +50,26 @@ const fromDispatchSearchEntry: SettingsPageSearchEntry = {
   keywords: "dispatch workspace shared inherited all apps",
   anchor: "from-dispatch",
 };
+
+// One result per catalog tool, opening its connect dialog, plus the Builder.io
+// page. Builder Publish is the content grant, which the page leaves out.
+const INTEGRATION_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
+  {
+    id: "builder",
+    label: "Builder.io",
+    keywords:
+      "builder builder.io connect account credits model storage organization personal",
+    sub: "builder",
+  },
+  ...DEFAULT_MCP_INTEGRATIONS.filter(
+    (integration) => integration.id !== "builder-cms",
+  ).map((integration) => ({
+    id: `integration:${integration.id}`,
+    label: integration.name,
+    keywords: [integration.provider, ...integration.keywords].join(" "),
+    sub: integration.id,
+  })),
+];
 
 /**
  * Core pages in spec order (§4.2). Each renders today's component for its
@@ -100,6 +121,9 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     component: lazy(() => import("./pages/integrations.js")),
     legacyTabIds: ["integrations", "connections", "browser"],
     keywords: "integrations connections mcp tools builder slack",
+    // Brand names aren't translated.
+    subpages: [{ id: "builder", label: "Builder.io" }],
+    searchEntries: INTEGRATION_SEARCH_ENTRIES,
   }),
   defineSettingsPage({
     id: "api-keys",

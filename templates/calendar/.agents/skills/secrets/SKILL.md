@@ -193,9 +193,14 @@ ahead of the org's). Name the one you mean; never let role pick it:
   owner/admin, checked at start and again in the callback, and fails rather
   than landing as a personal grant. `personal` is for members only: owners and
   admins connect for the organization (`canRoleConnectPersonalBuilder`).
-- Disconnect with `POST /_agent-native/builder/disconnect` and body
-  `{ "scope": "org" | "personal" }`. `org` needs owner/admin; `personal` removes
-  only the caller's grant, so they fall back to the org's.
+- Disconnect with the `manage-builder-connection` action,
+  `{ "disconnect": "org" | "personal" }` (the Settings Builder.io page calls it
+  too). `org` needs owner/admin, checked against the stored member role;
+  `personal` removes only the caller's grant, so they fall back to the org's.
+  Without `disconnect` it reads `grants`, `canConnect`, and `defaultModel`
+  (whether the default model runs on Builder.io and switches or stops once it
+  is gone). Older clients post the same body to
+  `/_agent-native/builder/disconnect`.
 - `/_agent-native/connection-status/builder` returns `grants` (`{}` none,
   `null` unreadable), `effective` (`personal` / `org` / `workspace` / `env` /
   `null`), and `canConnect`. Each grant has `kind`: `oauth`, or `keys` for a

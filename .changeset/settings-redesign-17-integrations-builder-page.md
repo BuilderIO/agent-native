@@ -1,0 +1,5 @@
+---
+"@agent-native/core": minor
+---
+
+With the `settings-redesign` flag on, Settings › Integrations shows Builder.io first (under Recommended until it's connected, then under Connected), connected MCP servers, and the catalog by category with four tools each and "See more". Messaging channels and the Email row are no longer on this page. Builder.io has its own page at `/settings/integrations/builder` with the organization and personal connections, what Builder.io powers, and a disconnect confirmation that lists what stops working, including whether the default model switches to another provider or chats stop. Settings search finds every catalog tool and Builder.io. The legacy Integrations panel no longer keeps the Recommended badge on Builder.io once it's connected. New `manage-builder-connection` action: the agent and the page read the organization and personal Builder.io connections and the default model's dependence on Builder.io, and disconnect either one, with the organization connection limited to owners and admins on the server.

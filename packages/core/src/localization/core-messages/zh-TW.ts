@@ -1015,12 +1015,100 @@ const messages: AgentChatTranslation = {
   "settingsShell.appFallbackName": "應用程式",
   "settingsShell.backToApp": "返回 {{app}}",
   "settingsShell.breadcrumbLabel": "階層式導覽",
+  "settingsShell.builder.connect": "連結",
+  "settingsShell.builder.connected": "已連結",
+  "settingsShell.builder.connectedTo": "已連結 · {{space}}",
+  "settingsShell.builder.connection": "連結",
+  "settingsShell.builder.disconnect": "中斷連結",
+  "settingsShell.builder.disconnectBody":
+    "這會影響 {{org}} 中所有未連結自己帳戶的人。",
+  "settingsShell.builder.disconnectFailed": "無法中斷 Builder.io 的連結。",
+  "settingsShell.builder.disconnectTitle": "要中斷 Builder.io 的連結嗎？",
+  "settingsShell.builder.grantsFailed": "無法讀取 Builder.io 連結。",
+  "settingsShell.builder.loss.defaultStops":
+    "在你新增組織提供者之前，聊天會停止。",
+  "settingsShell.builder.loss.defaultSwitches": "預設模型切換為 {{next}}。",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io 模型會從模型選擇器中移除。",
+  "settingsShell.builder.loss.serviceStops": "在設定其他供應商之前停止運作。",
+  "settingsShell.builder.loss.stops": "停止運作。",
+  "settingsShell.builder.loss.uploadsFail":
+    "在你設定儲存空間之前，上傳會失敗。",
+  "settingsShell.builder.manage": "管理",
+  "settingsShell.builder.needsReconnect": "需要重新連結。",
+  "settingsShell.builder.orgFallback": "你的組織",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "未連結。連結後，{{org}} 中的所有人都能使用。",
+  "settingsShell.builder.orgNotConnectedMember":
+    "未連結。擁有者或管理員可以連結。",
+  "settingsShell.builder.organization": "組織",
+  "settingsShell.builder.personal": "個人",
+  "settingsShell.builder.personalConnected": "已連結。只有你使用。",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "已連結。只有你使用，取代組織的連結。",
+  "settingsShell.builder.personalConnectedTo":
+    "已連結 · {{space}}。只有你使用。",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "已連結 · {{space}}。只有你使用，取代組織的連結。",
+  "settingsShell.builder.personalNotConnected":
+    "連結你自己的帳戶。只有你使用。",
+  "settingsShell.builder.personalRestricted":
+    "擁有者和管理員已限制個人 API 金鑰。",
+  "settingsShell.builder.personalRestrictedUnused":
+    "個人 API 金鑰受限期間不會使用。",
+  "settingsShell.builder.reconnect": "重新連結",
+  "settingsShell.builder.retry": "重試",
+  "settingsShell.builder.use.aiModel": "AI 模型",
+  "settingsShell.builder.use.aiModelDefaultNote": "預設模型：{{model}}。",
+  "settingsShell.builder.use.aiModelNote": "Builder.io 模型在模型選擇器中。",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "從正式環境進行程式碼變更。",
+  "settingsShell.builder.use.browserAutomationNote":
+    "讓代理程式在正式環境中使用瀏覽器。",
+  "settingsShell.builder.use.designSystem": "設計系統智慧",
+  "settingsShell.builder.use.designSystemNote": "讓產生的簡報和設計符合品牌。",
+  "settingsShell.builder.use.embeddings": "嵌入",
+  "settingsShell.builder.use.embeddingsNote": "在 Brain 中搜尋。",
+  "settingsShell.builder.use.fileStorageNote":
+    "新上傳的檔案會儲存在 Builder.io。",
+  "settingsShell.builder.use.images": "圖片生成",
+  "settingsShell.builder.use.imagesNote": "Slides 和 Design。",
+  "settingsShell.builder.use.voice": "語音輸入",
+  "settingsShell.builder.use.voiceNote": "在每個應用程式中聽寫。",
+  "settingsShell.builder.usedFor": "用途",
+  "settingsShell.builder.usedForFootnote":
+    "在 {{link}} 中選擇在 Builder.io 上執行的項目。",
+  "settingsShell.builder.usedForLoadFailed":
+    "無法確認哪些服務在 Builder.io 上執行。",
+  "settingsShell.builder.whatHappens": "會發生什麼事",
   "settingsShell.clearSearch": "清除搜尋",
   "settingsShell.group.account": "帳戶",
   "settingsShell.group.agent": "代理",
   "settingsShell.group.connections": "連線",
   "settingsShell.group.organization": "組織",
   "settingsShell.interfaceLanguage": "介面語言",
+  "settingsShell.integrations.addCustom": "新增自訂整合",
+  "settingsShell.integrations.builderDescription":
+    "模型存取、瀏覽器自動化、檔案儲存和工作區身分。提供免費方案。",
+  "settingsShell.integrations.builderStatusFailed":
+    "無法確認 Builder.io 連結。",
+  "settingsShell.integrations.category.analytics": "分析",
+  "settingsShell.integrations.category.design": "設計",
+  "settingsShell.integrations.category.engineering": "工程",
+  "settingsShell.integrations.category.finance": "財務",
+  "settingsShell.integrations.category.other": "其他",
+  "settingsShell.integrations.category.productivity": "生產力",
+  "settingsShell.integrations.category.sales": "銷售",
+  "settingsShell.integrations.category.support": "支援",
+  "settingsShell.integrations.connectName": "連結 {{name}}",
+  "settingsShell.integrations.footnote":
+    "這些是代理程式使用的工具。若要從 Claude、ChatGPT 或 Cursor 使用 {{app}}，請參閱 {{link}}。",
+  "settingsShell.integrations.noResults": "沒有相符的整合。請換個名稱試試。",
+  "settingsShell.integrations.retry": "重試",
+  "settingsShell.integrations.seeMoreMany": "查看 {{first}}、{{second}} 等",
+  "settingsShell.integrations.seeMoreOne": "查看 {{first}}",
+  "settingsShell.integrations.seeMoreTwo": "查看 {{first}} 和 {{second}}",
+  "settingsShell.integrations.serversLoadFailed": "無法載入你已連結的整合。",
   "settingsShell.learnings": "學習記錄",
   "settingsShell.loading": "正在載入設定",
   "settingsShell.navLabel": "設定",

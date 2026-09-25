@@ -1087,12 +1087,110 @@ const messages: AgentChatTranslation = {
   "settingsShell.appFallbackName": "アプリ",
   "settingsShell.backToApp": "{{app}} に戻る",
   "settingsShell.breadcrumbLabel": "パンくずリスト",
+  "settingsShell.builder.connect": "接続",
+  "settingsShell.builder.connected": "接続済み",
+  "settingsShell.builder.connectedTo": "接続済み · {{space}}",
+  "settingsShell.builder.connection": "接続",
+  "settingsShell.builder.disconnect": "接続を解除",
+  "settingsShell.builder.disconnectBody":
+    "{{org}} で自分のアカウントを接続していない全員に影響します。",
+  "settingsShell.builder.disconnectFailed":
+    "Builder.io の接続を解除できませんでした。",
+  "settingsShell.builder.disconnectTitle": "Builder.io の接続を解除しますか？",
+  "settingsShell.builder.grantsFailed":
+    "Builder.io の接続を読み込めませんでした。",
+  "settingsShell.builder.loss.defaultStops":
+    "組織のプロバイダーを追加するまでチャットは停止します。",
+  "settingsShell.builder.loss.defaultSwitches":
+    "デフォルトモデルが {{next}} に切り替わります。",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io のモデルがモデル選択から消えます。",
+  "settingsShell.builder.loss.serviceStops":
+    "別のプロバイダーを設定するまで停止します。",
+  "settingsShell.builder.loss.stops": "使えなくなります。",
+  "settingsShell.builder.loss.uploadsFail":
+    "ストレージを設定するまでアップロードに失敗します。",
+  "settingsShell.builder.manage": "管理",
+  "settingsShell.builder.needsReconnect": "再接続が必要です。",
+  "settingsShell.builder.orgFallback": "組織",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "未接続です。接続すると {{org}} の全員が使えます。",
+  "settingsShell.builder.orgNotConnectedMember":
+    "未接続です。オーナーまたは管理者が接続できます。",
+  "settingsShell.builder.organization": "組織",
+  "settingsShell.builder.personal": "個人",
+  "settingsShell.builder.personalConnected":
+    "接続済み。使うのはあなただけです。",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "接続済み。組織の接続の代わりに、あなただけが使います。",
+  "settingsShell.builder.personalConnectedTo":
+    "接続済み · {{space}}。使うのはあなただけです。",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "接続済み · {{space}}。組織の接続の代わりに、あなただけが使います。",
+  "settingsShell.builder.personalNotConnected":
+    "自分のアカウントを接続します。使うのはあなただけです。",
+  "settingsShell.builder.personalRestricted":
+    "オーナーと管理者が個人の API キーを制限しています。",
+  "settingsShell.builder.personalRestrictedUnused":
+    "個人の API キーが制限されている間は使われません。",
+  "settingsShell.builder.reconnect": "再接続",
+  "settingsShell.builder.retry": "再試行",
+  "settingsShell.builder.use.aiModel": "AI モデル",
+  "settingsShell.builder.use.aiModelDefaultNote":
+    "デフォルトモデル、{{model}}。",
+  "settingsShell.builder.use.aiModelNote":
+    "Builder.io のモデルはモデル選択にあります。",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "本番環境からコードを変更します。",
+  "settingsShell.builder.use.browserAutomationNote":
+    "本番環境でエージェントがブラウザを使えるようにします。",
+  "settingsShell.builder.use.designSystem": "デザインシステムインテリジェンス",
+  "settingsShell.builder.use.designSystemNote":
+    "生成したスライドやデザインをブランドに沿わせます。",
+  "settingsShell.builder.use.embeddings": "埋め込み",
+  "settingsShell.builder.use.embeddingsNote": "Brain での検索。",
+  "settingsShell.builder.use.fileStorageNote":
+    "新しいアップロードは Builder.io に保存されます。",
+  "settingsShell.builder.use.images": "画像生成",
+  "settingsShell.builder.use.imagesNote": "Slides と Design。",
+  "settingsShell.builder.use.voice": "音声入力",
+  "settingsShell.builder.use.voiceNote": "すべてのアプリでの音声入力。",
+  "settingsShell.builder.usedFor": "用途",
+  "settingsShell.builder.usedForFootnote":
+    "Builder.io で実行するものは {{link}} で選べます。",
+  "settingsShell.builder.usedForLoadFailed":
+    "Builder.io で実行されているサービスを確認できませんでした。",
+  "settingsShell.builder.whatHappens": "影響",
   "settingsShell.clearSearch": "検索をクリア",
   "settingsShell.group.account": "アカウント",
   "settingsShell.group.agent": "エージェント",
   "settingsShell.group.connections": "接続",
   "settingsShell.group.organization": "組織",
   "settingsShell.interfaceLanguage": "表示言語",
+  "settingsShell.integrations.addCustom": "カスタム連携を追加",
+  "settingsShell.integrations.builderDescription":
+    "モデルへのアクセス、ブラウザ自動化、ファイルストレージ、ワークスペース ID。無料プランがあります。",
+  "settingsShell.integrations.builderStatusFailed":
+    "Builder.io の接続を確認できませんでした。",
+  "settingsShell.integrations.category.analytics": "分析",
+  "settingsShell.integrations.category.design": "デザイン",
+  "settingsShell.integrations.category.engineering": "エンジニアリング",
+  "settingsShell.integrations.category.finance": "財務",
+  "settingsShell.integrations.category.other": "その他",
+  "settingsShell.integrations.category.productivity": "生産性",
+  "settingsShell.integrations.category.sales": "営業",
+  "settingsShell.integrations.category.support": "サポート",
+  "settingsShell.integrations.connectName": "{{name}} を接続",
+  "settingsShell.integrations.footnote":
+    "これらはエージェントが使うツールです。Claude、ChatGPT、Cursor から {{app}} を使うには、{{link}} を参照してください。",
+  "settingsShell.integrations.noResults":
+    "一致する連携がありません。別の名前でお試しください。",
+  "settingsShell.integrations.retry": "再試行",
+  "settingsShell.integrations.seeMoreMany": "{{first}}、{{second}} などを表示",
+  "settingsShell.integrations.seeMoreOne": "{{first}} を表示",
+  "settingsShell.integrations.seeMoreTwo": "{{first}} と {{second}} を表示",
+  "settingsShell.integrations.serversLoadFailed":
+    "接続済みの連携を読み込めませんでした。",
   "settingsShell.learnings": "学習内容",
   "settingsShell.loading": "設定を読み込んでいます",
   "settingsShell.navLabel": "設定",

@@ -1011,12 +1011,99 @@ const messages: AgentChatTranslation = {
   "settingsShell.appFallbackName": "应用",
   "settingsShell.backToApp": "返回 {{app}}",
   "settingsShell.breadcrumbLabel": "面包屑导航",
+  "settingsShell.builder.connect": "连接",
+  "settingsShell.builder.connected": "已连接",
+  "settingsShell.builder.connectedTo": "已连接 · {{space}}",
+  "settingsShell.builder.connection": "连接",
+  "settingsShell.builder.disconnect": "断开连接",
+  "settingsShell.builder.disconnectBody":
+    "这会影响 {{org}} 中所有未连接自己账号的人。",
+  "settingsShell.builder.disconnectFailed": "无法断开 Builder.io。",
+  "settingsShell.builder.disconnectTitle": "断开 Builder.io？",
+  "settingsShell.builder.grantsFailed": "无法读取 Builder.io 连接。",
+  "settingsShell.builder.loss.defaultStops":
+    "在你添加组织提供商之前，聊天将停止。",
+  "settingsShell.builder.loss.defaultSwitches": "默认模型切换为 {{next}}。",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io 模型将从模型选择器中移除。",
+  "settingsShell.builder.loss.serviceStops": "在设置其他提供商之前停止工作。",
+  "settingsShell.builder.loss.stops": "停止工作。",
+  "settingsShell.builder.loss.uploadsFail": "在你设置存储之前，上传会失败。",
+  "settingsShell.builder.manage": "管理",
+  "settingsShell.builder.needsReconnect": "需要重新连接。",
+  "settingsShell.builder.orgFallback": "你的组织",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "未连接。连接后，{{org}} 中的所有人都可以使用。",
+  "settingsShell.builder.orgNotConnectedMember":
+    "未连接。所有者或管理员可以连接。",
+  "settingsShell.builder.organization": "组织",
+  "settingsShell.builder.personal": "个人",
+  "settingsShell.builder.personalConnected": "已连接。只有你使用。",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "已连接。只有你使用，替代组织的连接。",
+  "settingsShell.builder.personalConnectedTo":
+    "已连接 · {{space}}。只有你使用。",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "已连接 · {{space}}。只有你使用，替代组织的连接。",
+  "settingsShell.builder.personalNotConnected":
+    "连接你自己的账号。只有你使用。",
+  "settingsShell.builder.personalRestricted":
+    "所有者和管理员已限制个人 API 密钥。",
+  "settingsShell.builder.personalRestrictedUnused":
+    "个人 API 密钥受限期间不会使用。",
+  "settingsShell.builder.reconnect": "重新连接",
+  "settingsShell.builder.retry": "重试",
+  "settingsShell.builder.use.aiModel": "AI 模型",
+  "settingsShell.builder.use.aiModelDefaultNote": "默认模型：{{model}}。",
+  "settingsShell.builder.use.aiModelNote": "Builder.io 模型在模型选择器中。",
+  "settingsShell.builder.use.backgroundAgentsNote": "从生产环境进行代码更改。",
+  "settingsShell.builder.use.browserAutomationNote":
+    "让智能体在生产环境中使用浏览器。",
+  "settingsShell.builder.use.designSystem": "设计系统智能",
+  "settingsShell.builder.use.designSystemNote":
+    "让生成的幻灯片和设计符合品牌。",
+  "settingsShell.builder.use.embeddings": "嵌入",
+  "settingsShell.builder.use.embeddingsNote": "在 Brain 中搜索。",
+  "settingsShell.builder.use.fileStorageNote":
+    "新上传的文件存储在 Builder.io。",
+  "settingsShell.builder.use.images": "图像生成",
+  "settingsShell.builder.use.imagesNote": "Slides 和 Design。",
+  "settingsShell.builder.use.voice": "语音输入",
+  "settingsShell.builder.use.voiceNote": "在每个应用中听写。",
+  "settingsShell.builder.usedFor": "用途",
+  "settingsShell.builder.usedForFootnote":
+    "在 {{link}} 中选择在 Builder.io 上运行的内容。",
+  "settingsShell.builder.usedForLoadFailed":
+    "无法检查哪些服务在 Builder.io 上运行。",
+  "settingsShell.builder.whatHappens": "会发生什么",
   "settingsShell.clearSearch": "清除搜索",
   "settingsShell.group.account": "账户",
   "settingsShell.group.agent": "智能体",
   "settingsShell.group.connections": "连接",
   "settingsShell.group.organization": "组织",
   "settingsShell.interfaceLanguage": "界面语言",
+  "settingsShell.integrations.addCustom": "添加自定义集成",
+  "settingsShell.integrations.builderDescription":
+    "模型访问、浏览器自动化、文件存储和工作区身份。提供免费套餐。",
+  "settingsShell.integrations.builderStatusFailed":
+    "无法检查 Builder.io 连接。",
+  "settingsShell.integrations.category.analytics": "分析",
+  "settingsShell.integrations.category.design": "设计",
+  "settingsShell.integrations.category.engineering": "工程",
+  "settingsShell.integrations.category.finance": "财务",
+  "settingsShell.integrations.category.other": "其他",
+  "settingsShell.integrations.category.productivity": "效率",
+  "settingsShell.integrations.category.sales": "销售",
+  "settingsShell.integrations.category.support": "支持",
+  "settingsShell.integrations.connectName": "连接 {{name}}",
+  "settingsShell.integrations.footnote":
+    "这些是智能体使用的工具。要从 Claude、ChatGPT 或 Cursor 使用 {{app}}，请参阅 {{link}}。",
+  "settingsShell.integrations.noResults": "没有匹配的集成。请换个名称试试。",
+  "settingsShell.integrations.retry": "重试",
+  "settingsShell.integrations.seeMoreMany": "查看 {{first}}、{{second}} 等",
+  "settingsShell.integrations.seeMoreOne": "查看 {{first}}",
+  "settingsShell.integrations.seeMoreTwo": "查看 {{first}} 和 {{second}}",
+  "settingsShell.integrations.serversLoadFailed": "无法加载你已连接的集成。",
   "settingsShell.learnings": "学习记录",
   "settingsShell.loading": "正在加载设置",
   "settingsShell.navLabel": "设置",

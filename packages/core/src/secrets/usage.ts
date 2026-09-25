@@ -6,6 +6,7 @@
  * fall back to, and whether a shared key takes over a removed personal one.
  */
 
+import type { AgentEngineEntry } from "../agent/engine/index.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import {
   AGENT_PROVIDER_CATALOG,
@@ -165,29 +166,28 @@ function engineDisplayLabel(entry: { name: string; label: string }): string {
 }
 
 /**
- * The default-model effect of removing a provider key, found the way
- * `resolveEngine` falls back: the configured engine if it survives, else the
- * first engine whose credentials still resolve.
+ * The engine the default model runs on and what becomes of it once the
+ * engines `loses` matches stop resolving, found the way `resolveEngine` falls
+ * back: the configured engine if it survives, else the first engine whose
+ * credentials still resolve. `null` when the default runs on no lost engine.
  */
-async function defaultModelEffect(
-  key: string,
+async function defaultModelLoss(
+  loses: (entry: AgentEngineEntry) => boolean,
   appId: string | undefined,
-): Promise<SecretRemovalEffect | null> {
+): Promise<{ current: AgentEngineEntry; effect: SecretRemovalEffect } | null> {
   const engine = await import("../agent/engine/index.js");
   const { getAppConfig } = await import("../app-config/index.js");
   const { resolveHasCompleteBuilderConnection, resolveSecret } =
     await import("../server/credential-provider.js");
   engine.registerBuiltinEngines();
 
-  const needsKey = (entry: { requiredEnvVars: string[] }) =>
-    entry.requiredEnvVars.includes(key);
   const configuredName = await engine.getConfiguredEngineNameForRequest({
     appId,
   });
   const current = configuredName
     ? engine.getAgentEngineEntry(configuredName)
     : await engine.detectEngineFromUserSecrets();
-  if (!current || !needsKey(current)) return null;
+  if (!current || !loses(current)) return null;
 
   const entries = engine.listAgentEngines();
   const ordered = getAppConfig().agent.preferBringYourOwnKey
@@ -197,12 +197,12 @@ async function defaultModelEffect(
       ]
     : entries;
   for (const entry of ordered) {
-    if (needsKey(entry) || !engine.isAgentEnginePackageInstalled(entry)) {
+    if (loses(entry) || !engine.isAgentEnginePackageInstalled(entry)) {
       continue;
     }
     if (entry.name === "builder") {
       if (await resolveHasCompleteBuilderConnection()) {
-        return defaultSwitchesTo(entry);
+        return { current, effect: defaultSwitchesTo(entry) };
       }
       continue;
     }
@@ -214,13 +214,88 @@ async function defaultModelEffect(
         break;
       }
     }
-    if (usable) return defaultSwitchesTo(entry);
+    if (usable) return { current, effect: defaultSwitchesTo(entry) };
   }
   return {
-    app: ALL_APPS,
-    feature: "Agent",
-    effect: "Chats stop until another provider is set up.",
-    code: "default-model-stops",
+    current,
+    effect: {
+      app: ALL_APPS,
+      feature: "Agent",
+      effect: "Chats stop until another provider is set up.",
+      code: "default-model-stops",
+    },
+  };
+}
+
+/** The default-model effect of removing a provider key. */
+async function defaultModelEffect(
+  key: string,
+  appId: string | undefined,
+): Promise<SecretRemovalEffect | null> {
+  const loss = await defaultModelLoss(
+    (entry) => entry.requiredEnvVars.includes(key),
+    appId,
+  );
+  return loss?.effect ?? null;
+}
+
+/**
+ * Whether the default model runs on Builder.io, and what it does once
+ * Builder.io is disconnected.
+ */
+export type BuilderDefaultModel =
+  | { status: "elsewhere" }
+  | {
+      status: "builder";
+      /** The default's model id. */
+      model: string;
+      whenDisconnected:
+        | { status: "switches"; next: string }
+        | { status: "stops" };
+    };
+
+async function defaultModelId(
+  entry: AgentEngineEntry,
+  appId: string | undefined,
+): Promise<string> {
+  const { getAgentAppModelDefaultForCurrentRequest } =
+    await import("../agent/app-model-defaults.js");
+  const appDefault = await getAgentAppModelDefaultForCurrentRequest(appId);
+  if (appDefault?.engine === entry.name) return appDefault.model;
+  const { readDefaultAgentEngineSetting } =
+    await import("../agent/default-agent-engine.js");
+  const stored = await readDefaultAgentEngineSetting();
+  if (
+    stored?.engine === entry.name &&
+    typeof stored.model === "string" &&
+    stored.model.trim()
+  ) {
+    return stored.model.trim();
+  }
+  return entry.defaultModel;
+}
+
+/**
+ * The default model's side of disconnecting Builder.io for the current
+ * request, found the same way as a provider key's removal. Throws when the
+ * settings or credential store can't be read.
+ */
+export async function describeBuilderDefaultModel(
+  appId?: string,
+): Promise<BuilderDefaultModel> {
+  const loss = await defaultModelLoss(
+    (entry) => entry.name === "builder",
+    appId,
+  );
+  if (!loss) return { status: "elsewhere" };
+  const next =
+    loss.effect.code === "default-model-switches"
+      ? loss.effect.params?.next
+      : undefined;
+  return {
+    status: "builder",
+    model: await defaultModelId(loss.current, appId),
+    whenDisconnected: next ? { status: "switches", next } : { status: "stops" },
   };
 }
 

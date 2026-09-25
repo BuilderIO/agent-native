@@ -1092,12 +1092,105 @@ const messages: AgentChatTranslation = {
   "settingsShell.appFallbackName": "التطبيق",
   "settingsShell.backToApp": "العودة إلى {{app}}",
   "settingsShell.breadcrumbLabel": "مسار التنقل",
+  "settingsShell.builder.connect": "ربط",
+  "settingsShell.builder.connected": "مرتبط",
+  "settingsShell.builder.connectedTo": "مرتبط · {{space}}",
+  "settingsShell.builder.connection": "الاتصال",
+  "settingsShell.builder.disconnect": "قطع الاتصال",
+  "settingsShell.builder.disconnectBody":
+    "يؤثر هذا على كل من في {{org}} ممن لم يربطوا حساباتهم الخاصة.",
+  "settingsShell.builder.disconnectFailed": "تعذّر قطع اتصال Builder.io.",
+  "settingsShell.builder.disconnectTitle": "هل تريد قطع اتصال Builder.io؟",
+  "settingsShell.builder.grantsFailed": "تعذّرت قراءة اتصالات Builder.io.",
+  "settingsShell.builder.loss.defaultStops":
+    "تتوقف المحادثات حتى تضيف موفرًا للمؤسسة.",
+  "settingsShell.builder.loss.defaultSwitches":
+    "يتحول النموذج الافتراضي إلى {{next}}.",
+  "settingsShell.builder.loss.modelPicker":
+    "تُزال نماذج Builder.io من أداة اختيار النموذج.",
+  "settingsShell.builder.loss.serviceStops": "يتوقف إلى أن يُعدّ مزوّد آخر.",
+  "settingsShell.builder.loss.stops": "يتوقف عن العمل.",
+  "settingsShell.builder.loss.uploadsFail":
+    "يفشل الرفع إلى أن تُعدّ مساحة التخزين.",
+  "settingsShell.builder.manage": "إدارة",
+  "settingsShell.builder.needsReconnect": "يجب إعادة ربطه.",
+  "settingsShell.builder.orgFallback": "مؤسستك",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "غير مرتبط. عند ربطه يمكن لكل من في {{org}} استخدامه.",
+  "settingsShell.builder.orgNotConnectedMember":
+    "غير مرتبط. يمكن للمالك أو المسؤول ربطه.",
+  "settingsShell.builder.organization": "المؤسسة",
+  "settingsShell.builder.personal": "شخصي",
+  "settingsShell.builder.personalConnected": "مرتبط. أنت وحدك تستخدمه.",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "مرتبط. أنت وحدك تستخدمه بدلًا من اتصال المؤسسة.",
+  "settingsShell.builder.personalConnectedTo":
+    "مرتبط · {{space}}. أنت وحدك تستخدمه.",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "مرتبط · {{space}}. أنت وحدك تستخدمه بدلًا من اتصال المؤسسة.",
+  "settingsShell.builder.personalNotConnected":
+    "اربط حسابك الخاص. أنت وحدك تستخدمه.",
+  "settingsShell.builder.personalRestricted":
+    "قيّد المالكون والمسؤولون مفاتيح API الشخصية.",
+  "settingsShell.builder.personalRestrictedUnused":
+    "لا يُستخدم ما دامت مفاتيح API الشخصية مقيّدة.",
+  "settingsShell.builder.reconnect": "إعادة الربط",
+  "settingsShell.builder.retry": "إعادة المحاولة",
+  "settingsShell.builder.use.aiModel": "نموذج الذكاء الاصطناعي",
+  "settingsShell.builder.use.aiModelDefaultNote":
+    "النموذج الافتراضي، {{model}}.",
+  "settingsShell.builder.use.aiModelNote":
+    "نماذج Builder.io موجودة في أداة اختيار النموذج.",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "يجري تغييرات على الكود من بيئة الإنتاج.",
+  "settingsShell.builder.use.browserAutomationNote":
+    "يتيح للوكيل استخدام متصفح في بيئة الإنتاج.",
+  "settingsShell.builder.use.designSystem": "ذكاء نظام التصميم",
+  "settingsShell.builder.use.designSystemNote":
+    "يحافظ على توافق الشرائح والتصاميم المُنشأة مع العلامة التجارية.",
+  "settingsShell.builder.use.embeddings": "التضمينات",
+  "settingsShell.builder.use.embeddingsNote": "البحث في Brain.",
+  "settingsShell.builder.use.fileStorageNote":
+    "تُخزَّن الملفات المرفوعة الجديدة على Builder.io.",
+  "settingsShell.builder.use.images": "إنشاء الصور",
+  "settingsShell.builder.use.imagesNote": "Slides وDesign.",
+  "settingsShell.builder.use.voice": "الإدخال الصوتي",
+  "settingsShell.builder.use.voiceNote": "الإملاء في كل تطبيق.",
+  "settingsShell.builder.usedFor": "يُستخدم في",
+  "settingsShell.builder.usedForFootnote":
+    "اختر ما يعمل على Builder.io في {{link}}.",
+  "settingsShell.builder.usedForLoadFailed":
+    "تعذّر التحقق من الخدمات التي تعمل على Builder.io.",
+  "settingsShell.builder.whatHappens": "ما الذي سيحدث",
   "settingsShell.clearSearch": "مسح البحث",
   "settingsShell.group.account": "الحساب",
   "settingsShell.group.agent": "الوكيل",
   "settingsShell.group.connections": "الاتصالات",
   "settingsShell.group.organization": "المؤسسة",
   "settingsShell.interfaceLanguage": "لغة الواجهة",
+  "settingsShell.integrations.addCustom": "إضافة تكامل مخصص",
+  "settingsShell.integrations.builderDescription":
+    "الوصول إلى النماذج وأتمتة المتصفح وتخزين الملفات وهوية مساحة العمل. تتوفر خطة مجانية.",
+  "settingsShell.integrations.builderStatusFailed":
+    "تعذّر التحقق من اتصال Builder.io.",
+  "settingsShell.integrations.category.analytics": "التحليلات",
+  "settingsShell.integrations.category.design": "التصميم",
+  "settingsShell.integrations.category.engineering": "الهندسة",
+  "settingsShell.integrations.category.finance": "المالية",
+  "settingsShell.integrations.category.other": "أخرى",
+  "settingsShell.integrations.category.productivity": "الإنتاجية",
+  "settingsShell.integrations.category.sales": "المبيعات",
+  "settingsShell.integrations.category.support": "الدعم",
+  "settingsShell.integrations.connectName": "ربط {{name}}",
+  "settingsShell.integrations.footnote":
+    "هذه هي الأدوات التي يستخدمها الوكيل. لاستخدام {{app}} من Claude أو ChatGPT أو Cursor، راجع {{link}}.",
+  "settingsShell.integrations.noResults": "لا توجد تكاملات مطابقة. جرّب اسمًا آخر.",
+  "settingsShell.integrations.retry": "إعادة المحاولة",
+  "settingsShell.integrations.seeMoreMany": "عرض {{first}} و{{second}} والمزيد",
+  "settingsShell.integrations.seeMoreOne": "عرض {{first}}",
+  "settingsShell.integrations.seeMoreTwo": "عرض {{first}} و{{second}}",
+  "settingsShell.integrations.serversLoadFailed":
+    "تعذّر تحميل تكاملاتك المرتبطة.",
   "settingsShell.learnings": "المعارف المكتسبة",
   "settingsShell.loading": "جارٍ تحميل الإعدادات",
   "settingsShell.navLabel": "الإعدادات",

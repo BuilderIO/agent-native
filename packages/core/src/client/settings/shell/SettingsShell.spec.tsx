@@ -349,7 +349,7 @@ describe("SettingsShell", () => {
       {
         page: "integrations",
         sub: "builder",
-        label: "Connections › Integrations",
+        label: "Connections › Integrations › Builder.io",
       },
       expect.objectContaining({ requestSource: expect.any(String) }),
     );
@@ -398,7 +398,14 @@ describe("SettingsShell", () => {
       await render();
       expect(search("default model")[0]).toBe("Default modelAgent › Model");
       expect(search("max iterations")[0]).toBe("Max iterationsAgent › Model");
-      expect(search("slack")[0]).toBe("SlackClips › Channels");
+      // The agent in Slack is a channel; Slack's search tools stay an
+      // integration.
+      expect(search("slack")).toEqual(
+        expect.arrayContaining([
+          "SlackClips › Channels",
+          "SlackConnections › Integrations",
+        ]),
+      );
       expect(search("voice")[0]).toBe(
         "Voice transcriptionAccount › Preferences",
       );
@@ -407,7 +414,10 @@ describe("SettingsShell", () => {
     it("keeps owner and admin pages out of a member's results", async () => {
       await render();
       expect(search("scim")).toEqual([]);
-      expect(search("database")).toEqual([]);
+      // Database integrations (Neon, Supabase) still match.
+      expect(
+        search("database").filter((hit) => hit.includes("Infrastructure")),
+      ).toEqual([]);
 
       act(() => root.unmount());
       root = createRoot(container);

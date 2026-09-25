@@ -93,6 +93,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/agent/actions/manage-provider-key-policy",
   },
   {
+    name: "manage-builder-connection",
+    specifier: "@agent-native/core/agent/actions/manage-builder-connection",
+  },
+  {
     name: "get-provider-models",
     specifier: "@agent-native/core/agent/actions/get-provider-models",
   },

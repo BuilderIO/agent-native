@@ -8,11 +8,14 @@ const mockLoadWorkspaceAppsManifest = vi.fn();
 const mockGetConfiguredEngineNameForRequest = vi.fn();
 const mockDetectEngineFromUserSecrets = vi.fn();
 const mockGetRequestOrgId = vi.fn();
+const mockAppModelDefault = vi.fn();
+const mockReadDefaultAgentEngineSetting = vi.fn();
 
 const ENGINES = [
   {
     name: "builder",
     label: "Builder.io Gateway",
+    defaultModel: "claude-sonnet-4-6",
     requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
   },
   {
@@ -66,6 +69,15 @@ vi.mock("../agent/engine/index.js", () => ({
   isAgentEnginePackageInstalled: () => true,
 }));
 
+vi.mock("../agent/app-model-defaults.js", () => ({
+  getAgentAppModelDefaultForCurrentRequest: (...args: any[]) =>
+    mockAppModelDefault(...args),
+}));
+
+vi.mock("../agent/default-agent-engine.js", () => ({
+  readDefaultAgentEngineSetting: () => mockReadDefaultAgentEngineSetting(),
+}));
+
 // Slides imports the public entry; point it at this source tree so the
 // template's real registrations land in the registry under test.
 vi.mock("@agent-native/core/secrets", async () => ({
@@ -75,7 +87,11 @@ vi.mock("@agent-native/core/secrets", async () => ({
 
 import { registerFrameworkSecrets } from "./register-framework-secrets.js";
 import { __resetSecretsRegistry, registerRequiredSecret } from "./register.js";
-import { describeSecretUsage, previewSecretRemoval } from "./usage.js";
+import {
+  describeBuilderDefaultModel,
+  describeSecretUsage,
+  previewSecretRemoval,
+} from "./usage.js";
 
 async function registerSlides() {
   vi.resetModules();
@@ -98,6 +114,71 @@ describe("secret usage", () => {
     mockLoadWorkspaceAppsManifest.mockResolvedValue(null);
     mockGetConfiguredEngineNameForRequest.mockResolvedValue(undefined);
     mockDetectEngineFromUserSecrets.mockResolvedValue(null);
+    mockAppModelDefault.mockResolvedValue(null);
+    mockReadDefaultAgentEngineSetting.mockResolvedValue(null);
+  });
+
+  describe("describeBuilderDefaultModel", () => {
+    it("names the stored default and the provider it switches to", async () => {
+      mockGetConfiguredEngineNameForRequest.mockResolvedValue("builder");
+      mockReadDefaultAgentEngineSetting.mockResolvedValue({
+        engine: "builder",
+        model: "claude-opus-4-5",
+      });
+      // Builder.io still resolves before the disconnect; it must not count.
+      mockResolveHasCompleteBuilderConnection.mockResolvedValue(true);
+      mockResolveSecret.mockImplementation(async (key: string) =>
+        key === "OPENAI_API_KEY" ? "fake-openai" : null,
+      );
+
+      await expect(describeBuilderDefaultModel("slides")).resolves.toEqual({
+        status: "builder",
+        model: "claude-opus-4-5",
+        whenDisconnected: { status: "switches", next: "OpenAI" },
+      });
+      expect(mockAppModelDefault).toHaveBeenCalledWith("slides");
+    });
+
+    it("says chats stop when nothing else can answer", async () => {
+      mockDetectEngineFromUserSecrets.mockResolvedValue(ENGINES[0]);
+
+      await expect(describeBuilderDefaultModel()).resolves.toEqual({
+        status: "builder",
+        model: "claude-sonnet-4-6",
+        whenDisconnected: { status: "stops" },
+      });
+    });
+
+    it("prefers the app's own default model", async () => {
+      mockGetConfiguredEngineNameForRequest.mockResolvedValue("builder");
+      mockAppModelDefault.mockResolvedValue({
+        engine: "builder",
+        model: "gpt-5",
+      });
+
+      await expect(
+        describeBuilderDefaultModel("slides"),
+      ).resolves.toMatchObject({ status: "builder", model: "gpt-5" });
+    });
+
+    it("reports a default on another provider as elsewhere", async () => {
+      mockGetConfiguredEngineNameForRequest.mockResolvedValue("anthropic");
+
+      await expect(describeBuilderDefaultModel()).resolves.toEqual({
+        status: "elsewhere",
+      });
+    });
+
+    it("throws when the default can't be read", async () => {
+      mockGetConfiguredEngineNameForRequest.mockResolvedValue("builder");
+      mockReadDefaultAgentEngineSetting.mockRejectedValue(
+        new Error("settings store down"),
+      );
+
+      await expect(describeBuilderDefaultModel()).rejects.toThrow(
+        "settings store down",
+      );
+    });
   });
 
   it("keeps framework uses when a template registers the same key", async () => {

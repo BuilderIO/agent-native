@@ -782,6 +782,10 @@ export async function mergeCoreSharingActions(
       () => import("../agent/actions/manage-provider-key-policy.js"),
     ],
     [
+      "manage-builder-connection",
+      () => import("../agent/actions/manage-builder-connection.js"),
+    ],
+    [
       "get-provider-models",
       () => import("../agent/actions/get-provider-models.js"),
     ],

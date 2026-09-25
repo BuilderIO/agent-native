@@ -1053,12 +1053,107 @@ const messages: AgentChatTranslation = {
   "settingsShell.appFallbackName": "ऐप",
   "settingsShell.backToApp": "{{app}} पर वापस जाएँ",
   "settingsShell.breadcrumbLabel": "ब्रेडक्रंब",
+  "settingsShell.builder.connect": "कनेक्ट करें",
+  "settingsShell.builder.connected": "कनेक्ट है",
+  "settingsShell.builder.connectedTo": "कनेक्ट है · {{space}}",
+  "settingsShell.builder.connection": "कनेक्शन",
+  "settingsShell.builder.disconnect": "डिस्कनेक्ट करें",
+  "settingsShell.builder.disconnectBody":
+    "इसका असर {{org}} के उन सभी लोगों पर पड़ेगा जिन्होंने अपना खाता कनेक्ट नहीं किया है।",
+  "settingsShell.builder.disconnectFailed":
+    "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
+  "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
+  "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन पढ़े नहीं जा सके।",
+  "settingsShell.builder.loss.defaultStops":
+    "जब तक आप संगठन प्रदाता नहीं जोड़ते, चैट रुकी रहती हैं।",
+  "settingsShell.builder.loss.defaultSwitches":
+    "डिफ़ॉल्ट मॉडल {{next}} पर बदल जाता है।",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io मॉडल, मॉडल पिकर से हट जाते हैं।",
+  "settingsShell.builder.loss.serviceStops":
+    "जब तक कोई दूसरा प्रोवाइडर सेट अप न हो, तब तक बंद रहता है।",
+  "settingsShell.builder.loss.stops": "काम करना बंद कर देता है।",
+  "settingsShell.builder.loss.uploadsFail":
+    "स्टोरेज सेट अप करने तक अपलोड विफल होते हैं।",
+  "settingsShell.builder.manage": "प्रबंधित करें",
+  "settingsShell.builder.needsReconnect": "फिर से कनेक्ट करना होगा।",
+  "settingsShell.builder.orgFallback": "आपका संगठन",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} में सभी इसका इस्तेमाल कर सकते हैं।",
+  "settingsShell.builder.orgNotConnectedMember":
+    "कनेक्ट नहीं है। कोई ओनर या एडमिन इसे कनेक्ट कर सकता है।",
+  "settingsShell.builder.organization": "संगठन",
+  "settingsShell.builder.personal": "व्यक्तिगत",
+  "settingsShell.builder.personalConnected":
+    "कनेक्ट है। सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "कनेक्ट है। संगठन के कनेक्शन की जगह सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalConnectedTo":
+    "कनेक्ट है · {{space}}। सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "कनेक्ट है · {{space}}। संगठन के कनेक्शन की जगह सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalNotConnected":
+    "अपना खाता कनेक्ट करें। सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalRestricted":
+    "ओनर और एडमिन ने व्यक्तिगत API कुंजियों को सीमित किया है।",
+  "settingsShell.builder.personalRestrictedUnused":
+    "व्यक्तिगत API कुंजियाँ सीमित रहने तक इस्तेमाल नहीं होता।",
+  "settingsShell.builder.reconnect": "फिर से कनेक्ट करें",
+  "settingsShell.builder.retry": "फिर से कोशिश करें",
+  "settingsShell.builder.use.aiModel": "AI मॉडल",
+  "settingsShell.builder.use.aiModelDefaultNote": "डिफ़ॉल्ट मॉडल, {{model}}।",
+  "settingsShell.builder.use.aiModelNote": "Builder.io मॉडल, मॉडल पिकर में हैं।",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "प्रोडक्शन से कोड में बदलाव करता है।",
+  "settingsShell.builder.use.browserAutomationNote":
+    "एजेंट को प्रोडक्शन में ब्राउज़र इस्तेमाल करने देता है।",
+  "settingsShell.builder.use.designSystem": "डिज़ाइन सिस्टम इंटेलिजेंस",
+  "settingsShell.builder.use.designSystemNote":
+    "जनरेट की गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
+  "settingsShell.builder.use.embeddings": "एम्बेडिंग",
+  "settingsShell.builder.use.embeddingsNote": "Brain में खोज।",
+  "settingsShell.builder.use.fileStorageNote":
+    "नए अपलोड Builder.io पर स्टोर होते हैं।",
+  "settingsShell.builder.use.images": "इमेज जनरेशन",
+  "settingsShell.builder.use.imagesNote": "Slides और Design।",
+  "settingsShell.builder.use.voice": "वॉइस इनपुट",
+  "settingsShell.builder.use.voiceNote": "हर ऐप में डिक्टेशन।",
+  "settingsShell.builder.usedFor": "इसके लिए इस्तेमाल होता है",
+  "settingsShell.builder.usedForFootnote":
+    "{{link}} में चुनें कि Builder.io पर क्या चलेगा।",
+  "settingsShell.builder.usedForLoadFailed":
+    "यह जाँचा नहीं जा सका कि कौन-सी सेवाएँ Builder.io पर चलती हैं।",
+  "settingsShell.builder.whatHappens": "क्या होगा",
   "settingsShell.clearSearch": "खोज साफ़ करें",
   "settingsShell.group.account": "खाता",
   "settingsShell.group.agent": "एजेंट",
   "settingsShell.group.connections": "कनेक्शन",
   "settingsShell.group.organization": "संगठन",
   "settingsShell.interfaceLanguage": "इंटरफ़ेस की भाषा",
+  "settingsShell.integrations.addCustom": "कस्टम इंटीग्रेशन जोड़ें",
+  "settingsShell.integrations.builderDescription":
+    "मॉडल एक्सेस, ब्राउज़र ऑटोमेशन, फ़ाइल स्टोरेज और वर्कस्पेस पहचान। फ़्री टियर उपलब्ध है।",
+  "settingsShell.integrations.builderStatusFailed":
+    "Builder.io कनेक्शन जाँचा नहीं जा सका।",
+  "settingsShell.integrations.category.analytics": "एनालिटिक्स",
+  "settingsShell.integrations.category.design": "डिज़ाइन",
+  "settingsShell.integrations.category.engineering": "इंजीनियरिंग",
+  "settingsShell.integrations.category.finance": "फ़ाइनेंस",
+  "settingsShell.integrations.category.other": "अन्य",
+  "settingsShell.integrations.category.productivity": "प्रोडक्टिविटी",
+  "settingsShell.integrations.category.sales": "सेल्स",
+  "settingsShell.integrations.category.support": "सपोर्ट",
+  "settingsShell.integrations.connectName": "{{name}} कनेक्ट करें",
+  "settingsShell.integrations.footnote":
+    "ये वे टूल हैं जिनका एजेंट इस्तेमाल करता है। Claude, ChatGPT या Cursor से {{app}} इस्तेमाल करने के लिए {{link}} देखें।",
+  "settingsShell.integrations.noResults":
+    "कोई इंटीग्रेशन मेल नहीं खाता। कोई दूसरा नाम आज़माएँ।",
+  "settingsShell.integrations.retry": "फिर से कोशिश करें",
+  "settingsShell.integrations.seeMoreMany": "{{first}}, {{second}} और अन्य देखें",
+  "settingsShell.integrations.seeMoreOne": "{{first}} देखें",
+  "settingsShell.integrations.seeMoreTwo": "{{first}} और {{second}} देखें",
+  "settingsShell.integrations.serversLoadFailed":
+    "आपके कनेक्ट किए गए इंटीग्रेशन लोड नहीं हो सके।",
   "settingsShell.learnings": "सीख",
   "settingsShell.loading": "सेटिंग्स लोड हो रही हैं",
   "settingsShell.navLabel": "सेटिंग्स",
