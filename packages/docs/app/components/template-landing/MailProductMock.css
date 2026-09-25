@@ -678,9 +678,9 @@
 .mm-row-action-rail {
   position: relative;
   display: flex;
-  width: clamp(64px, 10%, 104px);
+  width: clamp(78px, 10%, 104px);
   height: 100%;
-  flex: 0 0 clamp(64px, 10%, 104px);
+  flex: 0 0 clamp(78px, 10%, 104px);
   align-items: center;
   justify-content: flex-end;
   margin-left: 6px;
