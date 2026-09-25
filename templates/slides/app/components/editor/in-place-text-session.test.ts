@@ -1352,3 +1352,160 @@ describe("in-place text session: review round 2", () => {
     expect(el.innerHTML).toBe("AX<br>B");
   });
 });
+
+describe("in-place text session: review round 3", () => {
+  it("pastes an ordered list followed by a bullet list as two lists", () => {
+    const el = mount('<div id="t">Intro</div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Intro"), 5);
+    paste(el, {
+      "text/html": "<ol><li>One</li><li>Two</li></ol><ul><li>Dot</li></ul>",
+      "text/plain": "One\nTwo\nDot",
+    });
+    session.end();
+    expect(el.innerHTML).toMatch(
+      /^Intro<ol[^>]*><li>One<\/li><li>Two<\/li><\/ol><ul[^>]*><li>Dot<\/li><\/ul>$/,
+    );
+  });
+
+  it.each([
+    [
+      "an image the clipboard allowlist drops",
+      '<img src="https://x.test/a.png">',
+    ],
+    ["an embedded image", '<img src="data:image/png;base64,AAAA">'],
+  ])(
+    "leaves the selection alone when a paste of %s has nothing to insert",
+    (_label, html) => {
+      const el = mount('<p id="t">Hello world</p>');
+      session = startInPlaceTextSession(el);
+      select(el.firstChild!, 0, el.firstChild!, 5);
+      const event = paste(el, { "text/html": html, "text/plain": "" });
+      expect(event.defaultPrevented).toBe(true);
+      expect(el.innerHTML).toBe("Hello world");
+      expect(session.undo()).toBe(false);
+    },
+  );
+
+  it("keeps a pasted ordered list's start, type, and direction", () => {
+    const el = mount('<div id="t">Intro</div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Intro"), 5);
+    paste(el, {
+      "text/html": '<ol start="3" type="a" reversed><li>C</li><li>D</li></ol>',
+      "text/plain": "C\nD",
+    });
+    session.end();
+    const list = el.querySelector("ol")!;
+    expect(list.getAttribute("start")).toBe("3");
+    expect(list.hasAttribute("reversed")).toBe(true);
+    expect(list.style.listStyleType).toBe("lower-alpha");
+  });
+
+  it("keeps a pasted ordered sub-list ordered inside a bullet item", () => {
+    const el = mount('<ul id="t"><li>One</li></ul>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "One"), 3);
+    paste(el, {
+      "text/html": '<ul><li>Two<ol start="4"><li>Sub</li></ol></li></ul>',
+      "text/plain": "Two\nSub",
+    });
+    session.end();
+    expect(el.innerHTML).toMatch(
+      /^<li>OneTwo<ol start="4" style="[^"]*decimal[^"]*"><li>Sub<\/li><\/ol><\/li>$/,
+    );
+  });
+
+  it("copies items across an ordered list as that list, numbered from the first copied item", () => {
+    const el = mount(
+      '<ol id="t" start="2" style="list-style-type: decimal;"><li>One</li><li>Two</li><li>Three</li></ol>',
+    );
+    session = startInPlaceTextSession(el);
+    select(textOf(el, "Two"), 1, textOf(el, "Three"), 2);
+    const { clipboardData } = clipboardEvent(el, "copy");
+    expect(clipboardData.getData("text/html")).toBe(
+      '<ol start="3" style="list-style-type: decimal;"><li>wo</li><li>Th</li></ol>',
+    );
+  });
+
+  it("puts no element identity on the clipboard", () => {
+    const el = mount(
+      '<p id="t">Hi <span id="s" data-slide-object-id="o1" class="k" style="color: red;">big world</span></p>',
+    );
+    session = startInPlaceTextSession(el);
+    select(textOf(el, "Hi"), 0, textOf(el, "big"), 3);
+    const { clipboardData } = clipboardEvent(el, "copy");
+    const html = clipboardData.getData("text/html");
+    expect(html).not.toMatch(/\sid=|data-slide-object-id/);
+    expect(html).toContain('class="k"');
+    expect(html).toContain("color: red;");
+  });
+
+  it("keeps an author zero-width space in a text node Shift+Enter splits", () => {
+    const el = mount(`<p id="t">A${ZWSP}B</p>`);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 1);
+    beforeInput(el, "insertLineBreak");
+    session.end();
+    expect(el.innerHTML).toBe(`A<br>${ZWSP}B`);
+  });
+
+  it("keeps an author zero-width space in a text node a format splits", () => {
+    const el = mount(`<p id="t">A${ZWSP}B</p>`);
+    session = startInPlaceTextSession(el);
+    select(el.firstChild!, 0, el.firstChild!, 1);
+    expect(session.commands.bold()).toBe(true);
+    session.end();
+    expect(el.textContent).toBe(`A${ZWSP}B`);
+  });
+
+  it("keeps an author zero-width space through a list toggle", () => {
+    const el = mount(`<div id="t">A${ZWSP}B</div>`);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 3);
+    expect(session.commands.toggleList("bullet")).toBe(true);
+    session.end();
+    expect(el.textContent).toBe(`A${ZWSP}B`);
+  });
+
+  it("keeps an author zero-width space when native typing replaced its text node", () => {
+    const el = mount(`<p id="t">A${ZWSP}B</p>`);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 3);
+    const event = beforeInput(el, "insertText", { data: "x" });
+    expect(event.defaultPrevented).toBe(false);
+    const replacement = document.createTextNode(`A${ZWSP}Bx`);
+    el.firstChild!.replaceWith(replacement);
+    caret(replacement, 4);
+    el.dispatchEvent(
+      new InputEvent("input", {
+        inputType: "insertText",
+        data: "x",
+        bubbles: true,
+      }),
+    );
+    session.end();
+    expect(el.innerHTML).toBe(`A${ZWSP}Bx`);
+  });
+
+  it("keeps an author zero-width space next to an autocorrected word", () => {
+    const el = mount(`<p id="t">teh${ZWSP}end</p>`);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 7);
+    const target = document.createRange();
+    target.setStart(el.firstChild!, 0);
+    target.setEnd(el.firstChild!, 3);
+    const event = new InputEvent("beforeinput", {
+      inputType: "insertReplacementText",
+      data: "the",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(event, "getTargetRanges", {
+      value: () => [target],
+    });
+    el.dispatchEvent(event);
+    session.end();
+    expect(el.innerHTML).toBe(`the${ZWSP}end`);
+  });
+});

@@ -359,3 +359,51 @@ describe("normalizeSlideClipboardHtml", () => {
     expect(html).not.toContain("data:image");
   });
 });
+
+describe("review round 3", () => {
+  function drawsLine(text: Text, block: HTMLElement, line: string) {
+    for (
+      let element = text.parentElement;
+      element && block.contains(element);
+      element = element.parentElement
+    ) {
+      if (getComputedStyle(element).textDecorationLine.includes(line)) {
+        return element;
+      }
+    }
+    return null;
+  }
+
+  it("removes an underline drawn by a partly selected ancestor, keeping it on the rest", () => {
+    const block = editable(
+      '<span id="u" style="text-decoration-line: underline; text-decoration-style: wavy; text-decoration-color: red;">Hello world</span>',
+    );
+    const text = block.querySelector("#u")!.firstChild as Text;
+    rangeFor(text, 6, text, 11);
+    toggleInlineTextFormat(block, "underline");
+    const world = Array.from(block.querySelectorAll("*"))
+      .flatMap((element) => Array.from(element.childNodes))
+      .find(
+        (node): node is Text => node instanceof Text && node.data === "world",
+      )!;
+    const hello = Array.from(block.querySelectorAll("*"))
+      .flatMap((element) => Array.from(element.childNodes))
+      .find(
+        (node): node is Text => node instanceof Text && node.data === "Hello ",
+      )!;
+    expect(drawsLine(world, block, "underline")).toBeNull();
+    const kept = drawsLine(hello, block, "underline")!;
+    expect(kept).not.toBeNull();
+    expect(getComputedStyle(kept).textDecorationStyle).toBe("wavy");
+    expect(getComputedStyle(kept).textDecorationColor).toBe("red");
+    expect(block.querySelectorAll("#u")).toHaveLength(1);
+    expect(block.textContent).toBe("Hello world");
+  });
+
+  it("strips element identity from clipboard HTML but keeps its look", () => {
+    const html = normalizeSlideClipboardHtml(
+      '<p id="a">x<span id="b" data-slide-object-id="c" class="k" style="color: red">y</span></p>',
+    );
+    expect(html).toBe('<p>x<span class="k" style="color: red">y</span></p>');
+  });
+});

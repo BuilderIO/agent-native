@@ -6,6 +6,7 @@ import {
   captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
+  discardSlideImageUploadProvenance,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
@@ -778,5 +779,38 @@ describe("updateLiveImagesUnderEdit", () => {
     );
 
     expect(takeSlideImageUploadProvenance("slide-overlap", next)).toBeNull();
+  });
+});
+
+describe("upload provenance registry", () => {
+  const provenance = (stamp: string) => ({
+    editedSourceStamp: stamp,
+    editedNodeMarkup: `<p data-src-i="${stamp}">Caption</p>`,
+  });
+
+  it("drops a failed or cancelled upload's snapshot", () => {
+    registerSlideImageUploadProvenance(
+      "slide-failed",
+      "<p>a</p>",
+      provenance("1"),
+    );
+    discardSlideImageUploadProvenance("slide-failed", "<p>a</p>");
+    expect(
+      takeSlideImageUploadProvenance("slide-failed", "<p>a</p>"),
+    ).toBeNull();
+  });
+
+  it("keeps only a slide's latest snapshots", () => {
+    for (let index = 0; index < 10; index += 1) {
+      registerSlideImageUploadProvenance(
+        "slide-many",
+        `<p>${index}</p>`,
+        provenance(String(index)),
+      );
+    }
+    expect(takeSlideImageUploadProvenance("slide-many", "<p>0</p>")).toBeNull();
+    expect(takeSlideImageUploadProvenance("slide-many", "<p>9</p>")).toEqual(
+      provenance("9"),
+    );
   });
 });

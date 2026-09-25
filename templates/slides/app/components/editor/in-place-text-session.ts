@@ -233,10 +233,10 @@ interface Snapshot extends TextOffsets {
   authorZwsp: number[];
 }
 
-/** One pasted line and the UL/OL tags it was nested in, outermost first. */
+/** One pasted line and the pasted UL/OL elements it was nested in, outermost first. */
 interface PastedLine {
   fragment: DocumentFragment;
-  lists: readonly string[];
+  lists: readonly HTMLElement[];
 }
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -533,13 +533,13 @@ function pastedHtmlLines(html: string): PastedLine[] {
   const template = document.createElement("template");
   template.innerHTML = html;
   const lines: PastedLine[] = [];
-  const collect = (parent: Node, lists: readonly string[]) => {
+  const collect = (parent: Node, lists: readonly HTMLElement[]) => {
     let line: PastedLine | null = null;
     for (const child of Array.from(parent.childNodes)) {
       if (child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)) {
         line = null;
         const list = child.tagName === "UL" || child.tagName === "OL";
-        collect(child, list ? [...lists, child.tagName] : lists);
+        collect(child, list ? [...lists, child] : lists);
         continue;
       }
       if (!line) {
@@ -567,30 +567,42 @@ function plainTextLines(text: string): PastedLine[] {
   });
 }
 
-/** Pasted list lines as one list, nested the way they were. */
-function pastedList(lines: PastedLine[]): HTMLElement {
-  const open: HTMLElement[] = [];
-  for (const { fragment, lists } of lines) {
-    open.length = Math.min(open.length, lists.length);
-    while (open.length < lists.length) {
+/**
+ * Pasted list lines as the lists they came from, nested the way they were:
+ * a line opens a new list wherever its pasted list differs from the one open
+ * at that depth, so an <ol> next to a <ul> stays two lists.
+ */
+function pastedLists(lines: PastedLine[]): DocumentFragment {
+  const lists = document.createDocumentFragment();
+  const open: { from: HTMLElement; list: HTMLElement }[] = [];
+  for (const { fragment, lists: from } of lines) {
+    let depth = 0;
+    while (depth < open.length && open[depth].from === from[depth]) {
+      depth += 1;
+    }
+    open.length = depth;
+    while (open.length < from.length) {
+      const source = from[open.length];
       const list = createSlideList(
         document,
-        lists[open.length] === "OL" ? "ordered" : "bullet",
+        source.tagName === "OL" ? "ordered" : "bullet",
       );
-      const parent = open[open.length - 1];
+      const parent = open[open.length - 1]?.list;
       if (parent) {
         (
           parent.lastElementChild ??
           parent.appendChild(document.createElement("li"))
         ).append(list);
+      } else {
+        lists.append(list);
       }
-      open.push(list);
+      open.push({ from: source, list });
     }
     const item = document.createElement("li");
     item.append(fragment);
-    open[open.length - 1].append(item);
+    open[open.length - 1].list.append(item);
   }
-  return open[0];
+  return lists;
 }
 
 /**
@@ -1315,9 +1327,10 @@ export function startInPlaceTextSession(
       !legacyRowAt(caret.startContainer) &&
       LIST_HOLDER_TAGS.has(nearestBlock(caret.startContainer, el).tagName)
     ) {
-      const list = pastedList(lines);
-      caret.insertNode(list);
-      placeCaret(...textPoint(list, Infinity));
+      const lists = pastedLists(lines);
+      const last = lists.lastChild!;
+      caret.insertNode(lists);
+      placeCaret(...textPoint(last, Infinity));
       return;
     }
     let depth = lines[0]?.lists.length ?? 0;

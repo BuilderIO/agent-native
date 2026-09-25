@@ -222,3 +222,85 @@ describe("toggleSlideList text styles", () => {
     );
   });
 });
+
+describe("toggleSlideList review round 3", () => {
+  const row = (text: string) =>
+    `<div style="display:flex;gap:12px"><span style="font-size:8px">●</span><span>${text}</span></div>`;
+
+  it("numbers each group of styled rows where it stands", () => {
+    const host = element(
+      `${row("Alpha")}${row("Beta")}<p>Between</p>${row("Gamma")}`,
+    );
+    toggleSlideList(host, "ordered");
+    expect(Array.from(host.children, (child) => child.tagName)).toEqual([
+      "OL",
+      "P",
+      "OL",
+    ]);
+    expect(Array.from(host.children, (child) => child.textContent)).toEqual([
+      "AlphaBeta",
+      "Between",
+      "Gamma",
+    ]);
+  });
+
+  const headingStyles = () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".deck h1 { font-size: 40px; font-weight: 700; } .deck h2 { font-size: 30px; font-weight: 600; }";
+    document.head.replaceChildren(style);
+  };
+
+  function headingIn(html: string) {
+    headingStyles();
+    const deck = document.createElement("div");
+    deck.className = "deck";
+    deck.style.fontSize = "20px";
+    deck.innerHTML = html;
+    document.body.replaceChildren(deck);
+    return deck.firstElementChild as HTMLElement;
+  }
+
+  function expectValidListMarkup(root: Element) {
+    expect(
+      root.querySelector(":is(h1, h2, h3, h4, h5, h6) :is(ul, ol, li)"),
+    ).toBeNull();
+    const html = root.outerHTML;
+    const reparsed = document.createElement("div");
+    reparsed.innerHTML = html;
+    expect(reparsed.innerHTML).toBe(html);
+  }
+
+  it("turns a heading into a list that keeps the heading's text look", () => {
+    const heading = headingIn(
+      '<h1 data-slide-object-id="object-h" style="color: rgb(185, 28, 28);">Title<br>Subtitle</h1>',
+    );
+    const result = toggleSlideList(heading, "bullet")!;
+    expect(result.tagName).toBe("DIV");
+    expect(result.getAttribute("data-slide-object-id")).toBe("object-h");
+    expectValidListMarkup(result.parentElement!);
+    const items = Array.from(result.querySelectorAll("ul > li"));
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Title",
+      "Subtitle",
+    ]);
+    const look = getComputedStyle(items[0]);
+    expect([look.fontSize, look.fontWeight, look.color]).toEqual([
+      "40px",
+      "700",
+      "rgb(185, 28, 28)",
+    ]);
+  });
+
+  it("keeps a heading line's text look on its list item", () => {
+    const host = headingIn("<div><h2>Head</h2><p>Body</p></div>");
+    toggleSlideList(host, "ordered");
+    expectValidListMarkup(host);
+    const items = Array.from(host.querySelectorAll<HTMLElement>("ol > li"));
+    expect(items.map((item) => item.textContent)).toEqual(["Head", "Body"]);
+    const head = getComputedStyle(items[0]);
+    expect([head.fontSize, head.fontWeight]).toEqual(["30px", "600"]);
+    const body = getComputedStyle(items[1]);
+    expect(body.fontSize).toBe("20px");
+  });
+});
