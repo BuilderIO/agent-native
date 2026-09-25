@@ -82,6 +82,8 @@ export interface EditorState {
   sourceText: string | null;
   sourceOccurrence: number;
   editorHtml: string;
+  /** The editor's text, which the element shows once the edit is saved. */
+  editorText: string;
 }
 
 export interface CanonicalPair {
@@ -373,6 +375,7 @@ export function installInPageHelpers(chromeSelector: string) {
       sourceText: source ? norm(source.textContent).slice(0, 400) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,
       editorHtml: pm?.innerHTML.slice(0, 4000) ?? "",
+      editorText: pm ? norm(pm.textContent).slice(0, 400) : "",
     };
   }
 

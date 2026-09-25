@@ -910,6 +910,9 @@ async function runScenario(
       result.enterSteps = enterSteps;
     }
 
+    // End lands at the end of the visual line, so read where the typing
+    // went instead of assuming it followed the element's text.
+    const typed = (await editorState(page, slideId)).editorText;
     const exited = await exitEdit(
       page,
       slideId,
@@ -923,12 +926,10 @@ async function runScenario(
     const after = await shot(page, slideId);
     write("after.png", after);
     const editedText = state0.sourceText ?? target.text;
-    const expectedText =
-      scenario === "append"
-        ? `${editedText} ok`
-        : scenario === "enter3"
-          ? `${editedText}new line`
-          : editedText;
+    const expectedText = NET_NOOP.has(scenario)
+      ? editedText
+      : typed ||
+        (scenario === "append" ? `${editedText} ok` : `${editedText}new line`);
     const snapAfter = await snapshot(page, slideId, { text: expectedText });
 
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
