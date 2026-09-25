@@ -7,6 +7,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { getSession } from "../server/auth.js";
+import { shouldWriteFirstRunOnboardingEligibility } from "../server/first-run-onboarding-build-mode.js";
 import {
   getRequestContext,
   hasExplicitPersonalOrgScope,
@@ -963,24 +964,29 @@ async function tryCreateDefaultOrg(
     invalidateMemberOrgCaches();
 
     await setActiveOrgId(email, orgId, "auto-created default organization");
-    try {
-      await appStatePut(
-        email,
-        FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
-        { orgId, at: new Date(now).toISOString() },
-        { requestSource: "org-auto-create" },
-      );
-    } catch (error) {
-      // The safe failure mode is to omit first-run onboarding. The org itself
-      // already exists, so do not turn a marker-write failure into a false
-      // zero-membership result or retry that creates another org.
-      warnAgent({
-        severity: "advisory",
-        code: "first-run-onboarding-eligibility-unreadable",
-        message:
-          `Auto-created organization ${orgId} for ${email}, but could not persist ` +
-          `the first-run onboarding eligibility marker: ${error instanceof Error ? error.message : String(error)}`,
-      });
+    // Only apps whose build positively resolved first-run onboarding to
+    // "off" skip this write; an un-embedded build keeps writing it (see
+    // shouldWriteFirstRunOnboardingEligibility's module comment).
+    if (shouldWriteFirstRunOnboardingEligibility()) {
+      try {
+        await appStatePut(
+          email,
+          FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
+          { orgId, at: new Date(now).toISOString() },
+          { requestSource: "org-auto-create" },
+        );
+      } catch (error) {
+        // The safe failure mode is to omit first-run onboarding. The org itself
+        // already exists, so do not turn a marker-write failure into a false
+        // zero-membership result or retry that creates another org.
+        warnAgent({
+          severity: "advisory",
+          code: "first-run-onboarding-eligibility-unreadable",
+          message:
+            `Auto-created organization ${orgId} for ${email}, but could not persist ` +
+            `the first-run onboarding eligibility marker: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
     }
 
     return { email, orgId, orgName, role: "owner" };

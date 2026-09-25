@@ -702,6 +702,9 @@ switch (command) {
 
       if (isReactRouterFramework()) {
         clearAgentNativeNitroPresetMarker();
+        const { clearFirstRunOnboardingBuildMarker } =
+          await import("../vite/agent-native-config-loader.js");
+        clearFirstRunOnboardingBuildMarker(process.cwd());
         validateReactRouterBuildDependencies();
         const rr = findReactRouterInvocation(["build"]);
         console.log("Building (React Router framework mode)...");
