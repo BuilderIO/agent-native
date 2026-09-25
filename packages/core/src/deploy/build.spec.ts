@@ -5037,14 +5037,23 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
   });
 
-  it("runs the esbuild JavaScript launcher through Node", () => {
-    const command = resolveEsbuildCommand();
+  it("runs the esbuild JavaScript launcher through Node on Windows", () => {
+    const command = resolveEsbuildCommand("win32");
 
     expect(command.executable).toBe(process.execPath);
     expect(command.args).toHaveLength(1);
     expect(command.args[0].split(path.sep).join("/")).toMatch(
       /esbuild\/bin\/esbuild$/,
     );
+  });
+
+  it("runs the native esbuild binary directly on non-Windows platforms", () => {
+    const command = resolveEsbuildCommand("linux");
+
+    expect(command.executable.split(path.sep).join("/")).toMatch(
+      /esbuild\/bin\/esbuild$/,
+    );
+    expect(command.args).toEqual([]);
   });
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {

@@ -3408,7 +3408,9 @@ export type EsbuildCommand = {
   args: string[];
 };
 
-export function resolveEsbuildCommand(): EsbuildCommand {
+export function resolveEsbuildCommand(
+  platform: NodeJS.Platform = process.platform,
+): EsbuildCommand {
   // Try to resolve esbuild's binary via Node module resolution
   // This works regardless of hoisting or .bin symlink creation
   try {
@@ -3416,7 +3418,9 @@ export function resolveEsbuildCommand(): EsbuildCommand {
     const esbuildPkg = path.dirname(_require.resolve("esbuild/package.json"));
     const bin = path.join(esbuildPkg, "bin", "esbuild");
     if (fs.existsSync(bin)) {
-      return { executable: process.execPath, args: [bin] };
+      return platform === "win32"
+        ? { executable: process.execPath, args: [bin] }
+        : { executable: bin, args: [] };
     }
   } catch {}
 
