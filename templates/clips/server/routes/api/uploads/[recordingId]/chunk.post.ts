@@ -39,7 +39,10 @@ import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
-import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
+import {
+  recordingTrackingSource,
+  trackRecordingFailure,
+} from "../../../../lib/recording-failures.js";
 import {
   deleteRecordingChunks,
   sumRecordingChunkBytes,
@@ -207,7 +210,7 @@ function trackUploadBlockingFailure(
         failure_code: properties.failure_code ?? properties.failure_type,
         ...properties,
       },
-      { userId: ownerEmail },
+      recordingTrackingSource(ownerEmail),
     );
   } catch {
     // Best-effort analytics must never change upload behavior.
@@ -305,6 +308,7 @@ export async function handleRecordingChunk(
 
   let ownerEmail: string;
   let orgId: string | undefined;
+  let authUserId: string | undefined;
   if (override?.ownerEmail) {
     ownerEmail = override.ownerEmail;
     orgId = override.orgId;
@@ -313,6 +317,7 @@ export async function handleRecordingChunk(
       const context = await getEventOwnerContext(event);
       ownerEmail = context.userEmail;
       orgId = context.orgId;
+      authUserId = context.authUserId;
     } catch (err) {
       console.error("[chunk] getEventOwnerContext threw:", err);
       throw createError({ statusCode: 401, message: "Unauthorized" });
@@ -320,7 +325,8 @@ export async function handleRecordingChunk(
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
 
-  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 
     // Verify the recording belongs to the current user. Everything else about

@@ -89,11 +89,12 @@ export async function handleAbortRecordingUpload(
     return { error: "Missing recordingId" };
   }
 
-  const { ownerEmail, orgId } = override?.ownerEmail
+  const { ownerEmail, orgId, authUserId } = override?.ownerEmail
     ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
     : await getEventOwnerContext(event).then((context) => ({
         ownerEmail: context.userEmail,
         orgId: context.orgId,
+        authUserId: context.authUserId,
       }));
   const body = (await readBody(event).catch(() => null)) as {
     reason?: unknown;
@@ -167,7 +168,8 @@ export async function handleAbortRecordingUpload(
       ? body.uploadGenerationId
       : null;
 
-  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 
     const [existing] = await db

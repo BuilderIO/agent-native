@@ -41,6 +41,9 @@ const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockGetRequestContext = vi.hoisted(() =>
+  vi.fn(() => undefined as { authUserId?: string } | undefined),
+);
 const mockDbExecute = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec_1" }]),
@@ -69,6 +72,7 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 beforeEach(() => {
+  mockGetRequestContext.mockReturnValue(undefined);
   mockCompareAndSetAppState.mockResolvedValue(true);
   mockCompareAndSetManyAppState.mockResolvedValue(true);
   mockUpdateReturning.mockReset();
@@ -109,6 +113,10 @@ vi.mock("@agent-native/core/file-upload", () => ({
 vi.mock("@agent-native/core/server", () => ({
   captureRouteError: vi.fn(),
   getRequestOrgId: vi.fn(() => undefined),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => mockGetRequestContext(),
 }));
 
 vi.mock("@shared/upload-limits.js", () => ({
@@ -286,6 +294,9 @@ describe("finalize-recording chunk completeness", () => {
   });
 
   it("fails before upload when persisted chunk indices have a gap", async () => {
+    mockGetRequestContext.mockReturnValue({
+      authUserId: "better-auth-user-1",
+    });
     mockState.chunkRows = [
       { key: "recording-chunks-rec_1-000000" },
       { key: "recording-chunks-rec_1-000002" },
@@ -323,7 +334,7 @@ describe("finalize-recording chunk completeness", () => {
         failure_code: "chunk_assembly_failed",
         upload_mode: "buffered",
       }),
-      { userId: "owner@example.com" },
+      { userId: "owner@example.com", authUserId: "better-auth-user-1" },
     );
   });
 
@@ -699,6 +710,9 @@ describe("finalize-recording media serve verification", () => {
   });
 
   it("verifies private S3 uploads with scoped credentials instead of the public URL", async () => {
+    mockGetRequestContext.mockReturnValue({
+      authUserId: "better-auth-user-1",
+    });
     seedBufferedRecording();
     const videoUrl =
       "https://clips.example.com/api/storage/clips/recording.webm";
@@ -747,7 +761,7 @@ describe("finalize-recording media serve verification", () => {
         has_audio: true,
         has_camera: false,
       }),
-      { userId: "owner@example.com" },
+      { userId: "owner@example.com", authUserId: "better-auth-user-1" },
     );
   });
 

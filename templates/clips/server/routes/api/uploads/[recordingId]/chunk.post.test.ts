@@ -9,6 +9,9 @@ const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockRunWithRequestContext = vi.hoisted(() =>
+  vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
+);
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
@@ -78,7 +81,8 @@ vi.mock("@agent-native/core/feature-flags", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  runWithRequestContext: (...args: unknown[]) =>
+    mockRunWithRequestContext(...(args as [unknown, () => unknown])),
 }));
 
 vi.mock("@agent-native/core/tracking", () => ({
@@ -482,6 +486,29 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("propagates the verified auth id into the upload request context", async () => {
+    mockGetEventOwnerContext.mockResolvedValue({
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      authUserId: "better-auth-user-1",
+    });
+    setRequest({
+      query: { index: "0", total: "4", mimeType: "video/webm" },
+      body: new Uint8Array([1, 2, 3, 4, 5]),
+    });
+
+    await handler({} as any);
+
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      {
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+        authUserId: "better-auth-user-1",
+      },
+      expect.any(Function),
+    );
   });
 
   it("stores in-order chunks and advances upload progress state", async () => {

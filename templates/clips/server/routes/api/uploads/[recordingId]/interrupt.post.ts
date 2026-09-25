@@ -47,7 +47,11 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing recordingId" };
   }
 
-  const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
+  const {
+    userEmail: ownerEmail,
+    orgId,
+    authUserId,
+  } = await getEventOwnerContext(event);
   if (
     !(await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
       userEmail: ownerEmail,
@@ -112,7 +116,8 @@ export default defineEventHandler(async (event: H3Event) => {
       ? body.uploadGenerationId
       : null;
 
-  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  return runWithRequestContext(requestContext, async () => {
     const db = getDb();
     const [existing] = await db
       .select({

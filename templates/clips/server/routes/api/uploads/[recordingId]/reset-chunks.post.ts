@@ -175,12 +175,19 @@ export async function handleResetRecordingChunks(
     return { error: "Missing recordingId" };
   }
 
-  const { ownerEmail, orgId } = override?.ownerEmail
-    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
-    : await getEventOwnerContext(event).then(({ userEmail, orgId }) => ({
-        ownerEmail: userEmail,
-        orgId,
-      }));
+  const { ownerEmail, orgId, authUserId } = override?.ownerEmail
+    ? {
+        ownerEmail: override.ownerEmail,
+        orgId: override.orgId,
+        authUserId: undefined,
+      }
+    : await getEventOwnerContext(event).then(
+        ({ userEmail, orgId, authUserId }) => ({
+          ownerEmail: userEmail,
+          orgId,
+          authUserId,
+        }),
+      );
   const body = (await readBody(event).catch(() => null)) as {
     compression?: CompressionMeta | null;
     requestStreaming?: boolean;
@@ -216,7 +223,8 @@ export async function handleResetRecordingChunks(
       }
     : null;
 
-  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 
     const [existing] = await db

@@ -40,7 +40,10 @@ import {
 } from "../server/lib/media-verification-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
-import { trackRecordingFailure } from "../server/lib/recording-failures.js";
+import {
+  recordingTrackingSource,
+  trackRecordingFailure,
+} from "../server/lib/recording-failures.js";
 import {
   listRecordingChunkKeys,
   validateRecordingChunkKeys,
@@ -149,7 +152,7 @@ function trackUploadBlockingFailure(params: {
         recording_platform: params.recordingPlatform ?? "unknown",
         upload_mode: "buffered",
       },
-      { userId: params.ownerEmail },
+      recordingTrackingSource(params.ownerEmail),
     );
     // coercion-ok: analytics must not change the persisted upload outcome.
   } catch {
@@ -427,7 +430,7 @@ async function failStoredButUnservableRecording(params: {
           : {}),
         recording_platform: failed[0]?.recordingPlatform ?? "unknown",
       },
-      { userId: ownerEmail },
+      recordingTrackingSource(ownerEmail),
     );
   } catch {
     // coercion-ok: analytics is best-effort and must not change media recovery behavior.
@@ -953,7 +956,7 @@ async function markRecordingReady(params: {
       width: finalWidth,
       height: finalHeight,
     },
-    { userId: ownerEmail },
+    recordingTrackingSource(ownerEmail),
   );
 
   await queueReadyRecordingThumbnail(id);

@@ -1,3 +1,4 @@
+import { getRequestContext } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 
 export type RecordingFailureCode =
@@ -66,6 +67,12 @@ export function normalizeRecordingPlatform(value: unknown): RecordingPlatform {
     : "unknown";
 }
 
+// Canonical identity comes from the verified request context, never the email.
+export function recordingTrackingSource(userId: string) {
+  const authUserId = getRequestContext()?.authUserId;
+  return { userId, ...(authUserId ? { authUserId } : {}) };
+}
+
 export function trackRecordingFailure(params: {
   recordingId: string;
   userId: string;
@@ -96,7 +103,7 @@ export function trackRecordingFailure(params: {
           ? { http_status: params.httpStatus }
           : {}),
       },
-      { userId: params.userId },
+      recordingTrackingSource(params.userId),
     );
   } catch {
     // coercion-ok: analytics is best-effort and must not affect recording recovery.

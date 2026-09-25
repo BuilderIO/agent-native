@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockGetRequestContext = vi.hoisted(() =>
+  vi.fn(() => undefined as { authUserId?: string } | undefined),
+);
 
 vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mockTrack(...args),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => mockGetRequestContext(),
 }));
 
 import {
@@ -12,7 +19,29 @@ import {
 } from "./recording-failures.js";
 
 describe("recording failure analytics", () => {
-  beforeEach(() => mockTrack.mockClear());
+  beforeEach(() => {
+    mockTrack.mockClear();
+    mockGetRequestContext.mockReturnValue(undefined);
+  });
+
+  it("adds the verified Better Auth id without inferring it from the email", () => {
+    mockGetRequestContext.mockReturnValue({
+      authUserId: "better-auth-user-1",
+    });
+
+    trackRecordingFailure({
+      recordingId: "rec_1",
+      userId: "owner@example.com",
+      platform: "web",
+      failureCode: "finalize_failed",
+    });
+
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.any(Object),
+      { userId: "owner@example.com", authUserId: "better-auth-user-1" },
+    );
+  });
 
   it("normalizes unknown platforms and correlates failure to the attempt", () => {
     trackRecordingFailure({
