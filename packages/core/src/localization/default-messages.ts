@@ -34,6 +34,7 @@ const messages = {
     confirmDisconnect: "Confirm disconnect",
     disconnect: "Disconnect",
     disconnecting: "Disconnecting…",
+    expand: "Expand",
   },
   routeTitles: {
     agentObservability: "Agent observability navigation",
