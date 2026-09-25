@@ -13,6 +13,7 @@ import type {
   PendingLiveNonStyleUndoEntry,
   PendingLiveStructureUndoEntry,
   PendingLiveTextEdit,
+  PendingRelativeStyleOperation,
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 import {
@@ -84,6 +85,7 @@ export function runRecordPendingLiveTextEdit(
     originalValue?: string;
     originalHtml?: string;
     routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ) {
   if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
@@ -137,6 +139,9 @@ export function runRecordPendingLiveTextEdit(
     classes: elementInfo?.classes ?? [],
     value,
     html: details?.html,
+    ...(details?.relativeOperations
+      ? { relativeOperations: details.relativeOperations }
+      : {}),
     originalValue,
     originalHtml,
     updatedAt: nextPendingLiveEditTimestamp(),

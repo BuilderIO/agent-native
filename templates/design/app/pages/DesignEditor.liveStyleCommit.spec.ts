@@ -72,7 +72,9 @@ describe("handleVisualStyleChange (canvas gestures)", () => {
     expect(handler).toContain("commitVisualStyles(gestureTarget, styles, {");
     // A repeat's write is aimed at the template body and needs the runtime
     // push, since the gesture only moved the one row it was on.
-    expect(handler).toContain("runtimeApplied: !affectsEveryRow");
+    expect(handler).toContain(
+      "runtimeApplied: metadata?.runtimeApplied ?? !affectsEveryRow",
+    );
     expect(handler).not.toContain("recordPendingVisualStyleEdit(");
   });
 });

@@ -802,6 +802,10 @@ export async function mergeCoreSharingActions(
       () => import("../usage/actions/get-usage-metrics.js"),
     ],
     [
+      "get-builder-credit-usage",
+      () => import("../usage/actions/get-builder-credit-usage.js"),
+    ],
+    [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
     ],

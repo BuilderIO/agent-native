@@ -1339,6 +1339,208 @@ describe("server/auth", () => {
       );
     });
 
+    it("rotates legacy sessions when two-factor routes replace Better Auth sessions", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "0");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const email = "user@example.com";
+      const legacySessions = new Map<string, string>([
+        ["current-session-token", email],
+      ]);
+      const betterAuthSessions = new Set(["current-session-token"]);
+      let failBetterAuthSessionLookup = false;
+      let failLegacySessionMirror = false;
+      let failLegacySessionRemoval = false;
+      let transactionSessions: Map<string, string> | undefined;
+      const execute = vi.fn(
+        async (query: { sql: string; args?: unknown[] }) => {
+          const token = query.args?.[0] as string | undefined;
+          const sessions = transactionSessions ?? legacySessions;
+          if (query.sql.includes("SELECT email, created_at FROM sessions")) {
+            const rowEmail = token ? sessions.get(token) : undefined;
+            return {
+              rows: rowEmail
+                ? [{ email: rowEmail, created_at: Date.now() }]
+                : [],
+            };
+          }
+          if (query.sql.startsWith("DELETE FROM sessions WHERE token = ?")) {
+            if (failLegacySessionRemoval) throw new Error("connection reset");
+            if (token) sessions.delete(token);
+            return { rows: [] };
+          }
+          if (query.sql.startsWith("INSERT INTO sessions")) {
+            if (failLegacySessionMirror) throw new Error("connection reset");
+            if (token) sessions.set(token, query.args?.[1] as string);
+            return { rows: [] };
+          }
+          if (query.sql.includes('FROM "session" s JOIN "user"')) {
+            if (failBetterAuthSessionLookup)
+              throw new Error("connection reset");
+            return token && betterAuthSessions.has(token)
+              ? { rows: [{ email }] }
+              : { rows: [] };
+          }
+          return { rows: [] };
+        },
+      );
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute,
+          transaction: async (
+            run: (tx: { execute: typeof execute }) => unknown,
+          ) => {
+            transactionSessions = new Map(legacySessions);
+            try {
+              const result = await run({ execute });
+              legacySessions.clear();
+              for (const [token, rowEmail] of transactionSessions) {
+                legacySessions.set(token, rowEmail);
+              }
+              return result;
+            } finally {
+              transactionSessions = undefined;
+            }
+          },
+        }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const issueReplacementSession = vi.fn(
+        async ({ headers: requestHeaders }: { headers: Headers }) => {
+          expect(requestHeaders.get("authorization")).toBe(
+            "Bearer current-session-token",
+          );
+          const replacementToken = "replacement-session-token";
+          betterAuthSessions.delete("current-session-token");
+          betterAuthSessions.add(replacementToken);
+          const headers = new Headers();
+          headers.append(
+            "set-cookie",
+            `an.session_token=${replacementToken}; Path=/; HttpOnly`,
+          );
+          return { headers, response: { status: true } };
+        },
+      );
+      const betterAuth = {
+        handler: vi.fn(async () => new Response("{}")),
+        api: {
+          enableTwoFactor: issueReplacementSession,
+          disableTwoFactor: issueReplacementSession,
+          getSession: vi.fn(async ({ headers }: { headers: Headers }) => {
+            const token =
+              headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+              headers.get("cookie")?.match(/(?:^|;\s*)an_session=([^;]+)/)?.[1];
+            return token && betterAuthSessions.has(token)
+              ? {
+                  user: { id: "user-id", email },
+                  session: { token },
+                }
+              : null;
+          }),
+          signInEmail: vi.fn(),
+          signUpEmail: vi.fn(),
+          signOut: vi.fn(),
+        },
+      };
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => betterAuth),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../org/context.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      for (const path of [
+        "/_agent-native/auth/two-factor/enable",
+        "/_agent-native/auth/two-factor/disable",
+      ]) {
+        legacySessions.clear();
+        legacySessions.set("current-session-token", email);
+        betterAuthSessions.clear();
+        betterAuthSessions.add("current-session-token");
+        const handler = app.use.mock.calls.find(
+          (call: any[]) => call[0] === path,
+        )?.[1];
+        expect(handler).toBeTypeOf("function");
+        const event = createJsonPostEvent(
+          path,
+          {},
+          {
+            cookie: "an_session=current-session-token",
+          },
+        );
+
+        await handler(event);
+
+        expect(event.res.headers.get("set-cookie")).toContain(
+          "an.session_token=replacement-session-token",
+        );
+        expect(event.res.headers.get("set-cookie")).toContain(
+          "an_session=replacement-session-token",
+        );
+        expect(legacySessions.has("current-session-token")).toBe(false);
+        expect(legacySessions.get("replacement-session-token")).toBe(email);
+
+        const staleSession = await getSession(
+          createMockEvent({
+            path: "/_agent-native/auth/session",
+            headers: { cookie: "an_session=current-session-token" },
+          }),
+        );
+        expect(staleSession).toBeNull();
+
+        const callCount = issueReplacementSession.mock.calls.length;
+        const unauthorized = createJsonPostEvent(path, {});
+        expect(await handler(unauthorized)).toEqual({
+          error: "Not authenticated",
+        });
+        expect(unauthorized.res.status).toBe(401);
+        expect(issueReplacementSession).toHaveBeenCalledTimes(callCount);
+      }
+
+      for (const [path, failLookup, failMirror, failRemoval] of [
+        ["/_agent-native/auth/two-factor/enable", true, false, false],
+        ["/_agent-native/auth/two-factor/disable", false, true, false],
+        ["/_agent-native/auth/two-factor/enable", false, false, true],
+      ] as const) {
+        legacySessions.clear();
+        legacySessions.set("current-session-token", email);
+        betterAuthSessions.clear();
+        betterAuthSessions.add("current-session-token");
+        failBetterAuthSessionLookup = failLookup;
+        failLegacySessionMirror = failMirror;
+        failLegacySessionRemoval = failRemoval;
+
+        const handler = app.use.mock.calls.find(
+          (call: any[]) => call[0] === path,
+        )?.[1];
+        const event = createJsonPostEvent(
+          path,
+          {},
+          {
+            cookie: "an_session=current-session-token",
+          },
+        );
+        const result = await handler(event);
+
+        expect(result).toMatchObject({ error: expect.any(String) });
+        expect(legacySessions.get("current-session-token")).toBe(email);
+        expect(legacySessions.has("replacement-session-token")).toBe(false);
+        expect(event.res.headers.get("set-cookie") ?? "").not.toContain(
+          "replacement-session-token",
+        );
+      }
+    });
+
     it("enables Better Auth when no tokens in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("DEBUG", "1");
@@ -7351,6 +7553,7 @@ describe("server/auth", () => {
       await expect(getSession(event)).resolves.toMatchObject({
         email: "real@example.com",
         userId: "real-user",
+        authUserId: "real-user",
         token: "real-session",
       });
     });
@@ -7394,6 +7597,7 @@ describe("server/auth", () => {
       await expect(getSession(event)).resolves.toMatchObject({
         email: "ba@example.com",
         userId: "ba-user",
+        authUserId: "ba-user",
         token: "ba_cookie_token",
       });
       expect(getSessionApi).toHaveBeenCalledOnce();
@@ -7443,12 +7647,17 @@ describe("server/auth", () => {
       const authModule = await import("./auth.js");
       const app = createMockApp();
       await authModule.autoMountAuth(app, {
-        getSession: async () => ({ email: "custom@auth.com" }),
+        getSession: async () => ({
+          email: "custom@auth.com",
+          userId: "custom-user-id",
+          authUserId: "must-not-be-trusted",
+        }),
       });
 
       const event = createMockEvent();
       expect(await authModule.getSession(event)).toEqual({
         email: "custom@auth.com",
+        userId: "custom-user-id",
       });
     });
 

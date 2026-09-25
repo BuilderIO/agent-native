@@ -61,6 +61,7 @@
     "p-limit": "^7.3.0",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "5.4.296",
+    "postcss": "8.5.28",
     "pptxgenjs": "4.0.1",
     "prettier": "^3.9.6",
     "react": "catalog:",

@@ -1,0 +1,24 @@
+/* User-selected icon colors stay independent of an app's brand/chart palette. */
+:root {
+  --resource-icon-gray: #787774;
+  --resource-icon-brown: #9f6b53;
+  --resource-icon-orange: #c76c24;
+  --resource-icon-yellow: #a78317;
+  --resource-icon-green: #448361;
+  --resource-icon-blue: #337ea9;
+  --resource-icon-purple: #9065b0;
+  --resource-icon-pink: #b64c7d;
+  --resource-icon-red: #c4554d;
+}
+
+.dark {
+  --resource-icon-gray: #a6a6a3;
+  --resource-icon-brown: #c19a80;
+  --resource-icon-orange: #e6a168;
+  --resource-icon-yellow: #d4bc6a;
+  --resource-icon-green: #83bd9d;
+  --resource-icon-blue: #78b5d9;
+  --resource-icon-purple: #b89ed2;
+  --resource-icon-pink: #dc96b6;
+  --resource-icon-red: #e5948d;
+}

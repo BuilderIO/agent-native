@@ -668,6 +668,11 @@ describe("getOrgContext", () => {
   describe("AUTO_CREATE_DEFAULT_ORG", () => {
     afterEach(() => {
       delete process.env.AUTO_CREATE_DEFAULT_ORG;
+      // Without this, "org creation is closed" below leaves ORG_CREATION set
+      // for every test that runs after it in the file: getOrgContext then
+      // bails before consuming its queued mock rows, and the leftover rows
+      // desync every subsequent test's mockExecute queue.
+      delete process.env.ORG_CREATION;
     });
 
     it("provisions a default org for a zero-membership user by default", async () => {
@@ -885,6 +890,61 @@ describe("getOrgContext", () => {
           query.sql.includes("INSERT INTO organizations"),
         ),
       ).toBe(false);
+    });
+
+    describe("first-run onboarding eligibility marker", () => {
+      afterEach(() => {
+        delete process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING;
+      });
+
+      it("does NOT write the marker when the build embedded first-run onboarding as off", async () => {
+        process.env.AUTO_CREATE_DEFAULT_ORG = "1";
+        process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING = "off";
+        mockGetSession.mockResolvedValue({
+          email: "plan-user@startup.dev",
+          emailVerified: true,
+        });
+        queueSelect([], [], [], [], [], [], []);
+        const ctx = await getOrgContext(EVENT);
+        // The org is still provisioned; only the eligibility marker is skipped.
+        expect(ctx.orgId).toBeTruthy();
+        expect(ctx.role).toBe("owner");
+        expect(mockAppStatePut).not.toHaveBeenCalled();
+      });
+
+      it("writes the marker when the build embedded an active first-run onboarding mode", async () => {
+        process.env.AUTO_CREATE_DEFAULT_ORG = "1";
+        process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING = "connect";
+        mockGetSession.mockResolvedValue({
+          email: "clips-user@startup.dev",
+          emailVerified: true,
+        });
+        queueSelect([], [], [], [], [], [], []);
+        const ctx = await getOrgContext(EVENT);
+        expect(mockAppStatePut).toHaveBeenCalledWith(
+          "clips-user@startup.dev",
+          "onboarding:first-run-eligible",
+          { orgId: ctx.orgId, at: expect.any(String) },
+          { requestSource: "org-auto-create" },
+        );
+      });
+
+      it("writes the marker (fail-safe) when the build did not embed a mode", async () => {
+        process.env.AUTO_CREATE_DEFAULT_ORG = "1";
+        delete process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING;
+        mockGetSession.mockResolvedValue({
+          email: "unknown-build-user@startup.dev",
+          emailVerified: true,
+        });
+        queueSelect([], [], [], [], [], [], []);
+        const ctx = await getOrgContext(EVENT);
+        expect(mockAppStatePut).toHaveBeenCalledWith(
+          "unknown-build-user@startup.dev",
+          "onboarding:first-run-eligible",
+          { orgId: ctx.orgId, at: expect.any(String) },
+          { requestSource: "org-auto-create" },
+        );
+      });
     });
   });
 });

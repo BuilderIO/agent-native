@@ -2,6 +2,8 @@
  * Shared types for the org module. Server and client both depend on these.
  */
 
+import type { IconValue } from "../icons/index.js";
+
 export type OrgRole = "owner" | "admin" | "member";
 
 export type RequiredAuthProvider = "google" | `sso:${string}` | null;
@@ -19,6 +21,8 @@ export interface OrgSummary {
   orgId: string;
   orgName: string;
   role: OrgRole;
+  icon: IconValue | null;
+  iconRevision: number;
 }
 
 export interface OrgInvitationSummary {
@@ -38,6 +42,9 @@ export interface OrgInfo {
   orgId: string | null;
   orgName: string | null;
   role: OrgRole | null;
+  /** Workspace visual identity resolved by the organization authority. */
+  icon: IconValue | null;
+  iconRevision: number;
   /** Whether invitations can be delivered by the configured email provider. */
   emailConfigured?: boolean;
   access?: {

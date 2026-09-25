@@ -5,6 +5,7 @@ import type { H3Event } from "h3";
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
+import { iconValueSchema, type IconValue } from "../icons/index.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import {
   resolveIdentityHubUrl,
@@ -19,6 +20,7 @@ import {
 } from "./feature-flags.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type { OrgRole } from "./types.js";
+import { parseOrganizationIconJson } from "./visual-identity.js";
 
 const FEDERATION_PATH = "/_agent-native/identity/organization";
 const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -32,12 +34,24 @@ export interface FederatedOrganizationIdentity {
   name: string;
   role: OrgRole;
   email: string;
+  icon?: IconValue | null;
+  iconRevision?: number;
 }
 
 export type FederatedOrganizationSyncInput = Omit<
   FederatedOrganizationIdentity,
   "authority"
 >;
+
+export class FederatedIconConflictError extends Error {
+  constructor(
+    readonly icon: IconValue | null,
+    readonly iconRevision: number,
+  ) {
+    super("Workspace icon changed elsewhere; retry your selection");
+    this.name = "FederatedIconConflictError";
+  }
+}
 
 export type FederatedOrganizationProvisionResult =
   | "disabled"
@@ -113,10 +127,31 @@ function validateOrganizationFields(
     !input.name.trim() ||
     input.name.trim().length > MAX_ORG_NAME_LENGTH ||
     !isOrgRole(input.role) ||
-    !input.email.includes("@")
+    !input.email.includes("@") ||
+    (input.iconRevision !== undefined &&
+      (!Number.isSafeInteger(input.iconRevision) || input.iconRevision < 0))
   ) {
     throw new Error("Invalid federated organization identity.");
   }
+}
+
+async function applyFederatedVisualIdentity(
+  orgId: string,
+  identity: FederatedOrganizationIdentity,
+): Promise<void> {
+  if (identity.icon === undefined || identity.iconRevision === undefined)
+    return;
+  await getDbExec().execute({
+    sql: `UPDATE organizations
+          SET icon_json = ?, icon_revision = ?
+          WHERE id = ? AND icon_revision < ?`,
+    args: [
+      identity.icon === null ? null : JSON.stringify(identity.icon),
+      identity.iconRevision,
+      orgId,
+      identity.iconRevision,
+    ],
+  });
 }
 
 function validateIdentity(input: FederatedOrganizationIdentity): void {
@@ -172,6 +207,12 @@ async function sendFederationAssertion(
       org_id: input.id,
       org_name: input.name.trim(),
       org_role: input.role,
+      ...(input.icon !== undefined
+        ? {
+            org_icon: input.icon,
+            org_icon_revision: input.iconRevision ?? 0,
+          }
+        : {}),
       ...extraClaims,
     },
   });
@@ -309,6 +350,21 @@ async function registerWithIdentityHub(
   if (!sent) return null;
   const { hub, response } = sent;
   if (!response.ok) {
+    if (response.status === 409) {
+      const conflict = await response.json();
+      if (
+        conflict?.code === "icon-revision-conflict" &&
+        Number.isSafeInteger(conflict.iconRevision) &&
+        conflict.iconRevision >= 0 &&
+        (conflict.icon === null ||
+          iconValueSchema.safeParse(conflict.icon).success)
+      ) {
+        throw new FederatedIconConflictError(
+          conflict.icon,
+          conflict.iconRevision,
+        );
+      }
+    }
     throw new Error(
       `Identity hub organization federation failed (${response.status}).`,
     );
@@ -575,7 +631,7 @@ export async function syncOrganizationToIdentityHub(
 
   const exec = getDbExec();
   const local = await exec.execute({
-    sql: `SELECT identity_authority, identity_id,
+    sql: `SELECT identity_authority, identity_id, icon_json, icon_revision,
                  federation_roster_initialized_at
           FROM organizations WHERE id = ? LIMIT 1`,
     args: [input.id],
@@ -612,6 +668,11 @@ export async function syncOrganizationToIdentityHub(
       ...input,
       authority,
       id: canonicalOrgId,
+      icon:
+        input.icon === undefined
+          ? parseOrganizationIconJson(row.icon_json)
+          : input.icon,
+      iconRevision: input.iconRevision ?? Number(row.icon_revision ?? 0),
     },
     canonicalOrgId,
     roster,
@@ -696,6 +757,7 @@ export async function provisionFederatedOrganization(
 
   if (mapped.rows[0]) {
     const localOrgId = String((mapped.rows[0] as any).id);
+    await applyFederatedVisualIdentity(localOrgId, identity);
     await ensureLocalMembership(localOrgId, identity);
     await setActiveOrgId(
       identity.email,
@@ -724,6 +786,7 @@ export async function provisionFederatedOrganization(
               WHERE id = ? AND identity_authority IS NULL AND identity_id IS NULL`,
         args: [identity.authority, identity.id, identity.id],
       });
+      await applyFederatedVisualIdentity(identity.id, identity);
       await ensureLocalMembership(identity.id, identity);
       await setActiveOrgId(
         identity.email,
@@ -744,5 +807,6 @@ export async function provisionFederatedOrganization(
     identityAuthority: identity.authority,
     identityId: identity.id,
   });
+  await applyFederatedVisualIdentity(identity.id, identity);
   return "created";
 }

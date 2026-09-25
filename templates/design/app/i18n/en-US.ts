@@ -262,6 +262,12 @@ export default {
       opacity: "Opacity",
       padding: "Padding",
       margin: "Margin",
+      marginTop: "Top margin",
+      marginRight: "Right margin",
+      marginBottom: "Bottom margin",
+      marginLeft: "Left margin",
+      linkMarginSides: "Link margin sides",
+      unlinkMarginSides: "Unlink margin sides",
       radius: "Radius",
       flexGrow: "Grow",
       flexShrink: "Shrink",
@@ -952,6 +958,9 @@ export default {
     signUpToSaveDescription:
       "Sign up for a free account to save designs, screen layouts, and generate new ones.",
     signUpToShare: "Sign up to share",
+    signUpToShareLiveCanvas: "Sign up to share a live canvas",
+    liveCanvasLink: "Live canvas link",
+    liveCanvasWaitingForOwner: "Waiting for the owner’s live canvas snapshot.",
     shareEditorLink: "Design editor link",
     shareEditorLinkDescription:
       "Anyone with access can open this design in the editor.",
@@ -1226,12 +1235,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "Apply design updates",
       applyButton: "Apply styles",
+      applySharedEdits: "Apply edits",
       previewLabel: "Pending visual preview",
       applyDesignUpdates: "Apply design update",
       applying: "Applying…",
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
+      copyFullPrompt: "Copy full prompt",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Design updates sent to the agent",
@@ -1243,6 +1254,8 @@ export default {
       sourceCheckFailedToast:
         "Could not verify the connected source files. The preview was kept so you can retry or undo.",
       copiedToast: "Style prompt copied",
+      copiedToastDescription:
+        "Paste it into your coding agent and ask it to apply the visual changes.",
       abortedToast: "Pending preview discarded",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",
@@ -1306,6 +1319,8 @@ export default {
       annotationSendError:
         "Could not send annotations. Your drawing is still here—try again.",
       codingHandoffError: "Could not create agent handoff",
+      visualEditPendingConflict:
+        "Another collaborator has edits waiting. Apply or clear them before sending new edits.",
       codingHandoffCopied: "Agent prompt copied",
       clipboardBlocked: "Clipboard blocked",
       htmlCreateError: "Could not create HTML download",

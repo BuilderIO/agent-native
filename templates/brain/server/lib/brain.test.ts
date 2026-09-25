@@ -282,6 +282,7 @@ const mocks = vi.hoisted(() => {
       return { rowsAffected: 1 };
     }),
   };
+  const track = vi.fn();
 
   const tableRows = (tableRef: Row) => {
     if (tableRef === schema.brainSources) return rows.sources;
@@ -533,6 +534,7 @@ const mocks = vi.hoisted(() => {
     queueClaimRowsAffected,
     audienceHook,
     dbExec,
+    track,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
     settings: {
@@ -557,6 +559,8 @@ vi.mock("@agent-native/core/db", () => ({
   createGetDb: () => () => mocks.db,
   getDbExec: () => mocks.dbExec,
 }));
+
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 
 vi.mock("@agent-native/core/db/schema", () => ({
   boolean: (name: string) => ({
@@ -621,6 +625,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mocks.userEmail,
   getRequestOrgId: () => mocks.orgId,
+  getRequestContext: () => undefined,
   runWithRequestContext: async (_context: Row, fn: () => Promise<unknown>) =>
     fn(),
 }));
@@ -792,6 +797,7 @@ import { enqueueCaptureInvalidation } from "./ingest-queue.js";
 
 function resetMocks() {
   vi.clearAllMocks();
+  mocks.track.mockReset();
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.rows.audiences.push({
@@ -1825,6 +1831,31 @@ describe("Brain knowledge quality gates", () => {
       audienceId: "aud_org",
       audienceAclHash: "acl-hash",
     });
+  });
+
+  it("keeps saved knowledge successful when creation telemetry throws", async () => {
+    seedSource();
+    seedCapture();
+    mocks.track.mockImplementationOnce(() => {
+      throw new Error("tracking unavailable");
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 95,
+      proposalMode: "never",
+    });
+
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.knowledge).toHaveLength(1);
+    expect(mocks.track).toHaveBeenCalledOnce();
   });
 
   it("keeps auto-redacted knowledge unpublished when its evidence source opts out of review", async () => {

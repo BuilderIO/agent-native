@@ -1,17 +1,17 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { useIconPickerLabels, useT } from "@agent-native/core/client/i18n";
+import { safeParseIconValue, type IconValue } from "@agent-native/core/icons";
+import { ResourceIcon, ResourceIconPicker } from "@agent-native/toolkit/icons";
 import { IconMoodSmile } from "@tabler/icons-react";
-import { useState, useMemo, useRef, useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { toast } from "sonner";
 
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 type EmojiCategory = { name: string; emojis: string[] };
 
@@ -626,12 +626,18 @@ export function filterEmojiCategories(search: string): EmojiCategory[] {
 }
 
 interface EmojiPickerProps {
-  icon: string | null;
-  onSelect: (emoji: string | null) => void;
+  icon: IconValue | string | null;
+  onSelect: (icon: IconValue | null) => void | Promise<void>;
   defaultIcon?: ReactNode;
   defaultIconLabel?: string;
   variant?: "page" | "compact";
   portalled?: boolean;
+  container?: HTMLElement | null;
+  contentClassName?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchored?: boolean;
+  anchorElement?: HTMLElement | null;
 }
 
 export function EmojiPicker({
@@ -640,155 +646,124 @@ export function EmojiPicker({
   defaultIcon,
   defaultIconLabel = "page",
   variant = "page",
-  portalled = true,
+  portalled,
+  container,
+  contentClassName,
+  open,
+  onOpenChange,
+  anchored,
+  anchorElement,
 }: EmojiPickerProps) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
+  const iconPickerLabels = useIconPickerLabels();
+  const parsed = safeParseIconValue(icon);
+  const value = parsed.success ? parsed.data : null;
+  const triggerLabel =
+    value || defaultIcon
+      ? t("editor.emojiChangeIcon")
+      : t("editor.emojiAddIcon");
 
-  useEffect(() => {
-    if (open) {
-      setSearch("");
-      // Focus search on open
-      requestAnimationFrame(() => searchRef.current?.focus());
-    }
-  }, [open]);
-
-  const filteredCategories = useMemo(() => {
-    return filterEmojiCategories(search);
-  }, [search]);
-
-  const handleSelect = (emoji: string) => {
-    onSelect(emoji);
-    setOpen(false);
-  };
-
-  const handleRemove = () => {
-    onSelect(null);
-    setOpen(false);
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <PopoverTrigger asChild>
-          <TooltipTrigger asChild>
-            {icon ? (
-              <button
-                type="button"
-                aria-label={t("editor.emojiChangePageIcon")}
-                className={
-                  variant === "compact"
-                    ? "flex size-9 shrink-0 items-center justify-center rounded-md text-xl leading-none hover:bg-accent/50"
-                    : "text-5xl leading-none cursor-pointer hover:bg-accent/50 rounded-md p-1 -ml-1"
-                }
-              >
-                {icon}
-              </button>
-            ) : defaultIcon ? (
-              <button
-                type="button"
-                aria-label={t("editor.emojiChangeNamedIcon", {
-                  name: defaultIconLabel,
-                })}
-                className={
-                  variant === "compact"
-                    ? "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
-                    : "flex size-14 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 -ml-1"
-                }
-              >
-                {defaultIcon}
-              </button>
-            ) : (
-              <button
-                type="button"
-                aria-label={t("editor.emojiAddPageIcon")}
-                className={
-                  variant === "compact"
-                    ? "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent/50 hover:text-muted-foreground data-[state=open]:bg-accent/50"
-                    : "flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 rounded-md px-1.5 py-1 -ml-1.5 cursor-pointer opacity-0 group-hover/title:opacity-100 data-[state=open]:opacity-100"
-                }
-              >
-                <IconMoodSmile size={18} />
-                {variant === "page" ? (
-                  <span>{t("editor.emojiAddIcon")}</span>
-                ) : null}
-              </button>
-            )}
-          </TooltipTrigger>
-        </PopoverTrigger>
-        <TooltipContent>
-          {icon || defaultIcon
-            ? t("editor.emojiChangeIcon")
-            : t("editor.emojiAddIcon")}
-        </TooltipContent>
-      </Tooltip>
-      <PopoverContent align="start" className="w-80 p-0" portalled={portalled}>
-        {/* Search */}
-        <div className="p-2 border-b">
-          <input
-            ref={searchRef}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("editor.emojiFilter")}
-            className="w-full px-2.5 py-1.5 text-sm bg-accent/50 rounded-md outline-none placeholder:text-muted-foreground/50"
-          />
-        </div>
-
-        {/* Emoji grid */}
-        <div className="max-h-64 overflow-auto p-2">
-          {filteredCategories.length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-4">
-              {t("editor.emojiNoEmojisFound")}
-            </div>
-          ) : (
-            filteredCategories.map((category) => (
-              <div key={category.name} className="mb-2 last:mb-0">
-                <div className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider px-0.5 mb-1">
-                  {t(
-                    `editor.emojiCategory${category.name}` as
-                      | "editor.emojiCategorySmileys"
-                      | "editor.emojiCategoryPeople"
-                      | "editor.emojiCategoryNature"
-                      | "editor.emojiCategoryFood"
-                      | "editor.emojiCategoryActivities"
-                      | "editor.emojiCategoryTravel"
-                      | "editor.emojiCategoryObjects"
-                      | "editor.emojiCategorySymbols",
-                  )}
-                </div>
-                <div className="grid grid-cols-7 gap-0 sm:grid-cols-8">
-                  {category.emojis.map((emoji) => (
-                    <button
-                      type="button"
-                      key={emoji}
-                      onClick={() => handleSelect(emoji)}
-                      className="w-9 h-9 flex items-center justify-center text-lg rounded hover:bg-accent cursor-pointer"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Remove button */}
-        {icon && (
-          <div className="border-t p-1.5">
+  const picker = (
+    <ResourceIconPicker
+      value={value}
+      portalled={portalled}
+      container={container}
+      contentClassName={contentClassName}
+      open={open}
+      onOpenChange={onOpenChange}
+      anchored={anchored}
+      anchorElement={anchorElement}
+      onValueChange={onSelect}
+      onUpload={async (file) => {
+        const url = await uploadImageFile(file);
+        return {
+          version: 1,
+          kind: "image",
+          authority: "url",
+          assetId: url,
+          alt: file.name,
+        };
+      }}
+      onUploadError={(error) => toast.error(imageUploadErrorMessage(error))}
+      resolveImageUrl={(image) =>
+        image.authority === "url" ? image.assetId : undefined
+      }
+      labels={{
+        ...iconPickerLabels,
+        trigger: triggerLabel,
+        iconsTab: t("editor.iconPickerIcons"),
+        emojiTab: t("editor.iconPickerEmoji"),
+        uploadTab: t("editor.iconPickerUpload"),
+        search: t("editor.emojiFilter"),
+        noResults: t("editor.emojiNoEmojisFound"),
+        recents: t("editor.iconPickerRecent"),
+        colors: t("editor.iconPickerColors"),
+        defaultColor: t("editor.iconPickerDefault"),
+        remove: t("editor.emojiRemoveIcon"),
+        upload: t("editor.iconPickerUpload"),
+        uploading: t("editor.iconPickerUploading"),
+      }}
+    >
+      {!anchored ? (
+        <TooltipTrigger asChild>
+          {value ? (
             <button
               type="button"
-              onClick={handleRemove}
-              className="w-full text-left text-sm text-muted-foreground hover:text-foreground hover:bg-accent px-2.5 py-1.5 rounded-md cursor-pointer"
+              aria-label={triggerLabel}
+              className={
+                variant === "compact"
+                  ? "flex size-9 shrink-0 items-center justify-center rounded-md hover:bg-accent/50"
+                  : "flex size-14 items-center justify-center rounded-md p-1 -ml-1 hover:bg-accent/50"
+              }
             >
-              {t("editor.emojiRemoveIcon")}
+              <ResourceIcon
+                value={value}
+                size={variant === "compact" ? 22 : 48}
+                resolveImageUrl={(image) =>
+                  image.authority === "url" ? image.assetId : undefined
+                }
+              />
             </button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+          ) : defaultIcon ? (
+            <button
+              type="button"
+              aria-label={t("editor.emojiChangeNamedIcon", {
+                name: defaultIconLabel,
+              })}
+              className={
+                variant === "compact"
+                  ? "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
+                  : "flex size-14 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 -ml-1"
+              }
+            >
+              {defaultIcon}
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-label={t("editor.emojiAddPageIcon")}
+              className={
+                variant === "compact"
+                  ? "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent/50 hover:text-muted-foreground"
+                  : "flex items-center gap-1.5 rounded-md px-1.5 py-1 -ml-1.5 text-sm text-muted-foreground/60 opacity-0 hover:bg-accent/50 hover:text-muted-foreground group-hover/title:opacity-100"
+              }
+            >
+              <IconMoodSmile size={18} />
+              {variant === "page" ? (
+                <span>{t("editor.emojiAddIcon")}</span>
+              ) : null}
+            </button>
+          )}
+        </TooltipTrigger>
+      ) : null}
+    </ResourceIconPicker>
+  );
+  return anchored ? (
+    picker
+  ) : (
+    <Tooltip>
+      {picker}
+      <TooltipContent>{triggerLabel}</TooltipContent>
+    </Tooltip>
   );
 }

@@ -457,6 +457,12 @@ export async function enterInteractView(
     "data-screen-interact-mode",
     "false",
   );
+  const previewIframe = screenShell
+    .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
+    .first();
+  await expect(previewIframe).toBeVisible();
+  const previewIframeHandle = await previewIframe.elementHandle();
+  if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
   // The screen card can extend beneath the fixed inspector at narrow canvas
   // widths; invoke the button without relying on the panel's overlapping
   // physical hit area.
@@ -467,8 +473,19 @@ export async function enterInteractView(
     "data-screen-interact-mode",
     "true",
   );
-  // Interact is a responsive view of the same editor. Rails and the screen
-  // shell stay mounted; assert the view's own device preview below instead.
+  await expect(
+    page.getByRole("button", { name: "Exit responsive preview" }),
+  ).toBeVisible();
+  expect(
+    await previewIframeHandle.evaluate((before) =>
+      Boolean(
+        before
+          .closest("[data-screen-shell]")
+          ?.querySelector("iframe[data-design-preview-iframe]") === before,
+      ),
+    ),
+  ).toBe(true);
+  // The focused responsive preview keeps its original iframe in the DOM.
   await expect
     .poll(
       async () =>

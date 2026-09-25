@@ -38,6 +38,7 @@ export function meta() {
 type MailPreferences = {
   pinnedLabels?: string[];
   combineInbox?: boolean;
+  showAllTab?: boolean;
   savedFilters?: { id: string }[];
 };
 
@@ -64,6 +65,7 @@ async function resolveRootInboxHref(): Promise<string> {
     );
     return resolveDefaultMailHref({
       combineInbox: settings.combineInbox,
+      showAllTab: settings.showAllTab,
       pinnedLabels: settings.pinnedLabels,
       savedFilters: settings.savedFilters,
       isGoogleConnected,
