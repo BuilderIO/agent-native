@@ -59,6 +59,7 @@ import {
   generateProvidedPluginsNitroPluginSource,
   generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
+  assertCloudflarePagesPresetRemoved,
   shimCloudflarePagesModuleTimers,
   isAwsAmplifyPreset,
   configureAwsLambdaRuntimeOutput,
@@ -710,6 +711,29 @@ describe("isCloudflareModulePreset", () => {
   });
 });
 
+describe("assertCloudflarePagesPresetRemoved", () => {
+  it("exits when the removed Cloudflare Pages preset is requested", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() =>
+        assertCloudflarePagesPresetRemoved("cloudflare_pages"),
+      ).toThrow("exit");
+      expect(() =>
+        assertCloudflarePagesPresetRemoved("cloudflare-pages"),
+      ).toThrow("exit");
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("Cloudflare Pages was removed"),
+      );
+    } finally {
+      exit.mockRestore();
+      error.mockRestore();
+    }
+  });
+});
+
 describe("Cloudflare module Worker entry", () => {
   it("defers Nitro's handler and lifecycle initialization", () => {
     const source =
@@ -1285,27 +1309,22 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
       expect((globalThis as Record<string, unknown>).__env__).toBe(bindings);
     });
 
-    // Regression: the Pages entry's __cfRestoreModuleTimers() call used to be
-    // dead code. buildCloudflarePages()'s own post-build patch shimmed every
-    // file with a separate, per-file `var __origSetInterval`, never the
-    // globalThis.__cfModuleOrigSetInterval key the Pages entry's restore
-    // function actually reads — so the restore never did anything. Proven
-    // with shimCloudflarePagesModuleTimers(), the exact function
-    // buildCloudflarePages()'s per-file loop now calls instead of its own
-    // disconnected shim — not a stand-in for it.
+    // Regression: the worker entry's __cfRestoreModuleTimers() call used to be
+    // dead code when dependency chunks captured setInterval under a different
+    // key than globalThis.__cfModuleOrigSetInterval. Proven with
+    // shimCloudflarePagesModuleTimers(), which writes that shared key.
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
       const dir = makeTempDir();
       const actionPath = path.join(dir, "keep-alive-action.mjs");
       const rawAction = `
-// A module-scope timer, the same shape a real Pages dependency chunk gets
-// shimmed into by buildCloudflarePages()'s post-build patch loop.
+// A module-scope timer, the same shape a dependency chunk gets after
+// shimCloudflarePagesModuleTimers().
 setInterval(() => {}, 60_000).unref?.();
 
 export default { run: async () => ({ ok: true }) };
 `;
-      // Applies the exact function buildCloudflarePages()'s per-file loop now
-      // calls (unified onto cloudflareModuleTimerShimPrefix() /
-      // CF_MODULE_ORIG_SET_INTERVAL_KEY), not a stand-in for it.
+      // Applies shimCloudflarePagesModuleTimers(), which writes the shared
+      // cloudflareModuleTimerShimPrefix() / CF_MODULE_ORIG_SET_INTERVAL_KEY.
       fs.writeFileSync(actionPath, shimCloudflarePagesModuleTimers(rawAction));
 
       const entrySource = generateWorkerEntry(

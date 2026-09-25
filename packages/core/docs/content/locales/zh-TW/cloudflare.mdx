@@ -1,23 +1,13 @@
 ---
 title: "Cloudflare"
-description: "使用對應的 Nitro 預設集將 agent-native 應用程式部署到 Cloudflare Pages 或 Cloudflare Workers。"
+description: "使用 cloudflare_module Nitro 預設將 agent-native 應用程式部署到 Cloudflare Workers。"
 ---
 
 # Cloudflare
 
-## Cloudflare Pages {#cloudflare-pages}
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
-});
-```
-
-## Cloudflare Workers {#cloudflare-workers}
-
-針對 Cloudflare Worker 使用 Nitro 原生的 module 輸出格式。這樣可以保持
-SSR 啟用，並將 Worker 的進入點與靜態資源一併輸出到
-`.output/server` 和 `.output/public` 底下：
+使用 Nitro 原生的模組輸出來產生一個 Cloudflare Worker。這樣可以
+保持 SSR 啟用，並在 `.output/server` 和 `.output/public` 下產生
+Worker 進入點和靜態資源:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
@@ -25,18 +15,19 @@ export default defineConfig({
 });
 ```
 
-使用 Wrangler 建置並部署產生出來的 Worker：
+Build and deploy the generated Worker with Wrangler:
 
 ```bash
 pnpm build
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-你也可以使用 `NITRO_PRESET=cloudflare_module` 明確選擇這個預設集。部署之前，
-請先設定一個持久性的外部 PostgreSQL 資料庫。Worker 的檔案系統並不是持久性的應用程式儲存區。
+你也可以用 `NITRO_PRESET=cloudflare_module` 明確選擇這個預設。
+部署之前請設定一個持久的外部 PostgreSQL 資料庫。Worker 的檔案系統
+不是一個持久的應用程式儲存。
 
-## 接下來呢
+## 下一步
 
-- [**Deployment**](/docs/deployment) — 在第一次正式環境部署之前，選擇一個持久性資料庫和一個預設集
-- [**Workspace Deployment**](/docs/workspace-deployment) — Cloudflare Pages 是統一 `deploy` 指令的預設預設集
-- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify) 和 [**Other Platforms**](/docs/other-platforms) — 其他的 Nitro 預設集
+- [**Deployment**](/docs/deployment) — 在第一次正式部署之前選擇一個持久資料庫和一個預設
+- [**Workspace Deployment**](/docs/workspace-deployment) — 使用 Netlify 或 Vercel 將工作區中的每個應用程式部署到同一來源
+- [**Node.js**](/docs/node-js)、[**Docker**](/docs/docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify)、[**AWS Lambda**](/docs/aws-lambda) 和 [**Deno Deploy**](/docs/deno-deploy) — 其他 Nitro 預設
