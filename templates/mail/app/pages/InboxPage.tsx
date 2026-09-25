@@ -7,7 +7,7 @@ import {
   mailLabelsInclude,
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
-import { inboxTabHref } from "@shared/inbox-threads";
+import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
@@ -432,7 +432,9 @@ export function InboxPage() {
   const shouldNormalizeCombinedInboxRoute =
     combineInbox &&
     view === "inbox" &&
-    (activeLabelIsInboxScoped || activeInboxTab === OTHER_INBOX_TAB_PARAM);
+    (activeLabelIsInboxScoped ||
+      activeInboxTab === OTHER_INBOX_TAB_PARAM ||
+      activeInboxTab === ALL_TAB_PARAM);
 
   // Always fetch from the URL view (inbox, starred, etc.).
   // Top-bar triage tabs (Important / pinned labels / "Other") are slices of
@@ -601,6 +603,7 @@ export function InboxPage() {
       return;
     const defaultHref = resolveDefaultMailHref({
       combineInbox,
+      showAllTab: settings?.showAllTab,
       pinnedLabels: userPinnedLabels,
       savedFilters: settings?.savedFilters,
       isGoogleConnected,

@@ -27,11 +27,13 @@ describe("agent-chat stream tokens", () => {
     const token = await createAgentChatStreamToken({
       ownerEmail: " steve@example.test ",
       orgId: "org-calendar",
+      authUserId: "better-auth-user-1",
     });
 
     expect(await verifyAgentChatStreamToken(token)).toEqual({
       ownerEmail: "steve@example.test",
       orgId: "org-calendar",
+      authUserId: "better-auth-user-1",
     });
     expect(token.split(".")).toHaveLength(3);
     expect(AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS).toBe(900);

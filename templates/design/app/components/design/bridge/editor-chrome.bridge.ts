@@ -1645,7 +1645,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var runtimeLayerSnapshotTimer: number | null = null;
   var runtimeLayerSnapshotMaxTimer: number | null = null;
+  var runtimeLayerSnapshotReservationRequestId = 0;
+  var runtimeLayerSnapshotReservationInFlight = false;
+  var runtimeLayerSnapshotReservationDirty = false;
   var lastRuntimeLayerSnapshotHtml = "";
+  var lastRuntimeLayerSnapshotReservationToken = "";
   var runtimeDocumentId =
     "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 
@@ -1993,7 +1997,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  function postRuntimeLayerSnapshot(): void {
+  function postRuntimeLayerSnapshot(reservationToken?: string): void {
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
     }
@@ -2013,12 +2017,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       return;
     }
-    if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+    var snapshotReservationToken = reservationToken || "";
+    if (
+      snapshot.html === lastRuntimeLayerSnapshotHtml &&
+      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken
+    ) {
+      return;
+    }
     lastRuntimeLayerSnapshotHtml = snapshot.html;
+    lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+    if (reservationToken) snapshot.reservationToken = reservationToken;
     (window.parent as Window).postMessage(
       {
         type: "agent-native:runtime-layer-snapshot",
         payload: snapshot,
+      },
+      "*",
+    );
+  }
+
+  function requestRuntimeLayerSnapshot(): void {
+    if (runtimeLayerSnapshotTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotTimer);
+      runtimeLayerSnapshotTimer = null;
+    }
+    if (runtimeLayerSnapshotMaxTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotMaxTimer);
+      runtimeLayerSnapshotMaxTimer = null;
+    }
+    if (runtimeLayerSnapshotReservationInFlight) {
+      runtimeLayerSnapshotReservationDirty = true;
+      return;
+    }
+    runtimeLayerSnapshotReservationInFlight = true;
+    runtimeLayerSnapshotReservationRequestId += 1;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:runtime-layer-snapshot-reservation-request",
+        requestId: runtimeLayerSnapshotReservationRequestId,
       },
       "*",
     );
@@ -2034,12 +2070,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       window.clearTimeout(runtimeLayerSnapshotTimer);
     }
     runtimeLayerSnapshotTimer = window.setTimeout(
-      postRuntimeLayerSnapshot,
+      requestRuntimeLayerSnapshot,
       300,
     );
     if (runtimeLayerSnapshotMaxTimer === null) {
       runtimeLayerSnapshotMaxTimer = window.setTimeout(
-        postRuntimeLayerSnapshot,
+        requestRuntimeLayerSnapshot,
         1500,
       );
     }
@@ -4182,22 +4218,123 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  type TypedStyleValue =
+    | { status: "available"; value: string | undefined }
+    | { status: "failed"; error: unknown };
+
+  function typedStyleValue(el: Element, property: string): TypedStyleValue {
+    var typedElement = el as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap !== "function") {
+      return { status: "available", value: undefined };
+    }
+    try {
+      return {
+        status: "available",
+        value: typedElement.computedStyleMap().get(property)?.toString().trim(),
+      };
+    } catch (error) {
+      return { status: "failed", error };
+    }
+  }
+
+  function dimensionHasAutoMargin(el: Element, property: string): boolean {
+    var margins =
+      property === "width"
+        ? ["margin-left", "margin-right"]
+        : ["margin-top", "margin-bottom"];
+    return margins.some(function (margin) {
+      var value = typedStyleValue(el, margin);
+      // CSSOM resolves auto margins to pixels. If Typed OM cannot distinguish
+      // them, skip stretch preservation rather than freezing an uncertain size.
+      return (
+        value.status === "failed" ||
+        value.value === undefined ||
+        value.value.toLowerCase() === "auto"
+      );
+    });
+  }
+
+  function flexMainAxisDimension(parentStyle: CSSStyleDeclaration) {
+    var inlineAxis = /^(vertical|sideways)/.test(parentStyle.writingMode)
+      ? "height"
+      : "width";
+    if (!/^column/.test(parentStyle.flexDirection)) return inlineAxis;
+    return inlineAxis === "width" ? "height" : "width";
+  }
+
+  function gridItemDimensionIsStretched(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+    parentStyle: CSSStyleDeclaration,
+    typedSize: TypedStyleValue,
+  ): boolean {
+    if (
+      typedSize.status === "failed" ||
+      typedSize.value?.toLowerCase() !== "auto" ||
+      dimensionHasAutoMargin(el, property)
+    ) {
+      return false;
+    }
+    var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
+    if (alignment === "auto") {
+      alignment =
+        property === "width"
+          ? parentStyle.justifyItems
+          : parentStyle.alignItems;
+    }
+    if (alignment === "stretch") return true;
+    if (alignment !== "normal" || cs.aspectRatio !== "auto") return false;
+    return !/^(audio|canvas|embed|iframe|img|object|video)$/.test(
+      el.tagName.toLowerCase(),
+    );
+  }
+
+  function flexItemDimensionIsStretched(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+    parentStyle: CSSStyleDeclaration,
+  ): boolean {
+    var mainAxis = flexMainAxisDimension(parentStyle);
+    if (property === mainAxis || dimensionHasAutoMargin(el, property)) {
+      return false;
+    }
+    var alignment =
+      cs.alignSelf === "auto" ? parentStyle.alignItems : cs.alignSelf;
+    return alignment === "normal" || alignment === "stretch";
+  }
+
   function portableSizeIsLayoutResolved(
     el: Element,
     property: string,
     cs: CSSStyleDeclaration,
+    typedSize: string,
   ): boolean {
     if ((el as HTMLElement).style?.getPropertyValue(property)) return false;
-    if (property !== "width" || cs.position !== "static") return false;
+    if (typedSize !== cs[property]) return false;
+    if (cs.position === "absolute" || cs.position === "fixed") return false;
     var parent = el.parentElement;
     if (!parent) return false;
     var parentStyle = window.getComputedStyle(parent);
     if (/^(inline-)?flex$/.test(parentStyle.display)) {
-      return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+      var mainAxis = flexMainAxisDimension(parentStyle);
+      return property === mainAxis
+        ? cs.flexBasis !== "auto" && cs.flexBasis !== "content"
+        : flexItemDimensionIsStretched(el, property, cs, parentStyle);
     }
     if (/^(inline-)?grid$/.test(parentStyle.display)) {
-      return cs.justifySelf === "normal" || cs.justifySelf === "stretch";
+      return gridItemDimensionIsStretched(
+        el,
+        property,
+        cs,
+        parentStyle,
+        typedSize,
+      );
     }
+    if (property !== "width") return false;
     if (cs.display !== "block" && cs.display !== "flow-root") return false;
     var parentContentWidth =
       parent.clientWidth -
@@ -4265,10 +4402,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return cacheFailure();
         }
         var size = String(typedValue).trim();
+        var preservesSizingMode =
+          /%|calc\(|clamp\(|(?:min|max)\(|(?:fit|fill)-content|(?:min|max)-content/i.test(
+            size,
+          );
         if (
           size &&
           (size !== "auto" || hostStyle?.getPropertyValue(property)) &&
-          !portableSizeIsLayoutResolved(el, property, cs)
+          (!portableSizeIsLayoutResolved(el, property, cs, size) ||
+            preservesSizingMode)
         ) {
           styles[property] = size;
         }
@@ -6122,6 +6264,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
+  var runtimeStructureInsertTransactionKey = Symbol(
+    "agent-native-runtime-structure-transaction",
+  );
   // Figma parity on the infinite-canvas board: a plain click resolves to the
   // outermost child of this container (the screen root, i.e. null, by default)
   // rather than the raw deepest hit. Double-click drilling
@@ -6467,6 +6612,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var activeCrossScreenSourceHtml: string | undefined = undefined;
+  var activeCrossScreenComputedSize:
+    | { width?: number; height?: number }
+    | undefined;
+  var activeCrossScreenDeleteRequestId: string | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
     sourceId: string;
@@ -12658,6 +12807,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return false;
     }
+    if (typeof requestId === "string" && requestId) {
+      restorePendingRuntimeDeleteStyle(target, requestId);
+    }
     // A requestId means the host queued this deletion as a pending live edit
     // and may undo it. Register it in the same pending-move table the drag
     // path uses so the existing visual-structure-ack channel can put the node
@@ -12707,6 +12859,95 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hideMeasurements();
     refreshOverlays();
     return true;
+  }
+
+  function restorePendingRuntimeDeleteStyle(target, requestId) {
+    if (!(target instanceof HTMLElement || target instanceof SVGElement)) {
+      return;
+    }
+    var attribute = "data-agent-native-pending-delete-style";
+    var encoded = target.getAttribute(attribute);
+    if (!encoded) return;
+    var snapshot: {
+      requestId: string;
+      properties: Record<string, { value: string; priority: string }>;
+    };
+    try {
+      snapshot = JSON.parse(encoded);
+    } catch (error) {
+      console.warn("[design:bridge] pending delete style is invalid", error);
+      return;
+    }
+    if (!snapshot.properties || typeof snapshot.requestId !== "string") {
+      console.warn("[design:bridge] pending delete style is incomplete");
+      return;
+    }
+    if (snapshot.requestId !== requestId) return;
+    var originalTransition = snapshot.properties.transition;
+    target.style.setProperty("transition", "none", "important");
+    Object.entries(snapshot.properties).forEach(([property, original]) => {
+      if (property === "transition") return;
+      if (original.value) {
+        target.style.setProperty(property, original.value, original.priority);
+      } else {
+        target.style.removeProperty(property);
+      }
+    });
+    target.removeAttribute(attribute);
+    target.getBoundingClientRect();
+    requestAnimationFrame(function () {
+      if (originalTransition.value) {
+        target.style.setProperty(
+          "transition",
+          originalTransition.value,
+          originalTransition.priority,
+        );
+      } else {
+        target.style.removeProperty("transition");
+      }
+    });
+  }
+
+  function concealPendingRuntimeDelete(
+    selector,
+    selectorCandidates,
+    requestId,
+  ) {
+    if (typeof requestId !== "string" || !requestId) return;
+    var target = findRuntimeTarget(selector, selectorCandidates);
+    if (!(target instanceof HTMLElement || target instanceof SVGElement))
+      return;
+    var attribute = "data-agent-native-pending-delete-style";
+    var encoded = target.getAttribute(attribute);
+    if (encoded) {
+      try {
+        var existing = JSON.parse(encoded);
+        if (existing.requestId === requestId) return;
+        restorePendingRuntimeDeleteStyle(target, existing.requestId);
+      } catch (error) {
+        console.warn("[design:bridge] pending delete style is invalid", error);
+        target.removeAttribute(attribute);
+      }
+    }
+    var properties = ["opacity", "pointer-events", "transition"];
+    var snapshot = {
+      requestId: requestId,
+      properties: Object.fromEntries(
+        properties.map(function (property) {
+          return [
+            property,
+            {
+              value: target.style.getPropertyValue(property),
+              priority: target.style.getPropertyPriority(property),
+            },
+          ];
+        }),
+      ),
+    };
+    target.setAttribute(attribute, JSON.stringify(snapshot));
+    target.style.setProperty("opacity", "0", "important");
+    target.style.setProperty("pointer-events", "none", "important");
+    target.style.setProperty("transition", "none", "important");
   }
 
   function readPx(value: string): number {
@@ -13771,7 +14012,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelSpacingDrag);
   }
 
-  function postTextContentChange(el, value, html, originalValue, originalHtml) {
+  function postTextContentChange(
+    el,
+    value,
+    html,
+    originalValue,
+    originalHtml,
+    relativeOperations,
+  ) {
     claimContentAsSource(el);
     publishSourceDocumentProvenance(undefined, true);
     (window.parent as Window).postMessage(
@@ -13784,6 +14032,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           typeof originalValue === "string" ? originalValue : undefined,
         originalHtml:
           typeof originalHtml === "string" ? originalHtml : undefined,
+        relativeOperations:
+          relativeOperations && typeof relativeOperations === "object"
+            ? relativeOperations
+            : undefined,
         payload: getElementInfo(el),
       },
       "*",
@@ -15810,6 +16062,124 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  function computedSizeInPixels(value: string): number | undefined {
+    var match = /^\s*(\d+(?:\.\d+)?)px\s*$/i.exec(value);
+    if (!match) return undefined;
+    var size = Number(match[1]);
+    return Number.isFinite(size) ? size : undefined;
+  }
+
+  function flexItemMainSizeChangesWithoutFlexing(
+    el: Element,
+    property: "width" | "height",
+  ): boolean {
+    var style = (el as HTMLElement).style;
+    if (!style) return false;
+    var originalSize = el.getBoundingClientRect()[property];
+    var declarations = ["flex-grow", "flex-shrink", "transition"].map(
+      function (name) {
+        return {
+          name,
+          value: style.getPropertyValue(name),
+          priority: style.getPropertyPriority(name),
+        };
+      },
+    );
+    try {
+      // The synchronous override is restored before the browser can paint.
+      style.setProperty("transition", "none", "important");
+      style.setProperty("flex-grow", "0", "important");
+      style.setProperty("flex-shrink", "0", "important");
+      return (
+        Math.abs(el.getBoundingClientRect()[property] - originalSize) > 0.5
+      );
+    } finally {
+      declarations.forEach(function (declaration) {
+        if (declaration.value) {
+          style.setProperty(
+            declaration.name,
+            declaration.value,
+            declaration.priority,
+          );
+        } else {
+          style.removeProperty(declaration.name);
+        }
+      });
+    }
+  }
+
+  function crossScreenAutoLayoutSizeFallback(
+    el: Element | null,
+    snapshot: unknown,
+    computed: CSSStyleDeclaration | null,
+  ): { width?: number; height?: number } | undefined {
+    if (
+      !el ||
+      !computed ||
+      computed.position === "absolute" ||
+      computed.position === "fixed"
+    ) {
+      return undefined;
+    }
+    var parent = el.parentElement;
+    if (!parent) return undefined;
+    var parentStyle = window.getComputedStyle(parent);
+    var isFlex = /^(inline-)?flex$/.test(parentStyle.display);
+    var isGrid = /^(inline-)?grid$/.test(parentStyle.display);
+    if (!isFlex && !isGrid) return undefined;
+    var snapshotRoot = (
+      snapshot as {
+        nodes?: Array<{ path?: unknown; styles?: unknown }>;
+      } | null
+    )?.nodes?.find(
+      (node) => Array.isArray(node.path) && node.path.length === 0,
+    );
+    var styles = snapshotRoot?.styles;
+    if (!styles || typeof styles !== "object") return undefined;
+    var mainAxis = isFlex ? flexMainAxisDimension(parentStyle) : undefined;
+    var flexMainSizeIsResolved = false;
+    if (isFlex && mainAxis) {
+      flexMainSizeIsResolved =
+        (computed.flexBasis !== "auto" && computed.flexBasis !== "content") ||
+        ((Number(computed.flexGrow) > 0 || Number(computed.flexShrink) > 0) &&
+          flexItemMainSizeChangesWithoutFlexing(el, mainAxis));
+    }
+    var resolvedByAutoLayout = function (property: "width" | "height") {
+      if (isGrid) {
+        return gridItemDimensionIsStretched(
+          el,
+          property,
+          computed,
+          parentStyle,
+          typedStyleValue(el, property),
+        );
+      }
+      if (property === mainAxis) {
+        return flexMainSizeIsResolved;
+      }
+      return flexItemDimensionIsStretched(el, property, computed, parentStyle);
+    };
+    var result: { width?: number; height?: number } = {};
+    (["width", "height"] as const).forEach((property) => {
+      var snapshotSize = styles[property];
+      var snapshotSizeIsAuto =
+        typeof snapshotSize === "string" &&
+        snapshotSize.trim().toLowerCase() === "auto";
+      if (
+        (Object.prototype.hasOwnProperty.call(styles, property) &&
+          !snapshotSizeIsAuto) ||
+        !resolvedByAutoLayout(property)
+      ) {
+        return;
+      }
+      var size = computedSizeInPixels(computed[property]);
+      if (size !== undefined) result[property] = size;
+    });
+    return result.width !== undefined || result.height !== undefined
+      ? result
+      : undefined;
+  }
+
   // Chromium reports Event.timeStamp relative to the document time origin,
   // while synthetic and older events can carry an epoch timestamp. Normalize
   // both forms before sending a source timestamp to the host document.
@@ -15859,7 +16229,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // does not silently lose Ignore Auto Layout.
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
+      activeCrossScreenComputedSize = undefined;
       activeCrossScreenDragIdentity = null;
+      activeCrossScreenDeleteRequestId = undefined;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
         "*",
@@ -15867,11 +16239,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (phase === "start") {
+      activeCrossScreenDeleteRequestId = `cross-screen-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       activeCrossScreenStyleSnapshot =
         options?.styleSnapshot !== undefined
           ? options.styleSnapshot
           : collectPortableStyleSnapshot(el ?? null);
       activeCrossScreenSourceHtml = el?.outerHTML;
+      var computed = el ? window.getComputedStyle(el) : null;
+      activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
+        el ?? null,
+        activeCrossScreenStyleSnapshot,
+        computed,
+      );
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -15910,6 +16289,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         boardSurface: designCanvasBoardSurface,
         selector: dragIdentity?.selector ?? getSelector(el ?? null),
         sourceId: dragIdentity?.sourceId ?? getSourceId(el ?? null),
+        sourceDeleteRequestId: activeCrossScreenDeleteRequestId,
         sourceProvenance: dragIdentity?.sourceProvenance,
         iframeX: ev?.clientX ?? 0,
         iframeY: ev?.clientY ?? 0,
@@ -15925,6 +16305,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : undefined,
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
+        sourceComputedSize: activeCrossScreenComputedSize,
         // Explicit sibling flag, not just `styleSnapshot === null` — the
         // host must not have to infer capture-failed from a value shape
         // that could change; see collectPortableStyleSnapshot's doc.
@@ -15937,8 +16318,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Use the pre-lift snapshot: during a drag the bridge may temporarily
         // add a translate() transform to the source element, and that
         // editor-only transform must never become destination markup.
+        // Send it from "start": the host can finalize from its own window
+        // mouseup, in which case this iframe never sees the release and no
+        // "end" is posted.
         sourceCloneHtml:
-          phase === "end" ? activeCrossScreenSourceHtml : undefined,
+          phase === "start" || phase === "end"
+            ? activeCrossScreenSourceHtml
+            : undefined,
         releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : undefined,
       },
       "*",
@@ -15950,7 +16336,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
+      activeCrossScreenComputedSize = undefined;
       activeCrossScreenDragIdentity = null;
+      activeCrossScreenDeleteRequestId = undefined;
     }
   }
 
@@ -22242,6 +22630,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           crossScreenClaimedByHost
         : false;
       if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
+        var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
         postCrossScreenDrag("end", dragEl, ev, {
           duplicate: duplicatedForDrag,
           modifiers: {
@@ -22263,6 +22652,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postElementSelect(selectedEl);
         } else {
           restoreSourceDragPosition();
+          if (crossScreenClaimedByHost && sourceDeleteRequestId) {
+            var selector = getSelector(dragEl);
+            var sourceId = getSourceId(dragEl);
+            var selectorCandidates = [selector];
+            if (sourceId) {
+              selectorCandidates.push(
+                '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]',
+              );
+            }
+            concealPendingRuntimeDelete(
+              selector,
+              selectorCandidates,
+              sourceDeleteRequestId,
+            );
+          }
         }
         return;
       }
@@ -23988,6 +24392,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (rawHit && rawHit !== el) return false;
     if (isDocumentRootElement(el)) return false;
     if (outermostSvgAncestor(el) === el) return false;
+    if (!isContainerDropTarget(el)) return false;
     var child = el.firstElementChild;
     // A lone `data-an-text` span is the editor's own wrapper around a
     // painted leaf's bare text (see selectionTargetForHit) — not a real
@@ -26235,7 +26640,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Preserve the more specific Interact ownership when read-only state is
       // replayed after a mode change on a retained iframe.
       syncShieldPointerEvents();
-      setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !interactionMode && !activeTextEditEl,
+      );
       if (interactionMode) hideSelectionOverlay();
       else if (selectedEl?.isConnected)
         positionOverlay(selectionOverlay, selectedEl);
@@ -27309,6 +27716,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
         return;
       }
+      var insertTransactionId =
+        typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+      if (insertTransactionId) {
+        (parsedInsertEl as unknown as Record<symbol, string>)[
+          runtimeStructureInsertTransactionKey
+        ] = insertTransactionId;
+      }
       if (replaceInsertAnchor) {
         var replaceParent = insertAnchor.parentElement;
         if (!replaceParent) {
@@ -27554,17 +27968,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       return;
     }
+    if (e.data.type === "pending-delete-element") {
+      concealPendingRuntimeDelete(
+        e.data.selector,
+        e.data.selectorCandidates,
+        e.data.requestId,
+      );
+      return;
+    }
+    if (e.data.type === "cancel-pending-delete-element") {
+      var pendingDeleteTarget = findRuntimeTarget(
+        e.data.selector,
+        e.data.selectorCandidates,
+      );
+      if (pendingDeleteTarget) {
+        restorePendingRuntimeDeleteStyle(pendingDeleteTarget, e.data.requestId);
+      }
+      return;
+    }
     if (e.data.type === "runtime-structure-rollback-insert") {
       var rollbackRequestId = String(e.data.requestId || "");
-      var rollbackTarget = findUniqueRuntimeStructureTarget(
-        String(e.data.selector || ""),
-        typeof e.data.sourceId === "string" ? e.data.sourceId : "",
-      );
-      if (
-        !rollbackRequestId ||
-        !rollbackTarget ||
-        !rollbackTarget.parentElement
-      ) {
+      var rollbackTransactionId =
+        typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+      var rollbackTargets = rollbackTransactionId
+        ? Array.from(document.querySelectorAll("*")).filter(
+            (element) =>
+              (element as unknown as Record<symbol, string>)[
+                runtimeStructureInsertTransactionKey
+              ] === rollbackTransactionId,
+          )
+        : [];
+      if (rollbackTargets.length === 0) {
+        var rollbackTarget = findUniqueRuntimeStructureTarget(
+          String(e.data.selector || ""),
+          typeof e.data.sourceId === "string" ? e.data.sourceId : "",
+        );
+        if (rollbackTarget) rollbackTargets = [rollbackTarget];
+      }
+      if (!rollbackRequestId || rollbackTargets.length === 0) {
         (window.parent as Window).postMessage(
           {
             type: "runtime-structure-rollback-result",
@@ -27577,7 +28018,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         return;
       }
-      rollbackTarget.parentElement.removeChild(rollbackTarget);
+      for (var rollbackTarget of rollbackTargets) {
+        if (
+          rollbackTarget === selectedEl ||
+          rollbackTarget.contains(selectedEl)
+        ) {
+          selectedEl = null;
+        }
+        if (
+          rollbackTarget === hoveredEl ||
+          rollbackTarget.contains(hoveredEl)
+        ) {
+          hoveredEl = null;
+        }
+        rollbackTarget.parentElement?.removeChild(rollbackTarget);
+      }
       publishSourceDocumentProvenance(undefined, true);
       refreshOverlays();
       (window.parent as Window).postMessage(
@@ -27611,7 +28066,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "request-runtime-layer-snapshot") {
-      postRuntimeLayerSnapshot();
+      requestRuntimeLayerSnapshot();
+      return;
+    }
+    if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
+      if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+      runtimeLayerSnapshotReservationInFlight = false;
+      if (runtimeLayerSnapshotReservationDirty) {
+        runtimeLayerSnapshotReservationDirty = false;
+        requestRuntimeLayerSnapshot();
+        return;
+      }
+      postRuntimeLayerSnapshot(
+        typeof e.data.reservationToken === "string"
+          ? e.data.reservationToken
+          : undefined,
+      );
       return;
     }
     if (e.data.type === "runtime-layer-rename") {
@@ -27715,6 +28185,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         textEditStyleTarget!.innerHTML || "",
         undefined,
         undefined,
+        prop && e.data.relativeOperation
+          ? { [prop]: e.data.relativeOperation }
+          : undefined,
       );
       postTextEditingState(
         textEditStyleTarget,
@@ -28043,11 +28516,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof next.textEditingEnabled === "boolean"
           ? next.textEditingEnabled
           : textEditingEnabledFlag;
-      var wasTextEditingEnabled = textEditingEnabled;
       if (readOnly !== nextReadOnly) {
         readOnly = nextReadOnly;
         if (readOnly) {
-          if (activeTextEditEl) activeTextEditEl.blur();
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
         }
@@ -28055,6 +28526,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
       textEditingEnabled =
         !readOnly && !interactionMode && textEditingEnabledFlag;
+      if (activeTextEditEl && (readOnly || !textEditingEnabled)) {
+        activeTextEditEl.blur();
+      }
       if (interactionMode) {
         setSelectionOverlayResizeChromeVisible(false);
         hideSelectionOverlay();
@@ -28062,13 +28536,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         marqueeSelectionOverlay.style.display = "none";
         syncShieldPointerEvents();
       } else {
-        setSelectionOverlayResizeChromeVisible(!readOnly);
+        setSelectionOverlayResizeChromeVisible(!readOnly && !activeTextEditEl);
         syncShieldPointerEvents();
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
-      }
-      if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
-        activeTextEditEl.blur();
       }
       if (typeof next.screenId === "string") {
         designCanvasScreenId = next.screenId;

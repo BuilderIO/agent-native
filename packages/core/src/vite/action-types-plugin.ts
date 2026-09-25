@@ -59,6 +59,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/feature-flags/actions/set-feature-flag",
   },
   {
+    name: "get-launchdarkly-flags",
+    specifier: "@agent-native/core/launchdarkly/actions/get-launchdarkly-flags",
+  },
+  {
     name: "get-labs",
     specifier: "@agent-native/core/labs/actions/get-labs",
   },
@@ -211,6 +215,21 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "get-observability-review-detail",
     specifier:
       "@agent-native/core/observability/actions/get-observability-review-detail",
+  },
+  {
+    name: "get-observability-review-summary-source",
+    specifier:
+      "@agent-native/core/observability/actions/get-observability-review-summary-source",
+  },
+  {
+    name: "save-observability-review-summary",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-review-summary",
+  },
+  {
+    name: "save-observability-review-feedback",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-review-feedback",
   },
   {
     name: "save-observability-instruction-update",

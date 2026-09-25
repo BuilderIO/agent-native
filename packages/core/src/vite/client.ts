@@ -87,6 +87,9 @@ import {
   loadAgentNativeConfigFile,
   loadWorkspaceAgentNativeConfigFile,
   readAgentNativeJsonConfig,
+  resolveFirstRunOnboardingBuildReplacement,
+  resolveHarnessBuildReplacement,
+  writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -1155,6 +1158,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/visual-style-controls",
   "@agent-native/core/client/feature-flags",
   "@agent-native/core/feature-flags/registry",
+  "@agent-native/core/client/launchdarkly",
   "@agent-native/core/client/hooks",
   "@agent-native/core/client/host",
   "@agent-native/core/client/i18n",
@@ -1703,6 +1707,10 @@ function getCoreSourceAliases(
     "@agent-native/core/feature-flags/registry": path.join(
       coreSrc,
       "feature-flags/registry.ts",
+    ),
+    "@agent-native/core/client/launchdarkly": path.join(
+      coreSrc,
+      "client/launchdarkly/index.ts",
     ),
     "@agent-native/core/client/hooks": path.join(
       coreSrc,
@@ -4352,6 +4360,19 @@ function createAgentNativeConfig(
           },
         }
       : appConfig;
+  const firstRunOnboardingMode = resolveFirstRunOnboardingBuildReplacement(
+    resolvedAppConfig,
+    runtimeEnv,
+  );
+  const harnessMode = resolveHarnessBuildReplacement(resolvedAppConfig);
+  if (command === "build") {
+    writeAgentNativeBuildConfigMarker(cwd, {
+      firstRunOnboarding: firstRunOnboardingMode,
+      harness: harnessMode,
+    });
+  }
+  const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
+  const harnessBuildMode = JSON.stringify(harnessMode);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   // The public framework route prefix is resolved exactly here, once. The
@@ -4457,6 +4478,19 @@ function createAgentNativeConfig(
     userConfig.optimizeDeps ?? {};
 
   return {
+    // Nitro builds the server separately with its own replacement map. Its
+    // `nitro:init` config hook reads `config.nitro` after this pre-enforced
+    // hook returns, so the server embeds the mode resolved from the same
+    // config, Vite mode and env files as the client. Do not also set this key
+    // in createNitroDevPlugin: Nitro's plugin options take precedence over
+    // `config.nitro`.
+    nitro: {
+      replace: {
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
+          firstRunOnboardingBuildMode,
+        "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+      },
+    },
     logLevel:
       options.logLevel ??
       userConfig.logLevel ??
@@ -4506,6 +4540,15 @@ function createAgentNativeConfig(
       [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
         resolveRecurringJobsBuildMarker(process.env),
       ),
+      // Same reason as the release owner above: org/context.ts's eligibility
+      // marker write must not read agent-native.json at runtime (not shipped
+      // into the deployed function), so embed the resolved mode here too.
+      "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
+        firstRunOnboardingBuildMode,
+      // hosted-harness-policy.ts's config read has the same problem: apps set
+      // `harness` only in agent-native.config.ts, which is not shipped into
+      // the deployed function either.
+      "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
       ...(resolvedAppConfig.deployment?.environment
         ? {
             "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(

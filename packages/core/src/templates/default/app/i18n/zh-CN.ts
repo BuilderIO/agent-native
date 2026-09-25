@@ -671,6 +671,7 @@ const messages = {
     saveUpdate: "保存更新草稿",
     draftSaved: "草稿已保存",
     noReviews: "暂无可审核的代理回答",
+    summarizeWithAgent: "使用智能体总结",
   },
   error: {
     genericTitle: "出了点问题",

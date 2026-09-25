@@ -64,6 +64,7 @@ export interface AuthPageProps {
   initialView: AuthView;
   appBasePath: string;
   homePath: string;
+  initialResumeHref?: string;
   workspaceRuntime: boolean;
   trackingApp: string;
   defaultLocale: string;
@@ -731,6 +732,7 @@ export function AuthPage(props: AuthPageProps) {
     initialPrompt,
     appBasePath,
     homePath,
+    initialResumeHref,
     workspaceRuntime,
     trackingApp,
     defaultLocale,
@@ -758,6 +760,8 @@ export function AuthPage(props: AuthPageProps) {
   } = props;
   const [localePreference, setLocalePreference] = React.useState("system");
   const [locale, setLocale] = React.useState(defaultLocale);
+  const [browserLocationReady, setBrowserLocationReady] = React.useState(false);
+  React.useEffect(() => setBrowserLocationReady(true), []);
   const [localeMenuOpen, setLocaleMenuOpen] = React.useState(false);
   const [view, setView] = React.useState<AuthView>(props.initialView);
   const [messages, setMessages] = React.useState<Record<string, Notice>>({});
@@ -838,9 +842,9 @@ export function AuthPage(props: AuthPageProps) {
     [apiPath],
   );
   const journey = React.useCallback((): SignInJourney => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || !browserLocationReady) {
       return signInJourney({
-        at: `${runtimeAppBasePath}/`,
+        at: initialResumeHref ?? `${runtimeAppBasePath}/`,
         basePath: runtimeAppBasePath,
         homePath,
       });
@@ -855,8 +859,13 @@ export function AuthPage(props: AuthPageProps) {
       basePath: runtimeAppBasePath,
       homePath,
     });
-  }, [homePath, runtimeAppBasePath]);
+  }, [browserLocationReady, homePath, initialResumeHref, runtimeAppBasePath]);
   const resumeHref = React.useCallback(() => journey().resumeHref, [journey]);
+  const identityLoginHref = React.useMemo(
+    () =>
+      `${identityHref}?${new URLSearchParams({ return: resumeHref() }).toString()}`,
+    [identityHref, resumeHref],
+  );
   const identityBootstrapHref = React.useCallback(
     (target?: string) => {
       const safeTarget = target || resumeHref();
@@ -2562,6 +2571,26 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
+      {identitySsoEnabled && !googleOnly ? (
+        <div className="identity-sso-entry" id="identity-sso-entry">
+          <a
+            className="btn-primary btn-identity-sso"
+            id="identity-sso-btn"
+            href={identityLoginHref}
+            aria-describedby="identity-sso-hint"
+            data-i18n="continueWithAgentNative"
+          >
+            {t("continueWithAgentNative")}
+          </a>
+          <p
+            className="identity-sso-hint"
+            id="identity-sso-hint"
+            data-i18n="identitySsoHint"
+          >
+            {t("identitySsoHint")}
+          </p>
+        </div>
+      ) : null}
       <div
         className="local-dev-signin"
         id="local-dev-signin"

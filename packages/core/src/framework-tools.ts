@@ -23,6 +23,7 @@ export const FRAMEWORK_TOOL_GROUPS = [
   "review",
   "history",
   "featureFlags",
+  "launchDarkly",
   "labs",
   "localization",
   "audit",
@@ -78,6 +79,8 @@ export interface FrameworkToolsOption {
   history?: boolean;
   /** `get-feature-flags`, `list-feature-flags`, `set-feature-flag`. */
   featureFlags?: boolean;
+  /** `get-launchdarkly-flags`. */
+  launchDarkly?: boolean;
   /** `get-labs`, `set-lab`. */
   labs?: boolean;
   /** @deprecated Use `frameworkTools.labs`. */
@@ -290,6 +293,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-feature-flags": "featureFlags",
   "list-feature-flags": "featureFlags",
   "set-feature-flag": "featureFlags",
+
+  "get-launchdarkly-flags": "launchDarkly",
 
   "get-labs": "labs",
   "set-lab": "labs",

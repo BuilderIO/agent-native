@@ -1,4 +1,3 @@
-import { getDbExec } from "../db/client.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export async function currentRequestUserIsOrgAdmin(
@@ -8,15 +7,17 @@ export async function currentRequestUserIsOrgAdmin(
   if (!orgId || !email) return false;
 
   try {
-    const result = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, email],
-    });
-    const role = String(result.rows[0]?.role ?? "").toLowerCase();
-    return role === "owner" || role === "admin";
+    const { validateFederatedOrganizationMembershipForCurrentRequest } =
+      await import("../org/federation.js");
+    const membership =
+      await validateFederatedOrganizationMembershipForCurrentRequest({
+        orgId,
+        email,
+      });
+    return (
+      membership.active &&
+      (membership.role === "owner" || membership.role === "admin")
+    );
   } catch {
     return false;
   }

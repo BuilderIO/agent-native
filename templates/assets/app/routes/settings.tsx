@@ -79,6 +79,8 @@ export function meta() {
 type ImageGenerationConfig = {
   builderEnabled?: boolean;
   builderConnected?: boolean;
+  builderLookupFailed?: boolean;
+  builderStorageConnected?: boolean;
   geminiConfigured?: boolean;
   openaiConfigured?: boolean;
   objectStorageConfigured?: boolean;
@@ -265,23 +267,28 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
     ? flow.configured
     : !!status?.configured;
   const builderConnected =
-    builderEnabled &&
+    !configData?.builderLookupFailed &&
     (!!configData?.builderConnected || builderConfigured || !!flow.configured);
+  const builderStorageConnected =
+    !!configData?.builderStorageConnected ||
+    builderConfigured ||
+    !!flow.configured;
   const generationReady =
-    builderConnected ||
+    (builderEnabled && builderConnected) ||
     configData?.configured === true ||
     !!configData?.openaiConfigured ||
-    !!configData?.geminiConfigured ||
-    !!generationStep?.complete;
+    !!configData?.geminiConfigured;
   const storageReady =
-    builderConnected ||
+    builderStorageConnected ||
     !!configData?.objectStorageConfigured ||
     !!storageStep?.complete;
   const setupIssue =
     flow.error ??
     (typeof configData?.lastIssue?.message === "string"
       ? configData.lastIssue.message
-      : null);
+      : configData?.builderLookupFailed
+        ? t("settings.builderLookupFailed")
+        : null);
   const orgName = flow.orgName ?? status?.orgName ?? null;
   const readyCount = [generationReady, storageReady].filter(Boolean).length;
 
@@ -320,40 +327,40 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
           }
           status={
             <StatusPill tone={builderConnected ? "ready" : "neutral"}>
-              {builderConnected
-                ? t("settings.connected")
-                : t("settings.optional")}
+              {configData?.builderLookupFailed
+                ? t("settings.statusUnavailable")
+                : builderConnected
+                  ? t("settings.connected")
+                  : t("settings.optional")}
             </StatusPill>
           }
           control={
-            builderEnabled ? (
-              <BuilderConnectPopover flow={flow}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={flow.connecting}
-                  className="shrink-0"
-                >
-                  {flow.connecting ? (
-                    <>
-                      <IconLoader2 className="size-3.5 animate-spin" />
-                      {t("settings.connecting")}
-                    </>
-                  ) : builderConnected ? (
-                    <>
-                      {t("settings.reconnect")}
-                      <IconExternalLink className="size-3.5" />
-                    </>
-                  ) : (
-                    <>
-                      {t("settings.connect")}
-                      <IconExternalLink className="size-3.5" />
-                    </>
-                  )}
-                </Button>
-              </BuilderConnectPopover>
-            ) : null
+            <BuilderConnectPopover flow={flow}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={flow.connecting}
+                className="shrink-0"
+              >
+                {flow.connecting ? (
+                  <>
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                    {t("settings.connecting")}
+                  </>
+                ) : builderConnected ? (
+                  <>
+                    {t("settings.reconnect")}
+                    <IconExternalLink className="size-3.5" />
+                  </>
+                ) : (
+                  <>
+                    {t("settings.connect")}
+                    <IconExternalLink className="size-3.5" />
+                  </>
+                )}
+              </Button>
+            </BuilderConnectPopover>
           }
         />
 
@@ -699,7 +706,9 @@ function generationSummary(
   builderConnected: boolean,
   t: (key: string, options?: Record<string, unknown>) => string,
 ) {
-  if (builderConnected) return t("settings.builderManaged");
+  if (builderConnected && config?.builderEnabled !== false) {
+    return t("settings.builderManaged");
+  }
   const providers = [
     config?.geminiConfigured ? "Gemini" : null,
     config?.openaiConfigured ? "OpenAI" : null,

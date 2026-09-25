@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
+import { nanoid } from "nanoid";
 import { flushSync } from "react-dom";
 
 import type { NewDeckReferenceSelection } from "@/components/editor/NewDeckReferenceStep";
@@ -167,7 +168,7 @@ export function describeUploadedFilesForAgent(
     "",
     "File handling rules:",
     importedSourceDeck
-      ? "- The imported source deck is canonical. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, use one patch-deck call with requireAllSourceSlides=true; use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
+      ? "- The imported source deck is canonical. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, read the full deck once with get-deck compact=false; it returns sourceImport.slideIds, each slide's HTML and contentHash, and the linked design context. Call get-design-system once for full tokens, assets, and instructions, then use one patch-deck call with requireAllSourceSlides=true and the matching baseContentHash on every patch-slide. Set styleOnly=true for CSS-only changes that preserve slide structure. Verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
       : hasDocumentReferences
         ? "- PDF, PPTX, and DOCX files were already read before this run. Their content and measured visual language are in the `Attached Reference Documents` section below, or in the reference deck they were imported into. Do not call `import-file` for them again unless the `Attached Reference Documents` section says a file was omitted for space, and never generate as if a reference were missing."
         : "- No PDF, PPTX, or DOCX reference is attached to this run; do not invent one.",
@@ -245,6 +246,7 @@ type SubmitAgent = (
     model?: PromptComposerSubmitOptions["model"];
     engine?: PromptComposerSubmitOptions["engine"];
     effort?: PromptComposerSubmitOptions["effort"];
+    submitMessageId: string;
   },
 ) => void;
 
@@ -296,6 +298,7 @@ export interface DeckGenerationContext {
   referenceSource?: NewDeckReferenceSelection["referenceSource"];
   mode: "new" | "source-preserving";
   targetSlideCount?: number;
+  generationAttemptId?: string;
 }
 
 export async function persistDeckGenerationContext(
@@ -509,9 +512,9 @@ export async function startDeckGeneration({
         "Source-preserving improvement mode:",
         `- The target deck already contains ${importedSourceDeck.slideCount} imported source slides. Treat those slides as the user's complete source, not as inspiration for a new deck.`,
         "- Keep the exact source slide count, order, IDs, factual meaning, notes, images, charts, tables, diagrams, and freeform objects unless the user explicitly asks to change one of them.",
-        "- Read get-deck once before editing to obtain every existing slide ID and source HTML, load the linked design system with get-design-system, then make a deck-wide restyle with one patch-deck call using requireAllSourceSlides=true and one patch-slide operation with fields.content for every source slide ID. The ordered source manifest is sourceImport.slideIds. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
+        "- Read the full deck once with get-deck compact=false to get sourceImport.slideIds, every slide's HTML and contentHash, and the linked design context; call get-design-system once for its full tokens, assets, and instructions. Make the deck-wide restyle in one patch-deck call using requireAllSourceSlides=true, with each patch-slide's matching contentHash as baseContentHash; use styleOnly=true for CSS-only changes that preserve slide structure. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
         "- For this restyle, keep the source slide structure and do not replace source images with generic cards. If the user explicitly asks to add, delete, or reorder slides, use the corresponding operation normally; it clears source-import provenance, so verify the edited slide count and order instead of waiting for sourceCoverage.",
-        '- After a source-preserving patch that leaves sourceImport present, verify with get-deck using compact: "true". The run is complete only when sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. If structural operations cleared sourceImport, verify the resulting slide count and order instead and do not require sourceCoverage.complete. Do not report an initial or partial pass, and do not leave any source slides for a later run.',
+        "- After a source-preserving patch that leaves sourceImport present, verify once with get-deck using slideIds=sourceImport.slideIds and compact=false. Confirm the full source reflects the request and sourceCoverage.complete is true with expectedSlideIds and actualSlideIds matching in order. If structural operations cleared sourceImport, verify the resulting slide count and order instead and do not require sourceCoverage.complete. Do not report an initial or partial pass, and do not leave any source slides for a later run.",
         "- If get-deck reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
       ].join("\n")
     : "";
@@ -594,14 +597,19 @@ export async function startDeckGeneration({
   ).catch(() => {});
   deleteClientAppState("guided-questions").catch(() => {});
 
-  navigate(`/deck/${deck.id}?generating=1`, {
-    replace: true,
-    flushSync: true,
-  });
+  const generationSubmitMessageId = nanoid();
+  navigate(
+    `/deck/${deck.id}?generating=1&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
+    {
+      replace: true,
+      flushSync: true,
+    },
+  );
   agentSubmit(createDeckAgentMessage(prompt), context, {
     newTab: true,
     reuseEmptyTab: true,
     openSidebar: true,
+    submitMessageId: generationSubmitMessageId,
     ...getUploadedImageAgentOptions(filesForGeneration),
     attachments,
     ...modelSelection,

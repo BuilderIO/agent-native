@@ -400,3 +400,28 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(onConnect).not.toHaveBeenCalled();
   });
 });
+
+it("shows a cancel action while the Builder connection is waiting", () => {
+  const cancel = vi.fn();
+  render(
+    React.createElement(
+      BuilderConnectPopover,
+      {
+        flow: {
+          connecting: true,
+          start: vi.fn(),
+          cancel,
+          statusResolved: true,
+          agentNativeProvisioningEnabled: false,
+        },
+      },
+      trigger(),
+    ),
+  );
+
+  const buttons = container.querySelectorAll("button");
+  expect(buttons).toHaveLength(2);
+  expect(buttons[1]?.textContent).toBe("common.cancel");
+  click(buttons[1]!);
+  expect(cancel).toHaveBeenCalledTimes(1);
+});

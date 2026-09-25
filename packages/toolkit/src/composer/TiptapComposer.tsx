@@ -333,7 +333,7 @@ export function getOversizedDocumentAttachmentError(
         ? candidate.name
         : file.name;
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    const maxMb = (maxBytes / 1024 / 1024).toFixed(0);
+    const maxMb = Number((maxBytes / 1024 / 1024).toFixed(1)).toString();
     return (
       t?.("agentChat.composer.documentTooLarge", {
         defaultValue:

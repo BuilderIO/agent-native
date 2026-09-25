@@ -671,6 +671,7 @@ const messages = {
     saveUpdate: "儲存更新草稿",
     draftSaved: "草稿已儲存",
     noReviews: "目前沒有可審核的代理回答",
+    summarizeWithAgent: "使用代理程式摘要",
   },
   error: {
     genericTitle: "出了點問題",

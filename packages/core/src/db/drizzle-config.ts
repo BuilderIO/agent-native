@@ -1,6 +1,7 @@
 import { defineConfig, type Config } from "drizzle-kit";
 
 import { getAppConfig } from "../app-config/index.js";
+import { getIsolatedTestDatabaseUrl } from "./client.js";
 
 export interface CreateDrizzleConfigOptions {
   /** Path to the Drizzle schema file. Defaults to `./server/db/schema.ts`. */
@@ -62,6 +63,7 @@ export function createDrizzleConfig(
   const explicitUrl = opts.url?.trim();
   const url =
     explicitUrl ||
+    getIsolatedTestDatabaseUrl() ||
     (appName && process.env[`${appName}_DATABASE_URL`]) ||
     process.env.DATABASE_URL ||
     "pglite:./data/pglite";

@@ -32,6 +32,7 @@ import {
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
 import {
+  BuilderOAuthScopeError,
   BUILDER_OAUTH_SCOPE,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
@@ -512,8 +513,10 @@ const NOT_FOUND: ScopedCredentialResult = {
 
 async function resolveScopedBuilderCredential(
   key: string,
+  identity?: BuilderCredentialLookupIdentity,
 ): Promise<ScopedCredentialResult> {
-  const email = getRequestUserEmail();
+  const email =
+    identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return NOT_FOUND;
 
   // Trace only when explicitly requested. These diagnostics are useful for
@@ -540,11 +543,12 @@ async function resolveScopedBuilderCredential(
       return { value: userSecret.value, source: "user", lookupFailed: false };
     }
 
-    let orgId: string | null | undefined = getRequestOrgId();
+    let orgId: string | null | undefined =
+      identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
     let orgSource: "request" | "email-fallback" | "none" = orgId
       ? "request"
       : "none";
-    if (!orgId) {
+    if (!orgId && !(identity !== undefined && identity.orgId === null)) {
       const resolved = await resolveOrgIdForRequestEmail(email);
       orgLookupCause = resolved.cause;
       orgId = resolved.orgId;
@@ -677,7 +681,8 @@ export interface BuilderCredentialLookupIdentity {
 async function resolveScopedBuilderCredentials(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<ScopedBuilderCredentialsResult> {
-  const email = identity?.userEmail?.trim() || getRequestUserEmail();
+  const email =
+    identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return { creds: null, lookupFailed: false };
 
   const traceLookup = shouldTraceCredentialResolve();
@@ -707,11 +712,11 @@ async function resolveScopedBuilderCredentials(
     }
 
     let orgId: string | null | undefined =
-      identity?.orgId?.trim() || getRequestOrgId();
+      identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
     let orgSource: "request" | "email-fallback" | "none" = orgId
       ? "request"
       : "none";
-    if (!orgId) {
+    if (!orgId && !(identity !== undefined && identity.orgId === null)) {
       const resolved = await resolveOrgIdForRequestEmail(email);
       orgLookupCause = resolved.cause;
       orgId = resolved.orgId;
@@ -787,8 +792,9 @@ async function resolveScopedBuilderCredentials(
  */
 export async function resolveBuilderCredential(
   key: string,
+  identity?: BuilderCredentialLookupIdentity,
 ): Promise<string | null> {
-  const scoped = await resolveScopedBuilderCredential(key);
+  const scoped = await resolveScopedBuilderCredential(key, identity);
   if (scoped.value) return scoped.value;
   const envValue = canUseBuilderDeployCredentialFallbackForRequest()
     ? (readDeployCredentialEnv(key) ?? null)
@@ -817,8 +823,10 @@ export function isBuilderEnvManaged(): boolean {
  * Resolve the Builder private key for the current request. User/org OAuth
  * credentials win; deploy-level `BUILDER_PRIVATE_KEY` is the fallback.
  */
-export async function resolveBuilderPrivateKey(): Promise<string | null> {
-  return resolveBuilderCredential("BUILDER_PRIVATE_KEY");
+export async function resolveBuilderPrivateKey(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<string | null> {
+  return resolveBuilderCredential("BUILDER_PRIVATE_KEY", identity);
 }
 
 /**
@@ -1205,6 +1213,16 @@ export interface BuilderGatewayAuth {
   userId: string | null;
 }
 
+export class BuilderCredentialLookupError extends Error {
+  override readonly cause: unknown;
+
+  constructor(cause?: unknown) {
+    super("Builder credential lookup is temporarily unavailable.");
+    this.name = "BuilderCredentialLookupError";
+    this.cause = cause;
+  }
+}
+
 /**
  * The gate for gateway-lane features. Not `resolveHasBuilderPrivateKey`, which is
  * identity-only and false on a credits site.
@@ -1225,11 +1243,19 @@ export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
 export async function resolveBuilderGatewayAuth(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<BuilderGatewayAuth | null> {
-  const ownerEmail = identity?.userEmail?.trim() || getRequestUserEmail();
+  const ownerEmail =
+    identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   // undefined resolves the owner's org; null deliberately pins the lookup to Personal.
-  const orgId =
-    identity === undefined ? (getRequestOrgId() ?? null) : identity.orgId;
-  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
+  const orgId = identity === undefined ? getRequestOrgId() : identity.orgId;
+  let hasOAuthSession = false;
+  if (ownerEmail) {
+    try {
+      hasOAuthSession = await hasBuilderOAuthSession(ownerEmail, orgId);
+    } catch (error) {
+      throw new BuilderCredentialLookupError(error);
+    }
+  }
+  if (ownerEmail && hasOAuthSession) {
     try {
       const session = await getBuilderOAuthSession(
         ownerEmail,
@@ -1243,30 +1269,38 @@ export async function resolveBuilderGatewayAuth(
             userId: null,
           }
         : null;
-    } catch {
-      // coercion-ok: custody exists but the grant needs reconnecting
-      // (expired, missing scope) -- report "not configured" rather than
-      // falling through to a different identity's credential.
-      return null;
+    } catch (error) {
+      if (error instanceof BuilderOAuthScopeError) return null;
+      throw new BuilderCredentialLookupError(error);
     }
   }
-  const creds = await resolveBuilderGatewayCredentialsDetailed();
-  const token = creds.privateKey?.trim();
-  const spaceId = creds.publicKey?.trim();
-  if (token && spaceId) {
-    return {
-      authorization: `Bearer ${token}`,
-      spaceId,
-      userId: creds.userId?.trim() || null,
-    };
+  try {
+    const creds = await resolveBuilderGatewayCredentialsDetailed(identity);
+    if (creds.lookupFailed) {
+      throw new BuilderCredentialLookupError(creds.cause);
+    }
+    const token = creds.privateKey?.trim();
+    const spaceId = creds.publicKey?.trim();
+    if (token && spaceId) {
+      return {
+        authorization: `Bearer ${token}`,
+        spaceId,
+        userId: creds.userId?.trim() || null,
+      };
+    }
+    // Single-key deployments predate the space id and still authenticate on a
+    // `bpk-` private key alone. A gateway token never reaches this branch — its
+    // pair is required above.
+    const legacyKey = (await resolveBuilderPrivateKey(identity))?.trim();
+    return legacyKey
+      ? { authorization: `Bearer ${legacyKey}`, spaceId: null, userId: null }
+      : null;
+  } catch (error) {
+    if (error instanceof CredentialStoreUnavailableError) {
+      throw new BuilderCredentialLookupError(error);
+    }
+    throw error;
   }
-  // Single-key deployments predate the space id and still authenticate on a
-  // `bpk-` private key alone. A gateway token never reaches this branch — its
-  // pair is required above.
-  const legacyKey = (await resolveBuilderPrivateKey())?.trim();
-  return legacyKey
-    ? { authorization: `Bearer ${legacyKey}`, spaceId: null, userId: null }
-    : null;
 }
 
 /**
@@ -2285,6 +2319,14 @@ export function getBuilderImageGenerationBaseUrl(): string {
     process.env.BUILDER_IMAGE_GENERATION_BASE_URL ||
     "https://api.builder.io/agent-native/images/v1"
   );
+}
+
+export function getBuilderEmbeddingsBaseUrl(): string {
+  return "https://api.builder.io/agent-native/embeddings/v1";
+}
+
+export function getBuilderVideoGenerationBaseUrl(): string {
+  return "https://api.builder.io/agent-native/videos/v1";
 }
 
 /**

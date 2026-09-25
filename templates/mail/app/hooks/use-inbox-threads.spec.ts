@@ -155,6 +155,9 @@ describe("resolveInboxTabId", () => {
       "important",
     );
     expect(resolveInboxTabId(new URLSearchParams("tab=other"))).toBe("other");
+    expect(resolveInboxTabId(new URLSearchParams("tab=__inbox_all__"))).toBe(
+      "__inbox_all__",
+    );
   });
 
   it("maps the legacy `label` param to a tab id", () => {

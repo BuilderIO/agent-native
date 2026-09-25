@@ -80,7 +80,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'import { inboxTabHref } from "@shared/inbox-threads";',
+      'import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";',
     );
     expect(source).toContain(
       "const inboxOverview = useInboxOverview(inboxAccountEmails);",
@@ -89,6 +89,12 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("mergeOptimisticInboxTabCounts(");
     expect(source).toContain("return inboxTabs.map((tab) => {");
     expect(source).toContain("href: inboxTabHref(tab.id)");
+    expect(source).toContain(
+      'tab.kind === "all" ? t("mail.views.all") : tab.name',
+    );
+    expect(source).toContain("allTabVisible={showAllTab}");
+    expect(source).toContain('className={cn("relative shrink-0", tabsLoading');
+    expect(source).not.toContain('"relative hidden sm:block"');
     expect(source).toContain("tooltip: tab.query");
     expect(source).toContain("total: tab.total");
     expect(source).toContain("unread: tab.unread");

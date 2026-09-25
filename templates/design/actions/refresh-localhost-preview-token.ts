@@ -6,11 +6,15 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
-import { derivePreviewToken } from "./connect-localhost.js";
+import {
+  deriveLiveEditCapability,
+  deriveLiveEditRegistrationCapability,
+  derivePreviewToken,
+} from "./connect-localhost.js";
 
 export default defineAction({
   description:
-    "Refresh the read-only preview token for a localhost Design screen after the local bridge restarts.",
+    "Refresh localhost preview credentials. Public visual-edit viewers receive only a design-scoped registration capability for ephemeral DOM editing; the publicVisualEdit flag grants no pending-edit read, write, or agent handoff access.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     connectionId: z
@@ -23,7 +27,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Allow the public /visual-edit surface to use the connection's read-only preview credential.",
+        "Marks a public /visual-edit preview request; the flag grants no access by itself. The server verifies public visibility and may return read-only preview plus registration-only credentials. Pending edits and agent handoff still require the separate design-scoped capability.",
       ),
   }),
   readOnly: true,
@@ -72,6 +76,9 @@ export default defineAction({
       designId,
       allowPublicViewer: publicVisualEdit === true,
     });
+    const canIssueLiveEditCapability = access.role === "editor";
+    const canIssueRegistrationCapability =
+      canIssueLiveEditCapability || publicVisualEdit === true;
     const connections = await getDb()
       .select({
         id: schema.designLocalhostConnections.id,
@@ -125,6 +132,27 @@ export default defineAction({
       }
       return {
         previewToken: previewTokenFor(connection),
+        ...(connection.bridgeToken
+          ? {
+              ...(canIssueLiveEditCapability
+                ? {
+                    liveEditCapability: deriveLiveEditCapability(
+                      connection.bridgeToken,
+                      designId,
+                    ),
+                  }
+                : {}),
+              ...(canIssueRegistrationCapability
+                ? {
+                    liveEditRegistrationCapability:
+                      deriveLiveEditRegistrationCapability(
+                        connection.bridgeToken,
+                        designId,
+                      ),
+                  }
+                : {}),
+            }
+          : {}),
         bridgeUrl: connection.bridgeUrl,
       };
     }
@@ -143,6 +171,27 @@ export default defineAction({
             requestedId,
             {
               previewToken: previewTokenFor(connection)!,
+              ...(connection.bridgeToken
+                ? {
+                    ...(canIssueLiveEditCapability
+                      ? {
+                          liveEditCapability: deriveLiveEditCapability(
+                            connection.bridgeToken,
+                            designId,
+                          ),
+                        }
+                      : {}),
+                    ...(canIssueRegistrationCapability
+                      ? {
+                          liveEditRegistrationCapability:
+                            deriveLiveEditRegistrationCapability(
+                              connection.bridgeToken,
+                              designId,
+                            ),
+                        }
+                      : {}),
+                  }
+                : {}),
               bridgeUrl: connection.bridgeUrl,
             },
           ];

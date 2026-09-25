@@ -159,6 +159,9 @@ export function FirstRunOnboarding({
     screen: FirstRunScreen | null;
     extensionIndex: number;
   } | null>(null);
+  const completionInFlightRef = useRef(false);
+  const onboardingTerminalRef = useRef(false);
+  const abandonmentTrackedRef = useRef(false);
   const finishOnboarding = useCallback(
     async (
       completedScreen: FirstRunScreen | null,
@@ -167,16 +170,20 @@ export function FirstRunOnboarding({
       completionAttemptRef.current = completedScreen
         ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
         : { screen: null, extensionIndex: completedExtensionIndex };
+      completionInFlightRef.current = true;
       try {
         await completeFirstRun();
         if (completedScreen) {
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
+        onboardingTerminalRef.current = true;
         completionAttemptRef.current = null;
         return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
         return false;
+      } finally {
+        completionInFlightRef.current = false;
       }
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
@@ -190,6 +197,33 @@ export function FirstRunOnboarding({
     if (previewMode || !firstRun || loading || !profile) return;
     const step = firstRunStepProperties(screen, extensions, extensionIndex);
     trackOnboardingEvent("onboarding_step_viewed", step);
+  }, [
+    extensionIndex,
+    extensions,
+    firstRun,
+    loading,
+    previewMode,
+    profile,
+    screen,
+  ]);
+  useEffect(() => {
+    if (previewMode || !firstRun || loading || !profile) return;
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      if (
+        onboardingTerminalRef.current ||
+        abandonmentTrackedRef.current ||
+        completionInFlightRef.current
+      )
+        return;
+      abandonmentTrackedRef.current = true;
+      trackOnboardingEvent("onboarding_abandoned", {
+        ...firstRunStepProperties(screen, extensions, extensionIndex),
+        reason: "page_exit",
+      });
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
   }, [
     extensionIndex,
     extensions,
@@ -739,6 +773,16 @@ export function FirstRunOnboarding({
                 <Skeleton className="h-7 w-full" />
               </div>
             </div>
+            {connectFlow.connecting && (
+              <button
+                type="button"
+                data-testid="first-run-cancel-builder"
+                className={cn(secondaryButtonClass, "mt-4")}
+                onClick={connectFlow.cancel}
+              >
+                {t("common.cancel")}
+              </button>
+            )}
             {connectFlow.error && (
               <div className="mt-4 flex flex-col items-center gap-2">
                 <p className="text-xs text-destructive">{connectFlow.error}</p>

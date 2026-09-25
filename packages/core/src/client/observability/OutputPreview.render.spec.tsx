@@ -265,6 +265,26 @@ describe("OutputPreview trusted Design frames", () => {
     expect(preview?.className).toContain("overflow-hidden");
   });
 
+  it("renders the evidenced Design artifact path as its real thumbnail", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer="A saved summary"
+          compact
+          designPreviewPath="/present/design-17"
+          previewLabel="Agent output"
+        />,
+      );
+    });
+
+    const iframe = container.querySelector(
+      '[data-preview-kind="design-iframe-thumbnail"] iframe',
+    );
+    expect(iframe?.getAttribute("src")).toBe(
+      `${window.location.origin}/present/design-17?reviewEmbed=1`,
+    );
+  });
+
   it("shows real design text instead of a fabricated thumbnail when no route exists", () => {
     act(() => {
       root.render(
