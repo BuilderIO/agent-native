@@ -23,9 +23,14 @@ vi.mock("./federation.js", () => ({
 }));
 
 import { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
+import {
+  __resetWorkspaceAppAccessCacheForTests,
+  invalidateWorkspaceAppAccessCache,
+} from "./workspace-app-access-cache.js";
 
 describe("isWorkspaceAppAccessAllowed", () => {
   afterEach(() => {
+    __resetWorkspaceAppAccessCacheForTests();
     vi.unstubAllEnvs();
     resetAppConfigForTests();
     vi.unstubAllGlobals();
@@ -501,5 +506,141 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     ).resolves.toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+  describe("hosted registry decision cache", () => {
+    function stubHostedRegistry(apps: unknown[]) {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv(
+        "AGENT_NATIVE_ORG_DIRECTORY_URL",
+        "https://dispatch.example.test",
+      );
+      resetAppConfigForTests();
+      mocks.execute.mockResolvedValue({ rows: [] });
+      const fetchMock = vi.fn().mockImplementation(
+        async () =>
+          new Response(JSON.stringify(apps), {
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    const member = { email: "member@example.com", orgId: "org-1" };
+
+    it("serves a repeated allow without asking the registry again", async () => {
+      const fetchMock = stubHostedRegistry([{ id: "gtm" }]);
+
+      await expect(isWorkspaceAppAccessAllowed("gtm", member)).resolves.toBe(
+        true,
+      );
+      await expect(isWorkspaceAppAccessAllowed("gtm", member)).resolves.toBe(
+        true,
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("collapses a parallel page-load burst onto one registry call", async () => {
+      const fetchMock = stubHostedRegistry([{ id: "gtm" }]);
+
+      const results = await Promise.all(
+        Array.from({ length: 15 }, () =>
+          isWorkspaceAppAccessAllowed("gtm", member),
+        ),
+      );
+
+      expect(results.every(Boolean)).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("keys decisions by user and organization", async () => {
+      const fetchMock = stubHostedRegistry([{ id: "gtm" }]);
+
+      await isWorkspaceAppAccessAllowed("gtm", member);
+      await isWorkspaceAppAccessAllowed("gtm", {
+        email: "other@example.com",
+        orgId: "org-1",
+      });
+      await isWorkspaceAppAccessAllowed("gtm", {
+        email: "member@example.com",
+        orgId: "org-2",
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not cache a registry failure as a deny", async () => {
+      const fetchMock = stubHostedRegistry([{ id: "gtm" }]);
+      fetchMock.mockRejectedValueOnce(
+        new DOMException("aborted", "AbortError"),
+      );
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      await expect(isWorkspaceAppAccessAllowed("gtm", member)).resolves.toBe(
+        false,
+      );
+      await expect(isWorkspaceAppAccessAllowed("gtm", member)).resolves.toBe(
+        true,
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      consoleError.mockRestore();
+    });
+
+    it("still honors a local organization disable after a cached allow", async () => {
+      stubHostedRegistry([{ id: "gtm" }]);
+      await expect(isWorkspaceAppAccessAllowed("gtm", member)).resolves.toBe(
+        true,
+      );
+
+      mocks.execute.mockResolvedValueOnce({ rows: [{ org_enabled: false }] });
+
+      await expect(isWorkspaceAppAccessAllowed("gtm", member)).resolves.toBe(
+        false,
+      );
+    });
+
+    it("aborts the registry call after the configured timeout", async () => {
+      const fetchMock = stubHostedRegistry([{ id: "gtm" }]);
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_TIMEOUT_MS", "50");
+      resetAppConfigForTests();
+      let abortedAt: number | undefined;
+      let fetchedAt: number | undefined;
+      fetchMock.mockImplementationOnce(
+        (_url: unknown, init?: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            fetchedAt = Date.now();
+            init?.signal?.addEventListener("abort", () => {
+              abortedAt = Date.now();
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          }),
+      );
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      await expect(isWorkspaceAppAccessAllowed("gtm", member)).resolves.toBe(
+        false,
+      );
+
+      expect(abortedAt).toBeDefined();
+      expect(abortedAt! - fetchedAt!).toBeGreaterThanOrEqual(40);
+      expect(abortedAt! - fetchedAt!).toBeLessThan(1_000);
+      consoleError.mockRestore();
+    });
+
+    it("asks the registry again after invalidation", async () => {
+      const fetchMock = stubHostedRegistry([{ id: "gtm" }]);
+
+      await isWorkspaceAppAccessAllowed("gtm", member);
+      await invalidateWorkspaceAppAccessCache();
+      await isWorkspaceAppAccessAllowed("gtm", member);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
   });
 });

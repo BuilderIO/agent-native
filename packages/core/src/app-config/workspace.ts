@@ -61,6 +61,14 @@ export const workspaceConfig = z.object({
       env: ["AGENT_NATIVE_ORG_DIRECTORY_URL"],
       doc: "URL of the authoritative organization Dispatch directory.",
     }),
+  appAccessTimeoutMs: z
+    .number()
+    .positive()
+    .default(2_500)
+    .meta({
+      env: ["AGENT_NATIVE_WORKSPACE_APP_ACCESS_TIMEOUT_MS"],
+      doc: "How long a hosted workspace app waits for the Dispatch directory's access decision, in milliseconds, before denying the request.",
+    }),
   oauthOrigin: z
     .string()
     .min(1)

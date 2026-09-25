@@ -7,11 +7,11 @@ import {
 } from "../server/deployment-protection.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { isMissingOrganizationTableError } from "./membership.js";
+import { cachedWorkspaceAppAccess } from "./workspace-app-access-cache.js";
 
 const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
 const WORKSPACE_APP_CLAIM_ACTION_PATH =
   "/_agent-native/actions/claim-workspace-app-organization";
-const WORKSPACE_APP_ACCESS_TIMEOUT_MS = 2_500;
 
 export interface WorkspaceAppAccessContext {
   email: string;
@@ -109,17 +109,14 @@ function workspaceAppIsDisabled(app: {
  * access. A configured registry is fail-closed on every network/auth error.
  */
 async function hostedWorkspaceAppAccess(
+  configuredDirectory: string,
   appId: string,
-  context: WorkspaceAppAccessContext,
   email: string,
-): Promise<boolean | null> {
-  const configuredDirectory = configuredWorkspaceDirectory();
-  if (!configuredDirectory) return null;
-
+  orgId: string | null,
+): Promise<boolean> {
   const url = workspaceAppsActionUrl(configuredDirectory);
   if (!url) return false;
 
-  const orgId = context.orgId?.trim() || null;
   const [orgDomain, orgSecret] = orgId
     ? await Promise.all([
         import("./context.js").then(({ getOrgDomain }) => getOrgDomain(orgId)),
@@ -149,7 +146,7 @@ async function hostedWorkspaceAppAccess(
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
-    WORKSPACE_APP_ACCESS_TIMEOUT_MS,
+    getAppConfig().workspace.appAccessTimeoutMs,
   );
   try {
     const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
@@ -402,23 +399,30 @@ export async function isWorkspaceAppAccessAllowed(
     return isDispatchWorkspaceAppAccessAllowed(context, email);
   }
 
-  // A local disable is an explicit organization decision and must win over
-  // the hosted registry response. Missing local rows preserve the registry
-  // path for hosted deployments that do not mirror workspace_apps locally.
-  if (configuredWorkspaceDirectory()) {
+  const configuredDirectory = configuredWorkspaceDirectory();
+  if (configuredDirectory) {
+    const orgId = context.orgId?.trim() || null;
+    // A local disable is an explicit organization decision and must win over
+    // the hosted registry response, so it is read on every request and never
+    // served from the decision cache. Missing local rows preserve the registry
+    // path for hosted deployments that do not mirror workspace_apps locally.
     const locallyEnabled = await localOrganizationAppEnabled(
       normalizedAppId,
-      context.orgId?.trim() || null,
+      orgId,
     );
     if (locallyEnabled === false) return false;
-  }
 
-  const hostedAccess = await hostedWorkspaceAppAccess(
-    normalizedAppId,
-    context,
-    email,
-  );
-  if (hostedAccess !== null) return hostedAccess;
+    return cachedWorkspaceAppAccess(
+      { appId: normalizedAppId, email, orgId },
+      () =>
+        hostedWorkspaceAppAccess(
+          configuredDirectory,
+          normalizedAppId,
+          email,
+          orgId,
+        ),
+    );
+  }
 
   // Standalone/local deployments have no Dispatch registry URL. Keep the
   // direct lookup for that mode, but never let missing or malformed ACL state

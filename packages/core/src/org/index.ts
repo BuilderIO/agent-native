@@ -86,6 +86,12 @@ export {
   isStandaloneDispatchRuntime,
   isWorkspaceAppAccessAllowed,
 } from "./workspace-app-access.js";
+export {
+  createInMemoryWorkspaceAppAccessDecisionStore,
+  invalidateWorkspaceAppAccessCache,
+  setWorkspaceAppAccessDecisionStore,
+} from "./workspace-app-access-cache.js";
+export type { WorkspaceAppAccessDecisionStore } from "./workspace-app-access-cache.js";
 
 export {
   defineAppRoles,

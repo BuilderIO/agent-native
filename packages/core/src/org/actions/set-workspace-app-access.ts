@@ -3,6 +3,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import { requireOrgMember } from "../actions.js";
+import { invalidateWorkspaceAppAccessCache } from "../workspace-app-access-cache.js";
 
 const modeSchema = z.enum(["all", "restricted", "disabled"]);
 
@@ -42,6 +43,7 @@ export default defineAction({
         caller.orgId,
       ],
     });
+    await invalidateWorkspaceAppAccessCache();
     return { appId, mode };
   },
 });
