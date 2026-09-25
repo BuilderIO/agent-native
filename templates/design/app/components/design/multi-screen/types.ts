@@ -445,6 +445,7 @@ export interface MultiScreenCanvasProps {
   onCrossScreenElementDrop?: (args: {
     sourceSelector: string;
     sourceNodeId?: string;
+    sourceDeleteRequestId?: string;
     sourceProvenance?: SourceNodeProvenance;
     targetAnchorProvenance?: SourceNodeProvenance;
     sourceScreenId: string;

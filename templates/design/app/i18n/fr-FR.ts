@@ -1256,6 +1256,7 @@ export default {
       verifying: "Vérification de la source et du runtime…",
       retryWithAgent: "Réessayer la vérification de la source",
       copyPrompt: "Copier le prompt vers votre agent",
+      copyFullPrompt: "Copier le prompt complet",
       abortPreview: "Annuler l’aperçu et interagir",
       agentMessage:
         "Appliquez les modifications visuelles de style en attente à la source.",
@@ -1268,6 +1269,8 @@ export default {
       sourceCheckFailedToast:
         "Impossible de vérifier les fichiers source connectés. L’aperçu a été conservé pour réessayer ou annuler.",
       copiedToast: "Prompt de style copié",
+      copiedToastDescription:
+        "Collez-le dans votre agent de programmation et demandez-lui d’appliquer les modifications visuelles.",
       abortedToast: "Aperçu en attente supprimé",
       interactBlocked:
         "Appliquez ou annulez les modifications en direct en attente avant de passer à Interagir.",

@@ -6158,6 +6158,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
+  var runtimeStructureInsertTransactionKey = Symbol(
+    "agent-native-runtime-structure-transaction",
+  );
   // Figma parity on the infinite-canvas board: a plain click resolves to the
   // outermost child of this container (the screen root, i.e. null, by default)
   // rather than the raw deepest hit. Double-click drilling
@@ -6503,6 +6506,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var activeCrossScreenSourceHtml: string | undefined = undefined;
+  var activeCrossScreenDeleteRequestId: string | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
     sourceId: string;
@@ -12694,6 +12698,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return false;
     }
+    if (typeof requestId === "string" && requestId) {
+      restorePendingRuntimeDeleteStyle(target, requestId);
+    }
     // A requestId means the host queued this deletion as a pending live edit
     // and may undo it. Register it in the same pending-move table the drag
     // path uses so the existing visual-structure-ack channel can put the node
@@ -12743,6 +12750,95 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hideMeasurements();
     refreshOverlays();
     return true;
+  }
+
+  function restorePendingRuntimeDeleteStyle(target, requestId) {
+    if (!(target instanceof HTMLElement || target instanceof SVGElement)) {
+      return;
+    }
+    var attribute = "data-agent-native-pending-delete-style";
+    var encoded = target.getAttribute(attribute);
+    if (!encoded) return;
+    var snapshot: {
+      requestId: string;
+      properties: Record<string, { value: string; priority: string }>;
+    };
+    try {
+      snapshot = JSON.parse(encoded);
+    } catch (error) {
+      console.warn("[design:bridge] pending delete style is invalid", error);
+      return;
+    }
+    if (!snapshot.properties || typeof snapshot.requestId !== "string") {
+      console.warn("[design:bridge] pending delete style is incomplete");
+      return;
+    }
+    if (snapshot.requestId !== requestId) return;
+    var originalTransition = snapshot.properties.transition;
+    target.style.setProperty("transition", "none", "important");
+    Object.entries(snapshot.properties).forEach(([property, original]) => {
+      if (property === "transition") return;
+      if (original.value) {
+        target.style.setProperty(property, original.value, original.priority);
+      } else {
+        target.style.removeProperty(property);
+      }
+    });
+    target.removeAttribute(attribute);
+    target.getBoundingClientRect();
+    requestAnimationFrame(function () {
+      if (originalTransition.value) {
+        target.style.setProperty(
+          "transition",
+          originalTransition.value,
+          originalTransition.priority,
+        );
+      } else {
+        target.style.removeProperty("transition");
+      }
+    });
+  }
+
+  function concealPendingRuntimeDelete(
+    selector,
+    selectorCandidates,
+    requestId,
+  ) {
+    if (typeof requestId !== "string" || !requestId) return;
+    var target = findRuntimeTarget(selector, selectorCandidates);
+    if (!(target instanceof HTMLElement || target instanceof SVGElement))
+      return;
+    var attribute = "data-agent-native-pending-delete-style";
+    var encoded = target.getAttribute(attribute);
+    if (encoded) {
+      try {
+        var existing = JSON.parse(encoded);
+        if (existing.requestId === requestId) return;
+        restorePendingRuntimeDeleteStyle(target, existing.requestId);
+      } catch (error) {
+        console.warn("[design:bridge] pending delete style is invalid", error);
+        target.removeAttribute(attribute);
+      }
+    }
+    var properties = ["opacity", "pointer-events", "transition"];
+    var snapshot = {
+      requestId: requestId,
+      properties: Object.fromEntries(
+        properties.map(function (property) {
+          return [
+            property,
+            {
+              value: target.style.getPropertyValue(property),
+              priority: target.style.getPropertyPriority(property),
+            },
+          ];
+        }),
+      ),
+    };
+    target.setAttribute(attribute, JSON.stringify(snapshot));
+    target.style.setProperty("opacity", "0", "important");
+    target.style.setProperty("pointer-events", "none", "important");
+    target.style.setProperty("transition", "none", "important");
   }
 
   function readPx(value: string): number {
@@ -13807,7 +13903,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelSpacingDrag);
   }
 
-  function postTextContentChange(el, value, html, originalValue, originalHtml) {
+  function postTextContentChange(
+    el,
+    value,
+    html,
+    originalValue,
+    originalHtml,
+    relativeOperations,
+  ) {
     claimContentAsSource(el);
     publishSourceDocumentProvenance(undefined, true);
     (window.parent as Window).postMessage(
@@ -13820,6 +13923,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           typeof originalValue === "string" ? originalValue : undefined,
         originalHtml:
           typeof originalHtml === "string" ? originalHtml : undefined,
+        relativeOperations:
+          relativeOperations && typeof relativeOperations === "object"
+            ? relativeOperations
+            : undefined,
         payload: getElementInfo(el),
       },
       "*",
@@ -15896,6 +16003,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
       activeCrossScreenDragIdentity = null;
+      activeCrossScreenDeleteRequestId = undefined;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
         "*",
@@ -15903,6 +16011,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (phase === "start") {
+      activeCrossScreenDeleteRequestId = `cross-screen-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       activeCrossScreenStyleSnapshot =
         options?.styleSnapshot !== undefined
           ? options.styleSnapshot
@@ -15946,6 +16055,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         boardSurface: designCanvasBoardSurface,
         selector: dragIdentity?.selector ?? getSelector(el ?? null),
         sourceId: dragIdentity?.sourceId ?? getSourceId(el ?? null),
+        sourceDeleteRequestId: activeCrossScreenDeleteRequestId,
         sourceProvenance: dragIdentity?.sourceProvenance,
         iframeX: ev?.clientX ?? 0,
         iframeY: ev?.clientY ?? 0,
@@ -15987,6 +16097,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
       activeCrossScreenDragIdentity = null;
+      activeCrossScreenDeleteRequestId = undefined;
     }
   }
 
@@ -22278,6 +22389,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           crossScreenClaimedByHost
         : false;
       if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
+        var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
         postCrossScreenDrag("end", dragEl, ev, {
           duplicate: duplicatedForDrag,
           modifiers: {
@@ -22299,6 +22411,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postElementSelect(selectedEl);
         } else {
           restoreSourceDragPosition();
+          if (crossScreenClaimedByHost && sourceDeleteRequestId) {
+            var selector = getSelector(dragEl);
+            var sourceId = getSourceId(dragEl);
+            var selectorCandidates = [selector];
+            if (sourceId) {
+              selectorCandidates.push(
+                '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]',
+              );
+            }
+            concealPendingRuntimeDelete(
+              selector,
+              selectorCandidates,
+              sourceDeleteRequestId,
+            );
+          }
         }
         return;
       }
@@ -24024,6 +24151,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (rawHit && rawHit !== el) return false;
     if (isDocumentRootElement(el)) return false;
     if (outermostSvgAncestor(el) === el) return false;
+    if (!isContainerDropTarget(el)) return false;
     var child = el.firstElementChild;
     // A lone `data-an-text` span is the editor's own wrapper around a
     // painted leaf's bare text (see selectionTargetForHit) — not a real
@@ -27347,6 +27475,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
         return;
       }
+      var insertTransactionId =
+        typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+      if (insertTransactionId) {
+        (parsedInsertEl as unknown as Record<symbol, string>)[
+          runtimeStructureInsertTransactionKey
+        ] = insertTransactionId;
+      }
       if (replaceInsertAnchor) {
         var replaceParent = insertAnchor.parentElement;
         if (!replaceParent) {
@@ -27592,17 +27727,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       return;
     }
+    if (e.data.type === "pending-delete-element") {
+      concealPendingRuntimeDelete(
+        e.data.selector,
+        e.data.selectorCandidates,
+        e.data.requestId,
+      );
+      return;
+    }
+    if (e.data.type === "cancel-pending-delete-element") {
+      var pendingDeleteTarget = findRuntimeTarget(
+        e.data.selector,
+        e.data.selectorCandidates,
+      );
+      if (pendingDeleteTarget) {
+        restorePendingRuntimeDeleteStyle(pendingDeleteTarget, e.data.requestId);
+      }
+      return;
+    }
     if (e.data.type === "runtime-structure-rollback-insert") {
       var rollbackRequestId = String(e.data.requestId || "");
-      var rollbackTarget = findUniqueRuntimeStructureTarget(
-        String(e.data.selector || ""),
-        typeof e.data.sourceId === "string" ? e.data.sourceId : "",
-      );
-      if (
-        !rollbackRequestId ||
-        !rollbackTarget ||
-        !rollbackTarget.parentElement
-      ) {
+      var rollbackTransactionId =
+        typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+      var rollbackTargets = rollbackTransactionId
+        ? Array.from(document.querySelectorAll("*")).filter(
+            (element) =>
+              (element as unknown as Record<symbol, string>)[
+                runtimeStructureInsertTransactionKey
+              ] === rollbackTransactionId,
+          )
+        : [];
+      if (rollbackTargets.length === 0) {
+        var rollbackTarget = findUniqueRuntimeStructureTarget(
+          String(e.data.selector || ""),
+          typeof e.data.sourceId === "string" ? e.data.sourceId : "",
+        );
+        if (rollbackTarget) rollbackTargets = [rollbackTarget];
+      }
+      if (!rollbackRequestId || rollbackTargets.length === 0) {
         (window.parent as Window).postMessage(
           {
             type: "runtime-structure-rollback-result",
@@ -27615,7 +27777,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         return;
       }
-      rollbackTarget.parentElement.removeChild(rollbackTarget);
+      for (var rollbackTarget of rollbackTargets) {
+        if (
+          rollbackTarget === selectedEl ||
+          rollbackTarget.contains(selectedEl)
+        ) {
+          selectedEl = null;
+        }
+        if (
+          rollbackTarget === hoveredEl ||
+          rollbackTarget.contains(hoveredEl)
+        ) {
+          hoveredEl = null;
+        }
+        rollbackTarget.parentElement?.removeChild(rollbackTarget);
+      }
       publishSourceDocumentProvenance(undefined, true);
       refreshOverlays();
       (window.parent as Window).postMessage(
@@ -27768,6 +27944,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         textEditStyleTarget!.innerHTML || "",
         undefined,
         undefined,
+        prop && e.data.relativeOperation
+          ? { [prop]: e.data.relativeOperation }
+          : undefined,
       );
       postTextEditingState(
         textEditStyleTarget,

@@ -347,7 +347,10 @@ import {
   findCanvasIframeForScreen,
   getBreakpointIframeId,
 } from "@/components/design/multi-screen/iframe-targeting";
-import { sendLinkedScreenPreviewInteractionStateStyle } from "@/components/design/multi-screen/linked-screen-preview";
+import {
+  sendLinkedScreenPreviewInteractionStateStyle,
+  sendLinkedScreenPreviewStyleChange,
+} from "@/components/design/multi-screen/linked-screen-preview";
 import {
   designPreviewWindows,
   designPreviewWindowsForScreen,
@@ -670,6 +673,14 @@ import {
 import { runCreatePrimitive } from "./design-editor/commands/create-primitive";
 import { runCreateScreenFrame } from "./design-editor/commands/create-screen-frame";
 import { runCrossScreenElementDrop } from "./design-editor/commands/cross-screen-element-drop";
+import {
+  crossScreenRollbackIsComplete,
+  crossScreenRollbackDisposition,
+  crossScreenSourceDeleteCancellation,
+  scheduleCrossScreenDeleteTimeout,
+  scheduleCrossScreenInsertTimeout,
+  scheduleCrossScreenRollbackTimeout,
+} from "./design-editor/commands/cross-screen-insert-timeout";
 import { runDeleteFiles } from "./design-editor/commands/delete-files";
 import { runDeleteSelection } from "./design-editor/commands/delete-selection";
 import { runDetachInstanceMenuAction } from "./design-editor/commands/detach-instance-menu-action";
@@ -739,7 +750,10 @@ import { runPendingTextHostCommit } from "./design-editor/commands/pending-text-
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
-import { runPublishVisualEditPending } from "./design-editor/commands/publish-visual-edit-pending";
+import {
+  runPublishVisualEditPending,
+  shouldPublishVisualEditPending,
+} from "./design-editor/commands/publish-visual-edit-pending";
 import {
   createVisualEditSnapshotPublicationState,
   runClearVisualEditSnapshotPublications,
@@ -1025,6 +1039,7 @@ import {
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
   getPendingVisualEditCount,
+  isVisualEditHandoffAcknowledged,
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdit,
   pendingLiveStructureEditsFromEdit,
@@ -1033,6 +1048,7 @@ import {
   nextPendingLiveEditTimestamp,
   pendingVisualStyleGestureIdForPhase,
   projectRelativeSourcePath,
+  relativeOperationsForStyles,
   reactSourceAnchorForPendingEdit,
   type PendingLiveLayerNameEdit,
   type PendingLiveLayerStateEdit,
@@ -1041,6 +1057,7 @@ import {
   type PendingLiveStructureEdit,
   type PendingLiveStructureUndoEntry,
   type PendingLiveTextEdit,
+  type PendingRelativeStyleOperation,
   type PendingVisualStyleEdit,
   replayPendingVisualStyleRuntimePatch,
   type PendingVisualStyleUndoEntry,
@@ -1615,6 +1632,14 @@ function DesignEditor() {
   const [
     effectivePreviewTokensByScreenId,
     setEffectivePreviewTokensByScreenId,
+  ] = useState<Record<string, string>>({});
+  const [
+    effectiveLiveEditCapabilitiesByScreenId,
+    setEffectiveLiveEditCapabilitiesByScreenId,
+  ] = useState<Record<string, string>>({});
+  const [
+    effectiveLiveEditRegistrationCapabilitiesByScreenId,
+    setEffectiveLiveEditRegistrationCapabilitiesByScreenId,
   ] = useState<Record<string, string>>({});
   const [pendingEditSessionMarker, setPendingEditSessionMarker] =
     useState<PendingEditSessionMarkerResult>({ status: "absent" });
@@ -2227,6 +2252,33 @@ function DesignEditor() {
   );
   const canEditSelectedLiveLayerRef = useRef(false);
   const selectedLayerTargetsRef = useRef<SelectedLayerTarget[]>([]);
+  const selectedScreenStyleChangeRef = useRef<
+    | ((
+        screenId: string,
+        selector: string,
+        styles: Record<string, string>,
+        elementInfo?: ElementInfo,
+        metadata?: StyleChangeMeta,
+      ) => void)
+    | null
+  >(null);
+  const routeSelectedScreenStyleChange = useCallback(
+    (
+      screenId: string,
+      selector: string,
+      styles: Record<string, string>,
+      elementInfo?: ElementInfo,
+      metadata?: StyleChangeMeta,
+    ) =>
+      selectedScreenStyleChangeRef.current?.(
+        screenId,
+        selector,
+        styles,
+        elementInfo,
+        metadata,
+      ),
+    [],
+  );
   const renderedElementInfoByLayerKeyRef = useRef<Map<string, ElementInfo>>(
     new Map(),
   );
@@ -5647,19 +5699,26 @@ function DesignEditor() {
   const publicVisualEditConnectionId = publicVisualEditConnectionIds[0] ?? null;
   const publicVisualEditPreviewTokenQuery = useActionQuery<{
     previewToken?: string;
-    connections?: Record<string, { previewToken?: string; bridgeUrl?: string }>;
+    liveEditCapability?: string;
+    liveEditRegistrationCapability?: string;
+    connections?: Record<
+      string,
+      {
+        previewToken?: string;
+        liveEditCapability?: string;
+        liveEditRegistrationCapability?: string;
+        bridgeUrl?: string;
+      }
+    >;
   }>(
     "refresh-localhost-preview-token",
     {
       designId: id!,
-      publicVisualEdit: true,
+      publicVisualEdit,
     },
     {
       enabled:
-        publicVisualEdit &&
-        !shellMode &&
-        Boolean(id) &&
-        publicVisualEditConnectionIds.length > 0,
+        !shellMode && Boolean(id) && publicVisualEditConnectionIds.length > 0,
     },
   );
   const hasLocalhostScreens = overviewScreens.some(
@@ -6787,6 +6846,28 @@ function DesignEditor() {
     },
     [],
   );
+  const handleLiveEditCapabilityChange = useCallback(
+    (screenId: string | undefined, capability: string) => {
+      if (!screenId || !capability) return;
+      setEffectiveLiveEditCapabilitiesByScreenId((current) =>
+        current[screenId] === capability
+          ? current
+          : { ...current, [screenId]: capability },
+      );
+    },
+    [],
+  );
+  const handleLiveEditRegistrationCapabilityChange = useCallback(
+    (screenId: string | undefined, capability: string) => {
+      if (!screenId || !capability) return;
+      setEffectiveLiveEditRegistrationCapabilitiesByScreenId((current) =>
+        current[screenId] === capability
+          ? current
+          : { ...current, [screenId]: capability },
+      );
+    },
+    [],
+  );
   const activeScreenSnapshotOnly = Boolean(
     isLiveCanvasShareLink &&
     designAccessRole &&
@@ -6811,6 +6892,34 @@ function DesignEditor() {
           (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
             ? publicVisualEditPreviewTokenQuery.data?.previewToken
             : undefined))));
+  const activeScreenLiveEditCapability = activeScreenSnapshotOnly
+    ? undefined
+    : ((activeOverviewScreen?.id
+        ? effectiveLiveEditCapabilitiesByScreenId[activeOverviewScreen.id]
+        : undefined) ??
+      (activeOverviewScreen?.connectionId
+        ? publicVisualEditPreviewTokenQuery.data?.connections?.[
+            activeOverviewScreen.connectionId
+          ]?.liveEditCapability
+        : undefined) ??
+      (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
+        ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
+        : undefined));
+  const activeScreenLiveEditRegistrationCapability = activeScreenSnapshotOnly
+    ? undefined
+    : ((activeOverviewScreen?.id
+        ? effectiveLiveEditRegistrationCapabilitiesByScreenId[
+            activeOverviewScreen.id
+          ]
+        : undefined) ??
+      (activeOverviewScreen?.connectionId
+        ? publicVisualEditPreviewTokenQuery.data?.connections?.[
+            activeOverviewScreen.connectionId
+          ]?.liveEditRegistrationCapability
+        : undefined) ??
+      (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
+        ? publicVisualEditPreviewTokenQuery.data?.liveEditRegistrationCapability
+        : undefined));
   const activeScreenExternalSnapshotHtml = activeFile?.id
     ? liveScreenSnapshotsById[activeFile.id]?.html
     : undefined;
@@ -8864,6 +8973,7 @@ function DesignEditor() {
         pendingUndoGestureId?: string;
         preserveSelection?: boolean;
         routePath?: string;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runRecordPendingVisualStyleEdit(
@@ -8933,6 +9043,7 @@ function DesignEditor() {
         originalValue?: string;
         originalHtml?: string;
         routePath?: string;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runRecordPendingLiveTextEdit(
@@ -13517,6 +13628,7 @@ function DesignEditor() {
     (property: string, value: string, meta?: StyleChangeMeta) =>
       runStyleChange(
         {
+          canEditLiveScreen,
           commitInteractionStateStyles,
           commitRelativeStyleDeltaToSelectedLayers: (
             property,
@@ -13546,6 +13658,7 @@ function DesignEditor() {
           previewInteractionStateStyles,
           selectedCanvasSelectorCandidates,
           selectedElement,
+          selectedScreenStyleChange: routeSelectedScreenStyleChange,
           selectedLayerTargetsRef,
           textEditingState,
         },
@@ -13555,6 +13668,7 @@ function DesignEditor() {
       ),
     [
       commitInteractionStateStyles,
+      canEditLiveScreen,
       previewInteractionStateStyles,
       commitRelativeStyleDeltaToSelectedLayers,
       commitStylesToSelectedLayers,
@@ -13565,6 +13679,7 @@ function DesignEditor() {
       selectedElement?.selector,
       selectedElement?.sourceId,
       selectedCanvasSelectorCandidates,
+      routeSelectedScreenStyleChange,
       textEditingState.active,
       textEditingState.hasRange,
       textEditingState.selector,
@@ -13652,6 +13767,7 @@ function DesignEditor() {
     (styles: Record<string, string>, meta?: StyleChangeMeta) =>
       runStylesChange(
         {
+          canEditLiveScreen,
           commitInteractionStateStyles,
           commitRelativeStyleDeltaToSelectedLayers: (
             property,
@@ -13681,6 +13797,7 @@ function DesignEditor() {
           previewInteractionStateStyles,
           selectedCanvasSelectorCandidates,
           selectedElement,
+          selectedScreenStyleChange: routeSelectedScreenStyleChange,
           selectedLayerTargetsRef,
           textEditingState,
         },
@@ -13689,6 +13806,7 @@ function DesignEditor() {
       ),
     [
       commitInteractionStateStyles,
+      canEditLiveScreen,
       previewInteractionStateStyles,
       commitRelativeStyleDeltaToSelectedLayers,
       commitStylesToSelectedLayers,
@@ -13699,6 +13817,7 @@ function DesignEditor() {
       selectedCanvasSelectorCandidates,
       selectedElement?.selector,
       selectedElement?.sourceId,
+      routeSelectedScreenStyleChange,
       textEditingState.active,
       textEditingState.hasRange,
       textEditingState.selector,
@@ -13776,6 +13895,7 @@ function DesignEditor() {
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
         routePath?: string;
+        runtimeApplied?: boolean;
       },
     ) => {
       if (!activeFile?.id) return;
@@ -13814,7 +13934,7 @@ function DesignEditor() {
       });
       const affectsEveryRow = gestureTarget !== selector;
       commitVisualStyles(gestureTarget, styles, {
-        runtimeApplied: !affectsEveryRow,
+        runtimeApplied: metadata?.runtimeApplied ?? !affectsEveryRow,
         elementInfo,
         originalStyles: metadata?.originalStyles,
         preserveSelection: metadata?.preserveSelection,
@@ -14142,6 +14262,7 @@ function DesignEditor() {
         originalValue?: string;
         originalHtml?: string;
         routePath?: string;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runTextContentChange(
@@ -14194,6 +14315,9 @@ function DesignEditor() {
         phase?: "preview" | "commit";
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
+        routePath?: string;
+        runtimeApplied?: boolean;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runScreenVisualStyleChange(
@@ -14231,6 +14355,149 @@ function DesignEditor() {
       recordPendingVisualStyleEdit,
     ],
   );
+
+  const handleInspectorScreenStyleChange = useCallback(
+    (
+      screenId: string,
+      selector: string,
+      styles: Record<string, string>,
+      elementInfo?: ElementInfo,
+      metadata?: StyleChangeMeta,
+    ) => {
+      if (!canEditDesign && !canEditLiveScreen(screenId)) return;
+      const selectorCandidates = Array.from(
+        new Set(
+          [
+            selector,
+            elementInfo?.runtimeSelector,
+            elementInfo?.selector,
+            ...selectedCanvasSelectorCandidates,
+          ].filter((candidate): candidate is string => Boolean(candidate)),
+        ),
+      );
+      const textRangeOwnsScreen =
+        textEditingState.hasRange &&
+        textEditingState.screenId === screenId &&
+        textEditingState.selector === selector;
+      const interactionState = metadata?.interactionState;
+      if (interactionState) {
+        const relativeOperations = relativeOperationsForStyles(
+          styles,
+          metadata ?? {},
+        );
+        const routePath =
+          metadata.routePath ?? liveRoutePathsByScreenIdRef.current[screenId];
+        const previewInteractionState = (nextStyles: Record<string, string>) =>
+          sendLinkedScreenPreviewInteractionStateStyle(screenId, {
+            routePath,
+            selector,
+            selectorCandidates,
+            nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId ?? "",
+            state: interactionState,
+            styles: nextStyles,
+          });
+        if (metadata.phase === "preview" || metadata.phase === "cancel") {
+          previewInteractionState(styles);
+          return;
+        }
+        const screenSourceType = resolveOverviewScreenSourceType(
+          overviewScreens.find((screen) => screen.id === screenId),
+          designSourceType,
+        );
+        if (isRunningAppSourceType(screenSourceType)) {
+          if (screenId === activeFile?.id) {
+            commitInteractionStateStyles(interactionState, styles);
+          } else {
+            recordPendingVisualStyleEdit(
+              screenId,
+              selector,
+              styles,
+              elementInfo,
+              {
+                interactionState,
+                routePath,
+                ...(relativeOperations ? { relativeOperations } : {}),
+              },
+            );
+            previewInteractionState(styles);
+          }
+          return;
+        }
+        if (!canEditDesign || !elementInfo?.sourceId) return;
+        if (screenId === activeFile?.id) {
+          commitInteractionStateStyles(interactionState, styles);
+          return;
+        }
+        const baseContent = getScreenContent(screenId);
+        const nextContent = applyInteractionStateStyleCommit(
+          baseContent,
+          elementInfo.sourceId,
+          interactionState,
+          styles,
+          activeBreakpointUpperBoundPx,
+        );
+        if (nextContent === baseContent) return;
+        applyFileContentUpdate(screenId, nextContent, {
+          refreshPreview: false,
+          forcePreviewFullDocument: true,
+        });
+        previewInteractionState(
+          Object.fromEntries(
+            Object.keys(styles).map((property) => [property, ""]),
+          ),
+        );
+        return;
+      }
+      for (const [property, value] of Object.entries(styles)) {
+        sendLinkedScreenPreviewStyleChange(
+          screenId,
+          selector,
+          property,
+          value,
+          {
+            selectorCandidates,
+            nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
+            relativeOperation: relativeOperationsForStyles(
+              { [property]: value },
+              metadata,
+            )?.[property],
+          },
+        );
+      }
+      if (
+        metadata?.phase === "preview" ||
+        metadata?.phase === "cancel" ||
+        textRangeOwnsScreen
+      )
+        return;
+      const relativeOperations = relativeOperationsForStyles(styles, metadata);
+      handleScreenVisualStyleChange(screenId, selector, styles, elementInfo, {
+        phase: metadata?.phase === "commit" ? "commit" : undefined,
+        runtimeApplied: true,
+        ...(relativeOperations ? { relativeOperations } : {}),
+        routePath:
+          metadata?.routePath ?? liveRoutePathsByScreenIdRef.current[screenId],
+      });
+    },
+    [
+      activeBreakpointUpperBoundPx,
+      activeFile?.id,
+      applyFileContentUpdate,
+      canEditDesign,
+      canEditLiveScreen,
+      commitInteractionStateStyles,
+      designSourceType,
+      getScreenContent,
+      handleScreenVisualStyleChange,
+      overviewScreens,
+      recordPendingVisualStyleEdit,
+      selectedCanvasSelectorCandidates,
+      textEditingState.hasRange,
+      textEditingState.screenId,
+      textEditingState.selector,
+    ],
+  );
+  selectedScreenStyleChangeRef.current = handleInspectorScreenStyleChange;
 
   const handleScreenVisualStructureChange = useCallback(
     (
@@ -14489,6 +14756,7 @@ function DesignEditor() {
         originalValue?: string;
         originalHtml?: string;
         routePath?: string;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runScreenTextContentChange(
@@ -16815,6 +17083,7 @@ function DesignEditor() {
     (arg0: {
       sourceSelector: string;
       sourceNodeId?: string;
+      sourceDeleteRequestId?: string;
       sourceProvenance?: SourceNodeProvenance;
       targetAnchorProvenance?: SourceNodeProvenance;
       sourceScreenId: string;
@@ -16983,6 +17252,38 @@ function DesignEditor() {
     ],
   );
 
+  const discardPendingLiveStructureTransaction = useCallback(
+    (transactionId: string) => {
+      const matchesTransaction = (edit: PendingLiveStructureEdit) =>
+        pendingLiveStructureEditsFromEdit(edit).some(
+          (member) => member.transactionId === transactionId,
+        );
+      const nextPending = pendingLiveNonStyleEditsRef.current.filter(
+        (edit) => edit.kind !== "structure" || !matchesTransaction(edit),
+      );
+      const nextUndo = pendingLiveNonStyleUndoStackRef.current.filter(
+        (entry) =>
+          entry.kind !== "structure" ||
+          !pendingLiveStructureEditsFromUndoEntry(entry).some(
+            (edit) => edit.transactionId === transactionId,
+          ),
+      );
+      const nextRedo = pendingLiveNonStyleRedoStackRef.current.filter(
+        (entry) =>
+          entry.kind !== "structure" ||
+          !pendingLiveStructureEditsFromUndoEntry(entry).some(
+            (edit) => edit.transactionId === transactionId,
+          ),
+      );
+      pendingLiveNonStyleEditsRef.current = nextPending;
+      pendingLiveNonStyleUndoStackRef.current = nextUndo;
+      pendingLiveNonStyleRedoStackRef.current = nextRedo;
+      setPendingLiveNonStyleEdits(nextPending);
+      syncUndoRedoState();
+    },
+    [syncUndoRedoState],
+  );
+
   const handleRuntimeStructureInsertRejected = useCallback(
     (reason: string, transactionId?: string) => {
       if (reason.startsWith("verification-")) {
@@ -17002,40 +17303,59 @@ function DesignEditor() {
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
-      const isBoardTimeout = reason === "board-drop-timeout";
+      const sourceDeleteRequest =
+        runtimeStructureDeleteRequest?.transactionId === transactionId
+          ? runtimeStructureDeleteRequest
+          : null;
+      const targetDocumentUnavailable =
+        reason === "target-canvas-unmounted" ||
+        reason === "target-document-replaced";
+      const targetUnavailableCancellation =
+        targetDocumentUnavailable && transactionId
+          ? crossScreenSourceDeleteCancellation(
+              sourceDeleteRequest,
+              transactionId,
+            )
+          : null;
+      if (sourceDeleteRequest && targetUnavailableCancellation) {
+        setRuntimeStructureInsertRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId
+            ? targetUnavailableCancellation
+            : current,
+        );
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return true;
+      }
+      const isInsertTimeout =
+        reason === "board-drop-timeout" ||
+        reason === "cross-screen-insert-timeout";
       let rollbackScheduled = false;
       if (
-        isBoardTimeout &&
+        isInsertTimeout &&
         transactionId &&
         runtimeStructureInsertRequest?.transactionId === transactionId
       ) {
-        const insertedNodeId = runtimeStructureInsertRequest.html.match(
-          /\bdata-agent-native-node-id\s*=\s*["']([^"']+)["']/i,
-        )?.[1];
-        if (insertedNodeId) {
-          runtimeStructureRollbackRevisionRef.current += 1;
-          setRuntimeStructureRollbackRequest({
-            screenId: runtimeStructureInsertRequest.screenId,
-            requestId: `${transactionId}:timeout-rollback:${runtimeStructureRollbackRevisionRef.current}`,
-            transactionId,
-            selector: "",
-            sourceId: insertedNodeId,
-          });
-          rollbackScheduled = true;
-        } else if (
-          runtimeStructurePendingTransactionRef.current === transactionId
-        ) {
-          // There is no stable target to reconcile. Release the admission
-          // lock so a later runtime edit cannot be blocked forever.
-          runtimeStructurePendingTransactionRef.current = null;
-        }
-        setRuntimeStructureDeleteRequest((current) =>
-          current?.transactionId === transactionId ? null : current,
-        );
+        runtimeStructureRollbackRevisionRef.current += 1;
+        setRuntimeStructureRollbackRequest({
+          screenId: runtimeStructureInsertRequest.screenId,
+          requestId: `${transactionId}:timeout-rollback:${runtimeStructureRollbackRevisionRef.current}`,
+          transactionId,
+          selector: "",
+          idempotent: true,
+        });
+        rollbackScheduled = true;
       }
       if (transactionId) {
+        if (reason === "target-canvas-unmounted") {
+          discardPendingLiveStructureTransaction(transactionId);
+        }
         if (
-          !isBoardTimeout &&
+          !rollbackScheduled &&
           runtimeStructurePendingTransactionRef.current === transactionId
         ) {
           runtimeStructurePendingTransactionRef.current = null;
@@ -17043,21 +17363,51 @@ function DesignEditor() {
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
-        setRuntimeStructureDeleteRequest((current) =>
-          current?.transactionId === transactionId ? null : current,
-        );
+        if (
+          reason === "target-canvas-unmounted" &&
+          runtimeStructureRollbackRequest?.transactionId === transactionId
+        ) {
+          setRuntimeStructureRollbackRequest(null);
+        }
+        if (!rollbackScheduled) {
+          setRuntimeStructureDeleteRequest((current) =>
+            current?.transactionId === transactionId ? null : current,
+          );
+        }
       }
       toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
       return rollbackScheduled;
     },
     [
       cancelPendingStructureVerification,
+      discardPendingLiveStructureTransaction,
       runtimeStructurePendingTransactionRef,
       runtimeStructureInsertRequest,
+      runtimeStructureRollbackRequest,
+      runtimeStructureDeleteRequest,
+      setRuntimeStructureDeleteRequest,
+      setRuntimeStructureInsertRequest,
       setRuntimeStructureRollbackRequest,
       t,
     ],
   );
+
+  useEffect(() => {
+    if (!runtimeStructureInsertRequest?.transactionId) return;
+    return scheduleCrossScreenInsertTimeout(
+      runtimeStructureInsertRequest,
+      boardFileId ?? null,
+      (transactionId) =>
+        handleRuntimeStructureInsertRejected(
+          "cross-screen-insert-timeout",
+          transactionId,
+        ),
+    );
+  }, [
+    boardFileId,
+    handleRuntimeStructureInsertRejected,
+    runtimeStructureInsertRequest,
+  ]);
 
   const handleRuntimeStructureInsertApplied = useCallback(
     (details: {
@@ -17162,6 +17512,7 @@ function DesignEditor() {
       if (
         !screenId ||
         !request ||
+        request.cancelRequested ||
         request.screenId !== screenId ||
         request.requestId !== details.requestId
       ) {
@@ -17211,6 +17562,7 @@ function DesignEditor() {
       ) {
         return;
       }
+      let rollbackScheduled = false;
       if (
         request.transactionId &&
         request.rollbackScreenId &&
@@ -17223,53 +17575,61 @@ function DesignEditor() {
           transactionId: request.transactionId,
           selector: request.rollbackSelector,
           sourceId: request.rollbackSourceId,
+          idempotent: true,
         });
+        rollbackScheduled = true;
       }
       if (
+        !rollbackScheduled &&
         request.transactionId &&
         runtimeStructurePendingTransactionRef.current === request.transactionId
       ) {
         runtimeStructurePendingTransactionRef.current = null;
       }
-      setRuntimeStructureDeleteRequest(null);
+      if (!rollbackScheduled) setRuntimeStructureDeleteRequest(null);
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure delete rejected", details);
       }
-      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      if (details.reason !== "cancelled") {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+      }
     },
-    [runtimeStructureDeleteRequest, runtimeStructurePendingTransactionRef, t],
+    [
+      runtimeStructureDeleteRequest,
+      runtimeStructurePendingTransactionRef,
+      setRuntimeStructureDeleteRequest,
+      setRuntimeStructureRollbackRequest,
+      t,
+    ],
   );
-  const discardPendingLiveStructureTransaction = useCallback(
-    (transactionId: string) => {
-      const matchesTransaction = (edit: PendingLiveStructureEdit) =>
-        pendingLiveStructureEditsFromEdit(edit).some(
-          (member) => member.transactionId === transactionId,
-        );
-      const nextPending = pendingLiveNonStyleEditsRef.current.filter(
-        (edit) => edit.kind !== "structure" || !matchesTransaction(edit),
-      );
-      const nextUndo = pendingLiveNonStyleUndoStackRef.current.filter(
-        (entry) =>
-          entry.kind !== "structure" ||
-          !pendingLiveStructureEditsFromUndoEntry(entry).some(
-            (edit) => edit.transactionId === transactionId,
-          ),
-      );
-      const nextRedo = pendingLiveNonStyleRedoStackRef.current.filter(
-        (entry) =>
-          entry.kind !== "structure" ||
-          !pendingLiveStructureEditsFromUndoEntry(entry).some(
-            (edit) => edit.transactionId === transactionId,
-          ),
-      );
-      pendingLiveNonStyleEditsRef.current = nextPending;
-      pendingLiveNonStyleUndoStackRef.current = nextUndo;
-      pendingLiveNonStyleRedoStackRef.current = nextRedo;
-      setPendingLiveNonStyleEdits(nextPending);
-      syncUndoRedoState();
-    },
-    [syncUndoRedoState],
-  );
+  useEffect(() => {
+    const deleteRequest = runtimeStructureDeleteRequest;
+    if (
+      runtimeStructureRollbackRequest?.transactionId &&
+      runtimeStructureRollbackRequest.transactionId ===
+        deleteRequest?.transactionId
+    ) {
+      return;
+    }
+    return scheduleCrossScreenDeleteTimeout(
+      deleteRequest,
+      boardFileId ?? null,
+      (request) =>
+        handleRuntimeStructureDeleteRejected({
+          screenId: request.screenId,
+          requestId: request.requestId,
+          transactionId: request.transactionId,
+          reason: "source-delete-timeout",
+        }),
+    );
+  }, [
+    boardFileId,
+    handleRuntimeStructureDeleteRejected,
+    runtimeStructureDeleteRequest,
+    runtimeStructureRollbackRequest,
+  ]);
   const handleRuntimeStructureRollbackResult = useCallback(
     (details: {
       requestId: string;
@@ -17280,20 +17640,94 @@ function DesignEditor() {
       if (runtimeStructureRollbackRequest?.requestId !== details.requestId) {
         return;
       }
-      if (details.applied && runtimeStructureRollbackRequest?.transactionId) {
-        discardPendingLiveStructureTransaction(
-          runtimeStructureRollbackRequest.transactionId,
+      const rollbackRequest = runtimeStructureRollbackRequest;
+      const transactionId = rollbackRequest.transactionId;
+      const hasPendingInsert = Boolean(
+        transactionId &&
+        (pendingLiveNonStyleEditsRef.current.some(
+          (edit) =>
+            edit.kind === "structure" &&
+            pendingLiveStructureEditsFromEdit(edit).some(
+              (member) =>
+                member.transactionId === transactionId &&
+                Boolean(member.insertedHtml),
+            ),
+        ) ||
+          pendingLiveNonStyleUndoStackRef.current.some(
+            (entry) =>
+              entry.kind === "structure" &&
+              pendingLiveStructureEditsFromUndoEntry(entry).some(
+                (member) =>
+                  member.transactionId === transactionId &&
+                  Boolean(member.insertedHtml),
+              ),
+          )),
+      );
+      const destinationScreenExists =
+        rollbackRequest.screenId === boardFileId ||
+        overviewScreens.some(
+          (screen) => screen.id === rollbackRequest.screenId,
         );
+      const rollbackIsComplete = crossScreenRollbackIsComplete(
+        rollbackRequest,
+        details,
+      );
+      const disposition = crossScreenRollbackDisposition({
+        applied: rollbackIsComplete,
+        destinationHasPendingInsert: hasPendingInsert,
+        destinationScreenExists,
+      });
+      const pendingSourceDelete =
+        transactionId &&
+        runtimeStructureDeleteRequest?.transactionId === transactionId &&
+        !runtimeStructureDeleteRequest.cancelRequested
+          ? runtimeStructureDeleteRequest
+          : null;
+      const pendingSourceCancellation =
+        transactionId && pendingSourceDelete
+          ? crossScreenSourceDeleteCancellation(
+              pendingSourceDelete,
+              transactionId,
+            )
+          : null;
+      if (disposition === "discard" && pendingSourceCancellation) {
+        setRuntimeStructureInsertRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+        setRuntimeStructureRollbackRequest(null);
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId
+            ? {
+                ...pendingSourceCancellation,
+                rollbackSelector: undefined,
+                rollbackSourceId: undefined,
+              }
+            : current,
+        );
+        return;
+      }
+      if (disposition === "retain-recovery") {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
+      if (transactionId && disposition === "discard") {
+        discardPendingLiveStructureTransaction(transactionId);
       }
       if (
-        runtimeStructureRollbackRequest?.transactionId &&
-        runtimeStructurePendingTransactionRef.current ===
-          runtimeStructureRollbackRequest.transactionId
+        transactionId &&
+        runtimeStructurePendingTransactionRef.current === transactionId
       ) {
         runtimeStructurePendingTransactionRef.current = null;
       }
       setRuntimeStructureRollbackRequest(null);
-      if (!details.applied) {
+      if (transactionId) {
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+      }
+      if (!rollbackIsComplete) {
         toast.error(t("designEditor.toasts.layerMoveFailed"), {
           duration: 4000,
         });
@@ -17303,9 +17737,30 @@ function DesignEditor() {
       discardPendingLiveStructureTransaction,
       runtimeStructureRollbackRequest,
       runtimeStructurePendingTransactionRef,
+      setRuntimeStructureDeleteRequest,
+      setRuntimeStructureInsertRequest,
+      setRuntimeStructureRollbackRequest,
+      boardFileId,
+      overviewScreens,
+      pendingLiveNonStyleEditsRef,
+      pendingLiveNonStyleUndoStackRef,
+      runtimeStructureDeleteRequest,
       t,
     ],
   );
+  useEffect(() => {
+    if (!runtimeStructureRollbackRequest?.transactionId) return;
+    return scheduleCrossScreenRollbackTimeout(
+      runtimeStructureRollbackRequest,
+      (request) =>
+        handleRuntimeStructureRollbackResult({
+          requestId: request.requestId,
+          transactionId: request.transactionId,
+          applied: false,
+          reason: "rollback-timeout",
+        }),
+    );
+  }, [handleRuntimeStructureRollbackResult, runtimeStructureRollbackRequest]);
   const handleRuntimeLayerRenameApplied = useCallback(
     (
       screenId: string,
@@ -19903,6 +20358,19 @@ function DesignEditor() {
       ),
     [pendingLiveNonStyleEdits, pendingVisualStyleEdits],
   );
+  const pendingVisualEditHandoffQuery = useActionQuery<{
+    status: "empty" | "ready";
+    revision: number | null;
+  }>(
+    "get-visual-edit-pending",
+    { designId: id! },
+    {
+      enabled: Boolean(id) && canEditDesign && pendingVisualEditCount > 0,
+      refetchInterval:
+        canEditDesign && pendingVisualEditCount > 0 ? 10_000 : false,
+      refetchIntervalInBackground: false,
+    },
+  );
   useEffect(() => {
     if (!id) return;
     if (pendingVisualEditCount > 0) {
@@ -19999,7 +20467,16 @@ function DesignEditor() {
   const showVisualEditApply =
     showPendingVisualStyleApply || showSharedVisualEditApply;
   useEffect(() => {
-    if (!id) return;
+    if (
+      !id ||
+      !shouldPublishVisualEditPending({
+        designId: id,
+        canEditDesign,
+        canEditLiveScreen: canEditLiveScreen(activeOverviewScreen?.id),
+      })
+    ) {
+      return;
+    }
     if (
       pendingVisualEditCount === 0 &&
       pendingVisualEditClearRequestedRef.current !== id &&
@@ -20036,6 +20513,7 @@ function DesignEditor() {
       runPublishVisualEditPending({
         activeScreenBridgeUrl,
         activeScreenPreviewToken,
+        activeScreenLiveEditCapability,
         callAction,
         canPublishDurableHandoff: canEditDesign || isLiveCanvasShareLink,
         designId: id,
@@ -20068,12 +20546,49 @@ function DesignEditor() {
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
+    activeScreenLiveEditCapability,
+    activeOverviewScreen?.id,
+    canEditLiveScreen,
     canEditDesign,
     id,
     isLiveCanvasShareLink,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
     t,
+  ]);
+  useEffect(() => {
+    if (
+      !id ||
+      !canEditDesign ||
+      pendingVisualEditHadPendingRef.current !== id ||
+      pendingVisualEditClearRequestedRef.current === id
+    ) {
+      return;
+    }
+    const localPendingCount =
+      pendingVisualStyleEditsRef.current.length +
+      pendingLiveNonStyleEditsRef.current.length;
+    const currentRevision = pendingVisualEditPublicationRevisionRef.current;
+    const handoff = pendingVisualEditHandoffQuery.data;
+    if (
+      !handoff ||
+      !isVisualEditHandoffAcknowledged({
+        currentRevision,
+        pendingEditCount: localPendingCount,
+        revision: handoff.revision,
+        status: handoff.status,
+      })
+    ) {
+      return;
+    }
+    clearPendingLiveEditStateRef.current();
+  }, [
+    clearPendingLiveEditState,
+    canEditDesign,
+    id,
+    pendingLiveNonStyleEdits,
+    pendingVisualEditHandoffQuery.data,
+    pendingVisualStyleEdits,
   ]);
   const visualEditPromptResult = useCallback<
     () => VisualEditPromptResult
@@ -20191,7 +20706,7 @@ function DesignEditor() {
     t,
   ]);
   const handleCopyPendingVisualStylePrompt = useCallback(
-    async (promptOverride?: string) => {
+    async (promptOverride?: string, fullPrompt = false) => {
       if (
         promptOverride === undefined &&
         pendingVisualStyleEdits.length === 0 &&
@@ -20210,12 +20725,18 @@ function DesignEditor() {
         const clipboardPrompt = formatVisualEditClipboardPrompt(
           promptOverride ?? pendingVisualStylePrompt,
           host,
+          fullPrompt,
+          id,
         );
         if (!(await writeClipboardText(clipboardPrompt))) {
           toast.error(t("designEditor.toasts.clipboardBlocked"));
           return;
         }
-        toast.success(t("designEditor.pendingVisualStyles.copiedToast"));
+        toast.success(t("designEditor.pendingVisualStyles.copiedToast"), {
+          description: t(
+            "designEditor.pendingVisualStyles.copiedToastDescription",
+          ),
+        });
       } catch {
         toast.error(t("designEditor.toasts.clipboardBlocked"));
       }
@@ -20225,6 +20746,7 @@ function DesignEditor() {
       pendingVisualStyleEdits.length,
       pendingVisualStylePrompt,
       externalAgentHost,
+      id,
       t,
     ],
   );
@@ -25385,6 +25907,23 @@ function DesignEditor() {
             (screen.connectionId === publicVisualEditConnectionId
               ? publicVisualEditPreviewTokenQuery.data?.previewToken
               : undefined)));
+      const screenLiveEditCapability =
+        effectiveLiveEditCapabilitiesByScreenId[screen.id] ??
+        publicVisualEditPreviewTokenQuery.data?.connections?.[
+          screen.connectionId ?? ""
+        ]?.liveEditCapability ??
+        (screen.connectionId === publicVisualEditConnectionId
+          ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
+          : undefined);
+      const screenLiveEditRegistrationCapability =
+        effectiveLiveEditRegistrationCapabilitiesByScreenId[screen.id] ??
+        publicVisualEditPreviewTokenQuery.data?.connections?.[
+          screen.connectionId ?? ""
+        ]?.liveEditRegistrationCapability ??
+        (screen.connectionId === publicVisualEditConnectionId
+          ? publicVisualEditPreviewTokenQuery.data
+              ?.liveEditRegistrationCapability
+          : undefined);
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -25475,6 +26014,11 @@ function DesignEditor() {
               ? runtimeStructureRollbackRequest
               : null
           }
+          runtimeStructureTargetTransactionId={
+            runtimeStructureDeleteRequest?.rollbackScreenId === screen.id
+              ? runtimeStructureDeleteRequest.transactionId
+              : null
+          }
           runtimeLayerRenameRequest={runtimeLayerRenameForScreen(screen.id)}
           runtimeLayerSnapshotRequest={runtimeLayerSnapshotRequest}
           onRuntimeStructureInsertRejected={
@@ -25517,8 +26061,24 @@ function DesignEditor() {
           nativePreviewActive={screenIsActive}
           sharedSnapshotPollActive={screenIsActive}
           previewToken={screenSnapshotOnly ? undefined : screenPreviewToken}
+          liveEditCapability={
+            screenSnapshotOnly ? undefined : screenLiveEditCapability
+          }
+          liveEditRegistrationCapability={
+            screenSnapshotOnly
+              ? undefined
+              : screenLiveEditRegistrationCapability
+          }
           onPreviewTokenChange={
             screenSnapshotOnly ? undefined : handleEffectivePreviewTokenChange
+          }
+          onLiveEditCapabilityChange={
+            screenSnapshotOnly ? undefined : handleLiveEditCapabilityChange
+          }
+          onLiveEditRegistrationCapabilityChange={
+            screenSnapshotOnly
+              ? undefined
+              : handleLiveEditRegistrationCapabilityChange
           }
           onRoutePathChange={
             screenSnapshotOnly ? undefined : handleLiveRoutePathChange
@@ -25532,8 +26092,11 @@ function DesignEditor() {
           }
           onBootStart={renderOptions?.onBootStart}
           onBootReady={renderOptions?.onBootReady}
-          onExternalContentSnapshot={(snapshot) =>
-            handleScreenExternalContentSnapshot(screen.id, snapshot)
+          onExternalContentSnapshot={
+            screenSnapshotOnly
+              ? undefined
+              : (snapshot) =>
+                  handleScreenExternalContentSnapshot(screen.id, snapshot)
           }
           onRuntimeLayerSnapshot={
             shouldUseRuntimeLayerProjection({
@@ -25792,7 +26355,9 @@ function DesignEditor() {
       canEditDesign,
       canEditLiveScreen,
       effectivePreviewTokensByScreenId,
+      effectiveLiveEditCapabilitiesByScreenId,
       handleEffectivePreviewTokenChange,
+      handleLiveEditCapabilityChange,
       canCommentDesign,
       activeTool,
       pinMode,
@@ -28541,6 +29106,19 @@ function DesignEditor() {
                                   "designEditor.pendingVisualStyles.copyPrompt",
                                 )}
                               </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleCopyPendingVisualStylePrompt(
+                                    remoteVisualEditPrompt,
+                                    true,
+                                  )
+                                }
+                              >
+                                <IconClipboard className="mr-2 h-4 w-4" />
+                                {t(
+                                  "designEditor.pendingVisualStyles.copyFullPrompt",
+                                )}
+                              </DropdownMenuItem>
                               {showSharedVisualEditApply ? null : (
                                 <DropdownMenuItem
                                   className="text-destructive focus:text-destructive"
@@ -28970,6 +29548,12 @@ function DesignEditor() {
                             ? runtimeStructureRollbackRequest
                             : null
                         }
+                        runtimeStructureTargetTransactionId={
+                          runtimeStructureDeleteRequest?.rollbackScreenId ===
+                          activeFile.id
+                            ? runtimeStructureDeleteRequest.transactionId
+                            : null
+                        }
                         runtimeLayerRenameRequest={runtimeLayerRenameForScreen(
                           activeFile.id,
                         )}
@@ -29031,10 +29615,30 @@ function DesignEditor() {
                             : activeOverviewScreen?.connectionId
                         }
                         previewToken={activeScreenPreviewToken}
+                        liveEditCapability={
+                          activeScreenSnapshotOnly
+                            ? undefined
+                            : activeScreenLiveEditCapability
+                        }
+                        liveEditRegistrationCapability={
+                          activeScreenSnapshotOnly
+                            ? undefined
+                            : activeScreenLiveEditRegistrationCapability
+                        }
                         onPreviewTokenChange={
                           activeScreenSnapshotOnly
                             ? undefined
                             : handleEffectivePreviewTokenChange
+                        }
+                        onLiveEditCapabilityChange={
+                          activeScreenSnapshotOnly
+                            ? undefined
+                            : handleLiveEditCapabilityChange
+                        }
+                        onLiveEditRegistrationCapabilityChange={
+                          activeScreenSnapshotOnly
+                            ? undefined
+                            : handleLiveEditRegistrationCapabilityChange
                         }
                         onRoutePathChange={
                           activeScreenSnapshotOnly
