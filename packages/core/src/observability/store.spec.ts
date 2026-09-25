@@ -96,6 +96,18 @@ describe("observability store: per-user isolation", () => {
           /ON agent_trace_summaries \(org_id, created_at DESC\)/,
         ),
       );
+      expect(mockEnsureIndexExists).toHaveBeenCalledWith(
+        "idx_trace_spans_type_name_run_id",
+        expect.stringMatching(
+          /ON agent_trace_spans \(span_type, name, run_id\)/,
+        ),
+      );
+      expect(mockEnsureIndexExists).toHaveBeenCalledWith(
+        "idx_feedback_org_source_created",
+        expect.stringMatching(
+          /ON agent_feedback \(org_id, source, created_at DESC\)/,
+        ),
+      );
     });
 
     it("getTraceSummaries omits user_id filter when userId is undefined", async () => {

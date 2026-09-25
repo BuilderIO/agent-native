@@ -374,13 +374,15 @@ function isSensitiveHeaderKey(key: string): boolean {
 
 function redactEvidenceString(value: string): string {
   const redacted = value
-    .replace(/data:[^\s;,]+;base64,[^\s"'<>]+/gi, "[omitted data payload]")
+    .replace(/\bdata(?::|%3a)[^\s"'<>]*/gi, "[omitted data payload]")
     .replace(/\b[A-Za-z0-9+/]{128,}={0,2}\b/g, "[omitted encoded payload]")
     .replace(/<\/?(?:html|script|svg|iframe)\b[^>]*>/gi, "[omitted markup]")
     .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [REDACTED]")
     .replace(/\bAIza[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
     .replace(/\bSG\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
     .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}\b/gi, "[REDACTED]")
+    .replace(/\bsk-(?:proj|ant)-[A-Za-z0-9_-]{4,}\b/gi, "[REDACTED]")
+    .replace(/\bAKIA[A-Z0-9]{6,}\b/g, "[REDACTED]")
     .replace(
       /\b(?:sk|pk|ghp|gho|github_pat)_[A-Za-z0-9_-]{12,}\b/g,
       "[REDACTED]",
@@ -406,6 +408,10 @@ function redactEvidenceString(value: string): string {
           ? `${prefix}${keyQuote}${key}${separator}[REDACTED]`
           : match,
     )
+    .replace(
+      /(^|[\r\n])([ \t]*(?:cookie|set-cookie)[ \t]*:[ \t]*)[^\r\n]*/gi,
+      (_match, prefix, header) => `${prefix}${header}[REDACTED]`,
+    )
     .replace(/([?&])([^=&#\s]+)=([^&#\s]*)/g, (match, separator, rawKey) => {
       let key: string;
       try {
@@ -414,7 +420,7 @@ function redactEvidenceString(value: string): string {
         return `${separator}${rawKey}=[REDACTED]`;
       }
       const normalizedKey = normalizedEvidenceKey(key);
-      return /(?:token|secret|password|credential|signature|apikey|accesskey|privatekey|authorization|auth)/.test(
+      return /(?:token|secret|password|credential|signature|apikey|accesskey|privatekey|authorization|auth|cookie|session|jwt)/.test(
         normalizedKey,
       ) ||
         normalizedKey === "key" ||

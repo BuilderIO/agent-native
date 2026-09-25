@@ -395,6 +395,10 @@ export async function ensureObservabilityTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_trace_spans_created ON agent_trace_spans (created_at)`,
         );
         await ensureIndexExists(
+          "idx_trace_spans_type_name_run_id",
+          `CREATE INDEX IF NOT EXISTS idx_trace_spans_type_name_run_id ON agent_trace_spans (span_type, name, run_id)`,
+        );
+        await ensureIndexExists(
           "idx_trace_summaries_created",
           `CREATE INDEX IF NOT EXISTS idx_trace_summaries_created ON agent_trace_summaries (created_at)`,
         );
@@ -421,6 +425,10 @@ export async function ensureObservabilityTables(): Promise<void> {
         await ensureIndexExists(
           "idx_feedback_created",
           `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_feedback_org_source_created",
+          `CREATE INDEX IF NOT EXISTS idx_feedback_org_source_created ON agent_feedback (org_id, source, created_at DESC)`,
         );
         await ensureIndexExists(
           "idx_feedback_user",
