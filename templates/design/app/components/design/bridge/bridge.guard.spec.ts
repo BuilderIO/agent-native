@@ -6802,13 +6802,31 @@ it(
 // flex/grid element. See autoLayoutInsertionTargetForPoint's updated policy
 // comment in editor-chrome.bridge.ts.
 
-function collectBridgeMessages(page: import("@playwright/test").Page) {
-  return page.evaluate(() => {
+function collectBridgeMessages(
+  page: import("@playwright/test").Page,
+  options: { grantSnapshotReservations?: boolean } = {},
+) {
+  return page.evaluate(({ grantSnapshotReservations }) => {
     (window as any).__bridgeMessages = [];
     window.addEventListener("message", (event: MessageEvent) => {
       (window as any).__bridgeMessages.push(event.data);
+      if (
+        grantSnapshotReservations !== false &&
+        event.source === window &&
+        event.data?.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request"
+      ) {
+        window.postMessage(
+          {
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId: event.data.requestId,
+            reservationToken: `test-reservation-${event.data.requestId}`,
+          },
+          "*",
+        );
+      }
     });
-  });
+  }, options);
 }
 
 // The bridge posts synchronously, but `message` events are delivered as tasks;
@@ -8909,7 +8927,9 @@ it(
       await page.setContent(
         "<!doctype html><html><body><h1>Canvas</h1></body></html>",
       );
-      await collectBridgeMessages(page);
+      await collectBridgeMessages(page, {
+        grantSnapshotReservations: false,
+      });
       await page.addScriptTag({
         content: hydratedEditorChromeBridgeScript(true),
       });
