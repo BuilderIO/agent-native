@@ -7424,7 +7424,8 @@ export function DesignCanvas({
       liveEditBridgeConfigurationPending ||
       (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
       sameOriginBridgePending ||
-      liveEditDocumentPending ||
+      (liveEditDocumentPending &&
+        liveEditSameInstanceStalledError?.bridgeKey !== liveEditBridgeKey) ||
       liveEditRegistrationFailurePending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (

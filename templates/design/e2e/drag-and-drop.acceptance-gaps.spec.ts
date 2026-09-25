@@ -794,6 +794,10 @@ test("cross-Screen drops preserve Flex and default Grid-stretched sizes", async 
         }
       });
     });
+    const gridSourceBefore = ownership(
+      await file(request, designId, "index.html"),
+      "grid-stretched",
+    );
     for (const nodeId of ["flex-stretched", "grid-stretched"]) {
       const source = screenById(page, ids[0]!)
         .contentFrame()
@@ -901,6 +905,47 @@ test("cross-Screen drops preserve Flex and default Grid-stretched sizes", async 
         })
         .toMatch(/(?:^|;)\s*height\s*:\s*200px/i);
     }
+
+    const undoShortcut = process.platform === "darwin" ? "Meta+z" : "Control+z";
+    const redoShortcut =
+      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z";
+    await page.keyboard.press(undoShortcut);
+    await expect
+      .poll(async () => {
+        const [sourceHtml, destinationHtml] = await Promise.all([
+          file(request, designId, "index.html"),
+          file(request, designId, "second.html"),
+        ]);
+        return {
+          source: ownership(sourceHtml, "grid-stretched"),
+          destination: ownership(destinationHtml, "grid-stretched"),
+        };
+      })
+      .toEqual({
+        source: gridSourceBefore,
+        destination: { exists: false, parent: null, style: "" },
+      });
+
+    await page.keyboard.press(redoShortcut);
+    await expect
+      .poll(async () => {
+        const [sourceHtml, destinationHtml] = await Promise.all([
+          file(request, designId, "index.html"),
+          file(request, designId, "second.html"),
+        ]);
+        return {
+          source: ownership(sourceHtml, "grid-stretched"),
+          destination: ownership(destinationHtml, "grid-stretched"),
+        };
+      })
+      .toMatchObject({
+        source: { exists: false },
+        destination: {
+          exists: true,
+          parent: "root",
+          style: expect.stringMatching(/(?:^|;)\s*width\s*:\s*300px/i),
+        },
+      });
 
     await page.reload({ waitUntil: "domcontentloaded" });
     for (const nodeId of ["flex-stretched", "grid-stretched"]) {
