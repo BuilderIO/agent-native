@@ -120,7 +120,7 @@ describe("assertNoDeckRenderArtifacts", () => {
     );
   });
 
-  it("saves slides that keep or copy markup the deck already stored", () => {
+  it("saves a stored slide that keeps its markup and a new copy of older scoped styles", () => {
     expect(() =>
       assertNoDeckRenderArtifacts(stored, {
         slides: [
@@ -130,12 +130,30 @@ describe("assertNoDeckRenderArtifacts", () => {
               '<div class="fmd-slide"><p data-builder-id="b-1">L2</p></div>',
           },
           {
+            id: "restored",
+            content:
+              '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p{color:red}</style><p>R</p></div>',
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses a new slide carrying editor markup even when another slide stores it", () => {
+    expect(() =>
+      assertNoDeckRenderArtifacts(stored, {
+        slides: [
+          {
             id: "copy",
             content:
               '<div class="fmd-slide"><p data-builder-id="b-1">L</p></div>',
           },
         ],
       }),
-    ).not.toThrow();
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+      }),
+    );
   });
 });

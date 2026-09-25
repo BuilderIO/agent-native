@@ -63,7 +63,10 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
-import { assertNoRenderArtifacts } from "./_render-artifacts.js";
+import {
+  assertNoRenderArtifacts,
+  assertNoRenderArtifactsInNewSlide,
+} from "./_render-artifacts.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -618,6 +621,9 @@ export function applyOperation(
       const { slideId, afterSlideId, fields } = op;
       // Idempotency: if the slide already exists (duplicate delivery), skip.
       if (slides.some((s: { id: string }) => s.id === slideId)) return false;
+      if (typeof fields.content === "string") {
+        assertNoRenderArtifactsInNewSlide(fields.content, slideId);
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       // Copy every provided field: a duplicated or undo-restored slide has to
       // keep its transition, animations, and image data, not just its text.

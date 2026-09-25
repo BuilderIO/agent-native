@@ -159,6 +159,27 @@ describe("save-deck design-system relation persistence", () => {
     expect(state.updatedFields).toBeUndefined();
   });
 
+  it("refuses to create a deck whose slides carry rendered editor markup", async () => {
+    state.access = undefined;
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-new",
+          deck: {
+            title: "New deck",
+            slides: [
+              {
+                id: "slide-1",
+                content: '<p data-src-i="slide-r1:0">New</p>',
+              },
+            ],
+          },
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+  });
+
   it("skips a full replacement when only updatedAt differs", async () => {
     const result = await saveDeckAction.run(
       {

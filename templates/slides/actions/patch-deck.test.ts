@@ -178,6 +178,41 @@ describe("applyOperation — patch-slide", () => {
     );
   });
 
+  it("refuses an added slide carrying editor markup but keeps older scoped styles", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content:
+            '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>',
+        },
+      ],
+    };
+    expect(() =>
+      applyOperation(deck, {
+        op: "add-slide",
+        slideId: "s2",
+        fields: {
+          content:
+            '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>',
+        },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+      }),
+    );
+    expect(deck.slides).toHaveLength(1);
+    const restored =
+      '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p{color:red}</style><p>R</p></div>';
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s3",
+      fields: { content: restored },
+    });
+    expect(deck.slides[1].content).toBe(restored);
+  });
+
   it("still saves content that already carried rendered markup", () => {
     const flattened =
       '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>';

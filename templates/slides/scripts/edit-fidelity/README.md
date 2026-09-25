@@ -36,6 +36,7 @@ because it creates and rewrites decks.
 | `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                  |
 | `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                      |
 | `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept |
+| `--accept-failing`             | With `--update`, also record non-passing results as accepted ceilings                   |
 | `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                    |
 | `--max-slides N`               | Run the first N slides of each case, after `--slides`                                   |
 | `--slides 1,3`                 | 1-based slide numbers                                                                   |
@@ -252,8 +253,10 @@ A regression is any of:
 - a result with no baseline entry;
 - a baselined scenario inside the run's filters and limits that did not run.
 
-Seed the baseline with today's failures using `--update`. Ceilings should only
-go down.
+`--update` records only passing results: a ratchet seeded from a failing run
+would accept the failure as its ceiling. Record a known failure deliberately
+with `--accept-failing`. Ceilings should only go down. With no baseline file
+the run cannot gate and exits 2.
 
 ## Limitations
 

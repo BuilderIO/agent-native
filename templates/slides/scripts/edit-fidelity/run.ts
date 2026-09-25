@@ -122,6 +122,7 @@ const scenarios = (listOpt("--scenarios") ?? [...SCENARIOS]) as Scenario[];
 const concurrency = numOpt("--concurrency", 1);
 const cpuThrottle = numOpt("--cpu-throttle", 1);
 const update = argv.includes("--update");
+const acceptFailing = argv.includes("--accept-failing");
 const headed = argv.includes("--headed");
 for (const s of scenarios) {
   if (!SCENARIOS.includes(s))
@@ -622,7 +623,7 @@ function describeWrite(
         )
       : action === "update-slide"
         ? [slide(String(body.slideId), body)]
-        : (body.slides ?? []).map((s: any) => slide(String(s.id), s));
+        : (body.deck?.slides ?? []).map((s: any) => slide(String(s.id), s));
   return { action, phase, slides };
 }
 
@@ -830,7 +831,8 @@ async function runScenario(
   let countingWrites = false;
   let phase: WriteDetail["phase"] = "edit";
   const onRequest = (request: any) => {
-    if (!countingWrites || request.method() !== "POST") return;
+    const method = request.method();
+    if (!countingWrites || (method !== "POST" && method !== "PUT")) return;
     const match = WRITE_ACTION.exec(request.url());
     if (!match) return;
     writes.push(match[1]);
@@ -1665,9 +1667,24 @@ async function main() {
     }`,
   );
 
+  const baselineMissing = !existsSync(baselinePath);
   if (update && results.length) {
     const next = { ...baseline };
-    for (const r of results) next[r.key] = toBaselineEntry(r.metrics!);
+    // A ratchet seeded from a failing run would accept the failure as the
+    // ceiling, so only passing results are recorded unless asked.
+    const refused = results.filter(
+      (r) => r.status !== "pass" && !acceptFailing,
+    );
+    for (const r of results) {
+      if (!refused.includes(r)) next[r.key] = toBaselineEntry(r.metrics!);
+    }
+    if (refused.length) {
+      console.log(
+        `\n${refused.length} non-passing result(s) not recorded (pass --accept-failing to record them as accepted ceilings):`,
+      );
+      for (const r of refused) console.log(`  ${r.key} (${r.status})`);
+      exitCode = 1;
+    }
     const sorted = Object.fromEntries(
       Object.entries(next).sort(([a], [b]) => a.localeCompare(b)),
     );
@@ -1675,6 +1692,11 @@ async function main() {
     console.log(
       `baseline updated: ${baselinePath} (${results.length} entries written)`,
     );
+  } else if (baselineMissing) {
+    console.error(
+      `\n[edit-fidelity] could not gate: no baseline at ${baselinePath}. Seed one from a passing run with --update.`,
+    );
+    exitCode = 2;
   } else if (problems.length) {
     console.log(`\n${problems.length} regression(s) against ${baselinePath}:`);
     for (const p of problems) console.log(`  ${p}`);

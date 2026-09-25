@@ -46,7 +46,10 @@ import {
   nextDeckRevision,
   type DeckPayload,
 } from "./_deck-write.js";
-import { assertNoRenderArtifacts } from "./_render-artifacts.js";
+import {
+  assertNoRenderArtifacts,
+  assertNoRenderArtifactsInNewSlide,
+} from "./_render-artifacts.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function shouldSnapshotDeckWrite(
@@ -120,6 +123,7 @@ export default defineAction({
         assertHumanReadableDeckTitle(title);
         deck.title = title;
         await assertDesignSystemReadable(deckDesignSystemId(deck));
+        assertNoDeckRenderArtifacts(null, deck);
         try {
           await db.insert(schema.decks).values({
             id: deckId,
@@ -241,9 +245,9 @@ export function stampChangedSlideRevisions(
 }
 
 /**
- * The full-payload write's half of the save boundary: every slide is checked
- * against its stored predecessor, and a slide new to the deck against the whole
- * stored deck, so a copy of an older flattened slide still saves.
+ * The full-payload write's half of the save boundary: a stored slide is checked
+ * against its stored predecessor, a slide new to the deck (or a new deck's) as
+ * a new slide.
  */
 export function assertNoDeckRenderArtifacts(
   previousData: string | null | undefined,
@@ -254,19 +258,20 @@ export function assertNoDeckRenderArtifacts(
       ? ((JSON.parse(previousData) as { slides?: unknown }).slides ?? [])
       : []
   ) as Array<Record<string, unknown>>;
-  const contentOf = (slide: Record<string, unknown> | undefined) =>
-    typeof slide?.content === "string" ? slide.content : "";
-  const wholeDeck = previousSlides.map(contentOf).join("\n");
   const nextSlides = Array.isArray(nextDeck.slides)
     ? (nextDeck.slides as Array<Record<string, unknown>>)
     : [];
   for (const slide of nextSlides) {
     if (typeof slide.content !== "string") continue;
     const prior = previousSlides.find((candidate) => candidate.id === slide.id);
-    assertNoRenderArtifacts(
-      prior ? contentOf(prior) : wholeDeck,
-      slide.content,
-      String(slide.id),
-    );
+    if (prior) {
+      assertNoRenderArtifacts(
+        typeof prior.content === "string" ? prior.content : "",
+        slide.content,
+        String(slide.id),
+      );
+    } else {
+      assertNoRenderArtifactsInNewSlide(slide.content, String(slide.id));
+    }
   }
 }

@@ -27,3 +27,26 @@ export function assertNoRenderArtifacts(
     },
   );
 }
+
+/**
+ * The check for a slide with no stored predecessor (a new deck, a duplicate,
+ * an undo-restored slide), whose history the server cannot see. Older saves
+ * stored the scoped stylesheet's selectors, and the renderer heals them, so a
+ * copy of such a slide may carry them; every other marker is refused.
+ */
+export function assertNoRenderArtifactsInNewSlide(
+  content: string,
+  slideId: string,
+): void {
+  const markers = renderArtifactGrowth("", content).filter(
+    (marker) => marker !== "data-slide-content-scope",
+  );
+  if (markers.length === 0) return;
+  fail(
+    `Slide ${slideId} content contains editor-rendered markup (${markers.join(", ")}). Write the slide's stored HTML, not the rendered editor DOM.`,
+    {
+      errorCode: "render_artifact_in_slide_content",
+      details: { slideId, markers },
+    },
+  );
+}
