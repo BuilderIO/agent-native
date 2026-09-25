@@ -164,7 +164,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   },
 }));
 
-vi.mock("@agent-native/toolkit/app-shell", () => ({
+vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   useSetHeaderActions: (actions: unknown) => {
     mocks.headerActions = actions;
   },
@@ -580,9 +581,7 @@ describe("home library", () => {
       compact: "true",
       includePreview: "false",
     });
-    expect(
-      container.querySelector('[role="tab"][data-state="active"]')?.textContent,
-    ).toBe("navigation.templates");
+    expect(container.textContent).toContain("navigation.templates");
     expect(container.textContent).not.toContain("home.recent");
     expect(container.querySelector('a[href="/templates"]')).not.toBeNull();
     mocks.ownCount = 1;
@@ -614,13 +613,20 @@ describe("home library", () => {
     );
   });
 
-  it("selects a template and focuses the same composer without creating a design", async () => {
-    const template = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Starter template",
-    );
+  it("copies a gallery template directly without submitting or changing the draft", async () => {
+    const originalPrompt = mocks.promptProps;
+    const template = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="button"]'),
+    ).find((button) => button.textContent?.includes("Starter template"));
     await act(async () => template?.click());
-    expect(mocks.promptProps?.selectedTemplateId).toBe("starter-template");
-    expect(mocks.focusComposer).toHaveBeenCalled();
-    expect(mocks.createFromTemplate).not.toHaveBeenCalled();
+    expect(mocks.createFromTemplate).toHaveBeenCalledExactlyOnceWith({
+      templateId: "starter-template",
+      title: "Starter template",
+    });
+    expect(mocks.promptProps?.selectedTemplateId).toBe(
+      originalPrompt?.selectedTemplateId,
+    );
+    expect(mocks.focusComposer).not.toHaveBeenCalled();
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/copied-design");
   });
 });

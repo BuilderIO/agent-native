@@ -1747,6 +1747,8 @@ export default {
     layoutLabel: "Screen layout save करने के लिए ready",
   },
   templatesPage: {
+    previewEmpty: "इस टेम्पलेट में पूर्वावलोकन के लिए कोई स्क्रीन नहीं है।",
+    loading: "टेम्पलेट लोड हो रहे हैं",
     title: "टेम्पलेट",
     description:
       "सही आकार और डिफ़ॉल्ट से शुरू करें, फिर अनलॉक सामग्री को प्रॉम्प्ट से बदलें।",
@@ -1773,7 +1775,7 @@ export default {
     deleteTitle: "टेम्पलेट हटाएँ?",
     deleteDescription:
       "यह {{title}} को स्थायी रूप से हटाता है। पहले से बने डिज़ाइन प्रभावित नहीं होंगे।",
-    templateActions: "टेम्पलेट कार्रवाइयाँ",
+    templateActions: "{{title}} के लिए कार्रवाइयाँ",
     lockedCount: "{{count}} लॉक",
     categories: {
       ad: "विज्ञापन",

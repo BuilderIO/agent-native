@@ -105,6 +105,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## प्रॉम्प्ट होम और टेम्पलेट लाइब्रेरी {#prompt-home}
+
+`PromptHome`, `PromptHomeLibrary`, `TemplateLibraryGrid` और `TemplateLibraryCard`, `@agent-native/toolkit/app-shell` से एक्सपोर्ट होते हैं। इनमें साझा स्पेसिंग, बीच में 700px का कंपोज़र और रिस्पॉन्सिव चार-कॉलम लाइब्रेरी मिलती है। main लैंडमार्क ऐप शेल के पास रहता है। ऐप असली डेटा, अनुवादित लेबल, प्रीव्यू, एक्शन और रूट देती है।
+
+`PromptHome` में `title`, `composer`, वैकल्पिक `mobileToolbar`, `connection`, `quickActions` और लाइब्रेरी के लिए `children` होते हैं। `PromptHomeLibrary` नियंत्रित `value` (`templates` या `recent`), `onValueChange`, `labels`, `showRecent`, `templates` और वैकल्पिक `recent`, `browseAll`, `recentActions` लेता है। हाल का काम न होने पर यह नकली टैब के बिना टेम्पलेट दिखाता है। `browseAll` ऐप का दिया हुआ वास्तविक लिंक होता है। सेमांटिक `Tabs.headerActions` स्लॉट सक्रिय एक्शन को टैब के पास रखता है।
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` टाइप किए गए `items` लेता है जिनमें `id`, `title`, वैकल्पिक संग्रहित `description` और `disabled` होते हैं, साथ में `renderPreview`। यह `selectedId`, `pendingId`, `disabled`, `loading`, `error`, `onRetry`, वैकल्पिक `empty` और लोडिंग, खाली स्थिति तथा पुनः प्रयास के `labels` संभालता है। `onSelect(item, element)` या `renderLink(item, children)` में से एक चुनें, दोनों नहीं। चित्र और कैप्शन एक ही सक्रियण लक्ष्य साझा करते हैं। `renderActions` सक्रियण लक्ष्य से बाहर, शीर्षक और वैकल्पिक विवरण के साथ उसी पंक्ति में रहता है। कार्ड की पूर्वावलोकन और कैप्शन जगह का आकार समान रहता है; सीधे सक्रिय करने पर टेम्पलेट इस्तेमाल या कॉपी होता है, जबकि पूर्वावलोकन केवल कैप्शन मेनू में रहता है। रीफ़्रेश विफल होने पर लोड हुए आइटम दिखते रहते हैं। `TemplateLibraryCard` एक `item` के लिए यही व्यवहार देता है, जिसमें `preview` और वैकल्पिक `actions`, `selected`, `pending`, `disabled` हैं।
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+उसी प्रवेश बिंदु से निर्यात किया गया `TemplatePreviewDialog`, डिफ़ॉल्ट रूप से `size="viewport"` या वैकल्पिक `size="large"` के साथ सिमैंटिक `Dialog` इस्तेमाल करता है। यह नियंत्रित `open`, `onOpenChange`, `title` और ऐप द्वारा रेंडर किए गए `children` लेता है; हेडर में इस्तेमाल करने की कार्रवाई नहीं होती। वैकल्पिक `thumbnails` में `{ id, title, preview, disabled? }` होते हैं और इनके साथ `selectedId` तथा `onSelectedIdChange` ज़रूरी हैं। छोटी स्क्रीन पर पट्टी क्षैतिज हो जाती है और तीर कुंजियाँ, Home तथा End समर्थित हैं।
+
+`viewport` आकार बीच में स्थित, किनारों से दूरी वाला मोडल है: ऊँचाई 90dvh, अधिकतम चौड़ाई 96rem, मोबाइल पर 1rem और बड़ी स्क्रीन पर 1.5rem का पार्श्व अंतर। यह मानक डायलॉग की सीमा, गोलाई, छाया और पृष्ठभूमि बनाए रखता है। होवर समर्थित उपकरणों पर कार्ड के ऊपर पॉइंटर या कीबोर्ड फ़ोकस आने पर कैप्शन मेनू दिखते हैं और टच उपकरणों पर हमेशा दिखते हैं; उनके लिए आरक्षित जगह नहीं बदलती।
+
+अलग-अलग तैयारी स्थितियों के लिए अनुवादित `labels` (`close`, `loading`, `empty`, `retry`, `thumbnails`) और वैकल्पिक `loading`, `error`, `empty`, `onRetry` दें। `initialFocusRef` और `restoreFocusRef` फ़ोकस संभालते हैं। कैप्शन मेनू बंद होने के बाद उससे व्यूअर खोलें; पढ़ना, रद्द करना, प्राधिकरण और सुरक्षित अलग रेंडरिंग ऐप की ज़िम्मेदारी हैं।
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit की शैलियों में साझा ज्यामिति शामिल है। `@agent-native/toolkit/app-shell/prompt-home.css` विशेष स्टाइलशीट एक्सपोर्ट है। मौजूदा `toolkit/app-shell` इजेक्शन यूनिट में लेआउट और स्टाइलशीट शामिल हैं। डेटा लोडिंग, अनुमति, आयात और कंपोज़र की स्थिति ऐप की ज़िम्मेदारी रहते हैं।
+
 ## एजेंट और चैट UI {#agent-chat-ui}
 
 | API                                  | आयात पथ                                       | कब उपयोग करें                                                                                           |

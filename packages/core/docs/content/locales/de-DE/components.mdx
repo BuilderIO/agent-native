@@ -109,6 +109,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## Prompt-Startseite und Vorlagenbibliotheken {#prompt-home}
+
+`PromptHome`, `PromptHomeLibrary`, `TemplateLibraryGrid` und `TemplateLibraryCard` werden aus `@agent-native/toolkit/app-shell` exportiert. Sie teilen Abstände, einen zentrierten 700-Pixel-Composer und eine responsive vierspaltige Bibliothek. Die App-Shell behält die main-Landmarke. Apps liefern echte Daten, übersetzte Bezeichnungen, Vorschauen, Aktionen und Routen.
+
+`PromptHome` akzeptiert `title`, `composer`, optional `mobileToolbar`, `connection`, `quickActions` sowie Bibliotheksinhalt als `children`. `PromptHomeLibrary` erhält den kontrollierten `value` (`templates` oder `recent`), `onValueChange`, `labels`, `showRecent`, `templates` und optional `recent`, `browseAll`, `recentActions`. Ohne kürzliche Inhalte erscheinen Vorlagen ohne künstlichen Tab. Die App liefert für `browseAll` einen echten Link. Der semantische Slot `Tabs.headerActions` hält aktive Aktionen neben den Tabs.
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` akzeptiert typisierte `items` mit `id`, `title`, optional gespeicherter `description` und `disabled` sowie `renderPreview`. Unterstützt werden `selectedId`, `pendingId`, `disabled`, `loading`, `error`, `onRetry`, optional `empty` und übergebene `labels` für Laden, Leerzustand und Wiederholung. Entweder `onSelect(item, element)` oder `renderLink(item, children)` verwenden, niemals beides. Bild und Beschriftung teilen ein Aktivierungsziel. `renderActions` bleibt außerhalb des Aktivierungsziels, in derselben Zeile neben Titel und optionaler Beschreibung. Karten haben feste Vorschau- und Beschriftungsmaße; die direkte Aktivierung verwendet oder kopiert die Vorlage, während die Vorschau nur im Beschriftungsmenü angeboten wird. Geladene Elemente bleiben nach Aktualisierungsfehlern sichtbar. `TemplateLibraryCard` bietet dasselbe Verhalten für ein `item` mit `preview` sowie optional `actions`, `selected`, `pending` und `disabled`.
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+`TemplatePreviewDialog` wird über denselben Einstiegspunkt exportiert und verwendet den semantischen `Dialog` standardmäßig mit `size="viewport"` oder optional `size="large"`. Er erhält die kontrollierten Werte `open`, `onOpenChange`, `title` und von der App gerenderte `children`; der Kopf enthält keine Verwendungsaktion. Optionale `thumbnails` enthalten `{ id, title, preview, disabled? }` und erfordern `selectedId` sowie `onSelectedIdChange`. Die Leiste wird auf schmalen Bildschirmen horizontal und unterstützt Pfeiltasten, Home und End.
+
+Die Größe `viewport` ist ein zentrierter Dialog mit Außenabstand: 90dvh hoch, höchstens 96rem breit, mit 1rem seitlichem Abstand mobil und 1.5rem auf breiteren Bildschirmen. Standardrahmen, Rundung, Schatten und Hintergrund bleiben erhalten. Beschriftungsmenüs erscheinen auf Geräten mit Hover beim Überfahren der Karte oder bei Tastaturfokus und bleiben auf Touchgeräten sichtbar; ihr reservierter Platz ändert sich nicht.
+
+Lokalisierte `labels` (`close`, `loading`, `empty`, `retry`, `thumbnails`) sowie optional `loading`, `error`, `empty` und `onRetry` steuern sich ausschließende Bereitschaftszustände. `initialFocusRef` und `restoreFocusRef` steuern den Fokus. Den Viewer nach dem Schließen des Beschriftungsmenüs öffnen; Lesezugriffe, Abbruch, Autorisierung und sichere isolierte Darstellung bleiben Aufgabe der App.
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Die Toolkit-Stile enthalten die gemeinsame Geometrie. `@agent-native/toolkit/app-shell/prompt-home.css` exportiert das gezielte Stylesheet. Die bestehende Ejection-Einheit `toolkit/app-shell` umfasst Layout und Stylesheet. Datenladen, Autorisierung, Importabläufe und Composer-Zustand bleiben bei der App.
+
 ## Agent und Chat-Oberfläche {#agent-chat-ui}
 
 | API                                  | Importpfad                                      | Verwenden, wenn                                                                                                                        |

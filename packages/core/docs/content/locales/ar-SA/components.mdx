@@ -107,6 +107,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## الصفحة الرئيسية للموجّه ومكتبات القوالب {#prompt-home}
+
+تُصدَّر `PromptHome` و`PromptHomeLibrary` و`TemplateLibraryGrid` و`TemplateLibraryCard` من `@agent-native/toolkit/app-shell`. توحّد المسافات ومحررًا مركزيًا بعرض 700 بكسل ومكتبة متجاوبة من أربعة أعمدة. يحتفظ هيكل التطبيق بمعلم main. توفر التطبيقات بيانات فعلية وتسميات مترجمة ومعاينات وإجراءات وروابط.
+
+تقبل `PromptHome` الخصائص `title` و`composer` و`children` للمكتبة، مع `mobileToolbar` و`connection` و`quickActions` الاختيارية. تستقبل `PromptHomeLibrary` قيمة `value` متحكمًا بها (`templates` أو `recent`) و`onValueChange` و`labels` و`showRecent` و`templates`، مع `recent` و`browseAll` و`recentActions` الاختيارية. عند غياب العناصر الحديثة تعرض القوالب دون تبويب صوري. يوفر التطبيق رابطًا حقيقيًا لـ `browseAll`. تضع فتحة `Tabs.headerActions` الدلالية الإجراءات النشطة بجانب التبويبات.
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+تقبل `TemplateLibraryGrid` عناصر `items` ذات نوع محدد تتضمن `id` و`title`، و`description` مخزّنًا و`disabled` اختياريين، مع `renderPreview`. تدعم `selectedId` و`pendingId` و`disabled` و`loading` و`error` و`onRetry` و`empty` الاختياري، و`labels` لحالات التحميل والفراغ وإعادة المحاولة. يُستخدم إما `onSelect(item, element)` أو `renderLink(item, children)`، وليس كلاهما. تشترك الصورة والتسمية في هدف تفعيل واحد. يبقى `renderActions` خارج هدف التفعيل، بجانب العنوان والوصف الاختياري في الصف نفسه. تتشارك البطاقات أبعادًا ثابتة للمعاينة والتسمية؛ يستخدم التفعيل المباشر القالب أو ينسخه، بينما تبقى المعاينة في قائمة التسمية فقط. تبقى العناصر المحمّلة ظاهرة بعد فشل التحديث. توفر `TemplateLibraryCard` السلوك نفسه لعنصر `item` واحد مع `preview` و`actions` و`selected` و`pending` و`disabled` الاختيارية.
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+تُصدَّر `TemplatePreviewDialog` من نقطة الدخول نفسها وتستخدم `Dialog` الدلالية بحجم `size="viewport"` افتراضيًا أو `size="large"`. تستقبل `open` و`onOpenChange` و`title` و`children` التي يرسمها التطبيق؛ لا يتضمن رأسها إجراء استخدام. تحتوي `thumbnails` الاختيارية على `{ id, title, preview, disabled? }` وتتطلب `selectedId` و`onSelectedIdChange`. يصبح شريط الصور أفقيًا على الشاشات الضيقة ويدعم الأسهم وHome وEnd.
+
+حجم `viewport` نافذة حوار وسطية بهوامش، ارتفاعها 90dvh وعرضها الأقصى 96rem، مع هامش جانبي 1rem على الهاتف و1.5rem على الشاشات الأعرض. يحافظ على حد النافذة وزواياها وظلها وخلفيتها القياسية. تظهر قوائم التسمية عند تمرير المؤشر فوق البطاقة أو تركيز لوحة المفاتيح على الأجهزة الداعمة للتمرير، وتبقى ظاهرة على أجهزة اللمس؛ ولا تتغير المساحة المحجوزة لها.
+
+مرّر `labels` المترجمة (`close` و`loading` و`empty` و`retry` و`thumbnails`)، مع `loading` و`error` و`empty` و`onRetry` الاختيارية لحالات جاهزية لا تتداخل. تتحكم `initialFocusRef` و`restoreFocusRef` بالتركيز. افتح العارض من قائمة التسمية بعد اكتمال إغلاقها؛ تبقى القراءة والإلغاء والتفويض والعرض المعزول الآمن مسؤولية التطبيق.
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+تتضمن أنماط Toolkit أبعاد التخطيط المشتركة. يصدر `@agent-native/toolkit/app-shell/prompt-home.css` ورقة الأنماط المخصصة. تشمل وحدة الإخراج الحالية `toolkit/app-shell` التخطيط وورقة الأنماط. يظل تحميل البيانات والتفويض والاستيراد وحالة المحرر مسؤولية التطبيق.
+
 ## الوكيل والدردشة UI {#agent-chat-ui}
 
 | API                                  | مسار الاستيراد                                | استخدم عندما                                                                             |

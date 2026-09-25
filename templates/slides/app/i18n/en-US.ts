@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "Template actions for {{title}}",
+    previewAction: "Preview",
+    title: "Templates",
+    browseAll: "Browse all",
+    searchPlaceholder: "Search templates…",
+    loading: "Loading templates",
+    empty: "No templates match your search.",
+    loadFailed: "Could not load templates.",
+    preview: "Template preview",
+    useTemplate: "Use template",
+    opening: "Opening template…",
+    createFailed: "Could not create a presentation from this template.",
+    previous: "Previous",
+    next: "Next",
+    slidePosition: "Slide {{current}} of {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandPresentations: "Presentations",

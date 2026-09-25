@@ -103,6 +103,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## 프롬프트 홈과 템플릿 라이브러리 {#prompt-home}
+
+`PromptHome`, `PromptHomeLibrary`, `TemplateLibraryGrid`, `TemplateLibraryCard`는 `@agent-native/toolkit/app-shell`에서 내보냅니다. 간격, 중앙 정렬된 700px 컴포저, 반응형 4열 라이브러리를 공유합니다. main 랜드마크는 앱 셸이 유지합니다. 앱은 실제 데이터, 번역된 레이블, 미리보기, 작업과 경로를 제공합니다.
+
+`PromptHome`은 `title`, `composer`, 선택적인 `mobileToolbar`, `connection`, `quickActions`와 라이브러리 `children`을 받습니다. `PromptHomeLibrary`는 제어된 `value`(`templates` 또는 `recent`), `onValueChange`, `labels`, `showRecent`, `templates`와 선택적인 `recent`, `browseAll`, `recentActions`를 받습니다. 최근 항목이 없으면 불필요한 탭 없이 템플릿을 표시합니다. `browseAll`은 앱이 제공하는 실제 링크입니다. 시맨틱 `Tabs.headerActions` 슬롯은 활성 작업을 탭 옆에 배치합니다.
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid`는 `id`, `title`, 선택적인 저장된 `description`과 `disabled`가 있는 타입 지정 `items` 및 `renderPreview`를 받습니다. `selectedId`, `pendingId`, `disabled`, `loading`, `error`, `onRetry`, 선택적인 `empty`, 로딩·빈 상태·재시도용 `labels`를 지원합니다. `onSelect(item, element)` 또는 `renderLink(item, children)` 중 하나만 선택합니다. 이미지와 캡션은 하나의 활성화 대상을 공유합니다. `renderActions`는 활성화 대상 밖에서 제목과 선택적 설명 옆 같은 행에 표시됩니다. 카드의 미리보기와 캡션 크기는 동일합니다. 직접 활성화하면 템플릿을 사용하거나 복사하고, 미리보기는 캡션 메뉴에서만 엽니다. 새로고침이 실패해도 이미 불러온 항목은 유지됩니다. `TemplateLibraryCard`는 단일 `item`에 같은 동작을 제공하며 `preview`와 선택적인 `actions`, `selected`, `pending`, `disabled`를 받습니다.
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+같은 진입점에서 내보내는 `TemplatePreviewDialog`는 시맨틱 `Dialog`를 기본 `size="viewport"` 또는 `size="large"`로 사용합니다. 제어되는 `open`, `onOpenChange`, `title`과 앱이 렌더링한 `children`을 받으며, 헤더에는 사용 액션이 없습니다. 선택적 `thumbnails`는 `{ id, title, preview, disabled? }`를 포함하며 `selectedId`와 `onSelectedIdChange`가 필요합니다. 좁은 화면에서는 목록이 가로로 바뀌고 방향키, Home, End를 지원합니다.
+
+`viewport` 크기는 여백을 둔 중앙 모달입니다. 높이는 90dvh, 최대 너비는 96rem이며 좌우 여백은 모바일에서 1rem, 넓은 화면에서 1.5rem입니다. 표준 대화상자의 테두리, 모서리, 그림자, 배경을 유지합니다. 호버 지원 기기에서는 카드 호버나 키보드 포커스 시 캡션 메뉴가 나타나고 터치 기기에서는 항상 표시됩니다. 메뉴에 예약된 공간은 바뀌지 않습니다.
+
+상호 배타적인 준비 상태를 위해 번역된 `labels`(`close`, `loading`, `empty`, `retry`, `thumbnails`)와 선택적 `loading`, `error`, `empty`, `onRetry`를 전달합니다. `initialFocusRef`와 `restoreFocusRef`가 포커스를 제어합니다. 캡션 메뉴의 닫힘 처리가 끝난 뒤 뷰어를 엽니다. 읽기, 취소, 권한 검사, 안전한 격리 렌더링은 앱이 담당합니다.
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit 스타일에는 공유 치수가 포함됩니다. `@agent-native/toolkit/app-shell/prompt-home.css`는 전용 스타일시트 내보내기 경로입니다. 기존 `toolkit/app-shell` 이젝트 단위에 레이아웃과 스타일시트가 포함됩니다. 데이터 로딩, 권한 확인, 가져오기와 컴포저 상태는 앱이 담당합니다.
+
 ## 에이전트 및 채팅 UI {#agent-chat-ui}
 
 | API                                  | 가져오기 경로                                   | 다음 경우에 사용                                                                   |

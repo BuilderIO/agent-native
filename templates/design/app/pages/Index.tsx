@@ -25,6 +25,9 @@ import {
   useCreativeContextState,
 } from "@agent-native/creative-context/client";
 import {
+  PromptHome,
+  PromptHomeLibrary,
+  type PromptHomeLibraryTab,
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
@@ -63,7 +66,7 @@ import type {
   UploadedFile,
 } from "@/components/editor/PromptDialog";
 import { QueryErrorState } from "@/components/QueryErrorState";
-import { TemplatePreview } from "@/components/templates/TemplatePreview";
+import { DesignTemplateLibrary } from "@/components/templates/DesignTemplateLibrary";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -86,9 +89,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -152,7 +153,8 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [homeSection, setHomeSection] = useState("templates");
+  const [homeSection, setHomeSection] =
+    useState<PromptHomeLibraryTab>("templates");
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
   const quickStartRef = useRef(false);
@@ -820,11 +822,6 @@ export default function Index() {
     startBlankDesign,
   ]);
 
-  const handleHomeTemplateSelect = (templateId: string) => {
-    handleTemplateChange(templateId);
-    composerRef.current?.focus();
-  };
-
   const handleDelete = useCallback(() => {
     if (!deleteId) return;
     const id = deleteId;
@@ -1000,10 +997,11 @@ export default function Index() {
   return (
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
-      <main className="mx-auto flex w-full max-w-370 flex-col px-4 pb-14 sm:px-6 lg:px-8">
-        <section className="design-home-hero relative flex flex-col items-center text-center">
-          {agentEngine.missing ? (
-            <div className="absolute top-7 flex flex-col items-center gap-2">
+      <PromptHome
+        title={t("home.designPromptTitle")}
+        connection={
+          agentEngine.missing ? (
+            <>
               <BuilderConnectPopover flow={builderConnect}>
                 <Button variant="outline" disabled={builderConnect.connecting}>
                   {builderConnect.connecting
@@ -1017,15 +1015,11 @@ export default function Index() {
                   {builderConnect.error}
                 </p>
               ) : null}
-            </div>
-          ) : null}
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-            {t("home.designPromptTitle")}
-          </h2>
-          <div
-            data-design-home-composer
-            className="mt-4 w-full max-w-175 text-start"
-          >
+            </>
+          ) : null
+        }
+        composer={
+          <div data-design-home-composer>
             <PromptPopover
               inline
               open
@@ -1087,132 +1081,127 @@ export default function Index() {
                 fullAppBuildingEnabled ? setNewDesignMode : undefined
               }
             />
-            <div className="mt-3 flex flex-wrap items-center justify-center gap-2 pb-1">
-              {STARTER_PROMPTS.map((starter) => {
-                const button = (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      newDesignHandoffPending ||
-                      quickStartPending ||
-                      !areComposerContextItemsReady(homeContext.contextItems)
-                    }
-                    onClick={
-                      agentEngine.missing
-                        ? undefined
-                        : async () => {
-                            if (quickStartRef.current || !composerRef.current)
-                              return;
-                            quickStartRef.current = true;
-                            submissionErrorRef.current = false;
-                            setQuickStartPending(true);
-                            try {
-                              const accepted =
-                                await composerRef.current.submitWithText(
-                                  t(starter.promptKey),
-                                );
-                              if (!accepted && !submissionErrorRef.current)
-                                toast.error(t("homeContext.notReady"));
-                            } finally {
-                              quickStartRef.current = false;
-                              setQuickStartPending(false);
-                            }
-                          }
-                    }
-                  >
-                    <starter.Icon />
-                    {t(starter.labelKey)}
-                  </Button>
-                );
-                return agentEngine.missing ? (
-                  <BuilderConnectPopover
-                    key={starter.labelKey}
-                    flow={builderConnect}
-                  >
-                    {button}
-                  </BuilderConnectPopover>
-                ) : (
-                  <span key={starter.labelKey}>{button}</span>
-                );
-              })}
-            </div>
           </div>
-        </section>
+        }
+        quickActions={
+          <>
+            {STARTER_PROMPTS.map((starter) => {
+              const button = (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    newDesignHandoffPending ||
+                    quickStartPending ||
+                    !areComposerContextItemsReady(homeContext.contextItems)
+                  }
+                  onClick={
+                    agentEngine.missing
+                      ? undefined
+                      : async () => {
+                          if (quickStartRef.current || !composerRef.current)
+                            return;
+                          quickStartRef.current = true;
+                          submissionErrorRef.current = false;
+                          setQuickStartPending(true);
+                          try {
+                            const accepted =
+                              await composerRef.current.submitWithText(
+                                t(starter.promptKey),
+                              );
+                            if (!accepted && !submissionErrorRef.current)
+                              toast.error(t("homeContext.notReady"));
+                          } finally {
+                            quickStartRef.current = false;
+                            setQuickStartPending(false);
+                          }
+                        }
+                  }
+                >
+                  <starter.Icon />
+                  {t(starter.labelKey)}
+                </Button>
+              );
+              return agentEngine.missing ? (
+                <BuilderConnectPopover
+                  key={starter.labelKey}
+                  flow={builderConnect}
+                >
+                  {button}
+                </BuilderConnectPopover>
+              ) : (
+                <span key={starter.labelKey}>{button}</span>
+              );
+            })}
+          </>
+        }
+      >
         {ownDesignsSummary.isError ? (
           <QueryErrorState
             onRetry={() => void ownDesignsSummary.refetch()}
             retrying={ownDesignsSummary.isFetching}
           />
         ) : null}
-        <Tabs
+        <PromptHomeLibrary
           value={activeHomeSection}
           onValueChange={setHomeSection}
-          className="mt-2"
-        >
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <TabsList aria-label={t("home.pageTitle")}>
-              <TabsTrigger value="templates">
-                {t("navigation.templates")}
-              </TabsTrigger>
-              {hasRecentDesigns ? (
-                <TabsTrigger value="recent">{t("home.recent")}</TabsTrigger>
-              ) : null}
-            </TabsList>
-            {activeHomeSection === "templates" ? (
-              <Button variant="ghost" size="sm" asChild>
-                <Link to="/templates">
-                  {t("home.browseAllTemplates")}
-                  <IconArrowRight />
-                </Link>
-              </Button>
-            ) : (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    aria-label={t("home.designFilter")}
-                  >
-                    <IconFilter />
-                    {designFilter === "mine" ? t("home.mine") : t("home.all")}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuRadioGroup
-                    value={designFilter}
-                    onValueChange={handleDesignFilterChange}
-                  >
-                    <DropdownMenuRadioItem value="mine">
-                      {t("home.mine")}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="all">
-                      {t("home.all")}
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-          <TabsContent value="templates">
-            {templatesError ? (
+          showRecent={hasRecentDesigns}
+          labels={{
+            templates: t("navigation.templates"),
+            recent: t("home.recent"),
+          }}
+          browseAll={
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/templates">
+                {t("home.browseAllTemplates")}
+                <IconArrowRight />
+              </Link>
+            </Button>
+          }
+          recentActions={
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={t("home.designFilter")}
+                >
+                  <IconFilter />
+                  {designFilter === "mine" ? t("home.mine") : t("home.all")}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup
+                  value={designFilter}
+                  onValueChange={handleDesignFilterChange}
+                >
+                  <DropdownMenuRadioItem value="mine">
+                    {t("home.mine")}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="all">
+                    {t("home.all")}
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          }
+          templates={
+            templatesError ? (
               <QueryErrorState
                 onRetry={() => void refetchTemplates()}
                 retrying={templatesFetching}
               />
             ) : (
-              <HomeTemplateGrid
+              <DesignTemplateLibrary
                 templates={templateOptions
                   .filter((template) => template.isBuiltIn)
                   .slice(0, 4)}
                 loading={templatesLoading}
-                selectedId={newTemplateId}
-                onSelect={handleHomeTemplateSelect}
               />
-            )}
-          </TabsContent>
-          {hasRecentDesigns ? (
-            <TabsContent value="recent">
+            )
+          }
+          recent={
+            <>
               {isLoading ? (
                 <LoadingSkeleton />
               ) : isError ? (
@@ -1483,10 +1472,10 @@ export default function Index() {
                   ) : null}
                 </>
               )}
-            </TabsContent>
-          ) : null}
-        </Tabs>
-      </main>
+            </>
+          }
+        />
+      </PromptHome>
 
       {creativeContextEnabled ? (
         <CreativeContextShareSheet
@@ -1687,68 +1676,6 @@ const STARTER_PROMPTS = [
     Icon: IconPresentation,
   },
 ];
-
-function HomeTemplateGrid({
-  templates,
-  loading,
-  selectedId,
-  onSelect,
-}: {
-  templates: PromptTemplateOption[];
-  loading: boolean;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  const t = useT();
-  if (loading)
-    return (
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <Skeleton key={index} className="aspect-video" />
-        ))}
-      </div>
-    );
-  if (!templates.length)
-    return (
-      <p className="py-10 text-center text-sm text-muted-foreground">
-        {t("promptDialog.noTemplatesFound")}
-      </p>
-    );
-  return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {templates.map((template) => (
-        <button
-          key={template.id}
-          type="button"
-          aria-pressed={template.id === selectedId}
-          onClick={() => onSelect(template.id)}
-          className={cn(
-            "overflow-hidden rounded-xl border border-border bg-card text-start",
-            template.id === selectedId && "ring-2 ring-ring",
-          )}
-        >
-          <TemplatePreview
-            html={template.previewHtml}
-            title={template.title}
-            width={template.width}
-            height={template.height}
-            className="aspect-video w-full border-b bg-muted/30"
-          />
-          <div className="min-w-0 p-4">
-            <h3 className="truncate text-sm font-medium text-foreground">
-              {template.title}
-            </h3>
-            {template.description ? (
-              <p className="mt-1 truncate text-sm text-muted-foreground">
-                {template.description}
-              </p>
-            ) : null}
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function SearchEmptyState() {
   const t = useT();

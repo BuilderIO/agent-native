@@ -1738,6 +1738,8 @@ export default {
     layoutLabel: "تخطيط الشاشة جاهز للحفظ",
   },
   templatesPage: {
+    previewEmpty: "لا توجد شاشات قابلة للمعاينة في هذا القالب.",
+    loading: "جارٍ تحميل القوالب",
     title: "القوالب",
     description:
       "ابدأ بالأبعاد والإعدادات الصحيحة، ثم عدّل المحتوى غير المقفل باستخدام مطالبة.",
@@ -1764,7 +1766,7 @@ export default {
     deleteTitle: "حذف القالب؟",
     deleteDescription:
       "سيؤدي هذا إلى حذف {{title}} نهائيًا. لن تتأثر التصاميم التي تم إنشاؤها بالفعل.",
-    templateActions: "إجراءات القالب",
+    templateActions: "إجراءات {{title}}",
     lockedCount: "{{count}} مقفلة",
     categories: {
       ad: "إعلان",

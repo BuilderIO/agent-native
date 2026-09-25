@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 
 const pageTitleKeys: Record<string, string> = {
   "/home": "header.decks",
+  "/templates": "templatesPage.title",
   "/design-systems": "header.designSystems",
   "/agent": "settings.agentTitle",
   "/settings": "header.settings",

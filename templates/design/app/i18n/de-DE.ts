@@ -1800,6 +1800,8 @@ export default {
     layoutLabel: "Bildschirm-Layout bereit zum Speichern",
   },
   templatesPage: {
+    previewEmpty: "Diese Vorlage enthält keine Vorschauseiten.",
+    loading: "Vorlagen werden geladen",
     title: "Vorlagen",
     description:
       "Mit passenden Abmessungen und Standardwerten starten und entsperrte Inhalte per Prompt anpassen.",
@@ -1829,7 +1831,7 @@ export default {
     deleteTitle: "Vorlage löschen?",
     deleteDescription:
       "Dadurch wird {{title}} dauerhaft gelöscht. Bereits erstellte Designs bleiben erhalten.",
-    templateActions: "Vorlagenaktionen",
+    templateActions: "Aktionen für {{title}}",
     lockedCount: "{{count}} gesperrt",
     categories: {
       ad: "Anzeige",

@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "{{title}} 的範本操作",
+    previewAction: "預覽",
+    title: "範本",
+    browseAll: "瀏覽全部",
+    searchPlaceholder: "搜尋範本…",
+    loading: "正在載入範本",
+    empty: "沒有符合搜尋條件的範本。",
+    loadFailed: "無法載入範本。",
+    preview: "範本預覽",
+    useTemplate: "使用範本",
+    opening: "正在開啟範本…",
+    createFailed: "無法使用此範本建立簡報。",
+    previous: "上一頁",
+    next: "下一頁",
+    slidePosition: "第 {{current}} 頁，共 {{total}} 頁",
+  },
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandPresentations: "簡報",

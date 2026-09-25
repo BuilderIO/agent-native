@@ -1701,6 +1701,8 @@ export default {
     layoutLabel: "屏幕布局已可保存",
   },
   templatesPage: {
+    previewEmpty: "此模板中没有可预览的屏幕。",
+    loading: "正在加载模板",
     title: "模板",
     description: "从正确的尺寸和默认值开始，再用提示调整未锁定的内容。",
     searchPlaceholder: "搜索模板...",
@@ -1725,7 +1727,7 @@ export default {
     deleteFailed: "无法删除此模板",
     deleteTitle: "删除模板？",
     deleteDescription: "这将永久删除 {{title}}。已从此模板创建的设计不受影响。",
-    templateActions: "模板操作",
+    templateActions: "{{title}}的操作",
     lockedCount: "已锁定 {{count}} 个",
     categories: {
       ad: "广告",

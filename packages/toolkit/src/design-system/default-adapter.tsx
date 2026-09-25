@@ -628,11 +628,14 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
       container={portalContainer}
       hideClose={!dismissible}
       closeLabel={closeLabel}
+      {...(!description ? { "aria-describedby": undefined } : {})}
       style={style}
       className={cn(
         size === "small" && "max-w-sm",
         size === "medium" && "max-w-lg",
         size === "large" && "max-w-2xl",
+        size === "viewport" &&
+          "h-[90dvh] max-h-[90dvh] w-[calc(100vw-2rem)] max-w-[96rem] sm:w-[calc(100vw-3rem)]",
         size === "fullscreen" &&
           "inset-0 h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 rounded-none",
         className,
@@ -874,22 +877,12 @@ const DefaultTabs: DesignSystemComponents["Tabs"] = ({
   onChange,
   orientation,
   activationMode,
+  headerActions,
   className,
   style,
   ...props
-}) => (
-  <DefaultTabsPrimitive
-    {...props}
-    value={String(value)}
-    onValueChange={(next) => {
-      const item = items.find((candidate) => String(candidate.value) === next);
-      if (item) onChange(item.value);
-    }}
-    orientation={orientation}
-    activationMode={activationMode}
-    className={className}
-    style={style}
-  >
+}) => {
+  const tabList = (
     <TabsList>
       {items.map((item) => (
         <TabsTrigger
@@ -902,13 +895,38 @@ const DefaultTabs: DesignSystemComponents["Tabs"] = ({
         </TabsTrigger>
       ))}
     </TabsList>
-    {items.map((item) => (
-      <TabsContent key={item.value} value={String(item.value)}>
-        {item.content}
-      </TabsContent>
-    ))}
-  </DefaultTabsPrimitive>
-);
+  );
+  return (
+    <DefaultTabsPrimitive
+      {...props}
+      value={String(value)}
+      onValueChange={(next) => {
+        const item = items.find(
+          (candidate) => String(candidate.value) === next,
+        );
+        if (item) onChange(item.value);
+      }}
+      orientation={orientation}
+      activationMode={activationMode}
+      className={className}
+      style={style}
+    >
+      {headerActions ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {tabList}
+          {headerActions}
+        </div>
+      ) : (
+        tabList
+      )}
+      {items.map((item) => (
+        <TabsContent key={item.value} value={String(item.value)}>
+          {item.content}
+        </TabsContent>
+      ))}
+    </DefaultTabsPrimitive>
+  );
+};
 
 export const defaultDesignSystemComponents: DesignSystemComponents = {
   ActionButton: DefaultActionButton,

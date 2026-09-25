@@ -1754,6 +1754,8 @@ export default {
     layoutLabel: "저장할 준비가 된 화면 레이아웃",
   },
   templatesPage: {
+    previewEmpty: "이 템플릿에는 미리 볼 수 있는 화면이 없습니다.",
+    loading: "템플릿 로딩 중",
     title: "템플릿",
     description:
       "알맞은 크기와 기본값으로 시작한 뒤 잠기지 않은 내용을 프롬프트로 조정하세요.",
@@ -1781,7 +1783,7 @@ export default {
     deleteTitle: "템플릿을 삭제할까요?",
     deleteDescription:
       "{{title}}을(를) 영구 삭제합니다. 이미 만든 디자인에는 영향을 주지 않습니다.",
-    templateActions: "템플릿 작업",
+    templateActions: "{{title}} 작업",
     lockedCount: "{{count}}개 잠김",
     categories: {
       ad: "광고",

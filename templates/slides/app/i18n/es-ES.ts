@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "Acciones de la plantilla {{title}}",
+    previewAction: "Vista previa",
+    title: "Plantillas",
+    browseAll: "Ver todas",
+    searchPlaceholder: "Buscar plantillas…",
+    loading: "Cargando plantillas",
+    empty: "Ninguna plantilla coincide con tu búsqueda.",
+    loadFailed: "No se pudieron cargar las plantillas.",
+    preview: "Vista previa de la plantilla",
+    useTemplate: "Usar plantilla",
+    opening: "Abriendo plantilla…",
+    createFailed: "No se pudo crear una presentación con esta plantilla.",
+    previous: "Anterior",
+    next: "Siguiente",
+    slidePosition: "Diapositiva {{current}} de {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["es-ES"],
   root: {
     commandPresentations: "Presentaciones",

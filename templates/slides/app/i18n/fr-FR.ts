@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "Actions du modèle {{title}}",
+    previewAction: "Aperçu",
+    title: "Modèles",
+    browseAll: "Tout parcourir",
+    searchPlaceholder: "Rechercher des modèles…",
+    loading: "Chargement des modèles",
+    empty: "Aucun modèle ne correspond à votre recherche.",
+    loadFailed: "Impossible de charger les modèles.",
+    preview: "Aperçu du modèle",
+    useTemplate: "Utiliser le modèle",
+    opening: "Ouverture du modèle…",
+    createFailed: "Impossible de créer une présentation à partir de ce modèle.",
+    previous: "Précédente",
+    next: "Suivante",
+    slidePosition: "Diapositive {{current}} sur {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["fr-FR"],
   root: {
     commandPresentations: "Présentations",

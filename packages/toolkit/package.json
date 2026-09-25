@@ -47,6 +47,7 @@
       "import": "./dist/app-shell/*.js",
       "default": "./dist/app-shell/*.js"
     },
+    "./app-shell/prompt-home.css": "./dist/app-shell/prompt-home.css",
     "./agentkit": {
       "types": "./dist/agentkit.d.ts",
       "browser": "./dist/agentkit.js",

@@ -1794,6 +1794,8 @@ export default {
     layoutLabel: "Mise en page prete a enregistrer",
   },
   templatesPage: {
+    previewEmpty: "Ce modèle ne contient aucun écran à prévisualiser.",
+    loading: "Chargement des modèles",
     title: "Modèles",
     description:
       "Commencez avec les bonnes dimensions et valeurs, puis adaptez le contenu déverrouillé par invite.",
@@ -1822,7 +1824,7 @@ export default {
     deleteTitle: "Supprimer le modèle ?",
     deleteDescription:
       "Cela supprime définitivement {{title}}. Les designs déjà créés ne sont pas affectés.",
-    templateActions: "Actions du modèle",
+    templateActions: "Actions pour {{title}}",
     lockedCount: "{{count}} verrouillés",
     categories: {
       ad: "Publicité",

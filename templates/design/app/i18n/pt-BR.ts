@@ -1776,6 +1776,8 @@ export default {
     layoutLabel: "Layout de tela pronto para salvar",
   },
   templatesPage: {
+    previewEmpty: "Este modelo não contém telas para visualizar.",
+    loading: "Carregando modelos",
     title: "Modelos",
     description:
       "Comece com as dimensões e padrões certos e ajuste o conteúdo desbloqueado por prompt.",
@@ -1804,7 +1806,7 @@ export default {
     deleteTitle: "Excluir modelo?",
     deleteDescription:
       "Isso exclui {{title}} permanentemente. Designs já criados não serão afetados.",
-    templateActions: "Ações do modelo",
+    templateActions: "Ações de {{title}}",
     lockedCount: "{{count}} bloqueadas",
     categories: {
       ad: "Anúncio",

@@ -20,6 +20,9 @@ import {
 } from "@agent-native/core/client/settings";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
+  PromptHome,
+  PromptHomeLibrary,
+  type PromptHomeLibraryTab,
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
@@ -46,7 +49,7 @@ import {
   useMemo,
 } from "react";
 import { flushSync } from "react-dom";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
@@ -72,6 +75,7 @@ import type {
 import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
 import { usePromptImport } from "@/components/editor/use-prompt-import";
 import { HomeHeaderActions } from "@/components/layout/Header";
+import { DeckTemplateLibrary } from "@/components/templates/DeckTemplateLibrary";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -475,6 +479,11 @@ export default function Index() {
     string | null
   >(null);
   const [deckSearch, setDeckSearch] = useState("");
+  const [homeSection, setHomeSection] =
+    useState<PromptHomeLibraryTab>("templates");
+  useEffect(() => {
+    if (deckSearch.trim()) setHomeSection("recent");
+  }, [deckSearch]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
   // True while the picker still reflects an auto-applied default rather than
   // an explicit user choice. `useWorkspaceDefaults()`/`useDesignSystems()`
@@ -1988,18 +1997,21 @@ export default function Index() {
   }
 
   return (
-    <main className="mx-auto w-full min-w-0 max-w-370 px-4 pb-14 sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-175 items-center gap-2 pt-3 md:hidden">
-        <DeckSearchInput
-          value={deckSearch}
-          onChange={setDeckSearch}
-          className="w-full"
-        />
-        <ImportDeckButton controller={deckImport} />
-      </div>
-      <section className="slides-home-hero relative">
-        {agentEngine.missing ? (
-          <div className="absolute top-7 flex flex-col items-center gap-2">
+    <PromptHome
+      title={t("home.firstDeckPromptTitle")}
+      mobileToolbar={
+        <>
+          <DeckSearchInput
+            value={deckSearch}
+            onChange={setDeckSearch}
+            className="w-full"
+          />
+          <ImportDeckButton controller={deckImport} />
+        </>
+      }
+      connection={
+        agentEngine.missing ? (
+          <>
             <BuilderConnectPopover flow={builderConnect}>
               <Button variant="outline" disabled={builderConnect.connecting}>
                 {builderConnect.connecting
@@ -2013,15 +2025,11 @@ export default function Index() {
                 {builderConnect.error}
               </p>
             ) : null}
-          </div>
-        ) : null}
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-          {t("home.firstDeckPromptTitle")}
-        </h2>
-        <div
-          data-slides-home-composer
-          className="mt-4 w-full max-w-175 text-start"
-        >
+          </>
+        ) : null
+      }
+      composer={
+        <div data-slides-home-composer>
           <LazyChunkErrorBoundary
             fallback={
               <div
@@ -2096,30 +2104,33 @@ export default function Index() {
               />
             </Suspense>
           </LazyChunkErrorBoundary>
-          <div className="mt-3 flex flex-wrap justify-center gap-2">
-            {(
-              [
-                ["trends", IconTrendingUp],
-                ["notes", IconNotes],
-                ["pdf", IconFileTypePdf],
-                ["website", IconWorld],
-              ] as const
-            ).map(([starter, Icon]) => (
-              <Button
-                key={starter}
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!showNewDeckPrompt || generating}
-                onClick={() => setQuickStart(starter)}
-              >
-                <Icon />
-                {t(`home.quickStart.${starter}.label`)}
-              </Button>
-            ))}
-          </div>
         </div>
-      </section>
+      }
+      quickActions={
+        <>
+          {(
+            [
+              ["trends", IconTrendingUp],
+              ["notes", IconNotes],
+              ["pdf", IconFileTypePdf],
+              ["website", IconWorld],
+            ] as const
+          ).map(([starter, Icon]) => (
+            <Button
+              key={starter}
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!showNewDeckPrompt || generating}
+              onClick={() => setQuickStart(starter)}
+            >
+              <Icon />
+              {t(`home.quickStart.${starter}.label`)}
+            </Button>
+          ))}
+        </>
+      }
+    >
       <HomeQuickStartDialog
         kind={quickStart}
         onClose={() => setQuickStart(null)}
@@ -2131,20 +2142,7 @@ export default function Index() {
         }
       />
 
-      {viewState === "loading" ? (
-        <div className="deck-grid-container" aria-busy="true">
-          <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="overflow-hidden rounded-xl bg-card">
-                <div className="skeleton-shimmer aspect-video bg-muted/50" />
-                <div className="p-4">
-                  <div className="skeleton-shimmer h-4 w-3/4 rounded bg-muted" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : viewState === "error" ? (
+      {viewState === "error" ? (
         <div className="flex min-h-40 items-center justify-center">
           <div
             className="flex max-w-sm flex-col items-center gap-3 text-center"
@@ -2162,12 +2160,28 @@ export default function Index() {
             </Button>
           </div>
         </div>
-      ) : hasRecentDecks ? (
-        <section aria-label={t("home.recent")} className="mt-2">
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <h2 className="text-sm font-medium">{t("home.recent")}</h2>
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-          </div>
+      ) : null}
+      <PromptHomeLibrary
+        value={homeSection}
+        onValueChange={setHomeSection}
+        showRecent={hasRecentDecks}
+        labels={{
+          templates: t("templatesPage.title"),
+          recent: t("home.recent"),
+        }}
+        browseAll={
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/templates">
+              {t("templatesPage.browseAll")}
+              <IconArrowRight />
+            </Link>
+          </Button>
+        }
+        recentActions={
+          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+        }
+        templates={<DeckTemplateLibrary home />}
+        recent={
           <div className="deck-grid-container">
             <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {visibleDecks.map((deck) => (
@@ -2192,8 +2206,8 @@ export default function Index() {
               )}
             </div>
           </div>
-        </section>
-      ) : null}
+        }
+      />
 
       <AlertDialog
         open={!!workspaceDefaultCandidate}
@@ -2320,7 +2334,7 @@ export default function Index() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </main>
+    </PromptHome>
   );
 }
 

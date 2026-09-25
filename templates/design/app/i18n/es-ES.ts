@@ -1778,6 +1778,8 @@ export default {
     layoutLabel: "Layout de pantalla listo para guardar",
   },
   templatesPage: {
+    previewEmpty: "Esta plantilla no contiene pantallas para previsualizar.",
+    loading: "Cargando plantillas",
     title: "Plantillas",
     description:
       "Empieza con las dimensiones y valores correctos y ajusta con indicaciones el contenido desbloqueado.",
@@ -1806,7 +1808,7 @@ export default {
     deleteTitle: "¿Eliminar plantilla?",
     deleteDescription:
       "Esto elimina permanentemente {{title}}. Los diseños ya creados no se verán afectados.",
-    templateActions: "Acciones de plantilla",
+    templateActions: "Acciones para {{title}}",
     lockedCount: "{{count}} bloqueadas",
     categories: {
       ad: "Anuncio",

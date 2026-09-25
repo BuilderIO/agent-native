@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "{{title}} टेम्पलेट की कार्रवाइयाँ",
+    previewAction: "पूर्वावलोकन",
+    title: "टेम्पलेट",
+    browseAll: "सभी देखें",
+    searchPlaceholder: "टेम्पलेट खोजें…",
+    loading: "टेम्पलेट लोड हो रहे हैं",
+    empty: "आपकी खोज से कोई टेम्पलेट मेल नहीं खाता।",
+    loadFailed: "टेम्पलेट लोड नहीं हो सके।",
+    preview: "टेम्पलेट का पूर्वावलोकन",
+    useTemplate: "टेम्पलेट इस्तेमाल करें",
+    opening: "टेम्पलेट खुल रहा है…",
+    createFailed: "इस टेम्पलेट से प्रेज़ेंटेशन नहीं बनाया जा सका।",
+    previous: "पिछली",
+    next: "अगली",
+    slidePosition: "स्लाइड {{current}} / {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["hi-IN"],
   root: {
     commandPresentations: "प्रेज़ेंटेशन",

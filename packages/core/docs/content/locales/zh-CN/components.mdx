@@ -103,6 +103,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## 提示词主页与模板库 {#prompt-home}
+
+`PromptHome`、`PromptHomeLibrary`、`TemplateLibraryGrid` 和 `TemplateLibraryCard` 从 `@agent-native/toolkit/app-shell` 导出。它们共享主页间距、居中的 700px 编辑器和响应式四列模板库。main 地标由应用外壳保留。应用提供真实数据、本地化标签、预览、操作和路由。
+
+`PromptHome` 接收 `title`、`composer`、可选的 `mobileToolbar`、`connection`、`quickActions` 和作为模板库的 `children`。`PromptHomeLibrary` 接收受控的 `value`（`templates` 或 `recent`）、`onValueChange`、`labels`、`showRecent`、`templates`，以及可选的 `recent`、`browseAll`、`recentActions`。没有最近项目时直接显示模板，不创建虚假选项卡。`browseAll` 是应用提供的真实链接。语义组件的 `Tabs.headerActions` 插槽将当前操作放在选项卡旁。
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` 接收带有 `id`、`title`、可选的已存储 `description` 和 `disabled` 的类型化 `items`，以及 `renderPreview`。它支持 `selectedId`、`pendingId`、`disabled`、`loading`、`error`、`onRetry`、可选的 `empty`，以及加载、空状态和重试所需的 `labels`。只能选择 `onSelect(item, element)` 或 `renderLink(item, children)` 之一。图片和标题共享一个激活目标。`renderActions` 位于激活目标外部，与标题和可选描述同行排列。卡片采用统一的预览和说明区域尺寸；直接激活会使用或复制模板，预览仅从说明区域的菜单打开。刷新失败后仍保留已加载项目。`TemplateLibraryCard` 为单个 `item` 提供相同行为，接收 `preview` 及可选的 `actions`、`selected`、`pending`、`disabled`。
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+从同一入口导出的 `TemplatePreviewDialog` 使用语义化 `Dialog`，默认 `size="viewport"`，也可选择 `size="large"`。它接收受控的 `open`、`onOpenChange`、`title` 以及应用渲染的 `children`；标题栏不包含使用操作。可选的 `thumbnails` 包含 `{ id, title, preview, disabled? }`，并要求提供 `selectedId` 和 `onSelectedIdChange`。缩略图栏在窄屏上横向排列，支持方向键、Home 和 End。
+
+`viewport` 是保留边距的居中模态框：高度为 90dvh，最大宽度为 96rem，移动端侧边距为 1rem，较宽屏幕为 1.5rem。它保留标准对话框的边框、圆角、阴影和遮罩。在支持悬停的设备上，卡片悬停或获得键盘焦点时显示说明区域菜单；触屏设备上始终显示，预留空间不会变化。
+
+传入本地化的 `labels`（`close`、`loading`、`empty`、`retry`、`thumbnails`），以及可选的 `loading`、`error`、`empty` 和 `onRetry`，以显示互斥的就绪状态。`initialFocusRef` 和 `restoreFocusRef` 控制焦点。说明区域的菜单关闭交接完成后再打开查看器；读取、取消、授权和安全的隔离渲染仍由应用负责。
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit 样式包含共享布局尺寸。`@agent-native/toolkit/app-shell/prompt-home.css` 是专用样式表导出。现有 `toolkit/app-shell` 弹出单元包含布局和样式表。数据加载、授权、导入流程和编辑器状态仍由应用负责。
+
 ## 代理并聊天UI {#agent-chat-ui}
 
 | API                                  | 导入路径                                      | 何时使用                                                    |

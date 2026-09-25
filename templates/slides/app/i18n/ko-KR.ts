@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "{{title}} 템플릿 작업",
+    previewAction: "미리보기",
+    title: "템플릿",
+    browseAll: "모두 보기",
+    searchPlaceholder: "템플릿 검색…",
+    loading: "템플릿 로딩 중",
+    empty: "검색과 일치하는 템플릿이 없습니다.",
+    loadFailed: "템플릿을 불러오지 못했습니다.",
+    preview: "템플릿 미리보기",
+    useTemplate: "템플릿 사용",
+    opening: "템플릿 여는 중…",
+    createFailed: "이 템플릿으로 프레젠테이션을 만들지 못했습니다.",
+    previous: "이전",
+    next: "다음",
+    slidePosition: "슬라이드 {{current}} / {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["ko-KR"],
   root: {
     commandPresentations: "프레젠테이션",

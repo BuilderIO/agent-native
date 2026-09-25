@@ -1763,6 +1763,8 @@ export default {
     layoutLabel: "Screen layout ready to save",
   },
   templatesPage: {
+    previewEmpty: "No previewable screens in this template.",
+    loading: "Loading templates",
     title: "Templates",
     description:
       "Start with the right dimensions and defaults, then prompt the unlocked content into place.",
@@ -1790,7 +1792,7 @@ export default {
     deleteTitle: "Delete template?",
     deleteDescription:
       "This permanently deletes {{title}}. Designs already created from it are not affected.",
-    templateActions: "Template actions",
+    templateActions: "Actions for {{title}}",
     lockedCount: "{{count}} locked",
     categories: {
       ad: "Ad",

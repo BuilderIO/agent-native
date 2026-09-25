@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "إجراءات القالب {{title}}",
+    previewAction: "معاينة",
+    title: "القوالب",
+    browseAll: "استعراض الكل",
+    searchPlaceholder: "البحث عن القوالب…",
+    loading: "جارٍ تحميل القوالب",
+    empty: "لا توجد قوالب تطابق بحثك.",
+    loadFailed: "تعذّر تحميل القوالب.",
+    preview: "معاينة القالب",
+    useTemplate: "استخدام القالب",
+    opening: "جارٍ فتح القالب…",
+    createFailed: "تعذّر إنشاء عرض تقديمي من هذا القالب.",
+    previous: "السابق",
+    next: "التالي",
+    slidePosition: "الشريحة {{current}} من {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["ar-SA"],
   root: {
     commandPresentations: "العروض التقديمية",

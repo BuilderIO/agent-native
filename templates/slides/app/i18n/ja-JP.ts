@@ -1,6 +1,24 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "{{title}} のテンプレート操作",
+    previewAction: "プレビュー",
+    title: "テンプレート",
+    browseAll: "すべて見る",
+    searchPlaceholder: "テンプレートを検索…",
+    loading: "テンプレートを読み込み中",
+    empty: "検索に一致するテンプレートがありません。",
+    loadFailed: "テンプレートを読み込めませんでした。",
+    preview: "テンプレートのプレビュー",
+    useTemplate: "テンプレートを使用",
+    opening: "テンプレートを開いています…",
+    createFailed:
+      "このテンプレートからプレゼンテーションを作成できませんでした。",
+    previous: "前へ",
+    next: "次へ",
+    slidePosition: "スライド {{current}} / {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["ja-JP"],
   root: {
     commandPresentations: "プレゼンテーション",

@@ -107,6 +107,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## プロンプトホームとテンプレートライブラリ {#prompt-home}
+
+`PromptHome`、`PromptHomeLibrary`、`TemplateLibraryGrid`、`TemplateLibraryCard` は `@agent-native/toolkit/app-shell` から公開されます。余白、中央配置の幅 700px のコンポーザー、レスポンシブな 4 列ライブラリを共有します。main ランドマークはアプリシェルが管理します。実データ、翻訳済みラベル、プレビュー、操作、ルーティングはアプリが提供します。
+
+`PromptHome` は `title`、`composer`、任意の `mobileToolbar`、`connection`、`quickActions`、ライブラリ用の `children` を受け取ります。`PromptHomeLibrary` は制御された `value`（`templates` または `recent`）、`onValueChange`、`labels`、`showRecent`、`templates` と、任意の `recent`、`browseAll`、`recentActions` を受け取ります。最近の項目がなければ、不要なタブを作らずテンプレートを表示します。`browseAll` はアプリが提供する実際のリンクです。セマンティックな `Tabs.headerActions` スロットが操作をタブの横に配置します。
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` は `id`、`title`、任意の保存済み `description` と `disabled` を持つ型付き `items`、および `renderPreview` を受け取ります。`selectedId`、`pendingId`、`disabled`、`loading`、`error`、`onRetry`、任意の `empty` と、読み込み・空状態・再試行用の `labels` に対応します。`onSelect(item, element)` または `renderLink(item, children)` のどちらかを指定します。画像とキャプションは一つの操作対象になります。`renderActions` は操作対象の外側で、タイトルと任意の説明の右側に同じ行で表示されます。カードのプレビューとキャプションの寸法は共通です。直接操作するとテンプレートを使用またはコピーし、プレビューはキャプションのメニューからのみ開きます。更新に失敗しても読み込み済みの項目は残ります。`TemplateLibraryCard` は単一の `item` に同じ動作を提供し、`preview` と任意の `actions`、`selected`、`pending`、`disabled` を受け取ります。
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+同じエントリーポイントからエクスポートされる `TemplatePreviewDialog` は、セマンティックな `Dialog` を既定の `size="viewport"` または `size="large"` で使用します。制御された `open`、`onOpenChange`、`title` と、アプリが描画する `children` を受け取り、ヘッダーに使用アクションはありません。任意の `thumbnails` は `{ id, title, preview, disabled? }` を含み、`selectedId` と `onSelectedIdChange` が必要です。狭い画面ではレールが横向きになり、矢印キー、Home、End に対応します。
+
+`viewport` は余白を残して中央に表示するモーダルです。高さは 90dvh、最大幅は 96rem で、左右の余白はモバイルで 1rem、広い画面で 1.5rem です。標準のダイアログの枠線、角丸、影、背景を維持します。ホバー対応端末ではカードのホバー時またはキーボードフォーカス時にキャプションメニューが表示され、タッチ端末では常時表示されます。確保する領域は変わりません。
+
+排他的な準備状態には、翻訳済みの `labels`（`close`、`loading`、`empty`、`retry`、`thumbnails`）と、任意の `loading`、`error`、`empty`、`onRetry` を渡します。`initialFocusRef` と `restoreFocusRef` がフォーカスを制御します。キャプションメニューの終了処理後にビューアーを開きます。読み取り、キャンセル、認可、安全な分離描画はアプリが管理します。
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit のスタイルに共有の寸法が含まれます。`@agent-native/toolkit/app-shell/prompt-home.css` は専用スタイルシートの公開パスです。既存の `toolkit/app-shell` イジェクション単位にはレイアウトとスタイルシートが含まれます。データ読み込み、認可、インポート、コンポーザーの状態はアプリが管理します。
+
 ## エージェントとチャット UI {#agent-chat-ui}
 
 | API                                  | インポートパス                                    | 次の場合に使用します                                                                                          |

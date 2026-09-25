@@ -7,13 +7,25 @@
 
 @source "./**/*.{ts,tsx}";
 
-.design-home-hero {
-  min-height: clamp(36rem, 64svh, 44rem);
-  padding-block-start: clamp(12rem, 33svh, 22rem);
-}
-
 .design-home-toolbar {
   container: design-home-toolbar / inline-size;
+}
+
+.design-template-preview-frame {
+  width: var(--design-template-width);
+  height: var(--design-template-height);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(var(--design-template-scale));
+  transform-origin: center;
+  border: 0;
+  pointer-events: none;
+  backface-visibility: var(--design-template-paint-retention, hidden);
+}
+
+.design-template-preview-interactive {
+  pointer-events: auto;
 }
 
 .design-home-header {

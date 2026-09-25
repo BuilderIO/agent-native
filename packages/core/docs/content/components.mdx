@@ -119,6 +119,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## Prompt Home And Template Libraries {#prompt-home}
+
+`PromptHome`, `PromptHomeLibrary`, `TemplateLibraryGrid`, and `TemplateLibraryCard` are exported from `@agent-native/toolkit/app-shell`. They share home spacing, a centered 700px composer, and a responsive four-column library. The app shell keeps its main landmark. Apps supply real data, localized labels, previews, actions, and routing.
+
+`PromptHome` accepts `title`, `composer`, optional `mobileToolbar`, `connection`, `quickActions`, and library `children`. `PromptHomeLibrary` takes controlled `value` (`templates` or `recent`), `onValueChange`, `labels`, `showRecent`, `templates`, and optional `recent`, `browseAll`, and `recentActions`. With no recents it displays templates without a fake tab. `browseAll` is a real link supplied by the app. The semantic `Tabs.headerActions` slot keeps active actions beside the tabs.
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` accepts typed `items` with `id`, `title`, optional stored `description` and `disabled`, plus `renderPreview`. It supports `selectedId`, `pendingId`, `disabled`, `loading`, `error`, `onRetry`, optional `empty`, and injected `labels` for loading, empty, and retry. Choose `onSelect(item, element)` or `renderLink(item, children)`, never both. Image and caption share one activation target. `renderActions` stays outside the activation target, inline beside the title and optional description. Cards share fixed preview and caption dimensions; direct activation uses or copies the template, while Preview belongs only in the caption menu. Loaded items remain visible after refresh errors. `TemplateLibraryCard` exposes the same behavior for one `item`, with `preview`, optional `actions`, `selected`, `pending`, and `disabled`.
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+`TemplatePreviewDialog`, exported from the same entry point, uses the semantic `Dialog` with `size="viewport"` by default or `size="large"`. It takes controlled `open`, `onOpenChange`, `title`, and app-rendered `children`; the header has no use action. Optional `thumbnails` contain `{ id, title, preview, disabled? }` and require `selectedId` plus `onSelectedIdChange`. The rail becomes horizontal on narrow screens and supports arrow keys, Home, and End.
+
+The `viewport` size is an inset, centered modal: 90dvh tall, capped at 96rem wide, with 1rem mobile side margins and 1.5rem on wider screens. It preserves the standard dialog border, radius, shadow, and backdrop. Caption menus appear on card hover or keyboard focus on hover-capable devices and remain visible on touch devices; their reserved space never changes.
+
+Pass localized `labels` (`close`, `loading`, `empty`, `retry`, `thumbnails`), optional `loading`, `error`, `empty`, and `onRetry` for exclusive readiness states. `initialFocusRef` and `restoreFocusRef` control focus. Open the viewer from the caption menu after its close handoff; keep reads, cancellation, authorization, and safe isolated rendering in the app.
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit styles include the shared geometry. `@agent-native/toolkit/app-shell/prompt-home.css` is the focused stylesheet export. The existing `toolkit/app-shell` ejection unit includes the layout and stylesheet. Data loading, authorization, import workflows, and composer state stay app-owned.
+
 ## Agent And Chat UI {#agent-chat-ui}
 
 | API                                  | Import path                                   | Use when                                                                                         |

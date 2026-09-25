@@ -1793,6 +1793,8 @@ export default {
     paginationPage: "第 {{page}} / {{totalPages}} 頁",
   },
   templatesPage: {
+    previewEmpty: "此範本中沒有可預覽的畫面。",
+    loading: "正在載入範本",
     title: "範本",
     description: "從正確的尺寸與預設值開始，再用提示調整未鎖定的內容。",
     searchPlaceholder: "搜尋範本...",
@@ -1815,7 +1817,7 @@ export default {
     deleteFailed: "無法刪除此範本",
     deleteTitle: "刪除範本？",
     deleteDescription: "這會永久刪除 {{title}}。已從此範本建立的設計不受影響。",
-    templateActions: "範本操作",
+    templateActions: "{{title}}的操作",
     lockedCount: "已鎖定 {{count}} 個",
     categories: {
       ad: "廣告",

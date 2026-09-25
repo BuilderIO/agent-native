@@ -1777,6 +1777,8 @@ export default {
     layoutLabel: "保存できる画面レイアウト",
   },
   templatesPage: {
+    previewEmpty: "このテンプレートにはプレビューできる画面がありません。",
+    loading: "テンプレートを読み込み中",
     title: "テンプレート",
     description:
       "適切な寸法と既定値から始め、ロックされていない内容をプロンプトで調整します。",
@@ -1805,7 +1807,7 @@ export default {
     deleteTitle: "テンプレートを削除しますか？",
     deleteDescription:
       "{{title}} を完全に削除します。すでに作成済みのデザインには影響しません。",
-    templateActions: "テンプレート操作",
+    templateActions: "{{title}} の操作",
     lockedCount: "{{count}} 個をロック",
     categories: {
       ad: "広告",

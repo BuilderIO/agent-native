@@ -60,6 +60,8 @@ const translate = (key: string) =>
     "home.loadFailed": "Couldn't load your content",
     "home.retry": "Retry",
     "root.searchDecks": "Search decks",
+    "templatesPage.title": "Templates",
+    "templatesPage.browseAll": "Browse all",
   })[key] ?? key;
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
@@ -89,7 +91,8 @@ vi.mock("@agent-native/core/client/onboarding", () => ({
 vi.mock("@agent-native/core/client/ui", () => ({
   buildSignInReturnHref: () => "/sign-in",
 }));
-vi.mock("@agent-native/toolkit/app-shell", () => ({
+vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   useSetHeaderActions: vi.fn(),
   useSetPageTitle: vi.fn(),
 }));
@@ -97,6 +100,9 @@ vi.mock("@/context/DeckContext", () => ({
   useDecks,
   describeDeckPersistenceFailure: vi.fn(),
   deckIdFromPathname: vi.fn(),
+}));
+vi.mock("@/components/templates/DeckTemplateLibrary", () => ({
+  DeckTemplateLibrary: () => <div>Starter template library</div>,
 }));
 vi.mock("@/hooks/use-agent-generating", () => ({
   useAgentGenerating: () => ({ generating: false, submit: agentSubmit }),
@@ -433,20 +439,32 @@ describe("Slides prompt-led home", () => {
         await screen.findByRole("textbox", { name: "Presentation prompt" }),
       ).toBeTruthy();
       expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
-      expect(screen.queryByRole("link", { name: /browse all/i })).toBeNull();
+      expect(
+        screen.getByRole("link", { name: /browse all/i }).getAttribute("href"),
+      ).toBe("/templates");
+      expect(screen.getByText("Starter template library")).toBeTruthy();
       expect(screen.queryByRole("button", { name: /new deck/i })).toBeNull();
     },
   );
 
   it("gates recents on the unfiltered owned collection, not matching search results", async () => {
     renderHome({ decks: [ownDeck, sharedDeck] });
-    expect(screen.getByRole("region", { name: "Recent" })).toBeTruthy();
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Recent" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByRole("tabpanel", { name: "Recent" })).toBeTruthy();
     expect(screen.getByText("My presentation")).toBeTruthy();
     expect(screen.queryByText("Shared presentation")).toBeNull();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search decks" }), {
       target: { value: "no match" },
     });
-    expect(screen.getByRole("region", { name: "Recent" })).toBeTruthy();
+    expect(screen.getByRole("tabpanel", { name: "Recent" })).toBeTruthy();
     expect(screen.getByText("No decks match your search.")).toBeTruthy();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
   });
@@ -467,11 +485,15 @@ describe("Slides prompt-led home", () => {
 
   it("keeps the last successful owned collection visible after a failed background refresh", async () => {
     const home = renderHome({ decks: [ownDeck, sharedDeck] });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Recent" }), {
+      button: 0,
+      ctrlKey: false,
+    });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
     expect(screen.getByText("My presentation")).toBeTruthy();
     useDecks.mockReturnValue({ ...useDecks(), loadError: true });
     home.rerenderHome();
-    expect(screen.getByRole("region", { name: "Recent" })).toBeTruthy();
+    expect(screen.getByRole("tabpanel", { name: "Recent" })).toBeTruthy();
     expect(screen.getByText("My presentation")).toBeTruthy();
     expect(screen.queryByText("Couldn't load your content")).toBeNull();
   });

@@ -106,7 +106,8 @@ vi.mock("@agent-native/creative-context/client", () => ({
   useCreativeContextState: mocks.creativeContextState,
 }));
 
-vi.mock("@agent-native/toolkit/app-shell", () => ({
+vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   // The real hook portals its argument into app-shell chrome outside this
   // tree; capture it so the search input (also passed here) can be rendered
   // and inspected directly.
