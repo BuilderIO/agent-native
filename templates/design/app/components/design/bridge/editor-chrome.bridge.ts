@@ -16318,8 +16318,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Use the pre-lift snapshot: during a drag the bridge may temporarily
         // add a translate() transform to the source element, and that
         // editor-only transform must never become destination markup.
+        // Send it from "start": the host can finalize from its own window
+        // mouseup, in which case this iframe never sees the release and no
+        // "end" is posted.
         sourceCloneHtml:
-          phase === "end" ? activeCrossScreenSourceHtml : undefined,
+          phase === "start" || phase === "end"
+            ? activeCrossScreenSourceHtml
+            : undefined,
         releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : undefined,
       },
       "*",
