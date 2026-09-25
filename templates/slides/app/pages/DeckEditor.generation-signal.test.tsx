@@ -196,6 +196,7 @@ describe("DeckEditor generation signal wiring", () => {
   let router: ReturnType<typeof createMemoryRouter> | undefined;
 
   beforeEach(() => {
+    mocks.deck.slides = [];
     Object.assign(mocks, {
       broadGenerating: true,
       attemptGenerating: false,
@@ -211,6 +212,44 @@ describe("DeckEditor generation signal wiring", () => {
     cleanup();
     router?.dispose();
     router = undefined;
+  });
+
+  it("emits one content-free output view after the deck has slides", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "private slide text" }];
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        "output_viewed",
+        expect.objectContaining({
+          app_name: "slides",
+          template_name: "slides",
+          output_id: "deck-1",
+          output_type: "deck",
+          slide_count: 1,
+          source: "deck_editor",
+          generation_attempt_id: "attempt-1",
+        }),
+      ),
+    );
+    const outputViewedEvent = vi
+      .mocked(trackEvent)
+      .mock.calls.find(([name]) => name === "output_viewed");
+    expect(JSON.stringify(outputViewedEvent)).not.toContain(
+      "private slide text",
+    );
+
+    act(() => publishAgentGeneratingChange());
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed"),
+    ).toHaveLength(1);
   });
 
   it("clears generation state when the target tab finishes while another chat stays busy", async () => {

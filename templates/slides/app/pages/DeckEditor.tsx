@@ -331,6 +331,7 @@ export default function DeckEditor() {
     width: number;
   } | null>(null);
   const selectionAnchorSlideIdRef = useRef<string | null>(null);
+  const viewedDeckIdRef = useRef<string | null>(null);
   const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   // The blank placeholder the agent was asked to fill in place. The rail must
@@ -709,6 +710,23 @@ export default function DeckEditor() {
     typeof generationContext?.generationAttemptId === "string"
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
+  useEffect(() => {
+    if (!id || !deck || slideCount === 0 || viewedDeckIdRef.current === id) {
+      return;
+    }
+    viewedDeckIdRef.current = id;
+    trackEvent("output_viewed", {
+      app_name: "slides",
+      template_name: "slides",
+      output_id: id,
+      output_type: "deck",
+      slide_count: slideCount,
+      source: "deck_editor",
+      ...(generationAttemptId
+        ? { generation_attempt_id: generationAttemptId }
+        : {}),
+    });
+  }, [deck, generationAttemptId, id, slideCount]);
   const generationLifecycleOwnedByEditor =
     generationContext?.generationMode !== "action";
   const [generationAttemptTabId, setGenerationAttemptTabId] = useState<

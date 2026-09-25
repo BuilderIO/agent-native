@@ -81,6 +81,40 @@ describe("tracking registry", () => {
     });
   });
 
+  it("joins explicit user sources to matching ambient authenticated identity", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "session-1",
+      },
+      () => {
+        track(
+          "recording_ready",
+          { recording_attempt_id: "recording-1" },
+          { userId: "alice@example.com" },
+        );
+        track("background_event", undefined, {
+          userId: "different@example.com",
+        });
+      },
+    );
+
+    expect(events[0]).toMatchObject({
+      userId: "alice@example.com",
+      sessionId: "session-1",
+      properties: {
+        auth_user_id: "better-auth-user-1",
+        recording_attempt_id: "recording-1",
+      },
+    });
+    expect(events[1]).toMatchObject({ userId: "different@example.com" });
+    expect(events[1]?.sessionId).toBeUndefined();
+    expect(events[1]?.properties).not.toHaveProperty("auth_user_id");
+  });
+
   it("removes auth_user_id when no verified identity is available", () => {
     const events = captureEvents();
 

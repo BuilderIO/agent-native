@@ -129,11 +129,17 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
       telemetryOrigin: "server",
     };
   }
+  const canUseAmbientIdentity =
+    !source.userId || source.userId === requestContext?.userEmail;
   return {
     userId: source.userId,
-    authUserId: source.authUserId,
+    authUserId:
+      source.authUserId ??
+      (canUseAmbientIdentity ? requestContext?.authUserId : undefined),
     anonymousId: source.anonymousId,
-    sessionId: source.sessionId ?? ambientSessionId,
+    sessionId:
+      source.sessionId ??
+      (canUseAmbientIdentity ? ambientSessionId : undefined),
     occurredAt: source.occurredAt,
     telemetryOrigin: source.telemetryOrigin ?? "server",
   };

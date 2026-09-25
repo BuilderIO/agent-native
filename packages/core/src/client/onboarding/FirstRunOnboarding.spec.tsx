@@ -536,6 +536,130 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
+  it("joins a first-run Builder choice to its connection outcome", async () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
+        ?.click();
+    });
+
+    const selectedEvent = mocks.trackOnboardingEvent.mock.calls.find(
+      ([name, properties]) =>
+        name === "onboarding_method_clicked" &&
+        (properties as Record<string, unknown>).method_id ===
+          "builder_create_account",
+    );
+    const attemptId = (selectedEvent?.[1] as Record<string, unknown>)
+      ?.onboarding_attempt_id;
+    expect(attemptId).toEqual(expect.any(String));
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_started",
+      expect.objectContaining({
+        method_id: "builder_create_account",
+        onboarding_attempt_id: attemptId,
+      }),
+    );
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls.at(
+      -1,
+    )?.[0] as {
+      onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
+    };
+    await act(async () => {
+      await connectOptions.onConnected?.({ orgName: null });
+    });
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "builder_create_account",
+        onboarding_attempt_id: attemptId,
+        outcome: "connected",
+      }),
+    );
+  });
+
+  it("records Builder account-exists as a sanitized failed outcome", () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
+        ?.click();
+    });
+
+    flow.accountExists = true;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "builder_create_account",
+        outcome: "failed",
+        error_type: "account_exists",
+        onboarding_attempt_id: expect.any(String),
+      }),
+    );
+    const outcome = mocks.trackOnboardingEvent.mock.calls.find(
+      ([name, properties]) =>
+        name === "onboarding_method_outcome" &&
+        (properties as Record<string, unknown>).method_id ===
+          "builder_create_account",
+    );
+    expect(JSON.stringify(outcome)).not.toContain("Error:");
+  });
+
   it("shows the full list of included Builder.io services on the card", () => {
     act(() => {
       root.render(
@@ -793,6 +917,21 @@ describe("FirstRunOnboarding", () => {
     expect(completedSteps()).toEqual(["choice"]);
     expect(skippedSteps()).toEqual(["role"]);
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    const methodClick = mocks.trackOnboardingEvent.mock.calls.find(
+      ([event, properties]) =>
+        event === "onboarding_method_clicked" &&
+        (properties as Record<string, unknown>).method_id === "custom_keys",
+    );
+    const attemptId = (methodClick?.[1] as Record<string, unknown>)
+      ?.onboarding_attempt_id;
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        onboarding_attempt_id: attemptId,
+        outcome: "settings_opened",
+      }),
+    );
     window.history.replaceState(null, "", "/");
   });
 
