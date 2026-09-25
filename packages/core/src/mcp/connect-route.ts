@@ -65,6 +65,7 @@ import {
   serviceIdentityEmail,
   createDeviceCode,
   getDeviceCode,
+  getDeviceCodeByUserCode,
   approveDeviceCode,
   consumeDeviceCode,
   claimDeviceCodeForMint,
@@ -386,7 +387,11 @@ export async function mintOrgServiceToken(params: {
 function mcpResultPayload(
   appUrl: string,
   options: McpConnectRouteOptions,
-  auth: { token?: string; ownerEmail?: string },
+  auth: {
+    token?: string;
+    ownerEmail?: string;
+    catalogScope?: "full" | null;
+  },
 ) {
   const mcpUrl = mcpResourceUrl(appUrl);
   const name = serverName(appUrl, options);
@@ -394,12 +399,12 @@ function mcpResultPayload(
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
   if (!auth.token && auth.ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = auth.ownerEmail;
+    if (auth.catalogScope === "full") {
+      headers["X-Agent-Native-MCP-Full-Catalog"] = "1";
+    }
   }
-  // Intentionally do NOT inject the full-catalog header here. Every connector
-  // used to receive it, which silently forced the ~105-tool full catalog on
-  // every client. Full-catalog intent now lives durably in the token itself
-  // (`catalog_scope: "full"`, minted only by `connect --full-catalog`), so a
-  // normal connection defaults to the compact/connector catalog + tool-search.
+  // Token-backed scope lives in the signed token; dev-open has no token, so
+  // preserve its explicitly requested scope in connector metadata.
   return {
     token: auth.token ?? "",
     mcpUrl,
@@ -487,6 +492,7 @@ function renderConnectPage(params: {
   appUrl: string;
   serverId: string;
   userCode: string | null;
+  catalogScope: "full" | null;
   locale: LocaleCode;
   requestedGuide: string | null;
 }): string {
@@ -497,6 +503,7 @@ function renderConnectPage(params: {
     appUrl,
     serverId,
     userCode,
+    catalogScope,
     locale,
     requestedGuide,
   } = params;
@@ -662,6 +669,11 @@ function renderConnectPage(params: {
     font-size: 0.78rem; font-weight: 650;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     letter-spacing: 0.08em; color: var(--muted);
+  }
+  .scope-notice {
+    margin: 0 0 0.9rem; padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border-strong); border-radius: 8px;
+    color: var(--muted); font-size: 0.8rem; line-height: 1.4;
   }
   button {
     cursor: pointer; font: inherit; font-weight: 600; border: none;
@@ -931,6 +943,8 @@ function renderConnectPage(params: {
     <span class="label">${localize(connectMessages.deviceCode)}</span>
     <span class="value" id="userCodeValue">${safeUserCode}</span>
   </div>
+
+  ${safeUserCode && catalogScope === "full" ? `<p class="scope-notice">${localize(connectMessages.fullCatalogRequested)}</p>` : ""}
 
   ${setupHtml}
 
@@ -1297,6 +1311,7 @@ export async function handleMcpConnect(
           appUrl,
           serverId: serverName(appUrl, options),
           userCode: null,
+          catalogScope: null,
           locale,
           requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
         }),
@@ -1305,6 +1320,15 @@ export async function handleMcpConnect(
     let userCode: string | null = null;
     const raw = requestUrl?.searchParams.get("user_code");
     if (raw && USER_CODE_RE.test(raw)) userCode = raw;
+    const deviceCode = userCode
+      ? await getDeviceCodeByUserCode(userCode)
+      : null;
+    const catalogScope =
+      deviceCode?.status === "pending" &&
+      deviceCode.expiresAt != null &&
+      deviceCode.expiresAt >= Date.now()
+        ? deviceCode.catalogScope
+        : null;
     return html(
       renderConnectPage({
         connectBasePath: basePath,
@@ -1313,6 +1337,7 @@ export async function handleMcpConnect(
         appUrl,
         serverId: serverName(appUrl, options),
         userCode,
+        catalogScope,
         locale,
         requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
       }),
@@ -1362,7 +1387,28 @@ export async function handleMcpConnect(
   if (sub === "/device/start") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     try {
-      const row = await createDeviceCode();
+      let parsedBody: unknown;
+      try {
+        parsedBody = await readBody(event);
+      } catch {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      if (
+        parsedBody != null &&
+        (typeof parsedBody !== "object" || Array.isArray(parsedBody))
+      ) {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      const body = (parsedBody ?? {}) as { fullCatalog?: unknown };
+      if (
+        body.fullCatalog !== undefined &&
+        typeof body.fullCatalog !== "boolean"
+      ) {
+        return json({ error: "fullCatalog must be a boolean." }, 400);
+      }
+      const row = await createDeviceCode(
+        body.fullCatalog === true ? "full" : null,
+      );
       const verificationUri = `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
       return json({
         device_code: row.deviceCode,
@@ -1451,6 +1497,7 @@ export async function handleMcpConnect(
         status: "approved",
         ...mcpResultPayload(appUrl, options, {
           ownerEmail: row.ownerEmail,
+          catalogScope: row.catalogScope,
         }),
       });
     }
@@ -1474,6 +1521,9 @@ export async function handleMcpConnect(
           appUrl,
           expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
           jti,
+          ...(claimed.catalogScope
+            ? { catalogScope: claimed.catalogScope }
+            : {}),
         });
         await recordMintedToken({
           jti,

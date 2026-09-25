@@ -67,6 +67,7 @@ a module breaks those — re-point the spec in the same commit.
 | `screen-visual-style-change.ts`                     | Canvas style change addressed by explicit `screenId`                                |
 | `record-pending-visual-style-edit.ts`               | Record an uncommitted style gesture, stamped with breakpoint scope                  |
 | `change-selected-z-index.ts`                        | Raise or lower the selection's z-order                                              |
+| `swap-fill-stroke.ts`                               | Shift+X: swap fill and stroke, folding paint opacity into the colours               |
 
 ## Text
 

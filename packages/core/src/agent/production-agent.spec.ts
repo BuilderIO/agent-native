@@ -2215,9 +2215,60 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    await vi.waitFor(() => {
-      expect(seenTools).toEqual([["common", "tool-search"]]);
+    expect(seenTools[0]).toEqual(["common", "tool-search"]);
+  });
+
+  it("filters an unscoped resolved allowlist through initialToolNames", async () => {
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        common: actionEntry({}),
+        rare: actionEntry({}),
+        denied: actionEntry({}),
+        "tool-search": actionEntry({}),
+      },
+      initialToolNames: ["common"],
+      resolveActionSurface: async () => ({
+        allowedActionNames: ["common", "rare", "tool-search"],
+      }),
     });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Use the configured agent" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    expect(seenTools[0]).toEqual(["common", "tool-search"]);
   });
 
   it("keeps concurrent default and allowlisted action surfaces isolated by thread", async () => {
@@ -2295,7 +2346,7 @@ describe("createProductionAgentHandler", () => {
 
     expect(seenTools).toHaveLength(2);
     expect(seenTools).toContainEqual(["alpha", "tool-search"]);
-    expect(seenTools).toContainEqual(["beta"]);
+    expect(seenTools).toContainEqual([]);
     expect(seenContinuations).toContainEqual(["thread-alpha", false]);
     expect(seenContinuations).toContainEqual(["thread-beta", true]);
   });
