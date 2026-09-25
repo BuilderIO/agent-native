@@ -5,6 +5,8 @@ description: "cloudflare_module Nitro プリセットを使って、agent-native
 
 # Cloudflare
 
+## Cloudflare Workers {#cloudflare-workers}
+
 Cloudflare Worker には Nitro のネイティブなモジュール出力を使用します。これにより SSR
 が有効なまま、Worker のエントリポイントと静的アセットが `.output/server` と
 `.output/public` 配下に出力されます:
@@ -15,7 +17,7 @@ export default defineConfig({
 });
 ```
 
-Build and deploy the generated Worker with Wrangler:
+生成された Worker を Wrangler でビルド・デプロイします。
 
 ```bash
 pnpm build

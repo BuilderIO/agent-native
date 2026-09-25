@@ -5,6 +5,8 @@ description: "cloudflare_module Nitro 프리셋으로 agent-native 앱을 Cloudf
 
 # Cloudflare
 
+## Cloudflare Workers {#cloudflare-workers}
+
 Cloudflare Worker에는 Nitro의 네이티브 모듈 출력을 사용하세요. 이는 SSR을
 계속 활성화한 상태로 유지하며 Worker 진입점과 정적 자산을
 `.output/server` 및 `.output/public`에 생성합니다:
@@ -15,7 +17,7 @@ export default defineConfig({
 });
 ```
 
-Build and deploy the generated Worker with Wrangler:
+생성된 Worker를 Wrangler로 빌드하고 배포하세요:
 
 ```bash
 pnpm build

@@ -5,6 +5,8 @@ description: "انشر تطبيق agent-native على Cloudflare Workers باس�
 
 # Cloudflare
 
+## Cloudflare Workers {#cloudflare-workers}
+
 استخدم مخرجات الوحدة الأصلية لـ Nitro من أجل Cloudflare Worker. هذا يبقي
 SSR مُفعّلًا ويُصدر نقطة دخول الـ Worker بالإضافة إلى الأصول الثابتة تحت
 `.output/server` و`.output/public`:
@@ -15,7 +17,7 @@ export default defineConfig({
 });
 ```
 
-Build and deploy the generated Worker with Wrangler:
+قم ببناء ونشر الـ Worker المُولَّد باستخدام Wrangler:
 
 ```bash
 pnpm build

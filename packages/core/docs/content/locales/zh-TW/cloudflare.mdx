@@ -5,6 +5,8 @@ description: "使用 cloudflare_module Nitro 預設將 agent-native 應用程式
 
 # Cloudflare
 
+## Cloudflare Workers {#cloudflare-workers}
+
 使用 Nitro 原生的模組輸出來產生一個 Cloudflare Worker。這樣可以
 保持 SSR 啟用，並在 `.output/server` 和 `.output/public` 下產生
 Worker 進入點和靜態資源:
@@ -15,7 +17,7 @@ export default defineConfig({
 });
 ```
 
-Build and deploy the generated Worker with Wrangler:
+使用 Wrangler 建置並部署產生出來的 Worker：
 
 ```bash
 pnpm build

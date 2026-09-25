@@ -5,6 +5,8 @@ description: "Implante um app agent-native no Cloudflare Workers com o preset cl
 
 # Cloudflare
 
+## Cloudflare Workers {#cloudflare-workers}
+
 Use a saída nativa de módulos do Nitro para um Cloudflare Worker. Isso mantém
 o SSR habilitado e gera o ponto de entrada do Worker além dos assets
 estáticos em `.output/server` e `.output/public`:
@@ -15,7 +17,7 @@ export default defineConfig({
 });
 ```
 
-Build and deploy the generated Worker with Wrangler:
+Compile e implante o Worker gerado com o Wrangler:
 
 ```bash
 pnpm build

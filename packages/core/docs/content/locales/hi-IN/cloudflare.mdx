@@ -5,6 +5,8 @@ description: "cloudflare_module Nitro preset के साथ agent-native ऐ�
 
 # Cloudflare
 
+## Cloudflare Workers {#cloudflare-workers}
+
 Cloudflare Worker के लिए Nitro का native module output उपयोग करें। यह SSR
 सक्षम रखता है और Worker entry point के साथ static assets `.output/server` और
 `.output/public` के अंतर्गत emit करता है:
@@ -15,7 +17,7 @@ export default defineConfig({
 });
 ```
 
-Build and deploy the generated Worker with Wrangler:
+Wrangler के साथ generated Worker को build और deploy करें:
 
 ```bash
 pnpm build

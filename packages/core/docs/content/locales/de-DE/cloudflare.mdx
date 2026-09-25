@@ -5,6 +5,8 @@ description: "Stellen Sie eine agentennative App auf Cloudflare Workers mit der 
 
 # Cloudflare
 
+## Cloudflare Workers {#cloudflare-workers}
+
 Verwenden Sie Nitros native Modulausgabe für einen Cloudflare Worker. Das hält
 SSR aktiviert und erzeugt den Worker-Einstiegspunkt plus statische Assets
 unter `.output/server` und `.output/public`:
@@ -15,7 +17,7 @@ export default defineConfig({
 });
 ```
 
-Build and deploy the generated Worker with Wrangler:
+Bauen und deployen Sie den generierten Worker mit Wrangler:
 
 ```bash
 pnpm build
