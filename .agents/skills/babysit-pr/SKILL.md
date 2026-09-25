@@ -58,11 +58,13 @@ an unexpected merge without rotating.
    endpoint. Do not create or resume a heartbeat, acquire a lease, or update a
    scheduled task while the PR is open. At a terminal PR state, pause a legacy
    heartbeat only after rereading its full persisted definition and confirming
-   its `targetThreadId` matches this task. Update that same definition with only
-   `status` changed to `PAUSED`, preserving every other field, then reread it
-   and verify the id, target, status, and unchanged fields. If any step cannot
-   be verified, leave it alone and report the problem. Never act on a PR or
-   branch match alone. A lease has no role in foreground PR work.
+   it is a heartbeat for this exact `/babysit-pr <number>` (its name and prompt
+   identify the same PR), and its `targetThreadId` matches this task. A thread
+   match alone is insufficient. Update that same definition with only `status`
+   changed to `PAUSED`, preserving every other field, then reread it and verify
+   the id, kind, name, prompt, target, status, and unchanged fields. If any step
+   cannot be verified, leave it alone and report the problem. Never act on a PR
+   or branch match alone. A lease has no role in foreground PR work.
 2. Track the last actionable item: new human/bot feedback, a CI fix, conflict
    resolution, or an intentional commit/push.
 3. For standalone `/babysit-pr`, stop after 30 minutes with green GitHub Actions
@@ -433,7 +435,8 @@ disposition.
 
 ## Cleanup
 
-No watcher or lease is created by this workflow. If a pre-existing heartbeat
-targets this task after the PR reaches a terminal state, pause it using the
+No watcher or lease is created by this workflow. At a terminal PR state, pause
+a pre-existing heartbeat only if its name and prompt identify this exact PR's
+`/babysit-pr <number>` run and its `targetThreadId` matches this task. Follow the
 full-definition read/update/verify rule in Setup; leave other automations
 untouched. Verify the PR's final state.
