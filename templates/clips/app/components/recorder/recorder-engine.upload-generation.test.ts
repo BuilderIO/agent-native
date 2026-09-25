@@ -112,6 +112,8 @@ describe("RecorderEngine upload generation fencing", () => {
     expect(requests[4]).toMatchObject({
       url: "/api/uploads/rec-1/abort",
       body: JSON.stringify({
+        reason: "Recording interruption has unknown cause",
+        failureCode: "unknown",
         attemptId: "attempt-1",
         uploadGenerationId: "generation-2",
       }),

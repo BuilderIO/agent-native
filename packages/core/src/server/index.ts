@@ -6,6 +6,7 @@ export {
   type AppConfig,
   type AppConfigInput,
 } from "../app-config/index.js";
+export { resolveDeployEnvironment } from "./deploy-environment.js";
 export {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,

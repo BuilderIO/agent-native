@@ -267,6 +267,8 @@ export default defineAction({
       spaceIds: stringifySpaceIds(spaceIds),
       title,
       titleSource,
+      recordingPlatform: "import" as const,
+      failureCode: null,
       sourceAppName,
       sourceWindowTitle: sourceUrl,
       description: existingRecording?.description ?? "",
