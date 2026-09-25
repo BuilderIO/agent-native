@@ -670,6 +670,14 @@ test("ordinary cross-Screen drops preserve percentage and auto sizing", async ({
       await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
         timeout: 5_000,
       });
+      const heldScreenshot = test
+        .info()
+        .outputPath("responsive-cross-screen-held.png");
+      await cdpScreenshot(page, heldScreenshot);
+      await test.info().attach("responsive-cross-screen-held.png", {
+        path: heldScreenshot,
+        contentType: "image/png",
+      });
       expect(await file(request, designId, "index.html")).toBe(sourceBefore);
       expect(await file(request, designId, "second.html")).toBe(
         destinationBefore,
@@ -736,6 +744,14 @@ test("ordinary cross-Screen drops preserve percentage and auto sizing", async ({
     }));
     expect(movedSizing).toMatchObject({ width: "50%", height: "auto" });
     expect(movedSizing.rectWidth).toBeLessThan(260);
+    const reloadedScreenshot = test
+      .info()
+      .outputPath("responsive-cross-screen-reloaded.png");
+    await cdpScreenshot(page, reloadedScreenshot);
+    await test.info().attach("responsive-cross-screen-reloaded.png", {
+      path: reloadedScreenshot,
+      contentType: "image/png",
+    });
   } finally {
     await action(request, "delete-design", { id: designId });
   }
