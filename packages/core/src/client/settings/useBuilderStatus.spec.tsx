@@ -2023,6 +2023,48 @@ describe("useBuilderConnectFlow", () => {
     expect(openMcpAppHostLink).not.toHaveBeenCalled();
   });
 
+  it("does not continue a browser popup startup after cancel", async () => {
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    let releaseStartupStatus: ((response: Response) => void) | undefined;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ configured: false }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseStartupStatus = resolve;
+          }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+    expect(releaseStartupStatus).toBeTypeOf("function");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+      releaseStartupStatus?.(
+        jsonResponse({ configured: false, connectUrl: signedConnectUrl }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(popup.close).toHaveBeenCalled();
+    expect(popup.location.href).toBe("");
+    expect(container.textContent).not.toContain(
+      "Couldn't navigate the Builder popup",
+    );
+  });
+
   it("does not abort a reconnect popup because the old credential was rejected", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));

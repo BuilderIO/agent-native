@@ -1186,7 +1186,8 @@ export function useBuilderConnectFlow(
           const isCurrentConnectAttempt = () =>
             mountedRef.current &&
             connectAttemptIdRef.current === connectAttemptId &&
-            connectStartedAtRef.current === started;
+            connectStartedAtRef.current === started &&
+            cancelledConnectAttemptIdRef.current !== connectAttemptId;
           const popupReady = embeddedWindow
             ? waitForBuilderConnectPopupLoad(
                 opened,
