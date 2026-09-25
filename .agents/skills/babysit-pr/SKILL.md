@@ -64,8 +64,10 @@ an unexpected merge without rotating.
    id, kind, name, prompt, target, mode, status, and unchanged fields. If identity,
    mode, pause, or verification is uncertain, leave it alone and keep this
    invocation read-only until that watcher is inactive or its authorization is
-   carried forward. If no exact same-PR heartbeat exists or its pause is
-   verified, continue foreground work.
+   carried forward. A verified pause stops future ticks, not an in-flight turn;
+   if its target is another task, confirm that task is no longer running before
+   mutating the PR. If no exact same-PR heartbeat exists or its pause and target
+   are safe, continue foreground work.
    Never touch unrelated automations. A lease has no role in foreground PR work.
 2. Track the last actionable item: new human/bot feedback, a CI fix, conflict
    resolution, or an intentional commit/push.
