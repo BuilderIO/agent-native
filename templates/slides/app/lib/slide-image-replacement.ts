@@ -97,21 +97,12 @@ function findImageWithSource(
   );
 }
 
-/** The markup outside images, and outside the element stamped `emptied`. */
-function imageStructure(doc: Document, emptied?: string | null): string {
+/** The markup outside images. */
+function imageStructure(doc: Document): string {
   const body = doc.body.cloneNode(true) as HTMLElement;
   body.querySelectorAll("img").forEach((image, index) => {
     image.replaceWith(`__slide-image-${index}__`);
   });
-  if (emptied) {
-    for (const element of Array.from(
-      body.querySelectorAll(`[${SOURCE_STAMP_ATTR}]`),
-    )) {
-      if (element.getAttribute(SOURCE_STAMP_ATTR) === emptied) {
-        element.replaceChildren();
-      }
-    }
-  }
   return body.innerHTML;
 }
 
@@ -238,32 +229,41 @@ export function swapImageSourcesInPlace(
  * images, matched by order. Each live image keeps its source stamp, so the
  * edit still merges into the source it started from and carries the new
  * image as one of its changes. False unless images changed and nothing else
- * did but the edited element's own content, which an upload built on the
- * edit's last draft carries and the live edit is newer than.
+ * did, either since the previous render or since one of the edit's own
+ * drafts (`edit`, stored forms), which an upload built on that draft carries
+ * and the live edit is newer than.
  */
 export function updateLiveImagesUnderEdit(
   root: HTMLElement,
   previousContent: string,
   nextContent: string,
+  edit: { next: string; drafts: readonly string[] } | null,
 ): boolean {
   const previousDoc = parseFragment(previousContent);
   const nextDoc = parseFragment(nextContent);
   const previousImages = Array.from(previousDoc.body.querySelectorAll("img"));
   const nextImages = Array.from(nextDoc.body.querySelectorAll("img"));
   const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
-  const edited = root
-    .querySelector('[contenteditable="true"]')
-    ?.getAttribute(SOURCE_STAMP_ATTR);
   if (
     nextImages.length === 0 ||
     previousImages.length !== nextImages.length ||
     liveImages.length !== nextImages.length ||
     previousImages.every(
       (image, index) => image.outerHTML === nextImages[index].outerHTML,
-    ) ||
-    imageStructure(previousDoc, edited) !== imageStructure(nextDoc, edited)
+    )
   ) {
     return false;
+  }
+  if (imageStructure(previousDoc) !== imageStructure(nextDoc)) {
+    const next = edit && imageStructure(parseFragment(edit.next));
+    if (
+      !next ||
+      !edit.drafts.some(
+        (draft) => imageStructure(parseFragment(draft)) === next,
+      )
+    ) {
+      return false;
+    }
   }
   liveImages.forEach((image, index) => {
     const stamp = image.getAttribute(SOURCE_STAMP_ATTR);

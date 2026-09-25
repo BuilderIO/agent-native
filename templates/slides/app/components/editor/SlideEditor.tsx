@@ -38,6 +38,7 @@ import {
 import SlideRenderer, {
   getRenderedSlideSource,
   isRawHtmlSlide,
+  noteSlideEditDraft,
   SLIDE_CONTENT_REPLACE_EVENT,
   type SlideContentReplaceDetail,
 } from "@/components/deck/SlideRenderer";
@@ -2228,6 +2229,10 @@ export default function SlideEditor({
           preserveLocalState: true,
         });
       }
+      const session = textSessionRef.current;
+      if (session?.slideId === slideId) {
+        noteSlideEditDraft(session.slideContent, content);
+      }
       inlineEditDraftRef.current = next;
     },
     [],
@@ -2292,6 +2297,7 @@ export default function SlideEditor({
       session.text.end();
       const element = session.text.element;
       const { slideContent } = session;
+      noteSlideEditDraft(slideContent, null);
       let content: string | null = null;
       if (slideContent.contains(element)) {
         const source = getRenderedSlideSource(slideContent);

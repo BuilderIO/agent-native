@@ -896,6 +896,24 @@ export interface SlideContentReplaceDetail {
 
 const EDITING_SELECTOR = '[contenteditable="true"]';
 
+const editDrafts = new WeakMap<HTMLElement, string[]>();
+
+/**
+ * Records a draft (stored form) that the open text edit on `root` wrote to
+ * the deck; `null` forgets them once the edit ends. A write that is one of
+ * these drafts plus image changes is an upload built on the edit, not a
+ * change someone else made to the edited text.
+ */
+export function noteSlideEditDraft(root: HTMLElement, content: string | null) {
+  if (content === null) {
+    editDrafts.delete(root);
+    return;
+  }
+  // The last three: an upload reads the latest draft before its write
+  // renders, so an older one only matters to a much slower writer.
+  editDrafts.set(root, [...(editDrafts.get(root) ?? []).slice(-2), content]);
+}
+
 function registerRenderedSlideSource(
   root: HTMLElement,
   source: RenderedSlideSource | null,
@@ -997,7 +1015,14 @@ function RawSlideHtmlContent({
         // started from, which is still what the live stamps map to.
         if (
           sameSlide &&
-          updateLiveImagesUnderEdit(root, renderedHtmlRef.current, html)
+          updateLiveImagesUnderEdit(
+            root,
+            renderedHtmlRef.current,
+            html,
+            source
+              ? { next: source.stored, drafts: editDrafts.get(root) ?? [] }
+              : null,
+          )
         ) {
           return;
         }

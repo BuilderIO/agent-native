@@ -7,6 +7,7 @@ import {
   computeSlideFitTransform,
   getRenderedSlideSource,
   isRawHtmlSlide,
+  noteSlideEditDraft,
   prepareImportedFonts,
   resolveImportedFont,
   SLIDE_CONTENT_REPLACE_EVENT,
@@ -325,6 +326,28 @@ describe("SlideInner source stamps", () => {
     expect(getRenderedSlideSource(root)?.stored).toBe(mixed);
   });
 
+  it("commits instead of patching images when the edited text changed elsewhere too", () => {
+    const slide = { id: "slide-j", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const edited = root.querySelector("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption typed";
+    const remote = content
+      .replace("blob:preview", "https://cdn.test/a.png")
+      .replace("Caption", "Agent caption");
+    const commit = vi.fn((event: Event) => {
+      expect((event as CustomEvent).detail).toEqual({ content: remote });
+      edited.removeAttribute("contenteditable");
+    });
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: remote }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("p")!.textContent).toBe("Agent caption");
+    expect(getRenderedSlideSource(root)?.stored).toBe(remote);
+  });
+
   it("keeps an edit open for an upload whose content carries that edit's own draft", async () => {
     const slide = { id: "slide-i", content, layout: "blank" } as Slide;
     const { rerender } = render(<SlideInner slide={slide} stampSource />);
@@ -332,6 +355,8 @@ describe("SlideInner source stamps", () => {
     const image = root.querySelector("img")!;
     const edited = root.querySelector("p")!;
     edited.setAttribute("contenteditable", "true");
+    const draft = content.replace("Caption", "Caption ty");
+    noteSlideEditDraft(root, draft);
     edited.textContent = "Caption typed";
     const commit = vi.fn();
     document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
@@ -339,9 +364,7 @@ describe("SlideInner source stamps", () => {
       <SlideInner
         slide={{
           ...slide,
-          content: content
-            .replace("blob:preview", "https://cdn.test/a.png")
-            .replace("Caption", "Caption ty"),
+          content: draft.replace("blob:preview", "https://cdn.test/a.png"),
         }}
         stampSource
       />,
