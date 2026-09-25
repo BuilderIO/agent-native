@@ -78,6 +78,8 @@ export interface EditorState {
   blocks: number;
   editorRect: Rect | null;
   sourceRect: Rect | null;
+  /** The collapsed selection's caret box, or null when it draws none. */
+  caretRect: Rect | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
@@ -376,6 +378,35 @@ export function installInPageHelpers(chromeSelector: string) {
     );
   }
 
+  function caretRect(origin: DOMRect): Rect | null {
+    const selection = getSelection();
+    if (!selection?.rangeCount) return null;
+    const range = selection.getRangeAt(0).cloneRange();
+    range.collapse(false);
+    let box: DOMRect | undefined = range.getClientRects()[0];
+    // A caret on an empty line has no box of its own; the node right after
+    // it (the line's <br>, or the next line's first character) sits on the
+    // caret's line. The node before it ends the previous line.
+    if (!box?.height) {
+      const { startContainer: node, startOffset: at } = range;
+      const next =
+        node.nodeType === Node.TEXT_NODE
+          ? at < (node as Text).length
+            ? null
+            : node.nextSibling
+          : node.childNodes[at];
+      if (next?.nodeName === "BR") {
+        box = (next as Element).getBoundingClientRect();
+      } else if (next?.nodeType === Node.TEXT_NODE && next.textContent) {
+        const first = document.createRange();
+        first.setStart(next, 0);
+        first.setEnd(next, 1);
+        box = first.getClientRects()[0];
+      }
+    }
+    return box?.height ? rectOf(box, origin) : null;
+  }
+
   function editorState(canvasSel: string): EditorState {
     const root = document.querySelector(canvasSel);
     if (!root) throw new Error(`canvas not found: ${canvasSel}`);
@@ -391,6 +422,7 @@ export function installInPageHelpers(chromeSelector: string) {
       sourceRect: source
         ? rectOf(source.getBoundingClientRect(), origin)
         : null,
+      caretRect: caretRect(origin),
       sourceTag: source?.tagName ?? null,
       sourceText: source ? norm(source.textContent).slice(0, 400) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,

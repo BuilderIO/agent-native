@@ -147,9 +147,8 @@ them per slide. For each target and scenario:
    - `typedelete`: `x`, then Backspace.
    - `append`: End, then ` ok`.
    - `enter3`: End, then Enter three times, then `new line`. After each Enter
-     it records `enter-N.png`, the editor block count, the editor height, the
-     edited element's height on the slide, and whether the canvas visibly
-     changed.
+     it records `enter-N.png`, the edited element's height, the canvas
+     change, and the caret's line; the caret must move to another line.
    - `clickout`: like `typedelete`.
 6. **Exit.** Escape, except `clickout`, which clicks the empty editor
    background beside the slide. The harness then polls `get-deck` until the

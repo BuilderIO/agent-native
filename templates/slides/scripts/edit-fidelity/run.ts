@@ -705,12 +705,10 @@ async function makeSheet(
 
 interface EnterStep {
   key: number;
-  blocks: number;
-  editorHeight: number | null;
   sourceHeight: number | null;
+  caretY: number | null;
   canvasChangedPct: number;
-  reflowed: boolean;
-  visiblyChanged: boolean;
+  caretMoved: boolean;
 }
 
 interface ScenarioResult {
@@ -903,29 +901,29 @@ async function runScenario(
         const png = await shot(page, slideId);
         write(`enter-${k}.png`, png);
         const changed = await diffPngs(prevPng, png);
+        // The canvas can't show an Enter: a split at a soft wrap, a blank
+        // last line, and an authored fixed-height box all leave it unchanged,
+        // and a centered or bottom-anchored box moves the text instead of the
+        // caret. Relative to the edited element's top, the caret always moves
+        // to another line (up when Enter removes an empty last bullet).
+        const lineOf = (s: EditorState) =>
+          s.caretRect && s.sourceRect ? s.caretRect.y - s.sourceRect.y : null;
+        const from = lineOf(prev);
+        const to = lineOf(state);
         const step: EnterStep = {
           key: k,
-          blocks: state.blocks,
-          editorHeight: state.editorRect?.height ?? null,
           sourceHeight: state.sourceRect?.height ?? null,
+          caretY: to,
           canvasChangedPct: changed.pct,
-          // Enter on an empty last bullet removes it, so the list shrinks:
-          // either direction is the slide reflowing live.
-          reflowed:
-            Math.abs(
-              (state.sourceRect?.height ?? 0) - (prev.sourceRect?.height ?? 0),
-            ) > 1,
-          visiblyChanged: changed.pct > tol,
+          caretMoved:
+            from !== null &&
+            to !== null &&
+            Math.abs(to - from) >= prev.caretRect!.height / 2,
         };
         enterSteps.push(step);
-        if (!step.reflowed) {
+        if (!step.caretMoved) {
           result.violations.push(
-            `enter #${k}: editor ${prev.blocks}->${state.blocks} blocks, ${prev.editorRect?.height}->${state.editorRect?.height}px, but the slide's edited element stayed ${state.sourceRect?.height}px (no reflow until exit)`,
-          );
-        }
-        if (!step.visiblyChanged) {
-          result.violations.push(
-            `enter #${k}: slide did not visibly change (${changed.pct}% <= ${tol}%)`,
+            `enter #${k}: the caret stayed on its line (y ${from ?? "none"} -> ${to ?? "none"} in the element)`,
           );
         }
         prevPng = png;
@@ -944,9 +942,8 @@ async function runScenario(
       scenario === "clickout" ? "clickout" : "escape",
     );
     if (!exited) result.violations.push("edit mode did not exit");
-    const saved = await settleSaved(page, deckId, slideId);
+    await settleSaved(page, deckId, slideId);
     const writeStacks = await takeWriteStacks(page);
-    write("saved.html", saved);
     await settle(page);
     const after = await shot(page, slideId);
     write("after.png", after);
@@ -960,6 +957,10 @@ async function runScenario(
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
     const reload = await shot(page, slideId);
     write("reload.png", reload);
+    // Read what the reload rendered: on a loaded machine a debounced write
+    // can land after settleSaved's quiet window, and the edited page is gone.
+    const saved = await getSlideContent(page, deckId, slideId);
+    write("saved.html", saved);
     const snapReload = await snapshot(page, slideId, { text: expectedText });
     styleProblems.push(
       ...(await checkExpectedStyles(page, slideId, ctx.expectStyles, "reload")),
