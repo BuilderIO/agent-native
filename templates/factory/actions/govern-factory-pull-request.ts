@@ -138,7 +138,7 @@ async function hasVerifiedFactoryRun(input: {
 
 export default defineAction({
   description:
-    "Govern one pull request in this factory's repository after fetching bounded GitHub review, CI, and changed-file evidence. Auto-approve only under the current review-prs membership, Shomix (BuilderIO/agent-native), Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
+    "Govern one pull request in this factory's repository after fetching bounded GitHub review, CI, and changed-file evidence. Auto-approve only under the current review-prs membership, Shomix (shomix, GitHub user ID 100691266, BuilderIO/agent-native), Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),

@@ -297,14 +297,23 @@ describe("pull-request governance", () => {
       "No authentication issues were found.",
       "No authorization issues were found.",
       "No XSS, CSRF, or authentication vulnerabilities were found.",
+      "No XSS was found.",
       "XSS, CSRF, and authentication vulnerabilities were fixed.",
       "CSP and authorization vulnerabilities were fixed.",
       "User-controlled HTML is rendered safely into the DOM.",
       "Untrusted HTML is rendered into the DOM only after escaping.",
+      "Untrusted input is assigned to innerHTML only after proper escaping.",
+      "User-controlled HTML is passed to dangerouslySetInnerHTML only after sanitization.",
+      "User-controlled HTML is sanitized before it is rendered to the DOM.",
+      "User-controlled HTML is escaped before it is assigned to innerHTML.",
+      "Untrusted HTML is encoded before it reaches dangerouslySetInnerHTML.",
+      "User-controlled HTML is sanitized and then rendered to the DOM.",
+      "No XSS was found; user-controlled HTML is rendered safely into the DOM.",
       "This change reduces prompt tokens by 500.",
     ]) {
       expect(
         hasActiveCredibleSafetyFinding([{ state: "commented", body }], []),
+        body,
       ).toBe(false);
     }
     expect(
@@ -339,6 +348,8 @@ describe("pull-request governance", () => {
       "The user password is sent to the client.",
       "This renders user-controlled HTML without escaping through innerHTML.",
       "Untrusted input is assigned to innerHTML.",
+      "User-supplied HTML is assigned to innerHTML.",
+      "Attacker-provided markup is passed to dangerouslySetInnerHTML.",
       "The UI uses dangerouslySetInnerHTML with attacker-controlled markup.",
       "HTML from the PR body is inserted directly into the DOM.",
       "HTML is rendered unescaped from an untrusted source.",
@@ -346,6 +357,32 @@ describe("pull-request governance", () => {
       "Attacker can inject markup that executes JavaScript.",
       "Attacker can inject HTML into the DOM, which executes JavaScript.",
       "User input is reflected into the DOM without encoding.",
+      "User-controlled HTML is rendered into the DOM unsanitized.",
+      "The renderer puts unescaped user-controlled content in the DOM.",
+      "An attacker-controlled value is passed to HTML rendering without escaping.",
+      "User-controlled HTML is safely rendered into the DOM but is not properly escaped.",
+      "User-controlled HTML renders safely into the DOM; it is actually not escaped.",
+      "The UI renders user input safely, however the HTML is not escaped before insertion.",
+      "The HTML renders safely into DOM, but no proper escaping is applied to user input.",
+      "The patch safely renders a static preview. It also passes untrusted HTML through dangerouslySetInnerHTML.",
+      "The app safely renders a preview. The review issue is that untrusted HTML reaches dangerouslySetInnerHTML.",
+      "The preview is rendered safely, but untrusted HTML reaches dangerouslySetInnerHTML.",
+      "The preview is rendered safely; user-controlled HTML is passed to dangerouslySetInnerHTML.",
+      "The app safely renders a preview, although untrusted HTML reaches dangerouslySetInnerHTML.",
+      "The preview renders safely, and user-controlled HTML reaches dangerouslySetInnerHTML.",
+      "The preview renders safely and user-controlled HTML reaches dangerouslySetInnerHTML.",
+      "User-controlled HTML renders safely into the DOM and is also passed to dangerouslySetInnerHTML.",
+      "The preview renders safely, yet untrusted HTML reaches dangerouslySetInnerHTML.",
+      "The preview renders safely, though untrusted HTML reaches dangerouslySetInnerHTML.",
+      "The preview renders safely, untrusted HTML reaches dangerouslySetInnerHTML.",
+      "The preview renders safely — user-controlled HTML reaches dangerouslySetInnerHTML.",
+      "The preview renders safely – user-controlled HTML reaches dangerouslySetInnerHTML.",
+      "The preview path renders safely: user-controlled HTML reaches dangerouslySetInnerHTML.",
+      "A separate preview renders safely (the live path is different): untrusted HTML reaches dangerouslySetInnerHTML.",
+      "The preview is rendered safely / user-controlled HTML reaches dangerouslySetInnerHTML.",
+      "User-controlled HTML is rendered safely in preview, but the original untrusted HTML is passed to dangerouslySetInnerHTML.",
+      "User-controlled HTML is rendered safely in preview; however, the original untrusted HTML is passed to dangerouslySetInnerHTML.",
+      "User-controlled HTML is rendered safely in preview, but the original source value is passed to dangerouslySetInnerHTML.",
       "Untrusted HTML is rendered without escaping, so scripts can run.",
       "The Markdown renderer permits event-handler attributes.",
       "OAuth callback accepts arbitrary redirect URLs.",
@@ -354,6 +391,7 @@ describe("pull-request governance", () => {
     ]) {
       expect(
         hasActiveCredibleSafetyFinding([{ state: "commented", body }], []),
+        body,
       ).toBe(true);
     }
     expect(
@@ -647,7 +685,7 @@ describe("pull-request governance", () => {
       [
         {
           state: "commented",
-          body: "Untrusted input is assigned to innerHTML.",
+          body: "The preview renders safely, and user-controlled HTML reaches dangerouslySetInnerHTML.",
         },
       ],
       [],

@@ -118,7 +118,7 @@ The verified owner exceptions are:
 
  - Alice (`3mdistal`) - Content
  - Nick (`NKoech123`) - Slides
- - Shomix (`shomix`) - any app or framework area
+ - Shomix (`shomix`, GitHub user ID `100691266`) - any app or framework area
  - Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
    app
  - Sid (`sidmohanty11`) - Design

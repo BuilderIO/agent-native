@@ -454,8 +454,9 @@ safety findings in fresh review evidence always block approval. Apply the
 verified Alice/Content, Nick/Slides, Enzo/Factory-specific, Sid/Design, and
 docs-only owner exceptions from review-prs only after membership and an
 explicit ultra-scary assessment. For BuilderIO/agent-native PRs, Shomix
-(shomix) may be auto-approved across app and framework areas, including UX
+(shomix, GitHub user ID 100691266) may be auto-approved across app and framework areas, including UX
 changes, refactors, ordinary unresolved feedback, and failed or pending checks.
+Verify both the login and immutable GitHub ID; do not rely on the mutable login alone.
 The Shomix exception does not apply to
 review/approval policy, agent-safety instructions, membership verification, or
 CI/deployment security changes; those require independent human review. These
