@@ -28,7 +28,6 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
@@ -489,29 +488,26 @@ export function FirstRunOnboarding({
                     </div>
                   ))}
                 </div>
-                <DeferredBuilderConnectPopover
-                  flow={connectFlow}
-                  onConnect={(provisionAccount) =>
-                    handleBuilder(provisionAccount)
-                  }
-                  defaultProvisionAccount
-                  contentTestId="first-run-builder-consent"
-                  primaryTestId="first-run-builder-create-and-activate"
-                  secondaryTestId="first-run-builder-existing-account"
-                >
+                <div className="flex flex-col gap-2">
                   <button
                     type="button"
-                    data-testid="first-run-connect-builder"
+                    data-testid="first-run-builder-create-account"
                     className={cn(primaryButtonClass, "w-full")}
+                    onClick={() => handleBuilder(true)}
+                    disabled={connectFlow.connecting}
                   >
-                    {t(
-                      canActivateBuilderFreeCredits
-                        ? "agentChat.onboarding.builderActivateCredits"
-                        : "agentChat.onboarding.builderConnectCredits",
-                    )}
-                    <IconArrowRight size={15} />
+                    {t("agentChat.onboarding.builderCreateAccount")}
                   </button>
-                </DeferredBuilderConnectPopover>
+                  <button
+                    type="button"
+                    data-testid="first-run-builder-sign-in"
+                    className={cn(mutedButtonClass, "w-full")}
+                    onClick={() => handleBuilder(false)}
+                    disabled={connectFlow.connecting}
+                  >
+                    {t("agentChat.onboarding.builderSignInWithAccount")}
+                  </button>
+                </div>
                 {connectFlow.error && !connectFlow.statusResolved && (
                   <p
                     role="status"
@@ -1048,6 +1044,9 @@ function FirstRunCompletionError({
     </div>
   );
 }
+
+const mutedButtonClass =
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-muted px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 const secondaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";

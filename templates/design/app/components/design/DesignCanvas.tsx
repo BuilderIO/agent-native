@@ -30,6 +30,8 @@ import {
   createPenCuspLatch,
   createPenDragNode,
   isPenCloseTarget,
+  parsePenNodes,
+  resumePenPathAtEnd,
   serializePenPath,
   translatePenPath,
   type PenCuspLatch,
@@ -73,6 +75,7 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
+import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
 import {
   pendingVisualStyleRouteMatches,
   runtimeStyleTarget,
@@ -509,10 +512,7 @@ function createEditorBridgeThemeScript(vars: Record<string, string>) {
 <script data-agent-native-editor-theme>
 (function() {
   var vars = ${serializedVars};
-  var root = document.documentElement;
-  Object.keys(vars).forEach(function(name) {
-    root.style.setProperty(name, vars[name]);
-  });
+  window.__anEditorBridgeThemeVars = vars;
 })();
 </script>
 `;
@@ -1101,6 +1101,7 @@ interface DesignCanvasProps {
    * behavior — the overlay never mounts.
    */
   activeCreationTool?: CreationTool | null;
+  selectedPenPathNodeId?: string | null;
   /**
    * Fired once per completed click or drag gesture while `activeCreationTool`
    * is set. Geometry is in SCREEN-CONTENT coordinates — the screen's own
@@ -1110,7 +1111,8 @@ interface DesignCanvasProps {
    * persisted primitive (see `appendCanvasPrimitiveToHtml` /
    * `draftPrimitiveToInsert` on the overview side).
    */
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => void;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
+  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
   /**
    * OS file drag-and-drop (Figma parity): fired when the user drops native
    * OS files (e.g. images dragged from Finder/Explorer) onto this single-
@@ -1168,6 +1170,54 @@ function getExternalPreviewUrl(content: string): string | null {
     return url.toString();
   } catch {
     return null;
+  }
+}
+
+function isCurrentLiveEditReadyMessage(
+  liveEditUrl: string,
+  routePath: unknown,
+  previousRoutePath: string | null,
+): "current" | "stale" | "invalid" {
+  try {
+    const liveEdit = new URL(liveEditUrl);
+    const targetUrl = liveEdit.searchParams.get("url");
+    const targetPathParam = liveEdit.searchParams.get("path");
+    const targetPath = targetUrl
+      ? new URL(targetUrl)
+      : targetPathParam
+        ? new URL(targetPathParam, liveEdit.origin)
+        : null;
+    if (!targetPath) return "invalid";
+    const expectedRoutePath = targetPath.pathname + targetPath.search;
+    if (typeof routePath === "string" && routePath) {
+      return routePath === expectedRoutePath ? "current" : "stale";
+    }
+    return previousRoutePath === null || previousRoutePath === expectedRoutePath
+      ? "current"
+      : "stale";
+  } catch {
+    return "invalid";
+  }
+}
+
+function liveEditDocumentIdentityForRoute(
+  liveEditUrl: string,
+  routePath: string,
+): { status: "ready"; identity: string } | { status: "invalid" } {
+  try {
+    const liveEdit = new URL(liveEditUrl);
+    const targetUrl = liveEdit.searchParams.get("url");
+    if (!targetUrl) return { status: "invalid" };
+    const target = new URL(targetUrl);
+    const route = new URL(routePath, target.origin);
+    if (route.origin !== target.origin) return { status: "invalid" };
+    target.pathname = route.pathname;
+    target.search = route.search;
+    target.hash = route.hash;
+    liveEdit.searchParams.set("url", target.toString());
+    return { status: "ready", identity: `src:${liveEdit.toString()}` };
+  } catch {
+    return { status: "invalid" };
   }
 }
 
@@ -1450,6 +1500,11 @@ function readIframeScrollOffset(iframe: HTMLIFrameElement | null | undefined): {
   }
 }
 
+// Inspector selects and pickers portal outside the right panel; while a text
+// range is being styled they are still part of that inspector gesture.
+const INSPECTOR_POPUP_SELECTOR =
+  '[role="menu"], [role="listbox"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]';
+
 export function DesignCanvas({
   content,
   contentKey,
@@ -1574,7 +1629,9 @@ export function DesignCanvas({
   onGradientEditChange,
   statePreviewTarget,
   activeCreationTool = null,
+  selectedPenPathNodeId,
   onCreatePrimitive,
+  onUpdatePenPath,
   onDropFiles,
   handToolActive = false,
   spacePanActive = false,
@@ -1589,7 +1646,7 @@ export function DesignCanvas({
   });
   const textEditInspectorFocusedRef = useRef(false);
   const pendingTextEditResumeRef = useRef<{
-    input: HTMLInputElement;
+    origin: HTMLElement;
     iframe: HTMLIFrameElement;
     contentWindow: Window;
     screenId: string;
@@ -1732,6 +1789,8 @@ export function DesignCanvas({
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
   const liveRoutePathRef = useRef<string | null>(null);
+  const liveEditDocumentIdsRef = useRef(new Set<string>());
+  const liveEditDocumentIdRef = useRef<string | null>(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
   const pendingOneShotMessagesRef = useRef<unknown[]>([]);
   const flushPendingOneShotMessages = useCallback(() => {
@@ -1842,7 +1901,18 @@ export function DesignCanvas({
     if (interactMode) return;
     const isInspectorTarget = (target: EventTarget | null): boolean =>
       target instanceof Element &&
-      !!target.closest('[data-design-chrome-region="right-panel"]');
+      (!!target.closest('[data-design-chrome-region="right-panel"]') ||
+        (textEditInspectorFocusedRef.current &&
+          !!target.closest(INSPECTOR_POPUP_SELECTOR)));
+    const isTextEntry = (target: Element | null): boolean =>
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      (target instanceof HTMLElement && target.isContentEditable) ||
+      (target instanceof HTMLInputElement &&
+        !["button", "checkbox", "radio", "range", "color"].includes(
+          target.type,
+        ));
+    let focusVisitedInspectorPopup = false;
     const cancelPendingTextEditResume = () => {
       const pending = pendingTextEditResumeRef.current;
       if (pending) window.cancelAnimationFrame(pending.frameId);
@@ -1862,6 +1932,67 @@ export function DesignCanvas({
         focused,
       });
     };
+    const scheduleTextEditResume = (origin: HTMLElement) => {
+      const state = textEditingStateRef.current;
+      const owningScreenId = screenId ?? contentKey ?? "";
+      const iframe = iframeRef.current;
+      const contentWindow = iframe?.contentWindow;
+      if (
+        !owningScreenId ||
+        !textEditInspectorFocusedRef.current ||
+        !state.hasRange ||
+        !state.selector ||
+        !iframe ||
+        !contentWindow
+      ) {
+        return;
+      }
+
+      cancelPendingTextEditResume();
+      const resumeIntent: NonNullable<typeof pendingTextEditResumeRef.current> =
+        {
+          origin,
+          iframe,
+          contentWindow,
+          screenId: owningScreenId,
+          selector: state.selector,
+          sourceId: state.sourceId,
+          phase: "waiting",
+          frameId: 0,
+        };
+      pendingTextEditResumeRef.current = resumeIntent;
+      resumeIntent.frameId = window.requestAnimationFrame(() => {
+        if (pendingTextEditResumeRef.current !== resumeIntent) return;
+        const latest = textEditingStateRef.current;
+        const currentScreenId = screenId ?? contentKey ?? "";
+        const focused = document.activeElement;
+        if (
+          isTextEntry(focused) ||
+          !!focused?.closest(INSPECTOR_POPUP_SELECTOR) ||
+          iframeRef.current !== iframe ||
+          iframe.contentWindow !== contentWindow ||
+          currentScreenId !== resumeIntent.screenId ||
+          !registerRuntimeBridge ||
+          !latest.hasRange ||
+          latest.selector !== resumeIntent.selector ||
+          latest.sourceId !== resumeIntent.sourceId
+        ) {
+          cancelPendingTextEditResume();
+          return;
+        }
+
+        resumeIntent.phase = "resuming";
+        textEditInspectorFocusedRef.current = false;
+        iframe.focus();
+        postOneShotBridgeMessage({
+          type: "resume-text-edit",
+          screenId: resumeIntent.screenId,
+          selector: resumeIntent.selector,
+          sourceId: resumeIntent.sourceId,
+        });
+        pendingTextEditResumeRef.current = null;
+      });
+    };
     const handleFocusIn = (event: FocusEvent) => {
       const pending = pendingTextEditResumeRef.current;
       if (
@@ -1874,10 +2005,27 @@ export function DesignCanvas({
       }
       if (!textEditingStateRef.current.hasRange) return;
       if (isInspectorTarget(event.target)) {
-        if (pending?.phase === "waiting" && event.target !== pending.input) {
+        if (pending?.phase === "waiting" && event.target !== pending.origin) {
           cancelPendingTextEditResume();
         }
         setInspectorFocus(true);
+        // A closing select or picker hands focus back to its trigger (after
+        // unmounting, so relatedTarget is null): the range style is
+        // committed, so return the keyboard to the text.
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest(INSPECTOR_POPUP_SELECTOR)
+        ) {
+          focusVisitedInspectorPopup = true;
+        } else if (
+          focusVisitedInspectorPopup &&
+          target instanceof HTMLElement &&
+          !isTextEntry(target)
+        ) {
+          focusVisitedInspectorPopup = false;
+          scheduleTextEditResume(target);
+        }
       } else if (textEditInspectorFocusedRef.current) {
         setInspectorFocus(false);
       }
@@ -1895,18 +2043,21 @@ export function DesignCanvas({
       cancelPendingTextEditResume();
       if (isInspectorTarget(event.target)) {
         if (textEditingStateRef.current.hasRange) setInspectorFocus(true);
-      } else if (
-        textEditingStateRef.current.hasRange ||
-        textEditInspectorFocusedRef.current
-      ) {
-        setInspectorFocus(false);
+      } else {
+        focusVisitedInspectorPopup = false;
+        if (
+          textEditingStateRef.current.hasRange ||
+          textEditInspectorFocusedRef.current
+        ) {
+          setInspectorFocus(false);
+        }
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       const pendingResume = pendingTextEditResumeRef.current;
       if (
         pendingResume?.phase === "waiting" &&
-        event.target !== pendingResume.input
+        event.target !== pendingResume.origin
       ) {
         cancelPendingTextEditResume();
       }
@@ -1936,64 +2087,7 @@ export function DesignCanvas({
       ) {
         return;
       }
-      const state = textEditingStateRef.current;
-      const owningScreenId = screenId ?? contentKey ?? "";
-      const iframe = iframeRef.current;
-      const contentWindow = iframe?.contentWindow;
-      if (
-        !owningScreenId ||
-        !textEditInspectorFocusedRef.current ||
-        !state.hasRange ||
-        !state.selector ||
-        !iframe ||
-        !contentWindow
-      ) {
-        return;
-      }
-
-      cancelPendingTextEditResume();
-      const resumeIntent: NonNullable<typeof pendingTextEditResumeRef.current> =
-        {
-          input: target,
-          iframe,
-          contentWindow,
-          screenId: owningScreenId,
-          selector: state.selector,
-          sourceId: state.sourceId,
-          phase: "waiting",
-          frameId: 0,
-        };
-      pendingTextEditResumeRef.current = resumeIntent;
-      resumeIntent.frameId = window.requestAnimationFrame(() => {
-        if (pendingTextEditResumeRef.current !== resumeIntent) return;
-        const latest = textEditingStateRef.current;
-        const currentScreenId = screenId ?? contentKey ?? "";
-        if (
-          document.activeElement === target ||
-          isInspectorTarget(document.activeElement) ||
-          iframeRef.current !== iframe ||
-          iframe.contentWindow !== contentWindow ||
-          currentScreenId !== resumeIntent.screenId ||
-          !registerRuntimeBridge ||
-          !latest.hasRange ||
-          latest.selector !== resumeIntent.selector ||
-          latest.sourceId !== resumeIntent.sourceId
-        ) {
-          cancelPendingTextEditResume();
-          return;
-        }
-
-        resumeIntent.phase = "resuming";
-        textEditInspectorFocusedRef.current = false;
-        iframe.focus();
-        postOneShotBridgeMessage({
-          type: "resume-text-edit",
-          screenId: resumeIntent.screenId,
-          selector: resumeIntent.selector,
-          sourceId: resumeIntent.sourceId,
-        });
-        pendingTextEditResumeRef.current = null;
-      });
+      scheduleTextEditResume(target);
     };
     document.addEventListener("focusin", handleFocusIn, true);
     document.addEventListener("focusout", handleFocusOut, true);
@@ -2275,15 +2369,19 @@ export function DesignCanvas({
   // srcdoc is rebuilt per document, so unlike the keyed live-edit bundle above
   // it can carry the real first-paint value: forwarding that arrives only by
   // postMessage stays dead until the handshake, and is stranded by a swap.
+  const initialInteractModeRef = useRef(interactMode);
   const embeddedGestureBridgeForSrcdoc = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
         "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
-        isEmbeddedFrame && !interactMode ? "true" : "false",
+        isEmbeddedFrame && !initialInteractModeRef.current ? "true" : "false",
       )
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
-        .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
-    [interactMode, isEmbeddedFrame],
+        .replace(
+          "__EDITING_SAFETY_ENABLED__",
+          initialInteractModeRef.current ? "false" : "true",
+        ),
+    [isEmbeddedFrame],
   );
   const includeLiveEditEditorChrome = !readOnly;
   const liveEditBridgeScript = useMemo(() => {
@@ -3477,15 +3575,13 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
-  // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
-  // outside Edit mode. The editor chrome bridge is omitted for Interact mode
-  // so preview/app users can interact with the app normally.
+  // Build the srcdoc. Both mode bridges stay installed; live postMessages
+  // switch pointer ownership without replacing the iframe document.
   //
-  // readOnly and editMode are intentionally NOT deps here: the bridge is
-  // injected whenever !interactMode and the initial __READ_ONLY__ /
-  // __TEXT_EDITING_ENABLED__ placeholders are baked from the *first* render
-  // only (so first paint never flashes the wrong mode). After that, live
-  // readOnly / editMode changes flow through the set-read-only and
+  // readOnly and editMode are intentionally NOT deps here: the initial
+  // __READ_ONLY__ / __TEXT_EDITING_ENABLED__ placeholders are baked from the
+  // first render only (so first paint never flashes the wrong mode). After
+  // that, live readOnly / editMode changes flow through set-read-only and
   // set-text-editing-enabled postMessages (see the useEffects below) so
   // switching the active surface (board ↔ screen) or toggling Edit ⇄ Preview
   // never rebuilds srcdoc / reloads every screen iframe.
@@ -3495,50 +3591,49 @@ export function DesignCanvas({
     // mounting an iframe, then mounts the real `src` exactly once.
     if (rawExternalPreviewUrl) return undefined;
     const localizedContent = withLocalRuntimes(iframeRenderContent);
-    const editorChromeBridge = interactMode
-      ? ""
-      : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-          "__READ_ONLY__",
-          readOnly ? "true" : "false",
+    const editorChromeBridge =
+      createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
+      EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+        "__READ_ONLY__",
+        readOnly ? "true" : "false",
+      )
+        .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+        .replace(
+          "__EDITOR_CHROME_SCALE_X__",
+          String(effectiveEditorChromeScaleX),
         )
-          .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
-          .replace(
-            "__EDITOR_CHROME_SCALE_X__",
-            String(effectiveEditorChromeScaleX),
-          )
-          .replace(
-            "__EDITOR_CHROME_SCALE_Y__",
-            String(effectiveEditorChromeScaleY),
-          )
-          .replace(
-            "__DESIGN_CANVAS_SCREEN_ID__",
-            JSON.stringify(screenId ?? contentKey ?? ""),
-          )
-          .replace(
-            "__DESIGN_CANVAS_BOARD_SURFACE__",
-            boardSurface ? "true" : "false",
-          )
-          .replace(
-            "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
-            String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
-          )
-          .replace(
-            "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
-            String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
-          )
-          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-          .replace(
-            "__LIVE_REFLOW_ENABLED__",
-            LIVE_REFLOW_ENABLED ? "true" : "false",
-          )
-          .replace(
-            "__SELECTED_LAYER_DRAG_PRIORITY__",
-            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
-          )
-          .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
-            inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
-          );
+        .replace(
+          "__EDITOR_CHROME_SCALE_Y__",
+          String(effectiveEditorChromeScaleY),
+        )
+        .replace(
+          "__DESIGN_CANVAS_SCREEN_ID__",
+          JSON.stringify(screenId ?? contentKey ?? ""),
+        )
+        .replace(
+          "__DESIGN_CANVAS_BOARD_SURFACE__",
+          boardSurface ? "true" : "false",
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
+          String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
+          String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
+        )
+        .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+        .replace(
+          "__LIVE_REFLOW_ENABLED__",
+          LIVE_REFLOW_ENABLED ? "true" : "false",
+        )
+        .replace(
+          "__SELECTED_LAYER_DRAG_PRIORITY__",
+          SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+        )
+        .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+          inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
+        );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
     // (agent-native:hit-test / agent-native:hit-test-result) resolves an
@@ -3602,7 +3697,6 @@ export function DesignCanvas({
     boardSurface,
     fitRootBodyToFrame,
     rawExternalPreviewUrl,
-    interactMode,
     isEmbeddedFrame,
     embeddedFrameBackground,
     embeddedGestureBridgeForSrcdoc,
@@ -3644,6 +3738,10 @@ export function DesignCanvas({
     : waitingForLiveEditBridge
       ? `live-edit-pending:${liveEditBridgeKey}`
       : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
+  const iframeDocumentIdentityRef = useRef(iframeDocumentIdentity);
+  iframeDocumentIdentityRef.current = iframeDocumentIdentity;
+  const externalPreviewUrlRef = useRef(externalPreviewUrl);
+  externalPreviewUrlRef.current = externalPreviewUrl;
   // Route navigation inside a live URL updates `externalPreviewUrl`, but it
   // must not replace the host iframe. Keeping the element stable lets the
   // running app navigate in place while the document identity below still
@@ -3655,9 +3753,11 @@ export function DesignCanvas({
     : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
-    bridgeReadyRef.current = false;
-    editorChromeReadyRef.current = false;
-    bootReadyRef.current = false;
+    if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
+      bridgeReadyRef.current = false;
+      editorChromeReadyRef.current = false;
+      bootReadyRef.current = false;
+    }
   }
   // Edit mode must never let a live URL receive native app input before the
   // injected editor bridge has proved that it owns the document. A cached
@@ -3686,9 +3786,18 @@ export function DesignCanvas({
   // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
   // an onLoad that already fired would strand a spinner over finished content.
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const markPreviewFrameReady = useCallback(() => {
+    setPreviewFrameLoaded(true);
+    if (!onBootReady || bootReadyRef.current) return;
+    bootReadyRef.current = true;
+    onBootReady();
+  }, [onBootReady]);
   useEffect(() => {
-    setPreviewFrameLoaded(false);
-  }, [iframeDocumentIdentity]);
+    if (!externalPreviewUrl) return;
+    setPreviewFrameLoaded(
+      readyIframeDocumentIdentity === iframeDocumentIdentity,
+    );
+  }, [externalPreviewUrl, iframeDocumentIdentity, readyIframeDocumentIdentity]);
   // No snapshot is ever painted over the live frame, not even for the few
   // frames of a document swap. Covering the real iframe with a frozen copy is
   // the same false-success shape as rendering the snapshot outright: when the
@@ -3798,6 +3907,55 @@ export function DesignCanvas({
       if (!trusted) {
         return;
       }
+      let readyDocumentIdentity = iframeDocumentIdentityRef.current;
+      if (
+        trustedCurrentFrame &&
+        sourceType === "localhost" &&
+        e.data?.type === "agent-native:editor-chrome-ready" &&
+        externalPreviewUrlRef.current
+      ) {
+        const documentId =
+          typeof e.data.documentId === "string" && e.data.documentId
+            ? e.data.documentId
+            : null;
+        const knownDocumentId =
+          documentId !== null && liveEditDocumentIdsRef.current.has(documentId);
+        if (
+          documentId !== null &&
+          knownDocumentId &&
+          documentId !== liveEditDocumentIdRef.current
+        ) {
+          return;
+        }
+        if (documentId === null || knownDocumentId) {
+          if (
+            isCurrentLiveEditReadyMessage(
+              externalPreviewUrlRef.current,
+              e.data.routePath,
+              liveRoutePathRef.current,
+            ) !== "current"
+          ) {
+            return;
+          }
+        } else {
+          if (typeof e.data.routePath === "string" && e.data.routePath) {
+            const routeIdentity = liveEditDocumentIdentityForRoute(
+              externalPreviewUrlRef.current,
+              e.data.routePath,
+            );
+            if (routeIdentity.status === "invalid") return;
+            readyDocumentIdentity = routeIdentity.identity;
+          }
+          if (liveEditDocumentIdRef.current !== null) {
+            bridgeReadyRef.current = false;
+            editorChromeReadyRef.current = false;
+            bootReadyRef.current = false;
+            pendingOneShotMessagesRef.current = [];
+          }
+          liveEditDocumentIdsRef.current.add(documentId);
+          liveEditDocumentIdRef.current = documentId;
+        }
+      }
       // A srcdoc editor has booted once its chrome bridge, the last script in
       // the body, reports ready; `load` would also wait for every image. Not
       // any message: the session-replay bootstrap posts a probe from <head>.
@@ -3810,6 +3968,14 @@ export function DesignCanvas({
       ) {
         bootReadyRef.current = true;
         onBootReady();
+      }
+      if (
+        trustedCurrentFrame &&
+        e.data?.type === "agent-native:editor-chrome-ready" &&
+        sourceType === "localhost" &&
+        externalPreviewUrl
+      ) {
+        markPreviewFrameReady();
       }
       if (!e.data || !e.data.type) return;
       if (e.data.type === "agent-native:live-route-path") {
@@ -3858,7 +4024,7 @@ export function DesignCanvas({
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
         onBridgeReady?.();
-        setReadyIframeDocumentIdentity(iframeDocumentIdentity);
+        setReadyIframeDocumentIdentity(readyDocumentIdentity);
         flushPendingOneShotMessages();
       }
       if (typeof e.data.routePath === "string" && e.data.routePath) {
@@ -3905,14 +4071,10 @@ export function DesignCanvas({
           return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
-        if (typeof e.data.routePath === "string" && e.data.routePath) {
-          liveRoutePathRef.current = e.data.routePath;
-          onRoutePathChange?.(screenId, e.data.routePath);
-        }
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
-        setReadyIframeDocumentIdentity(iframeDocumentIdentity);
+        setReadyIframeDocumentIdentity(readyDocumentIdentity);
         // A confirmed ready handshake proves this bridgeInstanceId/key pair
         // is genuinely live — clear the suspected-restart attempt counter so
         // a later transient hiccup gets the full retry budget again instead
@@ -3932,9 +4094,15 @@ export function DesignCanvas({
         liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
         setLiveEditSameInstanceStalledError(null);
         flushPendingOneShotMessages();
+        // Re-send every persistent editor mode after the queue is flushed.
+        // This covers a ready handshake that wins the race with the initial
+        // effects, including the bridge's baked-off wheel default.
+        forceSelectionMirrorResyncRef.current = true;
+        replayIframeEditorStateRef.current?.();
         return;
       }
       if (e.data.type === "clear-selection") {
+        iframeClearedSelectorRef.current = selectedSelectorRef.current ?? null;
         onClearSelection?.();
         return;
       }
@@ -4687,6 +4855,14 @@ export function DesignCanvas({
             !Array.isArray(e.data.inlineStyles)
               ? (e.data.inlineStyles as Record<string, string>)
               : undefined,
+          rect:
+            Number.isFinite(e.data.rect?.width) &&
+            Number.isFinite(e.data.rect?.height)
+              ? {
+                  width: Number(e.data.rect.width),
+                  height: Number(e.data.rect.height),
+                }
+              : undefined,
         };
         textEditingStateRef.current = textState;
         onTextEditingStateChange?.(textState);
@@ -4711,10 +4887,23 @@ export function DesignCanvas({
       if (e.data.type === "figma-clipboard-paste") {
         const content =
           typeof e.data.content === "string" ? e.data.content : "";
+        const svgFileError =
+          e.data.svgFileError === "too-large" ||
+          e.data.svgFileError === "unreadable"
+            ? e.data.svgFileError
+            : undefined;
+        const svg = typeof e.data.svg === "string" ? e.data.svg : undefined;
         const html = typeof e.data.html === "string" ? e.data.html : "";
         const text = typeof e.data.text === "string" ? e.data.text : "";
-        if (content || html || text) {
-          onFigmaClipboardPaste?.({ content, html, text });
+        if (content || svg || html || text || svgFileError) {
+          onFigmaClipboardPaste?.({
+            content,
+            sourceScreenId: boardSurface ? undefined : screenId,
+            svg,
+            svgFileError,
+            html,
+            text,
+          });
         }
         return;
       }
@@ -4731,12 +4920,21 @@ export function DesignCanvas({
               if (!f || typeof f !== "object") return false;
               const dataUrl = (f as { dataUrl?: unknown }).dataUrl;
               if (typeof dataUrl !== "string") return false;
-              if (!dataUrl.startsWith("data:image/")) return false;
+              if (
+                !dataUrl.startsWith("data:image/") &&
+                !dataUrl.startsWith("data:video/")
+              )
+                return false;
               if (dataUrl.length > MAX_DATA_URL_BYTES) return false;
               return true;
             },
           );
-        if (files.length > 0) onImagePaste?.({ files });
+        if (files.length > 0) {
+          onImagePaste?.({
+            files,
+            screenId: boardSurface ? undefined : screenId,
+          });
+        }
         return;
       }
       if (e.data.type === "element-contextmenu") {
@@ -4938,6 +5136,7 @@ export function DesignCanvas({
     onRuntimeLayerSnapshot,
     onBridgeReady,
     onBootReady,
+    markPreviewFrameReady,
     onBootStart,
     externalPreviewUrl,
     onScreenRootComputedStyles,
@@ -4990,11 +5189,16 @@ export function DesignCanvas({
   // Selectors from the iframe's own click; skip mirroring them back once to
   // avoid the fast-click bounce.
   const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
+  // The iframe cleared this selection itself. A ready handshake can land
+  // before the parent renders the clear, and replaying then re-selects it.
+  const iframeClearedSelectorRef = useRef<string | null>(null);
   // Latest replayIframeEditorState, synced during render (below) so the message
   // handler can force a corrective resync without a stale closure.
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
   const interactModeRef = useRef(interactMode);
   interactModeRef.current = interactMode;
+  const editModeRef = useRef(editMode);
+  editModeRef.current = editMode;
   // Render-synced committed selection so the message handler reads current
   // values without re-binding the window listener on every selection.
   const selectedSelectorRef = useRef(selectedSelector);
@@ -5006,11 +5210,25 @@ export function DesignCanvas({
     const iframe = iframeRef.current;
     if (!iframe) return;
     iframe.contentWindow?.postMessage(
-      { type: "agent-native:editor-chrome-ready-probe" },
+      { type: "set-interaction-mode", interact: interactModeRef.current },
+      "*",
+    );
+    iframe.contentWindow?.postMessage({ type: "set-read-only", readOnly }, "*");
+    iframe.contentWindow?.postMessage(
+      {
+        type: "set-text-editing-enabled",
+        enabled: editModeRef.current,
+      },
       "*",
     );
     iframe.contentWindow?.postMessage(
-      { type: "set-interaction-mode", interact: interactModeRef.current },
+      {
+        type: "embedded-canvas-gesture-mode",
+        wheelEnabled: isEmbeddedFrame && !interactModeRef.current,
+        spaceKeyForwardingEnabled:
+          interactModeRef.current || isEmbeddedFrame || readOnly,
+        editingSafetyEnabled: !interactModeRef.current,
+      },
       "*",
     );
     iframe.contentWindow?.postMessage(
@@ -5042,7 +5260,13 @@ export function DesignCanvas({
       !forceSelectionMirrorResyncRef.current &&
       !!selectedSelector &&
       (suppressMirrorSelectorsRef.current?.includes(selectedSelector) ?? false);
-    if (isIframeOriginatedEcho) {
+    const staleIframeClear =
+      !!selectedSelector &&
+      iframeClearedSelectorRef.current === selectedSelector;
+    if (!staleIframeClear) iframeClearedSelectorRef.current = null;
+    if (staleIframeClear) {
+      // Wait for the parent's clear to render; it mirrors down on its own.
+    } else if (isIframeOriginatedEcho) {
       lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
       suppressMirrorSelectorsRef.current = null;
     } else if (
@@ -5136,6 +5360,7 @@ export function DesignCanvas({
     hoveredSelector,
     hoveredSelectorCandidates,
     hiddenSelectors,
+    isEmbeddedFrame,
     lockedSelectors,
     motionTracks,
     motionDefaultEase,
@@ -5145,6 +5370,7 @@ export function DesignCanvas({
     selectedSelectorCandidates,
     selectedSelectorGroups,
     passiveSelectionStyle,
+    readOnly,
     shaderFillPreview,
     spacePanActive,
     statePreviewTarget,
@@ -5332,6 +5558,13 @@ export function DesignCanvas({
   // Routed through the one-shot queue too: a zoom settle that lands while the
   // iframe is mid-reload would otherwise be silently dropped, leaving the
   // chrome at a stale scale until the next zoom change.
+  //
+  // readyIframeDocumentIdentity is a dep for the same reason it's one on the
+  // embedded-canvas-gesture-mode effect below: a document swap resets
+  // bridgeReadyRef and wipes pendingOneShotMessagesRef, silently dropping this
+  // message if it queued before the swap. Without this dep, a URL-backed frame
+  // that loads at a non-1 overview scale never gets a live scale push after the
+  // swap (only the baked-at-1 script value applies) until the next zoom change.
   useEffect(() => {
     postOneShotBridgeMessage({
       type: "set-editor-chrome-scale",
@@ -5342,6 +5575,7 @@ export function DesignCanvas({
     effectiveEditorChromeScaleX,
     effectiveEditorChromeScaleY,
     postOneShotBridgeMessage,
+    readyIframeDocumentIdentity,
   ]);
 
   // Overview/focused placement is presentation state, not document identity.
@@ -5360,7 +5594,7 @@ export function DesignCanvas({
     postOneShotBridgeMessage({
       type: "embedded-canvas-gesture-mode",
       wheelEnabled: isEmbeddedFrame && !interactMode,
-      spaceKeyForwardingEnabled: interactMode || readOnly,
+      spaceKeyForwardingEnabled: interactMode || isEmbeddedFrame || readOnly,
       // Interact hands the app its own native interaction back; every other
       // mode keeps the editing shield armed.
       editingSafetyEnabled: !interactMode,
@@ -5508,8 +5742,6 @@ export function DesignCanvas({
   // Alpine state). The initial baked __TEXT_EDITING_ENABLED__ placeholder
   // covers first paint; subsequent changes arrive here. Also re-send on
   // iframe load so the bridge is in sync after any content-key-driven reload.
-  const editModeRef = useRef(editMode);
-  editModeRef.current = editMode;
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -5813,7 +6045,11 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        phase?: string;
+      },
     ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
@@ -5824,6 +6060,7 @@ export function DesignCanvas({
         value,
         selectorCandidates: options?.selectorCandidates ?? [],
         nodeId: options?.nodeId ?? "",
+        phase: options?.phase,
       });
     },
     [postOneShotBridgeMessage],
@@ -6380,7 +6617,8 @@ export function DesignCanvas({
     if (
       runtimeReplacementKey === undefined ||
       runtimeReplacementContent === undefined ||
-      lastRuntimeReplacementKeyRef.current === runtimeReplacementKey
+      (lastRuntimeReplacementKeyRef.current === runtimeReplacementKey &&
+        lastRuntimeReplacementContentRef.current === runtimeReplacementContent)
     ) {
       return;
     }
@@ -6511,7 +6749,11 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        phase?: string;
+      },
     ) => {
       const isBreakpointScopedPreview =
         typeof previewFrameId === "string" && previewFrameId.includes("::bp-");
@@ -6720,7 +6962,14 @@ export function DesignCanvas({
   const focusScrollSurface = useCallback(() => {
     const surface = scrollContainerRef.current;
     if (!surface || document.activeElement === surface) return;
-    if (textEditingStateRef.current.active) return;
+    // A picker drag ending over the canvas must not take focus from the open
+    // picker: losing it ends the inspector gesture and drops a styled text range.
+    if (
+      textEditingStateRef.current.active ||
+      document.activeElement?.closest("[data-radix-popper-content-wrapper]")
+    ) {
+      return;
+    }
     const focusedElement = document.activeElement;
     if (focusedElement instanceof HTMLIFrameElement) {
       try {
@@ -6988,11 +7237,7 @@ export function DesignCanvas({
           allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
           onLoad={(event) => {
-            setPreviewFrameLoaded(true);
-            if (onBootReady && !bootReadyRef.current) {
-              bootReadyRef.current = true;
-              onBootReady();
-            }
+            markPreviewFrameReady();
             sendBridgeToContainer();
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },
@@ -7027,6 +7272,10 @@ export function DesignCanvas({
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
+            // An inline screen is light unless it says otherwise; inheriting the dark
+            // editor's scheme makes Chrome paint an opaque white base under a no-fill frame.
+            colorScheme:
+              boardSurface || externalPreviewUrl ? undefined : "light",
             pointerEvents: liveEditInteractionBlocked ? "none" : undefined,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             ...getIframePaintRetentionStyle({
@@ -7094,7 +7343,9 @@ export function DesignCanvas({
         <SingleScreenCreationOverlay
           tool={activeCreationTool}
           iframeRef={iframeRef}
+          selectedPenPathNodeId={selectedPenPathNodeId}
           onCreatePrimitive={onCreatePrimitive}
+          onUpdatePenPath={onUpdatePenPath}
         />
       ) : null}
       {/* OS file drag-over capture overlay — sits over the iframe, NOT
@@ -7653,7 +7904,9 @@ const SINGLE_SCREEN_PEN_HIT_RADIUS_PX = 10;
 interface SingleScreenCreationOverlayProps {
   tool: CreationTool;
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => void;
+  selectedPenPathNodeId?: string | null;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
+  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
 }
 
 /**
@@ -7675,12 +7928,57 @@ interface SingleScreenCreationOverlayProps {
 function SingleScreenCreationOverlay({
   tool,
   iframeRef,
+  selectedPenPathNodeId,
   onCreatePrimitive,
+  onUpdatePenPath,
 }: SingleScreenCreationOverlayProps) {
   const [drag, setDrag] = useState<CreationDragState | null>(null);
   const dragRef = useRef<CreationDragState | null>(null);
   const [penPath, setPenPath] = useState<PenPath | null>(null);
   const penPathRef = useRef<PenPath | null>(null);
+  const continuationPenPathRef = useRef<{
+    nodeId: string;
+    path: PenPath;
+  } | null>(null);
+
+  const seedSelectedPenContinuation = useCallback(() => {
+    if (
+      tool !== "pen" ||
+      !selectedPenPathNodeId ||
+      penPathRef.current ||
+      continuationPenPathRef.current
+    ) {
+      return;
+    }
+    const document = iframeRef.current?.contentDocument;
+    if (!document) return;
+    const element = Array.from(
+      document.querySelectorAll<SVGElement>("[data-agent-native-node-id]"),
+    ).find(
+      (candidate) =>
+        candidate.getAttribute("data-agent-native-node-id") ===
+        selectedPenPathNodeId,
+    );
+    const sourceElement =
+      element?.closest<SVGElement>("[data-an-pen-nodes]") ??
+      (document.querySelectorAll<SVGElement>("[data-an-pen-nodes]").length === 1
+        ? document.querySelector<SVGElement>("[data-an-pen-nodes]")
+        : null);
+    const serialized = sourceElement?.getAttribute("data-an-pen-nodes");
+    const path = serialized ? parsePenNodes(serialized) : null;
+    if (!path || path.closed || path.nodes.length < 2) return;
+    const svg = sourceElement?.closest("svg");
+    const offset = svg ? penPathScreenContentOffset(svg) : null;
+    if (!offset) return;
+    continuationPenPathRef.current = {
+      nodeId: selectedPenPathNodeId,
+      path: translatePenPath(path, offset.x, offset.y),
+    };
+  }, [iframeRef, selectedPenPathNodeId, tool]);
+
+  useEffect(() => {
+    seedSelectedPenContinuation();
+  }, [seedSelectedPenContinuation]);
   const [penGesturePreview, setPenGesturePreview] = useState<PenPath | null>(
     null,
   );
@@ -7740,22 +8038,54 @@ function SingleScreenCreationOverlay({
   const finishPenPath = useCallback(
     (
       path: PenPath | null = penPathRef.current,
-      options?: { preserveActiveTool?: boolean },
+      options?: {
+        preserveActiveTool?: boolean;
+        continueAfterCommit?: boolean;
+      },
     ) => {
       const committed = path ? clonePenPath(path) : null;
-      clearPenPath();
-      if (!committed || committed.nodes.length < 2 || !onCreatePrimitive) {
+      if (!committed || committed.nodes.length < 2) {
+        clearPenPath();
         return;
       }
-      onCreatePrimitive({
-        tool: "pen",
-        points: committed.nodes.map((node) => node.point),
-        penPath: committed,
-        fromClick: false,
-        preserveActiveTool: options?.preserveActiveTool,
-      });
+
+      const continuation = continuationPenPathRef.current;
+      if (continuation) {
+        const updated = onUpdatePenPath?.(continuation.nodeId, committed);
+        if (!updated) {
+          continuationPenPathRef.current = null;
+          updatePenPath(committed);
+          setPenGesturePreview(null);
+          return;
+        }
+        continuationPenPathRef.current =
+          committed.closed || !options?.continueAfterCommit
+            ? null
+            : { ...continuation, path: committed };
+      } else {
+        if (!onCreatePrimitive) {
+          clearPenPath();
+          return;
+        }
+        clearPenPath();
+        const nodeId = onCreatePrimitive({
+          tool: "pen",
+          points: committed.nodes.map((node) => node.point),
+          penPath: committed,
+          fromClick: false,
+          preserveActiveTool: options?.preserveActiveTool,
+        });
+        continuationPenPathRef.current =
+          typeof nodeId === "string" &&
+          !committed.closed &&
+          options?.continueAfterCommit
+            ? { nodeId, path: committed }
+            : null;
+        return;
+      }
+      clearPenPath();
     },
-    [clearPenPath, onCreatePrimitive],
+    [clearPenPath, onCreatePrimitive, onUpdatePenPath, updatePenPath],
   );
 
   const getPenAnchor = useCallback(
@@ -7796,6 +8126,7 @@ function SingleScreenCreationOverlay({
     previousToolRef.current = tool;
     if (previousTool === "pen" && tool !== "pen") {
       finishPenPath(penPathRef.current, { preserveActiveTool: true });
+      if (!penPathRef.current) continuationPenPathRef.current = null;
     }
   }, [finishPenPath, tool]);
 
@@ -7862,11 +8193,28 @@ function SingleScreenCreationOverlay({
       if (tool === "pen") {
         e.preventDefault();
         e.stopPropagation();
+        seedSelectedPenContinuation();
         const currentPath = penPathRef.current?.closed
           ? null
           : penPathRef.current;
         const pathBefore = currentPath ? clonePenPath(currentPath) : null;
         const rawPoint = toContentPoint(e.clientX, e.clientY);
+        if (!pathBefore && continuationPenPathRef.current) {
+          const continuation = continuationPenPathRef.current;
+          const resumed =
+            selectedPenPathNodeId === undefined ||
+            selectedPenPathNodeId === continuation.nodeId
+              ? resumePenPathAtEnd(continuation.path, rawPoint, penHitRadius())
+              : null;
+          if (resumed) {
+            updatePenPath(resumed);
+            setPenGesturePreview(null);
+            setPenPointer(null);
+            setPenCloseHover(false);
+            return;
+          }
+          continuationPenPathRef.current = null;
+        }
         const closing = isPenCloseTarget(pathBefore, rawPoint, penHitRadius());
         const anchor = closing
           ? pathBefore!.nodes[0]!.point
@@ -7907,6 +8255,8 @@ function SingleScreenCreationOverlay({
       finishPenPath,
       getPenAnchor,
       penHitRadius,
+      seedSelectedPenContinuation,
+      selectedPenPathNodeId,
       tool,
       toContentPoint,
       updatePenPath,
@@ -8088,7 +8438,10 @@ function SingleScreenCreationOverlay({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      finishPenPath(path, { preserveActiveTool: true });
+      finishPenPath(path, {
+        preserveActiveTool: true,
+        continueAfterCommit: event.key === "Enter",
+      });
     };
 
     window.addEventListener("keydown", handleKeyDown, true);

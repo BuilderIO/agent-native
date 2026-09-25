@@ -153,6 +153,31 @@ describe("isTextElement — B5-12 nested board text regression", () => {
   });
 });
 
+describe("isVectorShapeElement — pasted SVG descendants", () => {
+  it("uses SVG fill controls for drawable path and shape elements", () => {
+    for (const tagName of [
+      "path",
+      "polygon",
+      "polyline",
+      "ellipse",
+      "circle",
+      "rect",
+      "line",
+    ]) {
+      expect(isVectorShapeElement(makeElement({ tagName }))).toBe(true);
+    }
+  });
+
+  it("does not expose SVG use instances as directly editable vector shapes", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "use" }))).toBe(false);
+  });
+
+  it("keeps unmarked SVG containers and other elements out of vector classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+    expect(isVectorShapeElement(makeElement({ tagName: "div" }))).toBe(false);
+  });
+});
+
 describe("componentNameForElementInfo", () => {
   it("uses React source provenance when the DOM payload has no explicit component name", () => {
     expect(
@@ -218,6 +243,18 @@ describe("inspectorObjectTitle", () => {
         }),
       ),
     ).toBe("Card");
+  });
+
+  it("names images, vectors, and frames as Figma does instead of by tag", () => {
+    expect(inspectorObjectTitle(makeElement({ tagName: "img" }))).toBe("Image");
+    expect(inspectorObjectTitle(makeElement({ tagName: "svg" }))).toBe(
+      "Vector",
+    );
+    expect(
+      inspectorObjectTitle(
+        makeElement({ tagName: "div", primitiveKind: "frame" }),
+      ),
+    ).toBe("Frame");
   });
 });
 
@@ -911,6 +948,18 @@ describe("isVectorShapeElement", () => {
     },
   );
 
+  it("accepts the scoped pasted SVG marker", () => {
+    expect(
+      isVectorShapeElement(
+        makeElement({ tagName: "svg", primitiveKind: "pasted-svg" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not broaden unmarked inline SVG classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+  });
+
   it("rejects a board-migrated polygon, which is a div painted with background", () => {
     // board-file.ts serializes polygon/star as plain divs carrying the same
     // data-an-primitive, so keying on the kind alone would send fill/stroke
@@ -931,13 +980,12 @@ describe("isVectorShapeElement", () => {
     },
   );
 
-  it("rejects frames, text and unmarked svgs", () => {
+  it("rejects frames and text", () => {
     expect(
       isVectorShapeElement(
         makeElement({ tagName: "div", primitiveKind: "frame" }),
       ),
     ).toBe(false);
-    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
   });
 });
 
@@ -1009,5 +1057,11 @@ describe("inline text style roots", () => {
 
     expect(isTextElement(row)).toBe(false);
     expect(isContainerElement(row)).toBe(true);
+  });
+});
+
+describe("isVectorShapeElement for imported svg", () => {
+  it("keeps an unmarked svg out of vector classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
   });
 });

@@ -917,6 +917,7 @@ export default defineAction({
       threadId: context?.threadId ?? null,
       variantScopeId,
       prompt: args.prompt,
+      ownerEmail,
       slotId,
       status: "pending",
     });
@@ -1163,6 +1164,7 @@ export default defineAction({
         threadId: context?.threadId ?? null,
         variantScopeId,
         prompt: args.prompt,
+        ownerEmail,
         slotId,
         status: "ready",
         assetId: asset.id,
@@ -1218,6 +1220,7 @@ export default defineAction({
         threadId: context?.threadId ?? null,
         variantScopeId,
         prompt: args.prompt,
+        ownerEmail,
         slotId,
         status: "failed",
         error: message,

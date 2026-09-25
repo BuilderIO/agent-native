@@ -120,7 +120,7 @@ function committedContent(page: Page) {
 
 describe("text-edit commit claims its content as source", () => {
   it(
-    "selects generated Text lines as the Text object and re-enters at the clicked line",
+    "selects generated Text lines as the Text object and enters editing with all its text selected",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -197,6 +197,16 @@ describe("text-edit commit claims its content as source", () => {
           `#${NODE_ID}[data-agent-native-text-editing="true"][contenteditable="true"]`,
         );
         expect(await editing.count()).toBe(1);
+        expect(
+          await page.evaluate(() =>
+            window.getSelection()?.toString().replace(/\s+/g, ""),
+          ),
+        ).toBe("HomeBrowseLibrary");
+
+        await page.mouse.click(
+          library.x + library.width - 1,
+          library.y + library.height / 2,
+        );
         const caretLineId = await page.evaluate(() => {
           const anchor = window.getSelection()?.anchorNode;
           const element =

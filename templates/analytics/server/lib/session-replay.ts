@@ -259,6 +259,11 @@ const DEFAULT_REPLAY_RETENTION_DAYS = 30;
 const DEFAULT_ABANDONED_REPLAY_MINUTES = 30;
 const DEFAULT_REPLAY_MAX_BYTES_PER_DAY = 100 * 1024 * 1024;
 const DEFAULT_REPLAY_MAX_REQUESTS_PER_MINUTE = 120;
+/** New recordings are admitted only below this share of the daily byte cap;
+ * the rest is reserved for recordings already in progress. A 429 is terminal
+ * for the recorder, so without the reserve a saturated key cuts admitted
+ * recordings off after their first chunk and stores empty stubs. */
+const REPLAY_NEW_RECORDING_ADMISSION_RATIO = 0.85;
 const RETENTION_DELETE_BATCH_SIZE = 500;
 const REPLAY_PRIVATE_BLOB_REF_KIND = "agent-native.session-replay.private-blob";
 const REPLAY_PRIVATE_BLOB_REF_VERSION = 1;
@@ -1116,6 +1121,47 @@ export interface SessionReplayIngestContext {
   origin?: string | null;
   requestBytes?: number | null;
   now?: Date;
+  /** True when no `session_recordings` row exists yet for this chunk. */
+  isNewRecording?: boolean;
+}
+
+/** Daily byte check. A new recording is held to the lower admission ceiling;
+ * see REPLAY_NEW_RECORDING_ADMISSION_RATIO. */
+export async function assertReplayDailyByteBudget(
+  key: { id: string; replayMaxBytesPerDay?: number | null },
+  context: SessionReplayIngestContext,
+  maxBytesPerDay = positiveReplayLimit(
+    key.replayMaxBytesPerDay,
+    DEFAULT_REPLAY_MAX_BYTES_PER_DAY,
+  ),
+): Promise<void> {
+  const requestBytes = Math.max(0, context.requestBytes ?? 0);
+  const sinceDay = isoBefore(context.now ?? new Date(), 24 * 60 * 60_000);
+  const db = getDb() as any;
+  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
+  const [dailyUsage] = await db
+    .select({
+      bytes: sql<number>`COALESCE(SUM(${schema.sessionReplayIngests.byteLength}), 0)`,
+    })
+    .from(schema.sessionReplayIngests)
+    .where(
+      and(
+        eq(schema.sessionReplayIngests.publicKeyId, key.id),
+        gte(schema.sessionReplayIngests.createdAt, sinceDay),
+      ),
+    );
+
+  const bytesToday = Number(dailyUsage?.bytes ?? 0);
+  const admissionCeiling = context.isNewRecording
+    ? Math.floor(maxBytesPerDay * REPLAY_NEW_RECORDING_ADMISSION_RATIO)
+    : maxBytesPerDay;
+  if (bytesToday + requestBytes > admissionCeiling) {
+    throw replayError(
+      "Replay ingest byte quota exceeded for this public key",
+      429,
+      REPLAY_BYTE_QUOTA_RETRY_AFTER_SECONDS,
+    );
+  }
 }
 
 export async function assertReplayKeyBudget(
@@ -1154,36 +1200,15 @@ export async function assertReplayKeyBudget(
     );
   }
 
+  await assertReplayDailyByteBudget(key, context, maxBytesPerDay);
+
   const maxRequestsPerMinute = positiveReplayLimit(
     key.replayMaxRequestsPerMinute,
     DEFAULT_REPLAY_MAX_REQUESTS_PER_MINUTE,
   );
   const now = context.now ?? new Date();
-  const sinceDay = isoBefore(now, 24 * 60 * 60_000);
   const sinceMinute = isoBefore(now, 60_000);
   const db = getDb() as any;
-  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
-  const [dailyUsage] = await db
-    .select({
-      bytes: sql<number>`COALESCE(SUM(${schema.sessionReplayIngests.byteLength}), 0)`,
-    })
-    .from(schema.sessionReplayIngests)
-    .where(
-      and(
-        eq(schema.sessionReplayIngests.publicKeyId, key.id),
-        gte(schema.sessionReplayIngests.createdAt, sinceDay),
-      ),
-    );
-
-  const bytesToday = Number(dailyUsage?.bytes ?? 0);
-  if (bytesToday + requestBytes > maxBytesPerDay) {
-    throw replayError(
-      "Replay ingest byte quota exceeded for this public key",
-      429,
-      REPLAY_BYTE_QUOTA_RETRY_AFTER_SECONDS,
-    );
-  }
-
   // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
   const [minuteUsage] = await db
     .select({
@@ -1207,13 +1232,13 @@ export async function assertReplayKeyBudget(
   }
 }
 
-async function resolveReplayPublicKey(
-  publicKey: string,
-  context: SessionReplayIngestContext = {},
-): Promise<{
+async function resolveReplayPublicKey(publicKey: string): Promise<{
   id: string;
   ownerEmail: string;
   orgId: string | null;
+  replayAllowedOrigins?: string | null;
+  replayMaxBytesPerDay?: number | null;
+  replayMaxRequestsPerMinute?: number | null;
 }> {
   const db = getDb() as any;
   // guard:allow-unscoped -- public replay ingestion must resolve the owning tenant from the submitted write key before it can scope inserts.
@@ -1228,11 +1253,13 @@ async function resolveReplayPublicKey(
     )
     .limit(1);
   if (!key) throw replayError("Invalid analytics public key", 401);
-  await assertReplayKeyBudget(key, context);
   return {
     id: key.id,
     ownerEmail: key.ownerEmail,
     orgId: key.orgId ?? null,
+    replayAllowedOrigins: key.replayAllowedOrigins,
+    replayMaxBytesPerDay: key.replayMaxBytesPerDay,
+    replayMaxRequestsPerMinute: key.replayMaxRequestsPerMinute,
   };
 }
 
@@ -1403,7 +1430,8 @@ export async function recordSessionReplayChunks(
   eventCount: number;
   totalBytes: number;
 }> {
-  const key = await resolveReplayPublicKey(input.publicKey, context);
+  const key = await resolveReplayPublicKey(input.publicKey);
+  await assertReplayKeyBudget(key, context);
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
   const clampedInput = clampReplayIngestTiming(input, ingestedAt);
@@ -1421,6 +1449,14 @@ export async function recordSessionReplayChunks(
       ),
     )
     .limit(1);
+
+  // Before the insert below: a rejected new recording must not leave a row.
+  if (!recording) {
+    await assertReplayDailyByteBudget(key, {
+      ...context,
+      isNewRecording: true,
+    });
+  }
 
   if (!recording) {
     const newRecordingId = replayId("sr");
@@ -1501,7 +1537,20 @@ export async function recordSessionReplayChunks(
     Number(recording.eventCount ?? 0) === 0 &&
     existingChunks.length === 0;
 
+  const ingestId = replayId("sri");
   try {
+    // Reserve before the slow blob upload: the budget check sums this table, so
+    // concurrent admissions only see each other's bytes once this row exists.
+    await db.insert(schema.sessionReplayIngests).values({
+      id: ingestId,
+      publicKeyId: key.id,
+      recordingId: recording.id,
+      byteLength: replayIngestByteLength(clampedInput, context),
+      createdAt: ingestedAt,
+      ownerEmail: key.ownerEmail,
+      orgId: key.orgId,
+    });
+
     for (const rawChunk of clampedInput.chunks) {
       const existing = existingBySeq.get(rawChunk.seq);
       if (existing) {
@@ -1567,6 +1616,17 @@ export async function recordSessionReplayChunks(
     uploadedBlobHandles.length = 0;
   } catch (error) {
     await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
+    await db
+      .delete(schema.sessionReplayIngests)
+      .where(eq(schema.sessionReplayIngests.id, ingestId))
+      .catch((releaseError: unknown) => {
+        // The ingest error below is what the client needs; a leaked
+        // reservation only over-counts the key's budget, so surface it here.
+        console.error(
+          "[session-replay] failed to release replay usage reservation",
+          { ingestId, publicKeyId: key.id, error: releaseError },
+        );
+      });
     if (wasEmptyRecording) {
       await deleteEmptyReplayRecordingPlaceholder(db, {
         id: recording.id,
@@ -1576,16 +1636,6 @@ export async function recordSessionReplayChunks(
     }
     throw error;
   }
-
-  await db.insert(schema.sessionReplayIngests).values({
-    id: replayId("sri"),
-    publicKeyId: key.id,
-    recordingId: recording.id,
-    byteLength: replayIngestByteLength(clampedInput, context),
-    createdAt: ingestedAt,
-    ownerEmail: key.ownerEmail,
-    orgId: key.orgId,
-  });
 
   const allChunks = [...existingChunks, ...rowsToInsert].map((chunk: any) =>
     clampReplayChunkTiming(chunk, ingestedAt),

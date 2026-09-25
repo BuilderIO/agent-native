@@ -72,7 +72,14 @@ import {
 } from "@tiptap/react";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
-import { useCallback, useEffect, useRef, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
@@ -848,6 +855,9 @@ const CustomTable = BaseTable.extend({
 });
 
 const NotionTableHeader = TableHeader.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tableAlignmentAttribute };
+  },
   renderHTML({ HTMLAttributes }) {
     return [
       "td",
@@ -856,6 +866,21 @@ const NotionTableHeader = TableHeader.extend({
       }),
       0,
     ];
+  },
+});
+
+const tableAlignmentAttribute = {
+  textAlign: {
+    default: null,
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-alignment"),
+    renderHTML: (attributes: Record<string, unknown>) =>
+      attributes.textAlign ? { "data-alignment": attributes.textAlign } : {},
+  },
+};
+
+const NotionTableCell = TableCell.extend({
+  addAttributes() {
+    return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
 });
 
@@ -983,6 +1008,109 @@ const NormalizeTableHeaders = Extension.create({
               destroyed = true;
             },
           };
+        },
+      }),
+    ];
+  },
+});
+
+const normalizeTableAlignmentPluginKey = new PluginKey(
+  "normalizeTableAlignment",
+);
+
+const NormalizeTableAlignment = Extension.create({
+  name: "normalizeTableAlignment",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: normalizeTableAlignmentPluginKey,
+        appendTransaction(transactions, oldState, newState) {
+          if (
+            transactions.some((transaction) =>
+              transaction.getMeta(normalizeTableAlignmentPluginKey),
+            ) ||
+            !transactions.some((transaction) => transaction.docChanged)
+          ) {
+            return null;
+          }
+
+          const previousTables = new Map<number, ProseMirrorNode>();
+          oldState.doc.descendants((node, position) => {
+            if (node.type.name !== "table") return true;
+            let mappedPosition = position;
+            for (const transaction of transactions) {
+              const mapped = transaction.mapping.mapResult(mappedPosition, 1);
+              if (mapped.deleted) return false;
+              mappedPosition = mapped.pos;
+            }
+            previousTables.set(mappedPosition, node);
+            return false;
+          });
+
+          let transaction = newState.tr;
+          let changed = false;
+          newState.doc.descendants((table, position) => {
+            if (table.type.name !== "table") return true;
+            const previous = previousTables.get(position);
+            if (!previous || table.childCount <= previous.childCount)
+              return false;
+
+            const previousRows = getNodeChildren(previous);
+            const previousRowSet = new Set(previousRows);
+            const alignments = getNodeChildren(previousRows[0]).map(
+              (_cell, columnIndex) => {
+                const alignment =
+                  previousRows[0].maybeChild(columnIndex)?.attrs.textAlign;
+                if (
+                  alignment !== "left" &&
+                  alignment !== "center" &&
+                  alignment !== "right"
+                )
+                  return null;
+                return previousRows.every(
+                  (row) =>
+                    row.maybeChild(columnIndex)?.attrs.textAlign === alignment,
+                )
+                  ? alignment
+                  : null;
+              },
+            );
+            if (alignments.every((alignment) => alignment === null))
+              return false;
+
+            let tableChanged = false;
+            const rows = getNodeChildren(table).map((row) => {
+              if (previousRowSet.has(row)) return row;
+              let rowChanged = false;
+              const cells = getNodeChildren(row).map((cell, columnIndex) => {
+                const alignment = alignments[columnIndex];
+                if (cell.attrs.textAlign || !alignment || cell.textContent)
+                  return cell;
+                rowChanged = true;
+                return cell.type.create(
+                  { ...cell.attrs, textAlign: alignment },
+                  cell.content,
+                  cell.marks,
+                );
+              });
+              if (!rowChanged) return row;
+              tableChanged = true;
+              return row.copy(Fragment.fromArray(cells));
+            });
+            if (!tableChanged) return false;
+            transaction = transaction.replaceWith(
+              position,
+              position + table.nodeSize,
+              table.copy(Fragment.fromArray(rows)),
+            );
+            changed = true;
+            return false;
+          });
+
+          return changed
+            ? transaction.setMeta(normalizeTableAlignmentPluginKey, true)
+            : null;
         },
       }),
     ];
@@ -1346,6 +1474,7 @@ interface VisualEditorProps {
   documentId?: string;
   contentSpaceId?: string;
   content: string;
+  contentResetKey?: string | null;
   /**
    * Server `updatedAt` for `content`. Used to tell a genuinely-newer external
    * edit (agent / Notion / peer-via-SQL) apart from a stale autosave echo or a
@@ -2540,13 +2669,14 @@ export function createVisualEditorExtensions({
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
       CustomTable.configure({
-        resizable: false,
+        resizable: true,
         HTMLAttributes: { class: "notion-table" },
       }),
       TableRow,
       NotionTableHeader,
-      TableCell,
+      NotionTableCell,
       NormalizeTableHeaders,
+      NormalizeTableAlignment,
       ...createNotionEditorExtensions({
         resolvePageLink: resolveNotionPageLink,
         onOpenPageLink: onOpenNotionPageLink,
@@ -2923,6 +3053,7 @@ export function VisualEditor({
   documentId,
   contentSpaceId,
   content,
+  contentResetKey = null,
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
@@ -3502,6 +3633,21 @@ export function VisualEditor({
     },
   });
   historyEditorRef.current = editor;
+  const appliedContentResetKeyRef = useRef(contentResetKey);
+  useLayoutEffect(() => {
+    if (!editor || appliedContentResetKeyRef.current === contentResetKey)
+      return;
+    appliedContentResetKeyRef.current = contentResetKey;
+    if (ydoc || docToNfm(editor.getJSON() as any) === content) return;
+    editor
+      .chain()
+      .command(({ tr }) => {
+        tr.setMeta("addToHistory", false);
+        return true;
+      })
+      .setContent(nfmToDoc(content), { emitUpdate: false })
+      .run();
+  }, [content, contentResetKey, editor, ydoc]);
   useEffect(() => {
     if (!editor) return;
     const capture = ({ transaction }: { transaction: Transaction }) => {

@@ -1987,6 +1987,42 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).not.toContain("Allow popups");
   });
 
+  it("does not open the MCP host after cancelling a pending embedded startup", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    setEmbeddedWindow(true);
+    let releaseStartupStatus: ((response: Response) => void) | undefined;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ configured: false }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseStartupStatus = resolve;
+          }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+    expect(releaseStartupStatus).toBeTypeOf("function");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+      releaseStartupStatus?.(jsonResponse({ configured: false }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(openMcpAppHostLink).not.toHaveBeenCalled();
+  });
+
   it("does not abort a reconnect popup because the old credential was rejected", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));

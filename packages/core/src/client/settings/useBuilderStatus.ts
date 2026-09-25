@@ -728,6 +728,7 @@ export function useBuilderConnectFlow(
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const connectStartedAtRef = useRef<number | null>(null);
   const connectAttemptIdRef = useRef<string | null>(null);
+  const cancelledConnectAttemptIdRef = useRef<string | null>(null);
   // Tracks the currently open popup so the poll loop can notice it closed
   // without the callback ever landing (a cancelled/abandoned connect).
   const activePopupRef = useRef<Window | null>(null);
@@ -995,6 +996,8 @@ export function useBuilderConnectFlow(
   const cancel = useCallback(() => {
     const started = connectStartedAtRef.current;
     if (started === null) return;
+    const attemptId = connectAttemptIdRef.current;
+    cancelledConnectAttemptIdRef.current = attemptId;
     popupClosedAtRef.current ??= Date.now();
     if (callbackSuccessCancelRef.current?.started === started)
       callbackSuccessCancelRef.current.cancel();
@@ -1005,7 +1008,6 @@ export function useBuilderConnectFlow(
     } catch {
       // The bounded cancellation path still applies if the browser refuses.
     }
-    const attemptId = connectAttemptIdRef.current;
     if (typeof window !== "undefined" && attemptId) {
       try {
         (
@@ -1035,6 +1037,7 @@ export function useBuilderConnectFlow(
       callbackSuccessRequestControllerRef.current?.controller.abort();
       connectStartedAtRef.current = started;
       connectAttemptIdRef.current = connectAttemptId;
+      cancelledConnectAttemptIdRef.current = null;
       callbackSuccessStartedAtRef.current = null;
       callbackSuccessInFlightAtRef.current = null;
       callbackSuccessCancelRef.current = null;
@@ -1130,7 +1133,13 @@ export function useBuilderConnectFlow(
 
           void (async () => {
             const s = await fetchStatus(undefined, connectAttemptId);
-            if (!mountedRef.current) return;
+            if (
+              !mountedRef.current ||
+              connectAttemptIdRef.current !== connectAttemptId ||
+              cancelledConnectAttemptIdRef.current === connectAttemptId
+            ) {
+              return;
+            }
             if (s) {
               setHasFetchedStatus(true);
               setStatusResolved(true);

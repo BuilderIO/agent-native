@@ -46,6 +46,7 @@ export async function enqueueBrainOperation(input: {
         operation: input.operation,
         status: "queued",
         priority: input.priority ?? 50,
+        attempts: 0,
         payloadJson: stableJson(input.payload ?? {}),
         leaseToken: null,
         leaseExpiresAt: null,

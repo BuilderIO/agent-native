@@ -113,4 +113,25 @@ describe("Design editor route Fast Refresh boundary", () => {
       ]),
     );
   });
+
+  it("mirrors live selection chrome to the owning overview screen", () => {
+    const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const renderStart = editorSource.indexOf(
+      "const renderEditableScreenContent = useCallback",
+    );
+    const renderEnd = editorSource.indexOf(
+      "const renderScreenContent = useCallback",
+      renderStart,
+    );
+    const renderSource = editorSource.slice(renderStart, renderEnd);
+
+    expect(renderSource).toContain("screenSelectedLayerGroups");
+    expect(renderSource).toContain("selectedElementScreenId === screen.id");
+    expect(renderSource).toContain(
+      "selectedSelector={screenOwnsSelection ? selectedCanvasSelector : null}",
+    );
+    expect(renderSource).not.toContain(
+      "selectedSelector={screenIsActive ? selectedCanvasSelector : null}",
+    );
+  });
 });

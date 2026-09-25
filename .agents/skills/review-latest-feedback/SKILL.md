@@ -29,51 +29,60 @@ beats thirty replies.
 ## Phase 0: claim what you are taking
 
 Other agents work concurrently. The eye is a temporary work lock: keep it only
-while investigating, fixing, or waiting on one targeted detail.
+while actively investigating or fixing. Remove it while waiting for reporter
+input, and re-add it when work resumes.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
-Failure to reproduce means ask, not close; state what you tried and request one
-unblocker - request id, time, screenshot, account, or URL.
+Investigate first; ask what they saw or did in plain language. Gather request
+details and logs yourself; don't send reporters to developer tools.
+
+The proposed remedy may be wrong while the bug is real. Trace the failure to
+its owning boundary; do not reject it because the suggestion is unsuitable.
+
+For a parent with multiple symptoms, record a disposition for each symptom
+before reacting. A subjective or out-of-scope suggestion does not close a
+separate defect: keep `👀` while any objective symptom is being fixed, and do
+not use a release marker until every actionable defect in the parent is
+terminal.
 
 ### Checkmark gate
 
-For a defect, `✅` means verified closure and is only for **Fixed**, **Shipped**,
-or **Live verified** after Phase 2's four bars. Never use it for a read, claim,
-review, assignment, source change, test, or beta/PR queue; a suspected fix is
-not a fix, and other terminal states use `:no_entry_sign:`.
+Use `✅` only for verified **Fixed**, **Shipped**, or **Live verified** after
+Phase 2's four bars. A read, claim, review, assignment, code change, test, or
+PR queue is not closure; other terminal states use `:no_entry_sign:`.
 
-If confidence is missing, retain `👀`, use an evidence-limited disposition, and
-ask one targeted question or fork if it would unblock reproduction. Age never
-upgrades an unverified defect; **Abandoned - no answer in 4 days** is non-fixed.
+If no safe repo-owned fix is evident, remove `👀` while blocked and record the
+evidence limit. Ask only a question that could unblock a fix; re-add `👀` when
+work resumes. Age never upgrades evidence; after 4 days without an answer,
+close as **Abandoned - no answer in 4 days**.
 
-Use **Skipped** only for non-defects. Breakage is never skipped. **Open - no
-reply** requires working the defect and finding neither a fix nor a useful
-question; document why.
+Use **Skipped** only for non-defects, never breakage. **Open - no reply** means
+you worked the defect and found neither a fix nor a useful question; document
+why.
 
 ### Authoritative disposition vocabulary
 
-Use exactly one of these dispositions in every ledger row. Do not invent a
-synonym in the recap or Slack reply:
+Use exactly one disposition per ledger row; keep the same wording in recap and
+Slack reply:
 
-- **Terminal, release the workflow's eye:** **Fixed**, **Shipped**, **Live
+- **Terminal (release this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
-  **Clustered**, or **Abandoned - no answer in 4 days**.
-- **Evidence-limited or still active, retain the workflow's eye:** **Verified
-  locally**, **Built - live unverified**, **Deployed - live unverified**,
-  **Not reproducible - attempted**, **In progress**, **Asked**, **Clarification
-  needed**, or **Blocked on reporter**.
-- **Foreign ownership, preserve the other workflow's eye:** **Owned elsewhere**.
+  **Clustered**, or **Abandoned - no answer in 4 days**. Use `✅` only for
+  verified fixes; use `:no_entry_sign:` otherwise.
+- **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
+  **Deployed - live unverified**, **Not reproducible - attempted**, or
+  **In progress**.
+- **Waiting on reporter (no eye):** **Asked**, **Clarification needed**, or
+  **Blocked on reporter**. Find these through Phase 1's question search.
+- **Foreign ownership:** **Owned elsewhere**; preserve their eye.
 
-After the verified source fix merges, **Fixed** is terminal; publication, beta,
-and live reruns are separate follow-ups. Before closing, link a durable
-follow-up for remaining work with the original issue, target package/release/
-runtime, owner, and verification command or URL. Do not use open-issue scans to
-rediscover closed fixes or reopen them for release work. **Clustered** closes a
-duplicate row without erasing it.
+After source merge, **Fixed** is terminal; track publication, beta, and live
+work separately. Link follow-ups with the original issue, target package/
+release/runtime, owner, and verification command or URL. Do not rediscover or
+reopen closed fixes through open-issue scans. **Clustered** closes one row but
+retains it.
 
-Use `✅` only for **Fixed**, **Shipped**, or **Live verified**; use
-`:no_entry_sign:` for other terminal states. Never delete `👀` as a substitute
-or touch a foreign eye; record **Owned elsewhere** and preserve it as a
+Never delete a foreign eye; record **Owned elsewhere** and preserve it as a
 blocker when needed.
 
 Enumerate `slack_read_channel` newest backward through `next_cursor` until a
@@ -183,9 +192,8 @@ to pending.
   still matters, carry it forward as an internal investigation with no
   reporter dependency - dropping the question is not dropping the bug.
 
-Expire unanswered questions after four days. Search unbounded to discover them,
-then apply age; do not use an `after` filter that can hide an older question.
-The disclosure search is the primary cross-identity cursor. For legacy replies
+Search without an `after` filter, then apply the four-day expiry; disclosure is
+the primary cross-identity cursor. For legacy replies
 without disclosure or eyes, run this once per valid workflow identity:
 
 ```
@@ -224,7 +232,8 @@ product signoff. Discoverability complaints and preferences do not authorize
 adding, promoting, moving, or duplicating buttons or other persistent chrome.
 Check overflow, keyboard, Cmd+K, and contextual surfaces first. Adding or
 promoting chrome requires the invoking user's explicit current-task request or
-`:upvote:` below. Otherwise mark **Skipped**, release the eye with `✅`, and do
+:upvote:` below. Otherwise mark **Skipped**, release the eye with
+`:no_entry_sign:`, and do
 not ask the reporter to decide. Measure failures with `text-heavy-ui`.
 
 Requests for a new capability still follow the invoking identity's `:upvote:`
@@ -363,13 +372,11 @@ the code is correct. Treat it as a stop, not a fresh report:
 3. **Reproduce end to end before editing, verify end to end after.** A passing
    unit test is not sufficient for a repeat — exercise the surface the reporter
    used. `verifying-changes` owns the proof.
-4. **Cluster the reports**: one investigation and one fix, not one per report.
-   Clustering changes the work, not the bookkeeping — every source thread
-   keeps its own recap row, and Phase 3's reply rules apply unchanged.
+4. **Cluster identical causes** into one investigation and fix, but keep a
+   recap row per source thread; Phase 3's reply rules still apply.
 
-Record `Repeat of: <link>` and the prior failed fix in each row so the next
-run inherits the history instead of rediscovering it. Never tell a reporter a
-repeat is fixed on the same evidence that supported the last claim.
+Record `Repeat of: <link>` and the prior failed fix in each row; never call a
+repeat fixed on the evidence that supported the earlier claim.
 
 Measure this gate with friction keys `false-done` and
 `repeat-report-refix`. Run `node scripts/agent-friction-report.mjs --weeks 2
@@ -405,19 +412,14 @@ surface is the contract:
 
 ### Reproduction ledger - required for every row
 
-Before **Fixed** or **Shipped**, record each row's exact symptom/surface,
-reproduction command/click/URL/account state, expected and pre/post actuals,
-tested commit/build, sibling fingerprint results, untested layers, and runtime
-layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
+For each row, record symptom/surface, reproduction steps and account, expected
+and pre/post behavior, tested commit/build, sibling results, untested layers,
+and runtime layer (`local`, `source-only`, `built`, `deployed`, `observed-live`).
 
-If no merged source proof exists, use **Verified locally**, **Built - live
-unverified**, **Deployed - live unverified**, **Not reproducible - attempted**,
-**Asked**, **Blocked on reporter**, or **Clustered**. Once it exists, **Fixed**
-is valid while remaining release/runtime layers are tracked in the durable
-follow-up. **Live verified** is valid only after all four bars hold. Never
-promote `handled`/`completed`, reactions, or source tests without a verified
-regression to **Fixed**. Repeats require a new failing pre-change reproduction
-and the earlier false claim.
+Without merged source proof, use an active or waiting disposition above. After
+merge, **Fixed** may coexist with release follow-up; **Live verified** requires
+all four bars. Status labels, reactions, and tests alone do not prove closure.
+Repeats require a new pre-change failure and link the earlier false claim.
 
 Regression claims require Red/Green proof: reverse-apply hunk with
 `git apply -R`, record failure, reapply, record pass. Repeat timing checks 10x.
@@ -500,9 +502,9 @@ can ship the fix.* Ask the three with the strongest answer. If fewer than
 three clear that bar, ask fewer. Everything below the cut is an internal open
 item, not a message.
 
-Never ask for information already supplied, a run/request/session ID as the
-primary ask, a build number unless it changes the action, evidence you can
-inspect yourself, a subjective product choice, or an internal blocker.
+Never ask for supplied/inspectable evidence, irrelevant IDs/build numbers,
+subjective choices, or internal blockers. If a user-visible link or ID is the
+sole blocker, ask plainly and say where to find it.
 
 At most one clarification question may be pending per thread at a time. Once it
 is answered or resolved, attempt the fix; if that exposes a different required
@@ -547,8 +549,9 @@ owner instead of borrowing a nearby PR link.
 
 If the sweep found no verified fix, finish with the recap and say why no ship
 started. Unavailable connectors and external failures are not shipping blockers.
-An unresolved **Clarification needed** item remains eye-held and blocks an
-authorized merge until answered or expired.
+While waiting, **Clarification needed** stays open with no `👀` or `✅`. It must
+not block merging independently verified fixes unless the report could affect a
+PR change. Re-claim when new evidence arrives.
 
 ## Recap
 

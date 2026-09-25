@@ -263,6 +263,12 @@ export default {
       opacity: "Opazität",
       padding: "Polsterung",
       margin: "Marge",
+      marginTop: "Oberer Außenabstand",
+      marginRight: "Rechter Außenabstand",
+      marginBottom: "Unterer Außenabstand",
+      marginLeft: "Linker Außenabstand",
+      linkMarginSides: "Außenabstände verknüpfen",
+      unlinkMarginSides: "Außenabstände lösen",
       radius: "Radius",
       flexGrow: "Wachsen",
       flexShrink: "Schrumpfen",
@@ -324,6 +330,18 @@ export default {
       customTransform:
         "Benutzerdefinierte Transformation — kann nicht als X/Y/Z-Rotation bearbeitet werden",
       shaderEffectType: "Shader",
+      imageScaleMode: "Bildskalierungsmodus",
+      imageAdjustments: "Bildanpassungen",
+      imageExposure: "Belichtung",
+      imageContrast: "Kontrast",
+      imageSaturation: "Sättigung",
+      imageScaleFill: "Füllen",
+      imageScaleFit: "Einpassen",
+      imageScaleCrop: "Zuschneiden",
+      noMirroring: "Keine Spiegelung",
+      vector: "Vektor",
+      mirrorAngle: "Winkel spiegeln",
+      mirrorAngleAndLength: "Winkel und Länge spiegeln",
     },
     shaders: {
       fillsTitle: "Shader-Füllungen",
@@ -550,6 +568,22 @@ export default {
         adUnit: "Anzeigenformat",
       },
     },
+    scale: {
+      title: "Skalieren",
+      exit: "Skalieren beenden",
+      factor: "Skalierungsfaktor",
+      presets: "Skalierungsvorgaben",
+      anchor: "Ankerpunkt",
+      topLeft: "Oben links",
+      topCenter: "Oben Mitte",
+      topRight: "Oben rechts",
+      middleLeft: "Mitte links",
+      center: "Mitte",
+      middleRight: "Mitte rechts",
+      bottomLeft: "Unten links",
+      bottomCenter: "Unten Mitte",
+      bottomRight: "Unten rechts",
+    },
   },
   designEditor: {
     vectorEndpoints: {
@@ -568,11 +602,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message:
-        "Halte {{modifier}} gedrückt und klicke, um eine innere Ebene auszuwählen.",
-      dismiss: "Tipp zur Ebenenauswahl schließen",
-    },
     autoLayoutSuggestion: {
       menuLabel: "Auto-Layout vorschlagen…",
       title: "Auto-Layout vorschlagen",
@@ -790,6 +819,8 @@ export default {
       figmaPasteTarget: "In die Leinwand einfügen",
       figmaPasteApiKeyHint:
         "Verbinde deinen Figma-Zugriffstoken für exakte Node-Importe.",
+      figmaPasteAccessDenied:
+        'Der verbundene Figma-Zugriffstoken kann nicht auf diese Datei zugreifen. Prüfe deine Dateiberechtigung und ob der Token den Bereich "File content" enthält.',
       figmaPasteMatchGuidance:
         "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
       figmaPasteUnreadable:
@@ -1089,6 +1120,7 @@ export default {
         ungroup: "Gruppierung aufheben",
         frameSelection: "Auswahl rahmen",
         autoLayout: "Auto-Layout",
+        imageVideo: "Bild/Video...",
       },
     },
     undo: "Rückgängig machen",
@@ -1386,6 +1418,10 @@ export default {
         "Screen-Quelle konnte nicht aktualisiert werden",
       vectorEditUnsupported:
         "Vektorbearbeitung ist für diese Form oder Transformation nicht verfügbar.",
+      imageUploading: "Bild wird hochgeladen…",
+      pasteReplaceFailed: "Diese Ebene konnte nicht ersetzt werden",
+      swapFillStrokeLayeredFill:
+        "Mehrere Füllungen oder Bildfüllungen können noch nicht zur Kontur werden",
     },
     commenterRoleLabel: "Kommentator",
     commenterRoleDescription: "Kann ansehen und Prüfkommentare hinzufügen",

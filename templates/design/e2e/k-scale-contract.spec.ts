@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { sourceContentHash } from "../shared/source-workspace.js";
-import { appPath, expandAllLayers, gotoEditor } from "./helpers";
+import { appPath, cdpScreenshot, expandAllLayers, gotoEditor } from "./helpers";
 
 const FRAME_HTML = `<!doctype html>
 <html lang="en">
@@ -352,7 +352,7 @@ async function boardState(page: Page) {
 test("K scaling preserves ordinary Frame proportions and Fill behavior across history, reload, and resize", async ({
   page,
   request,
-}) => {
+}, testInfo) => {
   const designId = await createDesign(
     request,
     "K scale Frame contract",
@@ -385,7 +385,32 @@ test("K scaling preserves ordinary Frame proportions and Fill behavior across hi
       .contentFrame()
       .locator('[data-agent-native-edit-handle="se"]');
     await expect(se).toBeVisible();
-    await drag(page, se, 60, 48);
+    const handleBox = await se.boundingBox();
+    if (!handleBox) throw new Error("K-scale handle has no bounds");
+    const startX = handleBox.x + handleBox.width / 2;
+    const startY = handleBox.y + handleBox.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 30, startY + 24, { steps: 4 });
+    const framePreview = page
+      .locator("iframe[data-design-preview-iframe]")
+      .first()
+      .contentFrame();
+    const liveBadge = framePreview.locator(
+      "[data-agent-native-transform-badge]",
+    );
+    await expect(liveBadge).toBeVisible();
+    await expect(liveBadge).toHaveText(/\d+\s+x\s+\d+/);
+    const midway = await readFrame(page);
+    expect(midway.frame.width).toBeGreaterThan(before.frame.width);
+    expect(midway.frame.height).toBeGreaterThan(before.frame.height);
+    await cdpScreenshot(page, testInfo.outputPath("k-scale-in-progress.png"));
+    await page.mouse.move(startX + 60, startY + 48, { steps: 4 });
+    await expect
+      .poll(async () => (await readFrame(page)).frame.width)
+      .toBeGreaterThan(midway.frame.width);
+    await page.mouse.up();
+    await expect(liveBadge).toBeHidden();
     await expect
       .poll(async () => (await readFrame(page)).frame.width)
       .toBeGreaterThan(before.frame.width);
@@ -773,7 +798,8 @@ test("group K scales a nested Frame batch once and persists one undoable edit", 
 test("board K scales a selected nested Frame through the reserved board file", async ({
   page,
   request,
-}) => {
+}, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
   const designId = await createDesign(request, "K scale board");
   const board = await action(request, "create-file", {
     designId,
@@ -841,6 +867,9 @@ test("board K scales a selected nested Frame through the reserved board file", a
         return {
           outerTag: outerTarget?.tagName,
           outerTargetIsBoardIframe: outerTarget === iframe,
+          outerTargetIsBoardResizeHandle:
+            outerTarget?.getAttribute("data-resize-handle") === "se" &&
+            outerTarget.closest("[data-board-object-selection-box]") !== null,
           innerHandle: frameDocument
             .elementFromPoint(localX, localY)
             ?.getAttribute("data-agent-native-edit-handle"),
@@ -852,11 +881,23 @@ test("board K scales a selected nested Frame through the reserved board file", a
       },
     );
     expect(handleHit).toMatchObject({
-      outerTag: "IFRAME",
-      outerTargetIsBoardIframe: true,
+      outerTargetIsBoardResizeHandle: true,
       innerHandle: "se",
     });
-    await drag(page, se, 40, 30);
+    const startX = handleBox.x + handleBox.width / 2;
+    const startY = handleBox.y + handleBox.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 20, startY + 15, { steps: 3 });
+    await expect
+      .poll(async () => (await boardState(page)).frame.width)
+      .toBeGreaterThan(before.frame.width);
+    await cdpScreenshot(
+      page,
+      testInfo.outputPath("board-k-scale-in-progress.png"),
+    );
+    await page.mouse.move(startX + 40, startY + 30, { steps: 3 });
+    await page.mouse.up();
     await expect
       .poll(async () => (await boardState(page)).frame.width)
       .toBeGreaterThan(before.frame.width);
@@ -926,9 +967,9 @@ test("board K scales a selected nested Frame through the reserved board file", a
     await page.keyboard.press("v");
     const moveTool = page.getByRole("button", { name: "Move", exact: true });
     await expect(moveTool).toHaveAttribute("aria-pressed", "true");
-    const normalResizeHandle = boardFrame
-      .contentFrame()
-      .locator('[data-agent-native-edit-handle="se"]');
+    const normalResizeHandle = page.locator(
+      '[data-board-object-selection-box] [data-resize-handle="se"]',
+    );
     await expect(normalResizeHandle).toBeVisible();
     const beforeNormalResize = await boardState(page);
     const beforeNormalSource = await sourceFile(
@@ -1232,6 +1273,70 @@ test("K scales an SVG vector through the semantic style fallback with history", 
     expect(saved.content).toMatch(
       /<svg\b[^>]*data-agent-native-node-id="vector"[^>]*style="[^"]*word-spacing:\s*0px(?:;|"|$)/,
     );
+  } finally {
+    await action(request, "delete-design", { id: designId });
+  }
+});
+
+test("K opens the inspector Scale section, tracks the live factor, and applies a typed factor", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(
+    request,
+    "K scale inspector section",
+    FRAME_HTML,
+  );
+  try {
+    await gotoEditor(page, designId);
+    await enterFocusedEditMode(page);
+    await expandAllLayers(page);
+    await layerRow(page, "Ordinary Frame")
+      .locator("[data-layer-row-button]")
+      .click();
+    const before = await readFrame(page);
+
+    await page.keyboard.press("k");
+    const factor = page.getByLabel("Scale factor", { exact: true });
+    await expect(factor).toHaveValue(/^1x?$/);
+
+    const se = page
+      .locator("iframe[data-design-preview-iframe]")
+      .first()
+      .contentFrame()
+      .locator('[data-agent-native-edit-handle="se"]');
+    await expect(se).toBeVisible();
+    await drag(page, se, 40, 32);
+    await expect
+      .poll(async () => Number.parseFloat(await factor.inputValue()))
+      .toBeGreaterThan(1);
+    const afterDrag = await readFrame(page);
+
+    await factor.fill("2");
+    await factor.press("Enter");
+    await expect
+      .poll(async () => (await readFrame(page)).frame.width)
+      .toBeCloseTo(before.frame.width * 2, 0);
+    expect((await readFrame(page)).frame.width).toBeGreaterThan(
+      afterDrag.frame.width,
+    );
+    await expect(factor).toBeHidden();
+
+    // The section scales one element, so a multi-selection must not show it.
+    await layerRow(page, "Fixed child")
+      .locator("[data-layer-row-button]")
+      .click();
+    await layerRow(page, "Fill child")
+      .locator("[data-layer-row-button]")
+      .click({ modifiers: ["Shift"] });
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(2);
+    await page.keyboard.press("k");
+    await expect(
+      page.locator('button[aria-label="Scale"][aria-pressed="true"]'),
+    ).toBeVisible();
+    await expect(factor).toBeHidden();
   } finally {
     await action(request, "delete-design", { id: designId });
   }
