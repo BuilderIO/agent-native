@@ -8,6 +8,7 @@ import {
 import { getActiveEmbeddingSet } from "@agent-native/creative-context/store";
 
 import {
+  candidateTrustTier,
   searchAnalyticsQueryCatalog,
   type AnalyticsQueryCatalogCandidate,
 } from "./analytics-query-catalog";
@@ -356,6 +357,8 @@ async function rankWithEmbeddings(
     }))
     .sort(
       (left, right) =>
+        candidateTrustTier(right.candidate) -
+          candidateTrustTier(left.candidate) ||
         right.similarity - left.similarity ||
         right.lexicalScore - left.lexicalScore ||
         candidateName(left.candidate).localeCompare(

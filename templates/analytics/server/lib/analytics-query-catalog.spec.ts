@@ -110,6 +110,38 @@ describe("analytics query catalog", () => {
     );
   });
 
+  it("keeps a stronger AI definition when a human entry only weakly matches", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly active users",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "weak-human-monthly-revenue",
+          metric: "Monthly Revenue",
+          definition: "Revenue from closed-won deals",
+          approved: true,
+        },
+        {
+          id: "strong-active-users-suggestion",
+          metric: "Monthly Active Users",
+          definition: "Distinct users with activity this month",
+          aiGenerated: true,
+          approved: false,
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "data-dictionary",
+        id: "strong-active-users-suggestion",
+        aiGenerated: true,
+        approved: false,
+      }),
+    );
+  });
+
   it("matches plural questions against singular saved titles", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "how many templates are in use",

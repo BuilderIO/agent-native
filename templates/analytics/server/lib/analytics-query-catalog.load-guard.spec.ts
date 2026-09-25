@@ -150,6 +150,7 @@ describe("searchAnalyticsQueryCatalog", () => {
         archived: "active",
         hidden: "visible",
         includeCatalogMetadata: true,
+        limit: 200,
       },
     );
     expect(state.loadCalls[0]).toHaveLength(24);

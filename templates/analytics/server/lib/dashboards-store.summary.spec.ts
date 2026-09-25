@@ -6,6 +6,11 @@ const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   settings: {} as Record<string, Record<string, unknown>>,
   settingsError: null as Error | null,
+  settingsPrefixCalls: [] as Array<{
+    prefix: string;
+    options?: { limit?: number };
+  }>,
+  queryLimit: null as number | null,
   insert: vi.fn(),
   accessFilter: vi.fn(),
 }));
@@ -19,12 +24,16 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  listSettingsByPrefix: async (prefix: string) => {
-    if (state.settingsError) throw state.settingsError;
-    return Object.entries(state.settings)
-      .filter(([key]) => key.startsWith(prefix))
-      .map(([key, value]) => ({ key, value }));
-  },
+  listSettingsByPrefix: vi.fn(
+    async (prefix: string, options?: { limit?: number }) => {
+      state.settingsPrefixCalls.push({ prefix, options });
+      if (state.settingsError) throw state.settingsError;
+      const rows = Object.entries(state.settings)
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => ({ key, value }));
+      return options?.limit === undefined ? rows : rows.slice(0, options.limit);
+    },
+  ),
   getOrgSetting: async () => null,
   getUserSetting: async () => null,
   deleteOrgSetting: async () => false,
@@ -99,7 +108,16 @@ vi.mock("../db/index.js", () => {
         from: () => ({
           where: (where: unknown) => {
             state.where = where;
-            return Promise.resolve(state.rows);
+            const result = Promise.resolve(state.rows);
+            Object.assign(result, {
+              orderBy: () => ({
+                limit: (limit: number) => {
+                  state.queryLimit = limit;
+                  return Promise.resolve(state.rows.slice(0, limit));
+                },
+              }),
+            });
+            return result;
           },
         }),
       };
@@ -123,6 +141,8 @@ beforeEach(() => {
   state.rows = [];
   state.settings = {};
   state.settingsError = null;
+  state.settingsPrefixCalls = [];
+  state.queryLimit = null;
   state.insert.mockReset();
   state.accessFilter.mockReset();
   state.accessFilter.mockReturnValue({ kind: "access" });
@@ -268,6 +288,33 @@ describe("listDashboardSummaries", () => {
         { kind: "isNull", target: { name: "hiddenAt" } },
       ],
     });
+  });
+
+  it("bounds catalog summaries and scopes legacy SQL dashboard reads", async () => {
+    state.settings = {
+      "u:alice@example.com:sql-dashboard-legacy-user": {
+        name: "Legacy user dashboard",
+      },
+      "o:org-1:sql-dashboard-legacy-org": {
+        name: "Legacy org dashboard",
+      },
+      "u:alice@example.com:favorites": { ids: ["other"] },
+    };
+
+    const result = await listDashboardSummaries(ctx, {
+      kind: "sql",
+      limit: 1,
+    });
+
+    expect(state.queryLimit).toBe(1);
+    expect(result.map((row) => row.id)).toEqual(["legacy-user"]);
+    expect(state.settingsPrefixCalls).toEqual([
+      {
+        prefix: "u:alice@example.com:sql-dashboard-",
+        options: { limit: 1 },
+      },
+      { prefix: "o:org-1:sql-dashboard-", options: { limit: 1 } },
+    ]);
   });
 
   it("normalizes dashboard names consistently for matching", () => {

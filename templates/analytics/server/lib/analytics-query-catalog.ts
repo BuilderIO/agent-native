@@ -19,6 +19,8 @@ import {
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
 const MAX_QUERY_LENGTH = 12_000;
 const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
+// ponytail: scan the 200 most recently updated summaries; a search-backed index is the upgrade path if larger workspaces need older references.
+const MAX_CATALOG_DASHBOARD_SUMMARIES = 200;
 const RETIRED_CATALOG_STATES = new Set([
   "deprecated",
   "obsolete",
@@ -529,15 +531,18 @@ function dictionaryCandidates(
       },
     ];
   });
-  const hasRelevantHumanOrApprovedEntry = candidates.some(
-    (candidate) =>
-      candidate.approved === true || candidate.aiGenerated !== true,
+  const strongestHumanOrApprovedScore = candidates.reduce(
+    (strongest, candidate) =>
+      candidate.approved === true || candidate.aiGenerated !== true
+        ? Math.max(strongest, candidate.score)
+        : strongest,
+    0,
   );
   return candidates.filter(
     (candidate) =>
-      !hasRelevantHumanOrApprovedEntry ||
       candidate.aiGenerated !== true ||
-      candidate.approved === true,
+      candidate.approved === true ||
+      candidate.score > strongestHumanOrApprovedScore,
   );
 }
 
@@ -561,7 +566,9 @@ function candidateDedupeKey(candidate: AnalyticsQueryCatalogCandidate): string {
     .toLowerCase()}`;
 }
 
-function candidateTrustTier(candidate: AnalyticsQueryCatalogCandidate): number {
+export function candidateTrustTier(
+  candidate: AnalyticsQueryCatalogCandidate,
+): number {
   if (candidate.kind !== "dashboard-panel") return 0;
   if (candidate.dashboardCertified) return 2;
   return candidate.favorite ? 1 : 0;
@@ -703,6 +710,7 @@ export async function searchAnalyticsQueryCatalog(args: {
           archived: "active",
           hidden: "visible",
           includeCatalogMetadata: true,
+          limit: MAX_CATALOG_DASHBOARD_SUMMARIES,
         },
       ),
       listDictionaryEntries({ email: args.email, orgId: args.orgId }),

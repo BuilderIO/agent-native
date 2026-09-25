@@ -16,6 +16,14 @@ vi.mock("@agent-native/creative-context/store", () => ({
   getActiveEmbeddingSet: mocks.getActiveEmbeddingSet,
 }));
 vi.mock("./analytics-query-catalog", () => ({
+  candidateTrustTier: (candidate: AnalyticsQueryCatalogCandidate) =>
+    candidate.kind === "dashboard-panel"
+      ? candidate.dashboardCertified
+        ? 2
+        : candidate.favorite
+          ? 1
+          : 0
+      : 0,
   searchAnalyticsQueryCatalog: mocks.searchAnalyticsQueryCatalog,
 }));
 
@@ -191,6 +199,36 @@ describe("retrieveAnalyticsPromptReferences", () => {
 
     expect(result.jevPromptCandidates[0]?.name).toBe(
       "Tie stronger dashboard: Tie stronger panel",
+    );
+  });
+
+  it("keeps certified dashboards ahead of more similar ordinary panels", async () => {
+    const ordinary = {
+      ...candidates[1]!,
+      dashboardTitle: "Ordinary dashboard",
+      panelTitle: "Ordinary panel",
+      score: 200,
+    };
+    const certified = {
+      ...candidates[2]!,
+      dashboardTitle: "Certified dashboard",
+      panelTitle: "Certified panel",
+      dashboardCertified: true,
+      score: 10,
+    };
+    mocks.searchAnalyticsQueryCatalog.mockResolvedValue([ordinary, certified]);
+    mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
+      inputs.map(({ text }) => (text?.includes("Certified") ? [0, 1] : [1, 0])),
+    );
+
+    const result = await retrieveAnalyticsPromptReferences({
+      request: "certified dashboard request",
+      email: "owner@example.com",
+      orgId: null,
+    });
+
+    expect(result.jevPromptCandidates[0]?.name).toBe(
+      "Certified dashboard: Certified panel",
     );
   });
 
