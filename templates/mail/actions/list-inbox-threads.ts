@@ -8,7 +8,6 @@ import {
   getConnectedAccountsWithErrors,
   isConnected,
 } from "../server/lib/google-auth.js";
-import { classifyAutomated } from "../server/lib/inbox-classify.js";
 import {
   inboxRowToItem,
   readCachedLabels,
@@ -16,6 +15,7 @@ import {
 } from "../server/lib/inbox-store.js";
 import { ensureInboxFresh } from "../server/lib/inbox-sync.js";
 import {
+  buildLocalInboxItems,
   partitionInboxItems,
   resolveActiveTabId,
   resolveInboxTabs,
@@ -35,55 +35,6 @@ import type { EmailMessage, Label } from "../shared/types.js";
 
 const FRESHNESS_MAX_AGE_MS = 15_000;
 const SYNC_BUDGET_MS = 6_000;
-
-// classifyAutomated expects real Gmail CATEGORY_* label ids; local mail uses
-// the app-level lowercase ids from list-labels.ts's SYSTEM_LABELS mapping.
-const LOCAL_CATEGORY_TO_GMAIL_LABEL: Record<string, string> = {
-  promotions: "CATEGORY_PROMOTIONS",
-  social: "CATEGORY_SOCIAL",
-  updates: "CATEGORY_UPDATES",
-  forums: "CATEGORY_FORUMS",
-};
-
-/** Groups local mailbox messages into one `InboxThreadItem` per thread, latest-first. */
-function buildLocalInboxItems(emails: EmailMessage[]): InboxThreadItem[] {
-  const byThread = new Map<string, EmailMessage[]>();
-  for (const email of emails) {
-    if (email.isArchived || email.isTrashed || email.isDraft) continue;
-    const key = email.threadId || email.id;
-    const list = byThread.get(key);
-    if (list) list.push(email);
-    else byThread.set(key, [email]);
-  }
-
-  const items = [...byThread.values()]
-    .filter((messages) => messages.some((message) => !message.isSent))
-    .map((messages): InboxThreadItem => {
-      const latest = messages.reduce((a, b) =>
-        new Date(b.date).getTime() > new Date(a.date).getTime() ? b : a,
-      );
-      const labelIds = [...new Set(messages.flatMap((m) => m.labelIds))];
-      const isAutomated = classifyAutomated({
-        headers: [],
-        labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
-        fromEmail: latest.from?.email ?? "",
-      });
-      return {
-        ...latest,
-        labelIds,
-        messageCount: messages.length,
-        unreadCount: messages.filter((m) => !m.isRead).length,
-        messageIds: messages.map((m) => m.id),
-        isAutomated,
-      };
-    });
-
-  return items.sort(
-    (a, b) =>
-      new Date(b.date).getTime() - new Date(a.date).getTime() ||
-      b.id.localeCompare(a.id),
-  );
-}
 
 /** Shared tail: partition into tabs and page the active tab — identical for both backends. */
 function paginateIntoResult(

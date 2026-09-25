@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import {
   emailMessageMatchesSearch,
@@ -32,6 +33,7 @@ import {
   readInboxThreads,
 } from "../server/lib/inbox-store.js";
 import {
+  buildLocalInboxItems,
   partitionInboxItems,
   resolveActiveTabId,
   resolveInboxTabs,
@@ -43,7 +45,8 @@ import {
   listQueuedDrafts,
   requireQueuedDraft,
 } from "../server/lib/queued-drafts.js";
-import type { EmailMessage } from "../shared/types.js";
+import type { InboxThreadItem } from "../shared/inbox-threads.js";
+import type { EmailMessage, Label } from "../shared/types.js";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
 // Keep automatic screen context within the page-tool budget; list-emails is
@@ -349,9 +352,7 @@ async function fetchEmailList(
     let emails = await readLocalEmails(ownerEmail);
     switch (effectiveView) {
       case "inbox":
-        emails = emails.filter(
-          (e: any) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
-        );
+        emails = buildLocalInboxItems(emails);
         break;
       case "unread":
         emails = emails.filter(
@@ -452,9 +453,9 @@ async function fetchThreadMessages(threadId: string): Promise<any> {
 }
 
 /**
- * Inbox tab bar + active tab id, from the same store-backed partition
- * `list-inbox-threads` uses — bounded to counts (no row bodies) so it's
- * cheap to include on every inbox screen snapshot. Never throws: a store
+ * Inbox tab bar + active tab id, from the same backend-specific rows and
+ * partition `list-inbox-threads` uses — bounded to counts (no row bodies) so
+ * it's cheap to include on every inbox screen snapshot. Never throws: a store
  * hiccup just omits `tabs` from the screen rather than failing view-screen.
  */
 async function buildInboxTabsSummary(
@@ -462,16 +463,34 @@ async function buildInboxTabsSummary(
   requestedTab: string | undefined,
 ): Promise<{ tabs: unknown[]; activeTabId: string } | null> {
   try {
-    const [googleConnected, settings, rows, { labels, labelMapByAccount }] =
-      await Promise.all([
-        isConnected(ownerEmail),
-        readSettings(ownerEmail),
+    const [googleConnected, settings] = await Promise.all([
+      isConnected(ownerEmail),
+      readSettings(ownerEmail),
+    ]);
+    let items: InboxThreadItem[];
+    let labels: Label[];
+    if (googleConnected) {
+      const [rows, cachedLabels] = await Promise.all([
         readInboxThreads(ownerEmail),
         readCachedLabels(ownerEmail),
       ]);
-    const items = rows.map((row) =>
-      inboxRowToItem(row, labelMapByAccount.get(row.accountEmail)),
-    );
+      items = rows.map((row) =>
+        inboxRowToItem(
+          row,
+          cachedLabels.labelMapByAccount.get(row.accountEmail),
+        ),
+      );
+      labels = cachedLabels.labels;
+    } else {
+      const [emails, localSettings] = await Promise.all([
+        readLocalEmails(ownerEmail),
+        getUserSetting(ownerEmail, "labels"),
+      ]);
+      items = buildLocalInboxItems(emails);
+      labels = Array.isArray(localSettings?.labels)
+        ? (localSettings.labels as Label[])
+        : [];
+    }
     const config = {
       pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, googleConnected),
       savedFilters: settings.savedFilters ?? [],

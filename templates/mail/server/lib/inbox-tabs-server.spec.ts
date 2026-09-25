@@ -2,6 +2,7 @@ import {
   ALL_TAB_PARAM,
   ALL_TAB_ID,
   IMPORTANT_TAB_ID,
+  OTHER_TAB_ID,
   type InboxTabConfig,
   type InboxThreadItem,
 } from "@shared/inbox-threads.js";
@@ -205,6 +206,29 @@ describe("resolveActiveTabId", () => {
     );
 
     expect(resolveActiveTabId("all", tabsWithAllFilter)).toBe("all");
+  });
+
+  it("reserves built-in tab ids from pinned labels and saved filters", () => {
+    const tabs = resolveInboxTabs(
+      {
+        ...config,
+        showAllTab: true,
+        pinnedLabels: [ALL_TAB_ID, OTHER_TAB_ID],
+        savedFilters: [
+          { id: ALL_TAB_ID, name: "All matches", query: "is:unread" },
+          { id: OTHER_TAB_ID, name: "Other matches", query: "is:unread" },
+        ],
+      },
+      new Map(),
+    );
+
+    expect(tabs.filter((tab) => tab.id === ALL_TAB_ID)).toMatchObject([
+      { kind: "all" },
+    ]);
+    expect(tabs.filter((tab) => tab.id === OTHER_TAB_ID)).toMatchObject([
+      { kind: "other" },
+    ]);
+    expect(resolveActiveTabId(ALL_TAB_ID, tabs)).toBe(ALL_TAB_ID);
   });
 
   it("lands on All by default even when pinned labels and saved filters exist", () => {
