@@ -1154,3 +1154,108 @@ describe("in-place text session: dock changes", () => {
     expect(el.querySelector("ol")).not.toBeNull();
   });
 });
+
+describe("in-place text session: review fixes", () => {
+  it("keeps an author zero-width space through undo and a later edit", () => {
+    const el = mount(`<p id="t">A${ZWSP}B</p>`);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 3);
+    type(el, "x");
+    session.undo();
+    caret(el.firstChild!, 3);
+    type(el, "y");
+    session.end();
+    expect(el.innerHTML).toBe(`A${ZWSP}By`);
+  });
+
+  it("restores a caret on an empty line between two <br>s through undo", () => {
+    const el = mount('<p id="t">A<br><br>B</p>');
+    session = startInPlaceTextSession(el);
+    caret(el, 2);
+    type(el, "x");
+    expect(el.innerHTML).toBe("A<br>x<br>B");
+    session.undo();
+    type(el, "Z");
+    session.end();
+    expect(el.innerHTML).toBe("A<br>Z<br>B");
+  });
+
+  it("gives a split block's new sibling its look but not its identity", () => {
+    const el = mount(
+      '<div id="t"><p id="intro" data-slide-object-id="obj-1" data-src-i="n:4" class="lead" style="color: red;">Hello world</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Hello"), 5);
+    beforeInput(el, "insertParagraph");
+    session.end();
+    expect(el.innerHTML).toBe(
+      '<p id="intro" data-slide-object-id="obj-1" data-src-i="n:4" class="lead" style="color: red;">Hello</p><p data-src-i="n:4" class="lead" style="color: red;"> world</p>',
+    );
+  });
+
+  it("gives a new legacy bullet row none of the row's identity", () => {
+    const el = mount(
+      '<div id="t"><div id="row-1" data-slide-object-id="r1" style="display: flex; gap: 12px;"><span style="color: red;">•</span><span id="txt-1">First</span></div><div style="display: flex; gap: 12px;"><span style="color: red;">•</span><span>Second</span></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "First"), 5);
+    beforeInput(el, "insertParagraph");
+    session.end();
+    expect(el.querySelectorAll("#row-1")).toHaveLength(1);
+    expect(el.querySelectorAll("#txt-1")).toHaveLength(1);
+    expect(el.querySelectorAll('[data-slide-object-id="r1"]')).toHaveLength(1);
+    expect(el.children).toHaveLength(3);
+  });
+
+  it("unlinks only the selected part of a link", () => {
+    const el = mount('<p id="t"><a href="https://x.test">linked text</a></p>');
+    session = startInPlaceTextSession(el);
+    const text = textOf(el, "linked");
+    select(text, 0, text, 6);
+    expect(session.commands.link(null)).toBe(true);
+    session.end();
+    expect(el.innerHTML).toBe('linked<a href="https://x.test"> text</a>');
+  });
+
+  it("pastes a nested list into a list item as items at their depth", () => {
+    const el = mount('<ul id="t"><li>One</li></ul>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "One"), 3);
+    paste(el, {
+      "text/html":
+        '<ul style="color: red"><li>Two<ul><li>Sub</li></ul></li><li>Three</li></ul>',
+      "text/plain": "Two\nSub\nThree",
+    });
+    session.end();
+    expect(el.innerHTML).toMatch(
+      /^<li>OneTwo<ul[^>]*><li>Sub<\/li><\/ul><\/li><li>Three<\/li>$/,
+    );
+  });
+
+  it("pastes a list into a text container as a list", () => {
+    const el = mount('<div id="t">Intro</div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Intro"), 5);
+    paste(el, {
+      "text/html":
+        '<ol class="x" style="position: absolute"><li><b>First</b></li><li>Second<ol><li>Deep</li></ol></li></ol>',
+      "text/plain": "First\nSecond\nDeep",
+    });
+    session.end();
+    expect(el.innerHTML).toMatch(
+      /^Intro<ol style="[^"]*list-style-type:\s*decimal[^"]*"><li><b>First<\/b><\/li><li>Second<ol style="[^"]*"><li>Deep<\/li><\/ol><\/li><\/ol>$/,
+    );
+  });
+
+  it("pastes a list into a paragraph as lines, since a paragraph cannot hold one", () => {
+    const el = mount('<p id="t">Intro</p>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Intro"), 5);
+    paste(el, {
+      "text/html": "<ul><li>One</li><li>Two</li></ul>",
+      "text/plain": "One\nTwo",
+    });
+    session.end();
+    expect(el.innerHTML).toBe("IntroOne<br>Two");
+  });
+});

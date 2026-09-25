@@ -162,13 +162,22 @@ function itemHtml(list: HTMLElement): string[] {
     .map((item) => item.innerHTML);
 }
 
+/** An empty list of `kind`, with its markers restated for preflight. */
+export function createSlideList(
+  doc: Document,
+  kind: SlideListKind,
+): HTMLElement {
+  const list = doc.createElement(LIST_TAG[kind]);
+  list.setAttribute("style", LIST_STYLE[kind]);
+  return list;
+}
+
 function buildList(
   doc: Document,
   kind: SlideListKind,
   lines: string[],
 ): HTMLElement {
-  const list = doc.createElement(LIST_TAG[kind]);
-  list.setAttribute("style", LIST_STYLE[kind]);
+  const list = createSlideList(doc, kind);
   for (const line of lines) {
     const item = doc.createElement("li");
     item.innerHTML = line;

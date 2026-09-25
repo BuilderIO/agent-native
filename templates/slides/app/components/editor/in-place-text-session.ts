@@ -15,9 +15,14 @@ import {
   isBulletRow,
   removeEmptyBulletAtCaret,
   rowTextContainer,
+  stripCopiedIdentity,
   ZERO_WIDTH_SPACE,
 } from "./bullet-editing";
-import { type SlideListKind, toggleSlideList } from "./list-editing";
+import {
+  createSlideList,
+  type SlideListKind,
+  toggleSlideList,
+} from "./list-editing";
 import {
   applyInlineTextStyle,
   type InlineTextFormat,
@@ -121,6 +126,21 @@ const STRUCTURAL_BLOCK_TAGS = new Set([
 
 const RENDERED_ELEMENTS =
   "br, img, svg, video, canvas, picture, iframe, input, hr";
+/** Blocks whose content may include a list, so a pasted list stays one. */
+const LIST_HOLDER_TAGS = new Set([
+  "ARTICLE",
+  "ASIDE",
+  "BLOCKQUOTE",
+  "DD",
+  "DIV",
+  "FIGCAPTION",
+  "FIGURE",
+  "FOOTER",
+  "HEADER",
+  "SECTION",
+  "TD",
+  "TH",
+]);
 const PASTE_INLINE_TAGS = new Set([
   "A",
   "B",
@@ -201,6 +221,14 @@ interface Snapshot extends TextOffsets {
   tag: string;
   attributes: [string, string][];
   html: string;
+  /** Text offsets of the author's zero-width-space nodes. */
+  authorZwsp: number[];
+}
+
+/** One pasted line and the UL/OL tags it was nested in, outermost first. */
+interface PastedLine {
+  fragment: DocumentFragment;
+  lists: readonly string[];
 }
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -323,30 +351,68 @@ function placeCaret(node: Node, offset: number) {
   selection.addRange(range);
 }
 
-function textOffset(root: Node, node: Node, offset: number) {
+/**
+ * Characters before a point in `root`. With `breaks`, each `<br>` counts as
+ * one, so a caret between two `<br>`s keeps its line; a count that must
+ * survive `<br>`s turning into items (a list toggle) leaves them out.
+ */
+function textOffset(
+  root: HTMLElement,
+  node: Node,
+  offset: number,
+  breaks = false,
+) {
   const range = document.createRange();
   range.selectNodeContents(root);
   range.setEnd(node, offset);
-  return range.toString().length;
+  let count = range.toString().length;
+  if (breaks) {
+    for (const br of Array.from(root.querySelectorAll("br"))) {
+      const index = Array.from(br.parentNode!.childNodes).indexOf(br);
+      if (range.comparePoint(br.parentNode!, index + 1) === 0) count += 1;
+    }
+  }
+  return count;
 }
 
 /**
- * The text position `offset` characters into `root`. Where two text nodes
- * meet, `before` keeps the end of the earlier one, so a caret at the end of an
- * item stays there; otherwise the later one wins, so a caret after <br> does.
+ * The text position `offset` characters into `root`, counted as `textOffset`
+ * counts them. Where two text nodes meet, `before` keeps the end of the
+ * earlier one, so a caret at the end of an item stays there; otherwise the
+ * later one wins, so a caret after <br> does.
  */
-function textPoint(root: Node, offset: number, before = false): [Node, number] {
+function textPoint(
+  root: Node,
+  offset: number,
+  before = false,
+  breaks = false,
+): [Node, number] {
   let remaining = offset;
   let last: Text | null = null;
-  for (const text of textNodesIn(root)) {
-    if (
-      remaining < text.length ||
-      (before && text.length > 0 && remaining === text.length)
-    ) {
-      return [text, remaining];
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+  );
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (breaks && node instanceof HTMLBRElement) {
+      if (remaining === 0) {
+        return [
+          node.parentNode!,
+          Array.from(node.parentNode!.childNodes).indexOf(node),
+        ];
+      }
+      remaining -= 1;
+      continue;
     }
-    remaining -= text.length;
-    last = text;
+    if (!(node instanceof Text)) continue;
+    if (
+      remaining < node.length ||
+      (before && node.length > 0 && remaining === node.length)
+    ) {
+      return [node, remaining];
+    }
+    remaining -= node.length;
+    last = node;
   }
   return last ? [last, last.length] : [root, root.childNodes.length];
 }
@@ -455,39 +521,68 @@ function appendPastedNode(node: Node, target: Node) {
  * formatting keeps only its `style` (and a safe `href`), and every other
  * element is unwrapped, so pasting can never bring in layout or classes.
  */
-function pastedHtmlLines(html: string): DocumentFragment[] {
+function pastedHtmlLines(html: string): PastedLine[] {
   const template = document.createElement("template");
   template.innerHTML = html;
-  const lines: DocumentFragment[] = [];
-  const collect = (parent: Node) => {
-    let line: DocumentFragment | null = null;
+  const lines: PastedLine[] = [];
+  const collect = (parent: Node, lists: readonly string[]) => {
+    let line: PastedLine | null = null;
     for (const child of Array.from(parent.childNodes)) {
       if (child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)) {
         line = null;
-        collect(child);
+        const list = child.tagName === "UL" || child.tagName === "OL";
+        collect(child, list ? [...lists, child.tagName] : lists);
         continue;
       }
       if (!line) {
         if (child instanceof Text && !child.data.trim()) continue;
-        line = document.createDocumentFragment();
+        line = { fragment: document.createDocumentFragment(), lists };
         lines.push(line);
       }
-      appendPastedNode(child, line);
+      appendPastedNode(child, line.fragment);
     }
   };
-  collect(template.content);
-  for (const line of lines) {
-    if (line.lastChild instanceof HTMLBRElement) line.lastChild.remove();
+  collect(template.content, []);
+  for (const { fragment } of lines) {
+    if (fragment.lastChild instanceof HTMLBRElement) {
+      fragment.lastChild.remove();
+    }
   }
   return lines;
 }
 
-function plainTextLines(text: string): DocumentFragment[] {
+function plainTextLines(text: string): PastedLine[] {
   return text.split(/\r\n|\r|\n/).map((line) => {
     const fragment = document.createDocumentFragment();
     if (line) fragment.append(line);
-    return fragment;
+    return { fragment, lists: [] };
   });
+}
+
+/** Pasted list lines as one list, nested the way they were. */
+function pastedList(lines: PastedLine[]): HTMLElement {
+  const open: HTMLElement[] = [];
+  for (const { fragment, lists } of lines) {
+    open.length = Math.min(open.length, lists.length);
+    while (open.length < lists.length) {
+      const list = createSlideList(
+        document,
+        lists[open.length] === "OL" ? "ordered" : "bullet",
+      );
+      const parent = open[open.length - 1];
+      if (parent) {
+        (
+          parent.lastElementChild ??
+          parent.appendChild(document.createElement("li"))
+        ).append(list);
+      }
+      open.push(list);
+    }
+    const item = document.createElement("li");
+    item.append(fragment);
+    open[open.length - 1].append(item);
+  }
+  return open[0];
 }
 
 /**
@@ -508,9 +603,8 @@ export function startInPlaceTextSession(
   const initialEditingBlock = el.getAttribute("data-editing-block");
   const startHtml = el.innerHTML;
   const startText = el.innerText;
-  // ponytail: an author ZWSP is told apart from a placeholder by text-node
-  // identity, which an undo (innerHTML restore) loses. 1/923 real slides has
-  // one; tracking placeholders by position would close the gap.
+  // An author ZWSP is told apart from a placeholder by its text node. An
+  // undo rebuilds the nodes from HTML, so snapshots carry them by position.
   const authorZwsp = new WeakSet<Text>(
     textNodesIn(el).filter((text) => text.data.includes(ZERO_WIDTH_SPACE)),
   );
@@ -551,13 +645,13 @@ export function startInPlaceTextSession(
       : null;
   }
 
-  function selectionOffsets(): TextOffsets {
+  function selectionOffsets(breaks = false): TextOffsets {
     const range = selectionRange();
     if (!range) return { from: 0, to: 0, fromBefore: false, toBefore: false };
     const { startContainer, startOffset, endContainer, endOffset } = range;
     return {
-      from: textOffset(el, startContainer, startOffset),
-      to: textOffset(el, endContainer, endOffset),
+      from: textOffset(el, startContainer, startOffset, breaks),
+      to: textOffset(el, endContainer, endOffset, breaks),
       fromBefore: endsText(startContainer, startOffset),
       toBefore: endsText(endContainer, endOffset),
     };
@@ -576,8 +670,14 @@ export function startInPlaceTextSession(
     selection.addRange(range);
   }
 
-  function selectOffsets({ from, to, fromBefore, toBefore }: TextOffsets) {
-    select(textPoint(el, from, fromBefore), textPoint(el, to, toBefore));
+  function selectOffsets(
+    { from, to, fromBefore, toBefore }: TextOffsets,
+    breaks = false,
+  ) {
+    select(
+      textPoint(el, from, fromBefore, breaks),
+      textPoint(el, to, toBefore, breaks),
+    );
   }
 
   /**
@@ -612,8 +712,19 @@ export function startInPlaceTextSession(
         attribute.value,
       ]),
       html: el.innerHTML,
-      ...selectionOffsets(),
+      authorZwsp: authorZwspOffsets(),
+      ...selectionOffsets(true),
     };
+  }
+
+  function authorZwspOffsets(): number[] {
+    const offsets: number[] = [];
+    let at = 0;
+    for (const text of textNodesIn(el)) {
+      if (authorZwsp.has(text)) offsets.push(at);
+      at += text.length;
+    }
+    return offsets;
   }
 
   function restore(state: Snapshot) {
@@ -627,7 +738,15 @@ export function startInPlaceTextSession(
       if (el.getAttribute(name) !== value) el.setAttribute(name, value);
     }
     el.innerHTML = state.html;
-    selectOffsets(state);
+    let at = 0;
+    for (const text of textNodesIn(el)) {
+      const end = at + text.length;
+      if (state.authorZwsp.some((offset) => offset >= at && offset < end)) {
+        authorZwsp.add(text);
+      }
+      at = end;
+    }
+    selectOffsets(state, true);
   }
 
   /** Records the pre-change state; a run of typing or deleting is one step. */
@@ -989,8 +1108,7 @@ export function startInPlaceTextSession(
     tail.setEnd(block, block.childNodes.length);
     const moved = tail.extractContents();
     const clone = block.cloneNode(false) as HTMLElement;
-    clone.removeAttribute("data-builder-id");
-    clone.removeAttribute("data-fusion-element-id");
+    stripCopiedIdentity(clone);
     clone.append(moved);
     block.after(clone);
     if (!block.textContent?.replaceAll(/\s/g, "")) {
@@ -1067,6 +1185,7 @@ export function startInPlaceTextSession(
     }
     if (following.length > 0) {
       const nested = list.cloneNode(false) as HTMLElement;
+      stripCopiedIdentity(nested);
       nested.append(...following);
       item.append(nested);
     }
@@ -1140,6 +1259,12 @@ export function startInPlaceTextSession(
     placeCaret(after.startContainer, after.startOffset);
   }
 
+  /**
+   * Pasted list items stay list items where the caret can hold them: in a
+   * list item they become items at their own depth, and in a container that
+   * may hold a list they arrive as one. A paragraph or heading cannot hold a
+   * list, so there they are lines like any other paste.
+   */
   function insertClipboard(data: DataTransfer, at: Range) {
     const html = data.getData("text/html");
     const normalized = html ? normalizeSlideClipboardHtml(html) : null;
@@ -1153,19 +1278,47 @@ export function startInPlaceTextSession(
     )?.closest("a");
     if (link && el.contains(link)) {
       // A link inside a link is split in two when the slide is parsed again.
-      for (const line of lines) {
-        for (const anchor of Array.from(line.querySelectorAll("a"))) {
+      for (const { fragment } of lines) {
+        for (const anchor of Array.from(fragment.querySelectorAll("a"))) {
           anchor.replaceWith(...Array.from(anchor.childNodes));
         }
       }
     }
     if (!at.collapsed) deleteRange(at);
     else placeCaret(at.startContainer, at.startOffset);
+    const caret = selectionRange();
+    if (
+      caret &&
+      lines.length > 0 &&
+      lines.every(({ lists }) => lists.length > 0) &&
+      !listItemAt(caret.startContainer) &&
+      !legacyRowAt(caret.startContainer) &&
+      LIST_HOLDER_TAGS.has(nearestBlock(caret.startContainer, el).tagName)
+    ) {
+      const list = pastedList(lines);
+      caret.insertNode(list);
+      placeCaret(...textPoint(list, Infinity));
+      return;
+    }
+    let depth = lines[0]?.lists.length ?? 0;
     lines.forEach((line, index) => {
       const caret = selectionRange();
       if (!caret) return;
-      if (index > 0) insertParagraph(caret);
-      insertFragment(line);
+      if (index > 0) {
+        insertParagraph(caret);
+        const item = selectionRange()?.startContainer;
+        const target = line.lists.length;
+        const current = item ? listItemAt(item) : null;
+        if (current && target > 0) {
+          while (depth < target && keepingSelection(() => indent(current))) {
+            depth += 1;
+          }
+          while (depth > target && keepingSelection(() => outdent(current))) {
+            depth -= 1;
+          }
+        }
+      }
+      insertFragment(line.fragment);
     });
   }
 

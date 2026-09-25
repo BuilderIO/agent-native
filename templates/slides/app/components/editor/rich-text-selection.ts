@@ -5,6 +5,8 @@
 
 import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
+import { stripCopiedIdentity } from "./bullet-editing";
+
 export const INLINE_TEXT_STYLE_KEYS = [
   "color",
   "fontFamily",
@@ -387,18 +389,17 @@ function splitLinkPart(
   }
   if (!part.toString()) return;
   const copy = link.cloneNode(false) as HTMLElement;
-  copy.removeAttribute("data-builder-id");
-  copy.removeAttribute("data-fusion-element-id");
+  stripCopiedIdentity(copy);
   copy.append(part.extractContents());
   link[side](copy);
 }
 
 /**
  * Links, or unlinks, precisely the selected text. Each selected run is
- * wrapped in its own `<a>`; unlinking unwraps every link the selection
- * touches. A run inside a link keeps that link's attributes: the link is
- * split around it, since a link inside a link is split apart when the slide
- * is parsed again.
+ * wrapped in its own `<a>`. A run inside a link is split out of it first, so
+ * linking keeps that link's attributes (a link inside a link is split apart
+ * when the slide is parsed again) and unlinking leaves the unselected rest of
+ * the link linked.
  */
 export function setInlineTextLink(
   editable: HTMLElement,
@@ -408,18 +409,14 @@ export function setInlineTextLink(
   return styleSelectedText(editable, selection, (texts) => {
     for (const text of texts) {
       const link = text.parentElement?.closest("a");
-      if (href === null) {
-        if (link && editable.contains(link)) {
-          link.replaceWith(...Array.from(link.childNodes));
-        }
-        continue;
-      }
       if (link && editable.contains(link)) {
         splitLinkPart(link, text, "before");
         splitLinkPart(link, text, "after");
-        link.setAttribute("href", href);
+        if (href === null) link.replaceWith(...Array.from(link.childNodes));
+        else link.setAttribute("href", href);
         continue;
       }
+      if (href === null) continue;
       const anchor = document.createElement("a");
       anchor.setAttribute("href", href);
       text.replaceWith(anchor);

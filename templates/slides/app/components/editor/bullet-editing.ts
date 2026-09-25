@@ -11,6 +11,21 @@
  * typed characters inherit that span's font instead of the container's. */
 export const ZERO_WIDTH_SPACE = "\u200B";
 
+/**
+ * A copy made to split an element (Enter, a list or link split) keeps its
+ * look, never the original's identity: two elements answering to one `id` or
+ * object id break selection, freeform moves, and export.
+ */
+export function stripCopiedIdentity(root: Element) {
+  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+    for (const { name } of Array.from(element.attributes)) {
+      if (name === "id" || /^data-.+-id$/.test(name)) {
+        element.removeAttribute(name);
+      }
+    }
+  }
+}
+
 /** Single glyphs commonly used as bullet markers in styled (non-<ul>) lists. */
 const BULLET_GLYPHS = new Set([
   "\u2022", // •
@@ -417,8 +432,7 @@ function listWithNodes(
   orderedStart?: number,
 ): HTMLElement {
   const clone = list.cloneNode(false) as HTMLElement;
-  clone.removeAttribute("data-builder-id");
-  clone.removeAttribute("data-fusion-element-id");
+  stripCopiedIdentity(clone);
   clone.removeAttribute("contenteditable");
   clone.removeAttribute("data-editing-block");
   if (orderedStart !== undefined) {
@@ -467,6 +481,7 @@ function createRootLine(
   const textContainer = rowTextContainer(row, marker);
   if (textContainer !== row) {
     const text = textContainer.cloneNode(false) as HTMLElement;
+    stripCopiedIdentity(text);
     text.replaceChildren(list.ownerDocument.createTextNode(ZERO_WIDTH_SPACE));
     line.appendChild(text);
   } else {
@@ -683,10 +698,7 @@ export function insertBulletAfterCaret(list: HTMLElement): boolean {
   }
 
   const newRow = row.cloneNode(true) as HTMLElement;
-  for (const el of [newRow, ...Array.from(newRow.querySelectorAll("*"))]) {
-    el.removeAttribute("data-builder-id");
-    el.removeAttribute("data-fusion-element-id");
-  }
+  stripCopiedIdentity(newRow);
   row.after(newRow);
   primeNewRow(newRow, tail);
   return true;
