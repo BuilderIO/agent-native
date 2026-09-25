@@ -280,7 +280,7 @@ When `message/send` is called with `async: true`, the JSON-RPC handler enqueues 
 
 <Callout tone="warning">
 
-**Serverless webhook and gateway timeouts.** Hosted environment gateways (such as Netlify, Vercel, or Cloudflare Pages) impose strict execution limits (often 10 to 30 seconds) on public-facing HTTP routes. Because agent loops can take significant time to run queries, fetch context, and execute tools, you **must use `async: true`** when calling A2A endpoints or handling external webhooks. This immediately returns a `working` status to the API gateway, keeping the connection open only for a few milliseconds, while the self-fired `/process-task` POST executes the agent loop in the background. Do not block the primary HTTP request waiting for the agent loop to finish.
+**Serverless webhook and gateway timeouts.** Hosted environment gateways (such as Netlify, Vercel, or Cloudflare Workers) impose strict execution limits (often 10 to 30 seconds) on public-facing HTTP routes. Because agent loops can take significant time to run queries, fetch context, and execute tools, you **must use `async: true`** when calling A2A endpoints or handling external webhooks. This immediately returns a `working` status to the API gateway, keeping the connection open only for a few milliseconds, while the self-fired `/process-task` POST executes the agent loop in the background. Do not block the primary HTTP request waiting for the agent loop to finish.
 
 </Callout>
 
@@ -641,7 +641,7 @@ The agent card endpoint is always public (no auth) so other agents can discover 
 
 Bearer validation runs at the request boundary — in the JSON-RPC handler — before the agent loop ever sees the message. The shared helpers in `packages/core/src/a2a/auth-policy.ts` decide what the deployment requires:
 
-- `isA2AProductionRuntime()` returns `true` on Netlify, AWS Lambda, Cloudflare Pages/Workers, Vercel, Render, Fly, and Cloud Run — even when `NODE_ENV` isn't `"production"`. Some serverless providers don't set `NODE_ENV` consistently, so the policy reads provider-specific flags too.
+- `isA2AProductionRuntime()` returns `true` on Netlify, AWS Lambda, Cloudflare Workers, Vercel, Render, Fly, and Cloud Run — even when `NODE_ENV` isn't `"production"`. Some serverless providers don't set `NODE_ENV` consistently, so the policy reads provider-specific flags too.
 - `hasConfiguredA2ASecret()` returns `true` when `A2A_SECRET` is set.
 - `shouldAdvertiseJwtA2AAuth()` is what the agent card uses to decide whether to publish a `jwtBearer` security scheme.
 

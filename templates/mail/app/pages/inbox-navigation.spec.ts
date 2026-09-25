@@ -113,6 +113,20 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("lets Priority render a scored inbox page before later pages finish", () => {
+    const page = inboxSource();
+    const loadingStart = page.indexOf("const emailListLoading =");
+    const loading = page.slice(
+      loadingStart,
+      page.indexOf("const emails = useMemo(", loadingStart),
+    );
+
+    expect(loading).not.toContain("inboxExtraPages");
+    expect(emailListSource()).toContain(
+      "priorityWindowEmails.length > cachedPriorityScores.size",
+    );
+  });
+
   it("navigates the inbox tab bar when an agent command sets `tab`", () => {
     const source = inboxSource();
 
@@ -128,12 +142,8 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
     const emailList = emailListSource();
 
-    expect(source).toContain(
-      'if (!jevAvailability.isSuccess) return;\n    if (!jevConfigured && sortMode === "priority")',
-    );
-    expect(source).toContain(
-      'if (navCommand.sort === "priority" && jevAvailability.isLoading) {',
-    );
+    expect(source).toContain('localStorage.getItem("mail-sort-mode")');
+    expect(source).toContain('localStorage.setItem("mail-sort-mode", mode)');
     expect(source).toContain(
       'jevAvailability.isError || jevConfigured ? "priority" : "newest"',
     );

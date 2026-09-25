@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Chaque application est construite avec `APP_BASE_PATH=/<name>` et `VITE_APP_BASE_PATH=/<name>` et émise via le préréglage Nitro sélectionné. Cloudflare Pages est le préréglage par défaut et utilise un répartiteur chez `dist/_worker.js` plus `_routes.json`. Netlify est pris en charge avec `npx @agent-native/core@latest deploy --preset netlify` ; il émet des fonctions d'application sous `.netlify/functions-internal/<app>-server` et génère des redirections qui laissent les actifs statiques non forcés afin que le CDN serve les fichiers en premier. Vercel est pris en charge avec `npx @agent-native/core@latest deploy --preset vercel` ; il écrit un bundle `.vercel/output` racine à l'aide du Build Output API de Vercel.
+Chaque application est construite avec `APP_BASE_PATH=/<name>` et `VITE_APP_BASE_PATH=/<name>` et émise via le préréglage Nitro sélectionné. **Netlify** est le préréglage par défaut pour la commande unifiée `deploy` ; il émet des fonctions d'application sous `.netlify/functions-internal/<app>-server` et génère des redirections qui laissent les assets statiques non forcés afin que le CDN serve les fichiers en premier. **Vercel** est pris en charge avec `npx @agent-native/core@latest deploy --preset vercel` ; il écrit un bundle `.vercel/output` racine à l'aide du Build Output API de Vercel.
 
 <Diagram id="doc-block-10xvh45" title={"Déploiement unifié : une origine, un chemin par application"} summary={"Chaque application est livrée derrière une seule origine, donc les sessions de connexion et les A2A inter-applications sont gratuites."}>
 
@@ -352,13 +352,14 @@ C'est en étant sur la **même origine** que se trouve le véritable gain :
 - **Zero-config cross-app A2A.** Le balisage `@mail` de `@calendar` devient une récupération de même origine — pas de CORS, pas de signature JWT entre frères et sœurs. Le A2A externe utilise toujours le JWT comme aujourd'hui.
 - **Un enregistrement DNS, un certificat, un cache CDN.**
 
-Publiez la sortie `dist/` :
+Publiez le build pour votre plateforme :
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Pour Netlify :
+Pour Netlify :
 
 ```bash
 npx @agent-native/core@latest deploy --preset netlify --build-only

@@ -3,6 +3,34 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-25
+
+### Added
+
+- Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Fixed
+
+- Word document imports now complete successfully.
+
+## 2026-09-24
+
+### Improved
+
+- Slides completes multi-slide edits with fewer rounds of work
+
+### Fixed
+
+- Answering or skipping setup questions keeps deck generation in its original chat.
+- Deck generation progress follows its own run instead of unrelated chats.
+- Editing text on a slide no longer rewrites or restyles the rest of the slide, and clicking into text without typing no longer saves anything. Clicking text on a Markdown-layout slide no longer converts the slide to HTML; ask the agent to edit that text for now.
+- Guided questions stay available when a deck continuation cannot be delivered.
+- Restyling slides preserves their text and layout
+
+### Security
+
+- Slides image generation uses credentials saved for your account or workspace, not a shared deployment key.
+
 ## 2026-09-23
 
 ### Improved
@@ -11,6 +39,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Decks opened from a link or reload no longer get stuck on the generating screen when no generation is running
+- Decks with no design system now follow a theme chosen for their subject instead of a fixed default palette
 - Deck access errors leave the loading state and explain that the deck is unavailable.
 - Slide chat follows the current selection, and loaded slides remain visible when a background refresh fails
 - Slides home retries failed deck-list reads sooner.

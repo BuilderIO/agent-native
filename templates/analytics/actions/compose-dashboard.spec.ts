@@ -314,11 +314,13 @@ describe("compose-dashboard", () => {
 
     for (const metric of [
       "signup-method-conversion",
-      "onboarding-step-dropoff",
       "sharing-actions-by-app",
     ]) {
       expect(buildPanel(metric)!.sql).toContain("FROM funnel_events");
     }
+    const onboardingSql = buildPanel("onboarding-step-dropoff")!.sql;
+    expect(onboardingSql).toContain("FROM onboarding_events");
+    expect(onboardingSql).not.toContain("cohort_events");
   });
 
   it("groups the recurring bar panel into Monday-based weekly buckets", () => {

@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-内部的には、各アプリは `APP_BASE_PATH`/`VITE_APP_BASE_PATH` で設定される `/mail` のような URL プレフィックス、すなわち独自の**ベースパス**でビルドされ、その後ターゲットの Nitro プリセット向けにパッケージ化されます。Cloudflare Pages は、生成された**ディスパッチャーワーカー**、つまり受信したパスを読み取って一致するアプリにリクエストを転送する `dist/_worker.js` の小さなスクリプトを経由してルーティングします。Netlify はアプリごとに 1 つの function と、生成されたリダイレクトを使用します。Vercel は Build Output API を使って、ワークスペースレベルの `.vercel/output` を書き出します。
+内部的には、各アプリは `APP_BASE_PATH`/`VITE_APP_BASE_PATH` で設定される `/mail` のような URL プレフィックス、すなわち独自の**ベースパス**でビルドされ、その後ターゲットの Nitro プリセット向けにパッケージ化されます。**Netlify** がデフォルトです。アプリごとに 1 つの function と、生成されたリダイレクトを使用します。Vercel は Build Output API を使って、ワークスペースレベルの `.vercel/output` を書き出します。
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (デフォルト)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify（デフォルト）",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },

@@ -529,11 +529,13 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "重新生成响应",
   "message.restoreFailed": "恢复失败（{{status}}）。",
   "message.restoreQuestion": "恢复到此处？",
+  "message.revertQuestion": "还原到此处？此后所做的更改将会丢失。",
   "message.restoreRequestFailed": "恢复请求失败。",
   "message.threadNotFound":
     "此聊天线程已不可用。请开始新聊天；如果这是意外情况，也可以重试。",
   "message.restoring": "正在恢复...",
   "message.revertHere": "还原到此处",
+  "message.revertToBeginning": "还原到开头",
   "message.sentAt": "发送于 {{time}}",
   "contextMeter.ariaLabel":
     "上下文 {{percent}}%，共 {{totalTokens}}{{breakdown}}。打开上下文透视。",

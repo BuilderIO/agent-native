@@ -1158,6 +1158,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/visual-style-controls",
   "@agent-native/core/client/feature-flags",
   "@agent-native/core/feature-flags/registry",
+  "@agent-native/core/client/launchdarkly",
   "@agent-native/core/client/hooks",
   "@agent-native/core/client/host",
   "@agent-native/core/client/i18n",
@@ -1707,6 +1708,10 @@ function getCoreSourceAliases(
       coreSrc,
       "feature-flags/registry.ts",
     ),
+    "@agent-native/core/client/launchdarkly": path.join(
+      coreSrc,
+      "client/launchdarkly/index.ts",
+    ),
     "@agent-native/core/client/hooks": path.join(
       coreSrc,
       "client/hooks/index.ts",
@@ -1894,7 +1899,7 @@ function getCoreSourceAliases(
 }
 
 export interface NitroOptions {
-  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "aws_amplify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "aws_amplify", "cloudflare_module"). Default: "node" */
   preset?: string;
   /** Source directory for server files. Default: "./server" */
   srcDir?: string;

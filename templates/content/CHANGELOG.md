@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-25
+
+### Added
+
+- Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
 ## 2026-09-23
 
 ### Added
@@ -26,6 +32,10 @@ time from the command menu (Cmd+K → "What's new").
 - Comments, replies, and suggested-edit decisions now appear immediately without leaving duplicate text in the composer while they save.
 
 ## 2026-09-21
+
+### Added
+
+- Choose Tabler icons, any emoji, or uploaded images for pages, collections, properties, views, callouts, and workspaces.
 
 ### Improved
 

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   attemptObservedRun: false,
   targetTabId: "target-tab",
   scopedCalls: [] as Array<{ attemptId: string | null; tabId: string | null }>,
+  analyticsSessionId: "session-1",
   revision: 0,
   listeners: new Set<() => void>(),
 }));
@@ -111,7 +112,11 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
     await importOriginal<
       typeof import("@agent-native/core/client/analytics")
     >();
-  return { ...original, trackEvent: vi.fn() };
+  return {
+    ...original,
+    getAnalyticsSessionId: () => mocks.analyticsSessionId,
+    trackEvent: vi.fn(),
+  };
 });
 vi.mock("@agent-native/core/client/collab", () => ({
   useCollaborativeDoc: () => ({
@@ -201,6 +206,36 @@ import { SLIDES_GENERATION_STARTED_EVENT } from "@/hooks/use-agent-generating";
 
 import DeckEditor from "./DeckEditor";
 
+const localStorageState = new Map<string, string>();
+const localStorageStub: Storage = {
+  get length() {
+    return localStorageState.size;
+  },
+  clear: () => localStorageState.clear(),
+  getItem: (key) => localStorageState.get(key) ?? null,
+  key: (index) => [...localStorageState.keys()][index] ?? null,
+  removeItem: (key) => localStorageState.delete(key),
+  setItem: (key, value) => localStorageState.set(key, String(value)),
+};
+let lockTail: Promise<void> = Promise.resolve();
+const lockRequest = vi.fn(
+  (_name: string, _options: unknown, callback: (lock: unknown) => unknown) => {
+    const previous = lockTail;
+    let release: () => void;
+    lockTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return previous.then(async () => {
+      try {
+        return await callback({});
+      } finally {
+        release();
+      }
+    });
+  },
+);
+let originalLocksDescriptor: PropertyDescriptor | undefined;
+
 function publishAgentGeneratingChange() {
   mocks.revision += 1;
   for (const listener of mocks.listeners) listener();
@@ -210,11 +245,29 @@ describe("DeckEditor generation signal wiring", () => {
   let router: ReturnType<typeof createMemoryRouter> | undefined;
 
   beforeEach(() => {
+    originalLocksDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "locks",
+    );
+    lockTail = Promise.resolve();
+    lockRequest.mockClear();
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: lockRequest },
+    });
+    window.sessionStorage.clear();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: localStorageStub,
+    });
+    window.localStorage.clear();
+    mocks.deck.slides = [];
     Object.assign(mocks, {
       broadGenerating: true,
       attemptGenerating: false,
       attemptObservedRun: false,
       targetTabId: "target-tab",
+      analyticsSessionId: "session-1",
       revision: 0,
     });
     mocks.deck.generationContext = { generationAttemptId: "attempt-1" };
@@ -228,6 +281,198 @@ describe("DeckEditor generation signal wiring", () => {
     cleanup();
     router?.dispose();
     router = undefined;
+    if (originalLocksDescriptor) {
+      Object.defineProperty(navigator, "locks", originalLocksDescriptor);
+    } else {
+      Reflect.deleteProperty(navigator, "locks");
+    }
+    vi.restoreAllMocks();
+  });
+
+  it("emits one content-free output view after the deck has slides", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "private slide text" }];
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        "output_viewed",
+        expect.objectContaining({
+          app_name: "slides",
+          template_name: "slides",
+          output_id: "deck-1",
+          output_type: "deck",
+          slide_count: 1,
+          source: "deck_editor",
+          generation_attempt_id: "attempt-1",
+        }),
+      ),
+    );
+    const outputViewedEvent = vi
+      .mocked(trackEvent)
+      .mock.calls.find(([name]) => name === "output_viewed");
+    expect(JSON.stringify(outputViewedEvent)).not.toContain(
+      "private slide text",
+    );
+
+    act(() => publishAgentGeneratingChange());
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed"),
+    ).toHaveLength(1);
+  });
+
+  it("emits one output view per deck even when a deck is revisited", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    const outputViews = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed");
+    await waitFor(() => expect(outputViews()).toHaveLength(1));
+
+    await act(async () => router?.navigate("/deck/deck-2"));
+    await waitFor(() => expect(outputViews()).toHaveLength(2));
+
+    await act(async () => router?.navigate("/deck/deck-1"));
+    expect(outputViews()).toHaveLength(2);
+  });
+
+  it("does not emit a second output view when the editor remounts in the tab", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/other", element: <div>Other</div> },
+      ],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    const outputViews = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed");
+    await waitFor(() => expect(outputViews()).toHaveLength(1));
+
+    await act(async () => router?.navigate("/other"));
+    await act(async () => router?.navigate("/deck/deck-1"));
+    expect(outputViews()).toHaveLength(1);
+  });
+
+  it("emits a new output view for the same deck in a new analytics session", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/other", element: <div>Other</div> },
+      ],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    const outputViews = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed");
+    await waitFor(() => expect(outputViews()).toHaveLength(1));
+
+    mocks.analyticsSessionId = "session-2";
+    await act(async () => router?.navigate("/other"));
+    await act(async () => router?.navigate("/deck/deck-1"));
+
+    await waitFor(() => expect(outputViews()).toHaveLength(2));
+  });
+
+  it("deduplicates deck views across tabs in the same analytics session", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    window.localStorage.setItem(
+      "slides:output-viewed",
+      JSON.stringify({ sessionId: "session-1", deckIds: ["deck-1"] }),
+    );
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(lockRequest).toHaveBeenCalledOnce());
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed"),
+    ).toHaveLength(0);
+  });
+
+  it("serializes simultaneous deck views and bounds the shared marker", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    window.localStorage.setItem(
+      'slides:output-viewed:["previous-session","old-deck"]',
+      "1",
+    );
+    router = createMemoryRouter(
+      [
+        {
+          path: "/deck/:id",
+          element: (
+            <>
+              <DeckEditor />
+              <DeckEditor />
+            </>
+          ),
+        },
+      ],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(lockRequest).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(([name]) => name === "output_viewed"),
+      ).toHaveLength(1),
+    );
+    expect(window.localStorage.getItem("slides:output-viewed")).toBe(
+      JSON.stringify({ sessionId: "session-1", deckIds: ["deck-1"] }),
+    );
+    expect(
+      window.localStorage.getItem(
+        'slides:output-viewed:["previous-session","old-deck"]',
+      ),
+    ).toBeNull();
+    expect(window.localStorage.getItem("slides:output-viewed-cleanup-v1")).toBe(
+      "1",
+    );
+  });
+
+  it("does not emit when shared storage cannot persist the cross-tab claim", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new Error("storage unavailable");
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(lockRequest).toHaveBeenCalledOnce());
+    expect(trackEvent).not.toHaveBeenCalled();
   });
 
   it("clears generation state when the target tab finishes while another chat stays busy", async () => {

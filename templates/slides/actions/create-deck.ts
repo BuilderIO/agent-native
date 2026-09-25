@@ -40,6 +40,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 import getDesignSystem from "./get-design-system.js";
 
@@ -423,6 +424,8 @@ export default defineAction({
             existingDeck.title,
           ) ?? resolvedTitle;
         assertHumanReadableDeckTitle(existingDeckTitle);
+        // A replacement keeps a stored slide's own markers, as other writes do.
+        assertNoDeckRenderArtifacts(existingDeck.data, { slides: rawSlides });
         const writeNow = nextDeckRevision(existingDeck.updatedAt);
         const prevData = JSON.parse(existingDeck.data);
         const previousDesignSystemId = resolveDeckDesignSystemId(
@@ -437,6 +440,16 @@ export default defineAction({
           aspectRatio: aspectRatio ?? prevData.aspectRatio,
           designSystemId: designSystemId ?? prevData.designSystemId,
           creativeContext: creativeContextProvenance,
+          ...(actionOwnsGenerationLifecycle
+            ? {
+                generationContext: incrementalGeneration
+                  ? {
+                      generationAttemptId,
+                      generationMode: "action",
+                    }
+                  : undefined,
+              }
+            : {}),
         };
         await db.transaction(async (tx: any) => {
           await createDeckVersionSnapshot(
@@ -564,6 +577,7 @@ export default defineAction({
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) throw new Error("no authenticated user");
       assertHumanReadableDeckTitle(resolvedTitle);
+      assertNoDeckRenderArtifacts(null, { slides: rawSlides });
 
       let resolvedDesignSystemId = designSystemId;
       if (resolvedDesignSystemId) {
@@ -580,7 +594,7 @@ export default defineAction({
         slides,
         createdAt: now,
         updatedAt: now,
-        ...(incrementalGeneration
+        ...(actionOwnsGenerationLifecycle && incrementalGeneration
           ? {
               generationContext: {
                 generationAttemptId,

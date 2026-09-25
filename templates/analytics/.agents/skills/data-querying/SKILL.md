@@ -11,7 +11,7 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 ## Approach
 
-0. **Orient catalog-first** — before querying, consult what already exists: the injected `<data-dictionary>` and data-source status tell you which sources are configured and which table/columns/join paths to use. Use them to pick the one source that owns the fact instead of fanning out blind queries.
+0. **Use retrieved references first** — data questions may start with a small set of relevant data-dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. Treat them as definitions and query examples, never live results. If they do not fit, call `search-analytics-query-catalog` before querying; use data-source status when provider availability matters.
 1. **Route named account health deliberately** — for a customer/org health, QBR, renewal, contract-utilization, risk, or adoption request, read `account-health` before writing SQL. It adds identity-lock and metric-definition checks that an ordinary lookup does not need.
 2. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas. For BigQuery, read `.agents/skills/bigquery/SKILL.md` and use `search-bigquery-schema` before guessing table or column names.
 3. **Clarify if ambiguous** — if the metric definition, date range, or grain is unclear and a wrong guess would change the numbers, use the `ask-question` clarifying tool (multiple-choice) before querying. Ask at most once per turn; skip it when the dictionary or the user already answered.
