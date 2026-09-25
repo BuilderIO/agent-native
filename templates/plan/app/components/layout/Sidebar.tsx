@@ -51,6 +51,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useEditionsLab } from "@/hooks/use-editions-lab";
 import { usePlans } from "@/hooks/use-plans";
 import { APP_TITLE } from "@/lib/app-config";
 import { planReturnPathFromLocation } from "@/lib/plan-local-bridge";
@@ -311,7 +312,16 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
   });
   const selectedPlanId = (location.pathname.match(/^\/plans\/([^/]+)/) ??
     location.pathname.match(/^\/recaps\/([^/]+)/))?.[1];
-  const allPlans = useMemo(() => plansQuery.data ?? [], [plansQuery.data]);
+  const { enabled: editionsEnabled } = useEditionsLab();
+  // Issues published before the lab was turned back off would otherwise sit
+  // here as rows whose only destination is a route the gate redirects away.
+  const allPlans = useMemo(
+    () =>
+      (plansQuery.data ?? []).filter(
+        (plan) => editionsEnabled || plan.kind !== "edition",
+      ),
+    [editionsEnabled, plansQuery.data],
+  );
   const plans = useMemo(
     () => allPlans.filter((p) => p.status !== "archived").slice(0, 10),
     [allPlans],
@@ -537,6 +547,7 @@ export function Sidebar({
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const { session, isLoading: sessionLoading } = useSession();
   const t = useT();
+  const { enabled: editionsEnabled } = useEditionsLab();
   const returnPath = planReturnPathFromLocation(location);
 
   const secondaryItems: AppSidebarItemDefinition[] = [
@@ -629,14 +640,16 @@ export function Sidebar({
         ) : null}
       </div>
 
-      <div>
-        <AppSidebarNavItem
-          to="/editions"
-          label={t("edition.nav.label")}
-          icon={IconNews}
-          active={pathname.startsWith("/editions")}
-        />
-      </div>
+      {editionsEnabled ? (
+        <div>
+          <AppSidebarNavItem
+            to="/editions"
+            label={t("edition.nav.label")}
+            icon={IconNews}
+            active={pathname.startsWith("/editions")}
+          />
+        </div>
+      ) : null}
     </AppSidebar>
   );
 }

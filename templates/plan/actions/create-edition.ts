@@ -8,6 +8,7 @@ import { and, eq, isNull, max, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertEditionsLabEnabled } from "../server/lib/editions-lab.js";
 import {
   requirePlanOwnerEmailForWrite,
   resolvePlanAccessContext,
@@ -116,6 +117,7 @@ export default defineAction({
   }),
   run: async (args) =>
     runWithPlanOrgContext(args.visibility, LABEL, async () => {
+      await assertEditionsLabEnabled();
       if (args.windowEnd <= args.windowStart) {
         throw new ActionContractError(
           `windowEnd (${args.windowEnd}) must be after windowStart (${args.windowStart}).`,

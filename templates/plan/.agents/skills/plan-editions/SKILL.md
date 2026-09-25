@@ -14,6 +14,10 @@ with `kind: "edition"`, whose stories are written from the PR visual recaps the
 app already holds. It lives at `/editions/:id`, and every story links back to
 the recap it came from so a reader can drop into the real diff.
 
+Editions ship behind the `plan.editions` lab. Every edition action answers 404
+with "Editions is turned off in Labs" until the user turns it on under
+Settings → Labs; say that rather than retrying.
+
 Editions answer a question `search-pr-recaps` cannot: not "find me the recap for
 X" but "tell me what happened, grouped into the handful of things that actually
 matter". Several PRs that were one piece of work become one story.

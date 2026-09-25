@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertEditionsLabEnabled } from "../server/lib/editions-lab.js";
 import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
 import { planPath } from "../server/plans.js";
 
@@ -29,6 +30,7 @@ export default defineAction({
       "List editions of the engineering newspaper, newest first — the back-issue archive.",
   },
   run: async (args) => {
+    await assertEditionsLabEnabled();
     const db = getDb();
     // Deliberately projected: `markdown` holds the whole rendered paper and the
     // archive only needs the masthead line for each issue.

@@ -55,6 +55,13 @@ vi.mock("../server/db/index.js", () => ({
   getDb: () => db,
   schema: planSchema,
 }));
+const labs = vi.hoisted(() => ({ editionsEnabled: true }));
+vi.mock("@agent-native/core/labs/server", async () => {
+  const { PLAN_EDITIONS } = await import("../shared/labs.js");
+  return {
+    getUserLabs: async () => ({ [PLAN_EDITIONS.key]: labs.editionsEnabled }),
+  };
+});
 vi.mock("../server/lib/local-plan-files.js", () => ({
   writePlanLocalFiles: vi.fn(async () => ({ written: false })),
   localPlansDir: () => "/tmp/plans-test",
@@ -762,5 +769,34 @@ describe("get-edition", () => {
     await expect(
       asOwner(() => getEdition.run({ id: "recap-not-edition" })),
     ).rejects.toThrow(/is a recap, not an edition/);
+  });
+});
+
+describe("editions lab", () => {
+  it("refuses every edition action while the lab is off", async () => {
+    labs.editionsEnabled = false;
+    try {
+      await expect(
+        asOwner(() => listEditions.run({ limit: 5 })),
+      ).rejects.toThrow(/turned off in Labs/);
+      await expect(
+        asOwner(() => getEdition.run({ id: "edition-any" })),
+      ).rejects.toThrow(/turned off in Labs/);
+      await expect(
+        asOwner(() => listCandidates.run({ ...WINDOW, mergedPrLedger: [] })),
+      ).rejects.toThrow(/turned off in Labs/);
+      await expect(
+        asOwner(() =>
+          createEdition.run({
+            title: "off",
+            brief: "off",
+            ...WINDOW,
+            stories: [storyFixture()],
+          }),
+        ),
+      ).rejects.toThrow(/turned off in Labs/);
+    } finally {
+      labs.editionsEnabled = true;
+    }
   });
 });

@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { PLAN_EDITIONS } from "../shared/labs";
+
 /*
  * EDITION READER (authed).
  *
@@ -24,6 +26,14 @@ const WINDOW = {
   windowEnd: "2026-02-04T00:00:00.000Z",
   timezone: "UTC",
 };
+
+/** Editions ships behind a lab, so every action here 404s until it is on. */
+test.beforeEach(async ({ page }) => {
+  const res = await page.request.post("/_agent-native/actions/set-lab", {
+    data: { key: PLAN_EDITIONS.key, enabled: true },
+  });
+  expect(res.ok(), `set-lab: ${res.status()}`).toBe(true);
+});
 
 function tag(): string {
   return `${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;

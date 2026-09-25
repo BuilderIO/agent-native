@@ -14,6 +14,7 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertEditionsLabEnabled } from "../server/lib/editions-lab.js";
 import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
 import { planPath } from "../server/plans.js";
 import type { EditionCoverageData } from "../shared/edition.js";
@@ -71,6 +72,7 @@ export default defineAction({
   // mutates.
   readOnly: true,
   run: async (args) => {
+    await assertEditionsLabEnabled();
     if (args.windowEnd <= args.windowStart) {
       throw new ActionContractError(
         `windowEnd (${args.windowEnd}) must be after windowStart (${args.windowStart}).`,

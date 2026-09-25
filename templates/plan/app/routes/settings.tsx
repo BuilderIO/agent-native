@@ -10,6 +10,7 @@ import {
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { PLAN_LABS } from "@shared/labs";
 import { useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,7 @@ export default function SettingsRoute() {
       account={<AccountSettingsCard />}
       teamLabel={t("header.team")}
       extraTabs={agentSettingsTabs}
+      labs={PLAN_LABS}
       generalSearchEntries={generalSearchEntries}
       general={
         <div className="mx-auto w-full max-w-2xl space-y-6">

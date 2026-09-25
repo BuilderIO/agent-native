@@ -8,6 +8,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertEditionsLabEnabled } from "../server/lib/editions-lab.js";
 import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
 import { parsePlanContent } from "../server/plan-content.js";
 import { planDeepLink, planPath } from "../server/plans.js";
@@ -140,6 +141,7 @@ export default defineAction({
     view: "plan",
   }),
   run: async (args) => {
+    await assertEditionsLabEnabled();
     const { resource } = await assertAccess(
       "plan",
       args.id,

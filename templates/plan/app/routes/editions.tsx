@@ -1,5 +1,7 @@
 import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { Navigate } from "react-router";
 
+import { useEditionsLab } from "@/hooks/use-editions-lab";
 import { APP_TITLE } from "@/lib/app-config";
 import { EditionPage } from "@/pages/EditionPage";
 
@@ -19,5 +21,7 @@ export function HydrateFallback() {
 }
 
 export default function EditionsRoute() {
+  const { enabled, resolved } = useEditionsLab();
+  if (resolved && !enabled) return <Navigate to="/plans" replace />;
   return <EditionPage />;
 }
