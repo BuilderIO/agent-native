@@ -54,6 +54,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       });
     });
     const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    const documentId = "runtime-document-live";
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -128,6 +129,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       sendBridgeMessage({
         type: "agent-native:runtime-layer-snapshot-reservation-request",
         requestId,
+        documentId,
       });
     const sendSnapshot = (
       requestId: number,
@@ -138,6 +140,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
         type: "agent-native:runtime-layer-snapshot",
         payload: {
           requestId,
+          documentId,
           html,
           nodeCount: 2,
           ...(reservationToken ? { reservationToken } : {}),
@@ -148,7 +151,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
         html,
         nodeCount: 2,
-        documentId: undefined,
+        documentId,
         reservationToken: undefined,
       });
     };
@@ -161,6 +164,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
 
     await sendBridgeMessage({
       type: "agent-native:editor-chrome-ready",
+      documentId,
       routePath: "/",
     });
     await requestReservation(41);
@@ -191,6 +195,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     ).toContainEqual({
       type: "grant-runtime-layer-snapshot-reservation",
       requestId: 42,
+      documentId,
       reservationToken: "reservation-for-42",
     });
     await sendSnapshot(
@@ -201,7 +206,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
       html: "<body>Fresh after reservation</body>",
       nodeCount: 2,
-      documentId: undefined,
+      documentId,
       reservationToken: "reservation-for-42",
     });
 
@@ -210,7 +215,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(onRuntimeLayerSnapshot.mock.calls[2]?.[0]).toEqual({
       html: "<body>Fresh after reservation</body>",
       nodeCount: 2,
-      documentId: undefined,
+      documentId,
       reservationToken: "reservation-for-42",
     });
 
@@ -222,7 +227,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
       html: "<body>Fresh third</body>",
       nodeCount: 2,
-      documentId: undefined,
+      documentId,
       reservationToken: "reservation-for-43",
     });
   });
