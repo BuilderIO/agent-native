@@ -364,4 +364,34 @@ describe("authenticated recording route loading", () => {
     );
     expect(attributionSrc).toContain('if (panel) params.set("panel", panel);');
   });
+
+  it("sends signed-in viewers to the app shell instead of the marketing page", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // ENG-14042: the back arrow and every EndState "go home" link used to
+    // hardcode appPath("/"), the public marketing/sign-in shell, even for a
+    // signed-in viewer. They must resolve through the same session-aware
+    // homeHref so a logged-in user lands in the library, not the anonymous
+    // share shell.
+    expect(shareRoute).toContain(
+      'const homeHref = session ? appPath("/home") : appPath("/");',
+    );
+    expect(shareRoute).toContain("<Link to={homeHref}>");
+    expect(shareRoute).not.toContain('<Link to={appPath("/")}>');
+
+    expect(shareRoute).toContain("homeHref: string;");
+    expect(shareRoute).toContain(
+      '<a href={homeHref}>{t("clipsFinalRaw.goHome")}</a>',
+    );
+    expect(shareRoute).not.toContain('<a href={appPath("/")}>');
+
+    expect(shareRoute.match(/homeHref=\{homeHref\}/g)).toHaveLength(6);
+
+    // The brand/logo link intentionally still points at the marketing page
+    // for everyone - it's a "go to the marketing site" affordance, not a
+    // back-navigation control, and isn't part of this bug.
+    expect(shareRoute).toContain(
+      'to={appPath("/")}\n            aria-label={t("navigation.brand")}',
+    );
+  });
 });
