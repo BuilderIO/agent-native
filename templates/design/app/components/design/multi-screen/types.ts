@@ -445,6 +445,7 @@ export interface MultiScreenCanvasProps {
   onCrossScreenElementDrop?: (args: {
     sourceSelector: string;
     sourceNodeId?: string;
+    sourceDeleteRequestId?: string;
     sourceProvenance?: SourceNodeProvenance;
     targetAnchorProvenance?: SourceNodeProvenance;
     sourceScreenId: string;
@@ -470,6 +471,8 @@ export interface MultiScreenCanvasProps {
     targetLocalPoint?: Point;
     /** Pointer offset from the dragged element's top-left in source iframe px. */
     sourcePointerOffset?: Point;
+    /** CSS width/height used by the source before auto-layout is removed. */
+    sourceComputedSize?: { width?: number; height?: number };
     /** Host-captured HTML for a board root, including its current DOM subtree. */
     sourceHtmlSnapshot?: string;
     /** True when the source bridge is carrying an Alt-drag copy. */

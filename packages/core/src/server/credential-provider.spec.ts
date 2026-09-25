@@ -29,6 +29,14 @@ const mockGetBuilderOAuthSession = vi.fn<
     scope: "user" | "org";
   } | null>
 >();
+const MockBuilderOAuthScopeError = vi.hoisted(
+  () =>
+    class MockBuilderOAuthScopeError extends Error {
+      constructor(scope: string) {
+        super(`Builder OAuth connection does not grant ${scope}`);
+      }
+    },
+);
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -37,6 +45,7 @@ vi.mock("../secrets/storage.js", () => ({
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
 }));
 vi.mock("./builder-oauth.js", () => ({
+  BuilderOAuthScopeError: MockBuilderOAuthScopeError,
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
   hasBuilderOAuthSession: (...args: any[]) =>
     mockHasBuilderOAuthSession(
@@ -93,6 +102,7 @@ import {
   resolveBuilderCredential,
   resolveBuilderCredentials,
   resolveBuilderCredentialsDetailed,
+  BuilderCredentialLookupError,
   resolveBuilderCredentialSource,
   resolveBuilderGatewayAuth,
   resolveBuilderGatewayCredentials,
@@ -2238,6 +2248,70 @@ describe("Builder gateway credential lane", () => {
     );
   });
 
+  it("keeps the email-based org fallback when the request has no selected org", async () => {
+    mockGetRequestUserEmail.mockReturnValue("owner@example.com");
+    mockGetBuilderOAuthSession.mockResolvedValue({
+      accessToken: "oauth-access-token",
+      scopes: ["builder:ai:invoke"],
+      scope: "org",
+    });
+    mockHasBuilderOAuthSession.mockResolvedValue(true);
+
+    await expect(resolveBuilderGatewayAuth()).resolves.toMatchObject({
+      authorization: "Bearer oauth-access-token",
+    });
+    expect(mockHasBuilderOAuthSession).toHaveBeenCalledWith(
+      "owner@example.com",
+      undefined,
+    );
+    expect(mockGetBuilderOAuthSession).toHaveBeenCalledWith(
+      "owner@example.com",
+      undefined,
+      "builder:ai:invoke",
+    );
+  });
+
+  it("reports transient OAuth credential lookup failures", async () => {
+    mockGetRequestUserEmail.mockReturnValue("owner@example.com");
+    mockHasBuilderOAuthSession.mockRejectedValue(
+      new Error("store unavailable"),
+    );
+
+    await expect(resolveBuilderGatewayAuth()).rejects.toBeInstanceOf(
+      BuilderCredentialLookupError,
+    );
+  });
+
+  it("reports a credential-store outage behind deploy credentials as retryable", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    mockReadAppSecrets.mockRejectedValue(
+      new Error("connection terminated unexpectedly"),
+    );
+
+    await expect(resolveBuilderGatewayAuth()).rejects.toBeInstanceOf(
+      BuilderCredentialLookupError,
+    );
+  });
+
+  it("reports transient OAuth session reads while preserving revoked scopes as absent", async () => {
+    mockGetRequestUserEmail.mockReturnValue("owner@example.com");
+    mockHasBuilderOAuthSession.mockResolvedValue(true);
+    mockGetBuilderOAuthSession.mockRejectedValueOnce(
+      new Error("store unavailable"),
+    );
+
+    await expect(resolveBuilderGatewayAuth()).rejects.toBeInstanceOf(
+      BuilderCredentialLookupError,
+    );
+
+    mockGetBuilderOAuthSession.mockRejectedValueOnce(
+      new MockBuilderOAuthScopeError("builder:ai:invoke"),
+    );
+    await expect(resolveBuilderGatewayAuth()).resolves.toBeNull();
+  });
+
   it("resolves an owner's org when Builder auth has no selected org", async () => {
     mockHasBuilderOAuthSession.mockResolvedValue(true);
     mockGetBuilderOAuthSession.mockResolvedValue({
@@ -2267,6 +2341,8 @@ describe("Builder gateway credential lane", () => {
   });
 
   it("does not resolve another org for an explicitly Personal Builder lookup", async () => {
+    hostedVisitor();
+    mockGetRequestOrgId.mockReturnValue("collaborator-org");
     mockHasBuilderOAuthSession.mockResolvedValue(false);
 
     await resolveBuilderGatewayAuth({
@@ -2277,6 +2353,10 @@ describe("Builder gateway credential lane", () => {
     expect(mockHasBuilderOAuthSession).toHaveBeenCalledWith(
       "owner@example.com",
       null,
+    );
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+    expect(mockReadAppSecret).not.toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "org", scopeId: "collaborator-org" }),
     );
   });
 
@@ -2302,7 +2382,7 @@ describe("Builder gateway credential lane", () => {
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
     mockHasBuilderOAuthSession.mockResolvedValue(true);
     mockGetBuilderOAuthSession.mockRejectedValue(
-      new Error("Builder OAuth connection does not grant builder:ai:invoke"),
+      new MockBuilderOAuthScopeError("builder:ai:invoke"),
     );
 
     await expect(resolveBuilderGatewayAuth()).resolves.toBeNull();

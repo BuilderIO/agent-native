@@ -48,6 +48,9 @@ describe("new deck generation flow", () => {
     expect(persistIndex).toBeGreaterThan(-1);
     expect(openEditorIndex).toBeGreaterThan(-1);
     expect(openEditorIndex).toBeLessThan(persistIndex);
+    expect(flow).toContain(
+      "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
+    );
     expect(askQuestionIndex).toBeGreaterThan(openEditorIndex);
     expect(flow).not.toContain("await askUserQuestion");
     expect(flow).toContain("prompt-specific question");
@@ -98,6 +101,9 @@ describe("new deck generation flow", () => {
 
     expect(generatingRouteIndex).toBeGreaterThan(-1);
     expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
+    expect(flow).toContain(
+      "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
+    );
     expect(flow).toContain("submitMessageId: generationSubmitMessageId");
   });
 

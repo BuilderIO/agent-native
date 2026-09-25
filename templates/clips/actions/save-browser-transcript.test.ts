@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   rows: [] as Array<Array<Record<string, unknown>>>,
   update: vi.fn(),
   insert: vi.fn(),
+  track: vi.fn(),
   writeAppState: vi.fn(),
   finalizeEndedMeetingsForRecording: vi.fn(),
 }));
@@ -26,6 +27,10 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mocks.track(...args),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -90,6 +95,26 @@ describe("save-browser-transcript", () => {
     });
 
     expect(assertAccess).toHaveBeenCalledWith("recording", "rec-1", "editor");
+  });
+
+  it("attributes transcript completion to the recording owner without request context", async () => {
+    mocks.rows = [
+      [],
+      [{ status: "ready", title: "Clip", description: "x", durationMs: 1200 }],
+    ];
+    mocks.insert.mockReturnValue({ values: vi.fn() });
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Private transcript text is not asserted here.",
+      source: "web-speech",
+    });
+
+    expect(mocks.track).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({ app_name: "clips", output_id: "rec-1" }),
+      { userId: "owner@example.com" },
+    );
   });
 
   it("does not overwrite a pending cloud transcription with an empty native result", async () => {

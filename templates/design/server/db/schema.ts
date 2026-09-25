@@ -1,6 +1,6 @@
 import {
-  table,
   bigint,
+  table,
   text,
   integer,
   now,
@@ -343,9 +343,11 @@ export const designVisualEditPending = table("design_visual_edit_pending", {
     .notNull()
     .default("empty"),
   prompt: text("prompt").notNull().default(""),
-  revision: integer("revision").notNull().default(0),
+  revision: bigint("revision", { mode: "number" }).notNull().default(0),
   publisherId: text("publisher_id").notNull().default(""),
-  clientRevision: integer("client_revision").notNull().default(0),
+  clientRevision: bigint("client_revision", { mode: "number" })
+    .notNull()
+    .default(0),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
 });

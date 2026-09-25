@@ -90,7 +90,13 @@ import {
   useDecks,
   useSaveState,
 } from "@/context/DeckContext";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  clearStartedGenerationAttempt,
+  getStartedGenerationAttemptTabId,
+  hasStartedGenerationAttempt,
+  SLIDES_GENERATION_STARTED_EVENT,
+  useAgentGenerating,
+} from "@/hooks/use-agent-generating";
 import {
   useDeckAccessStatus,
   useRequestDeckAccess,
@@ -103,6 +109,7 @@ import {
   useNewDeckGeneration,
   useNewDeckGenerationRun,
 } from "@/hooks/use-new-deck-generation";
+import { useNewDeckGenerationSignal } from "@/hooks/use-new-deck-generation-signal";
 import {
   useSlideComments,
   type CommentThread,
@@ -265,6 +272,29 @@ export function syncSlideContentSnapshots(
   }
 }
 
+export type GenerationDeckRefreshResult =
+  | { status: "ready"; deck: Deck }
+  | { status: "not_ready" }
+  | { status: "failed" };
+
+export async function refreshDeckForGenerationOutcome(
+  refreshOpenDeck: (deckId: string) => Promise<Deck | null>,
+  deckId: string,
+): Promise<GenerationDeckRefreshResult> {
+  try {
+    let refreshedDeck = await refreshOpenDeck(deckId);
+    if (refreshedDeck === null) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      refreshedDeck = await refreshOpenDeck(deckId);
+    }
+    return refreshedDeck
+      ? { status: "ready", deck: refreshedDeck }
+      : { status: "not_ready" };
+  } catch {
+    return { status: "failed" };
+  }
+}
+
 export default function DeckEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
@@ -411,6 +441,18 @@ export default function DeckEditor() {
     },
     [addSlideAgentSubmit],
   );
+  // Generation intent can arrive after this route mounts because the user
+  // answers pre-generation questions from the empty editor.
+  const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
+  const generationStartedAtRef = useRef<number | null>(null);
+  const generationRunStartedRef = useRef(false);
+  const generationSawActiveRef = useRef(false);
+  const generationSettlingAttemptRef = useRef<string | null>(null);
+  const generationTerminalAttemptRef = useRef<string | null>(null);
+  const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
+  if (searchParams.get("generating") === "1") {
+    wasNewDeckCreation.current = true;
+  }
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -657,6 +699,292 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  const generationContext =
+    deck?.generationContext &&
+    typeof deck.generationContext === "object" &&
+    !Array.isArray(deck.generationContext)
+      ? deck.generationContext
+      : null;
+  const generationAttemptId =
+    typeof generationContext?.generationAttemptId === "string"
+      ? generationContext.generationAttemptId
+      : searchParams.get("generation_attempt_id");
+  const generationLifecycleOwnedByEditor =
+    generationContext?.generationMode !== "action";
+  const [generationAttemptTabId, setGenerationAttemptTabId] = useState<
+    string | null
+  >(() =>
+    generationAttemptId && id
+      ? getStartedGenerationAttemptTabId(generationAttemptId, id)
+      : null,
+  );
+  const {
+    attempt: {
+      observedRun: attemptObservedRun,
+      runError: attemptRunError,
+      stopReason: attemptStopReason,
+      timedOut: attemptTimedOut,
+    },
+    generating: newDeckGenerationSignal,
+  } = useNewDeckGenerationSignal({
+    attemptId: generationAttemptId,
+    tabId: generationAttemptTabId,
+    broadGenerating: generating,
+    submitStarted: generationRunStartedRef.current,
+  });
+  const targetSlideCount =
+    typeof generationContext?.targetSlideCount === "number" &&
+    Number.isInteger(generationContext.targetSlideCount) &&
+    generationContext.targetSlideCount > 0
+      ? generationContext.targetSlideCount
+      : null;
+
+  useEffect(() => {
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !id ||
+      !wasNewDeckCreation.current
+    )
+      return;
+    generationRunStartedRef.current = hasStartedGenerationAttempt(
+      generationAttemptId,
+      id,
+    );
+    setGenerationAttemptTabId(
+      getStartedGenerationAttemptTabId(generationAttemptId, id),
+    );
+    const handleGenerationStarted = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (
+        detail?.generationAttemptId !== generationAttemptId ||
+        detail?.outputId !== id
+      ) {
+        return;
+      }
+      if (typeof detail.tabId !== "string") return;
+      setGenerationAttemptTabId(detail.tabId);
+      generationRunStartedRef.current = true;
+    };
+    window.addEventListener(
+      SLIDES_GENERATION_STARTED_EVENT,
+      handleGenerationStarted,
+    );
+    return () =>
+      window.removeEventListener(
+        SLIDES_GENERATION_STARTED_EVENT,
+        handleGenerationStarted,
+      );
+  }, [generationAttemptId, generationLifecycleOwnedByEditor, id]);
+
+  useEffect(() => {
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !id ||
+      !wasNewDeckCreation.current
+    )
+      return;
+    if (!generationRunStartedRef.current) return;
+    if (attemptObservedRun) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= Date.now();
+    }
+    if (newDeckGenerationSignal) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= Date.now();
+      return;
+    }
+    if (
+      !generationSawActiveRef.current ||
+      generationSettlingAttemptRef.current === generationAttemptId ||
+      generationTerminalAttemptRef.current === generationAttemptId
+    ) {
+      return;
+    }
+    generationSettlingAttemptRef.current = generationAttemptId;
+    void (async () => {
+      try {
+        const refreshResult = await refreshDeckForGenerationOutcome(
+          refreshOpenDeck,
+          id,
+        );
+        if (
+          generationSettlingAttemptRef.current !== generationAttemptId ||
+          generationTerminalAttemptRef.current === generationAttemptId
+        ) {
+          return;
+        }
+        generationTerminalAttemptRef.current = generationAttemptId;
+        const refreshedDeck =
+          refreshResult.status === "ready" ? refreshResult.deck : null;
+        const durationMs = generationStartedAtRef.current
+          ? Math.max(0, Date.now() - generationStartedAtRef.current)
+          : undefined;
+        const properties = {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: generationAttemptId,
+          output_id: id,
+          output_type: "deck",
+          ...(refreshedDeck !== null
+            ? { slide_count: refreshedDeck.slides.length }
+            : {}),
+          ...(targetSlideCount !== null
+            ? { target_slide_count: targetSlideCount }
+            : {}),
+          ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
+          source: "new_deck_prompt",
+        };
+        if (refreshResult.status !== "ready") {
+          trackEvent("generation_outcome_unresolved", {
+            ...properties,
+            outcome: "unresolved",
+            reason:
+              refreshResult.status === "failed"
+                ? "deck_refresh_failed"
+                : "deck_not_visible_after_refresh",
+          });
+          return;
+        }
+        const settledSlideCount = refreshResult.deck.slides.length;
+        const failureCode =
+          attemptStopReason === "stopped"
+            ? "cancelled"
+            : attemptTimedOut
+              ? "timeout"
+              : attemptRunError
+                ? "agent_error"
+                : targetSlideCount !== null &&
+                    settledSlideCount < targetSlideCount
+                  ? "incomplete_output"
+                  : settledSlideCount === 0
+                    ? "no_output"
+                    : null;
+        if (failureCode === "cancelled") {
+          trackEvent("generation_cancelled", {
+            ...properties,
+            outcome: "cancelled",
+            failure_code: failureCode,
+          });
+        } else if (failureCode === "timeout") {
+          trackEvent("generation_stuck", {
+            ...properties,
+            outcome: "stuck",
+            failure_code: failureCode,
+          });
+        } else if (failureCode) {
+          trackEvent("generation_failed", {
+            ...properties,
+            failure_code: failureCode,
+            failure_stage: "agent",
+          });
+        } else {
+          trackEvent("generation_completed", properties);
+        }
+      } finally {
+        clearStartedGenerationAttempt(generationAttemptId, id);
+        if (generationSettlingAttemptRef.current === generationAttemptId) {
+          generationSettlingAttemptRef.current = null;
+          generationSawActiveRef.current = false;
+          generationRunStartedRef.current = false;
+          generationStartedAtRef.current = null;
+        }
+      }
+    })();
+  }, [
+    attemptObservedRun,
+    generationAttemptId,
+    generationLifecycleOwnedByEditor,
+    attemptRunError,
+    attemptStopReason,
+    attemptTimedOut,
+    id,
+    newDeckGenerationSignal,
+    refreshOpenDeck,
+    slideCount,
+    targetSlideCount,
+  ]);
+
+  useEffect(() => {
+    if (
+      !generationLifecycleOwnedByEditor ||
+      !generationAttemptId ||
+      !wasNewDeckCreation.current
+    )
+      return;
+    const attemptKey = `${id ?? ""}:${generationAttemptId}`;
+    generationLifecycleAttemptKeyRef.current = attemptKey;
+    const recordExit = (
+      exitReason: "page_exit" | "route_exit",
+      state = {
+        submitStarted: generationRunStartedRef.current,
+        settling: generationSettlingAttemptRef.current === generationAttemptId,
+        sawActive: generationSawActiveRef.current,
+      },
+    ) => {
+      if (generationTerminalAttemptRef.current === generationAttemptId) return;
+      generationTerminalAttemptRef.current = generationAttemptId;
+      const properties = {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: generationAttemptId,
+        output_id: id,
+        output_type: "deck",
+        slide_count: slideCount,
+        source: "new_deck_prompt",
+      };
+      try {
+        if (!state.submitStarted || !state.sawActive || state.settling) {
+          trackEvent("generation_outcome_unresolved", {
+            ...properties,
+            outcome: "unresolved",
+            reason: !state.submitStarted
+              ? `${exitReason}_before_submit`
+              : state.settling
+                ? `${exitReason}_during_settlement`
+                : `${exitReason}_before_active`,
+          });
+        } else {
+          trackEvent("generation_abandoned", {
+            ...properties,
+            reason: exitReason,
+          });
+        }
+      } finally {
+        if (id) clearStartedGenerationAttempt(generationAttemptId, id);
+        if (state.settling) generationSettlingAttemptRef.current = null;
+        generationSawActiveRef.current = false;
+        generationRunStartedRef.current = false;
+        generationStartedAtRef.current = null;
+      }
+    };
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (
+        event.persisted ||
+        generationTerminalAttemptRef.current === generationAttemptId
+      ) {
+        return;
+      }
+      recordExit("page_exit");
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      if (generationLifecycleAttemptKeyRef.current === attemptKey) {
+        generationLifecycleAttemptKeyRef.current = null;
+      }
+      const state = {
+        submitStarted: generationRunStartedRef.current,
+        settling: generationSettlingAttemptRef.current === generationAttemptId,
+        sawActive: generationSawActiveRef.current,
+      };
+      queueMicrotask(() => {
+        if (generationLifecycleAttemptKeyRef.current === attemptKey) return;
+        recordExit("route_exit", state);
+      });
+    };
+  }, [generationAttemptId, generationLifecycleOwnedByEditor, id, slideCount]);
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
   // get the full editor. Only assume edit access while the role is still
@@ -773,15 +1101,15 @@ export default function DeckEditor() {
     useNewDeckGeneration({
       deckId: id ?? "",
       isNewDeckRoute: isNewDeckGenerationRoute,
-      generating: newDeckGenerationGenerating,
+      generating: newDeckGenerationSignal,
       waitingOnQuestions: waitingOnNewDeckQuestions,
     });
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
-    generating: newDeckGenerationGenerating,
+    generating: newDeckGenerationSignal,
     isNewDeckCreation,
   });
   const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
-    generating: newDeckGenerationGenerating,
+    generating: newDeckGenerationSignal,
     isNewDeckCreation,
     slideCount,
     phase: newDeckGenerationPhase,
@@ -1101,31 +1429,35 @@ export default function DeckEditor() {
     setSearchParams,
     waitingOnNewDeckQuestions,
   ]);
-
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
   useEffect(() => {
     if (
       !shouldClearNewDeckGeneratingState({
-        generating: newDeckGenerationGenerating,
+        generating: newDeckGenerationSignal,
         waitingOnQuestions: waitingOnNewDeckQuestions,
         phase: newDeckGenerationPhase,
       })
     ) {
       return;
     }
-    if (searchParams.get("generating")) {
+    wasNewDeckCreation.current = false;
+    if (
+      searchParams.get("generating") ||
+      searchParams.get("generation_attempt_id")
+    ) {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
           next.delete("generating");
+          next.delete("generation_attempt_id");
           return next;
         },
         { replace: true },
       );
     }
   }, [
-    newDeckGenerationGenerating,
+    newDeckGenerationSignal,
     newDeckGenerationPhase,
     searchParams,
     setSearchParams,
