@@ -1684,7 +1684,30 @@ export default {
     previewLabel: "本機預覽",
     layoutLabel: "畫面版面已可儲存",
   },
+  homeContext: {
+    notReady: "提示尚未準備好提交。請檢查所選上下文和連線，然後重試。",
+    search: "搜尋上下文…",
+    browse: "瀏覽",
+    loadFailed: "無法載入此參考。",
+    retry: "重試",
+    empty: "沒有相符的參考。",
+    none: "無",
+    design: "設計",
+    slides: "投影片",
+    referenceDesign: "參考設計",
+    figmaReference: "Figma 參考",
+    referenceDeck: "參考簡報",
+    quickSaas: "建立 SaaS 登陸頁",
+    quickDashboard: "建立儀表板",
+    quickDeck: "建立簡報",
+    deckPrompt:
+      "建立精美的簡報，包含標題頁、清晰的敘事、視覺化資料和簡潔的結尾頁。",
+  },
   home: {
+    importFromFigma: "從 Figma 匯入",
+    figmaFile: "Figma 檔案 (.fig)",
+    openImport: "開啟匯入",
+    importSelectedFile: "匯入所選檔案",
     starterSaasPrompt:
       "一個現代 SaaS 登陸頁，採用深色主題，包含主視覺區、三張功能卡片和最後的行動呼籲區。",
     starterDashboardPrompt:

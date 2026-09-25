@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -18,6 +19,7 @@ import {
   saveImportedDesignFiles,
 } from "../server/lib/import-design-files.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../shared/figma-url.js";
+import createDesign from "./create-design.js";
 
 const schemaInput = z
   .object({
@@ -44,6 +46,12 @@ const schemaInput = z
       .string()
       .optional()
       .describe("Design id. Defaults to the active editor navigation state."),
+    createNew: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Import into a new design instead of the active editor. Cannot be combined with designId. The project is created only after Figma content has been prepared successfully.",
+      ),
     asNewScreen: z
       .boolean()
       .default(true)
@@ -54,6 +62,10 @@ const schemaInput = z
   .refine((value) => value.figmaUrl || value.fileKey, {
     message: "Pass figmaUrl or fileKey.",
     path: ["figmaUrl"],
+  })
+  .refine((value) => !value.createNew || !value.designId, {
+    message: "Pass createNew or designId, not both.",
+    path: ["designId"],
   });
 
 export default defineAction({
@@ -62,6 +74,19 @@ export default defineAction({
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args, context) => {
+    if (args.createNew && args.designId) {
+      failFigmaImport(
+        "Pass createNew or designId, not both.",
+        FIGMA_IMPORT_ERROR_CODES.targetInvalid,
+      );
+    }
+    if (args.createNew && !getRequestUserEmail()) {
+      failFigmaImport(
+        "Sign in before importing a new design.",
+        FIGMA_IMPORT_ERROR_CODES.authRequired,
+        { statusCode: 401 },
+      );
+    }
     if (args.asNewScreen === false) {
       failFigmaImport(
         "asNewScreen: false is not supported yet. Omit it or pass true — the imported frame is always saved as a new screen.",
@@ -84,8 +109,12 @@ export default defineAction({
     // download, or durable upload. saveImportedDesignFiles checks again at
     // mutation time, but waiting until then leaves external work and orphaned
     // assets behind when a caller names a design they cannot edit.
-    const designId = await resolveImportDesignId(args.designId);
-    await assertAccess("design", designId, "editor");
+    const existingDesignId = args.createNew
+      ? undefined
+      : await resolveImportDesignId(args.designId);
+    if (existingDesignId) {
+      await assertAccess("design", existingDesignId, "editor");
+    }
 
     const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
     const rootNode = await fetchFigmaNode(fileKey, nodeId);
@@ -99,7 +128,21 @@ export default defineAction({
         },
       );
 
-    await snapshotDesignBeforeAgentEdit(designId, context);
+    const designId =
+      existingDesignId ??
+      (
+        await createDesign.run(
+          {
+            title: rootNode.name?.trim() || "Figma import",
+            projectType: "prototype",
+            designSystemId: null,
+          },
+          context,
+        )
+      ).id;
+    if (existingDesignId) {
+      await snapshotDesignBeforeAgentEdit(designId, context);
+    }
     const saved = await saveImportedDesignFiles({
       designId,
       sourceType: "figma-import",

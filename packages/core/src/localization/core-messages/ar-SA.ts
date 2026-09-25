@@ -1,6 +1,17 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.submitFailed": "تعذّر الإرسال. حاول مجددًا.",
+  "composer.addContext": "إضافة سياق",
+  "composer.contextActionFailed": "تعذّرت إضافة السياق.",
+  "composer.contextBack": "رجوع",
+  "composer.searchContext": "البحث في السياق…",
+  "composer.noContextResults": "لا يوجد سياق مطابق.",
+  "composer.contextPending": "السياق قيد الانتظار",
+  "composer.contextError": "فشل السياق",
+  "composer.retryContext": "إعادة محاولة سياق {{name}}",
+  "composer.contextLimitExceeded":
+    "السياق كبير جدًا. أزل عنصرًا أو أرفق تحديدًا أصغر.",
   "activity.reasoning": "الاستدلال",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",

@@ -1615,7 +1615,31 @@ export default {
       "تم تجاهل {{count}} مسودة تعليق غير مرسلة عند مغادرة هذا العرض.",
     staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
   },
+  homeContext: {
+    notReady:
+      "الطلب غير جاهز للإرسال. تحقق من السياق المحدد والاتصال ثم أعد المحاولة.",
+    search: "البحث في السياق…",
+    browse: "تصفح",
+    loadFailed: "تعذّر تحميل هذا المرجع.",
+    retry: "إعادة المحاولة",
+    empty: "لا توجد مراجع مطابقة.",
+    none: "بلا",
+    design: "التصميم",
+    slides: "الشرائح",
+    referenceDesign: "تصميم مرجعي",
+    figmaReference: "مرجع Figma",
+    referenceDeck: "عرض تقديمي مرجعي",
+    quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
+    quickDashboard: "إنشاء لوحة معلومات",
+    quickDeck: "إنشاء عرض تقديمي",
+    deckPrompt:
+      "أنشئ عرضًا تقديميًا أنيقًا يتضمن شريحة عنوان وسردًا واضحًا وبيانات مرئية وشريحة ختامية موجزة.",
+  },
   home: {
+    importFromFigma: "الاستيراد من Figma",
+    figmaFile: "ملف Figma (.fig)",
+    openImport: "فتح الاستيراد",
+    importSelectedFile: "استيراد الملف المحدد",
     starterSaasPrompt:
       "صفحة هبوط حديثة لخدمة SaaS بتصميم داكن، وقسم رئيسي، وثلاث بطاقات للميزات، وقسم أخير يحث على اتخاذ إجراء.",
     starterDashboardPrompt:

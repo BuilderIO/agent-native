@@ -781,6 +781,63 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    importDeck: "덱 가져오기",
+    context: {
+      loadFailed: "참조를 불러올 수 없습니다. 다시 시도하세요.",
+      saveFailed: "컨텍스트 선택을 저장할 수 없습니다.",
+      system: "디자인 시스템",
+      figmaUrl: "Figma 링크 붙여넣기",
+      browse: "프레임 찾아보기",
+      empty: "참조가 없습니다.",
+      previous: "이전",
+      next: "다음",
+      title: "컨텍스트",
+      remove: "참조 제거",
+      deck: "프레젠테이션",
+      design: "디자인 참조",
+      figma: "Figma 프레임",
+      notReady:
+        "컨텍스트를 불러오는 중이거나 사용할 수 없습니다. 전송 전에 다시 시도하거나 제거하세요.",
+      emptySource: "이 소스에 사용 가능한 컨텍스트가 없습니다.",
+      tooMany: "참조를 최대 20개까지 선택하세요.",
+      search: "참조 검색",
+      designCategory: "디자인",
+    },
+    quickStart: {
+      invalidUrl: "올바른 HTTP 또는 HTTPS URL을 입력하세요.",
+      starting: "시작 중…",
+      generate: "생성",
+      connectionRequired:
+        "홈 입력창 위에서 Builder.io를 연결한 후 다시 시도하세요.",
+      invalidPdf: "PDF 파일을 선택하세요.",
+      notReady:
+        "대기 중이거나 실패한 컨텍스트와 연결 상태를 확인한 후 다시 시도하세요.",
+      tooLong: "소스 텍스트는 20,000자 미만으로 입력하세요.",
+      trends: {
+        label: "최신 업계 동향에 대한 프레젠테이션 만들기",
+        field: "업종 또는 주제",
+        prompt:
+          "제공된 주제의 최신 동향을 조사하고 최신 출처를 포함한 프레젠테이션을 만드세요. 생성하기 전에 정보를 검증하세요.",
+      },
+      notes: {
+        label: "회의 메모를 프레젠테이션으로 변환",
+        field: "회의 메모",
+        prompt:
+          "제공된 회의 메모를 바탕으로 핵심 내용, 결정 사항 및 다음 단계를 담은 프레젠테이션을 만드세요. 메모를 자료로 사용하세요.",
+      },
+      pdf: {
+        label: "PDF의 핵심 내용 요약",
+        field: "PDF 파일",
+        prompt:
+          "첨부된 PDF를 읽고 핵심 내용을 요약한 프레젠테이션을 만드세요. 읽을 수 없는 내용은 추측하지 말고 보고하세요.",
+      },
+      website: {
+        label: "회사 웹사이트에서 덱 생성",
+        field: "회사 웹사이트 URL",
+        prompt:
+          "제공된 회사 웹사이트를 읽고 회사 소개 프레젠테이션을 만드세요. 사실을 지어내지 말고 접근 오류를 보고하세요.",
+      },
+    },
     connectBuilderIo: "Builder.io 연결",
     connectingBuilder: "Builder.io 연결 중…",
     recent: "최근 항목",
@@ -828,7 +885,7 @@ const messages = {
     newDeckPromptTitle: "새 프레젠테이션",
     newDeckPlaceholder: "생성할 프레젠테이션을 설명해 주세요...",
     skipPrompt: "프롬프트 건너뛰기",
-    firstDeckPromptTitle: "어떤 프레젠테이션을 생성할까요?",
+    firstDeckPromptTitle: "첫 프레젠테이션을 만들어 보세요",
     firstDeckSkip: "건너뛰기",
     chooseReferences: "참조 선택",
     addDesignSystem: "+ 디자인 시스템",

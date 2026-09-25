@@ -1,6 +1,9 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
+  type AgentChatContextItem,
+  type ComposerContextMenuItem,
+  type ComposerContextSnapshot,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
   useEagerFileUploads,
@@ -73,6 +76,11 @@ const loadPromptComposer = () =>
     default: PromptComposer,
   }));
 const LazyPromptComposer = lazy(loadPromptComposer);
+const LazyContextMenu = lazy(() =>
+  import("@agent-native/core/client/composer").then(
+    ({ ComposerContextMenu }) => ({ default: ComposerContextMenu }),
+  ),
+);
 
 export function preloadPromptComposer() {
   void loadPromptComposer().catch(() => {});
@@ -354,10 +362,20 @@ export type PromptCreationMode = "design" | "app";
 
 interface PromptPopoverProps {
   inline?: boolean;
+  submissionIdentity?: string;
+  contextItems?: AgentChatContextItem[];
+  contextMenuItems?: ComposerContextMenuItem[];
+  onRemoveContextItem?: (key: string) => void;
+  onRetryContextItem?: (key: string) => void;
+  onSubmitError?: () => void;
+  beforeSubmitContext?: (
+    snapshot: ComposerContextSnapshot | undefined,
+  ) => Promise<ComposerContextSnapshot | undefined>;
   composerRef?: React.Ref<TiptapComposerHandle>;
   initialText?: string;
   initialTextKey?: number;
   disabled?: boolean;
+  submissionDisabled?: boolean;
   showModelSelector?: boolean;
   modelStatusChecksEnabled?: boolean;
   open: boolean;
@@ -464,10 +482,18 @@ function hasOpenNestedPromptPopoverSurface() {
 
 export default function PromptPopover({
   inline = false,
+  submissionIdentity,
+  contextItems,
+  contextMenuItems,
+  onRemoveContextItem,
+  onRetryContextItem,
+  onSubmitError,
+  beforeSubmitContext,
   composerRef,
   initialText,
   initialTextKey,
   disabled = false,
+  submissionDisabled = false,
   showModelSelector,
   modelStatusChecksEnabled,
   open,
@@ -526,6 +552,9 @@ export default function PromptPopover({
       ? `${baseDraftScope}:pending`
       : `${baseDraftScope}:${org?.orgId ?? "none"}`
     : `${baseDraftScope}:anonymous`;
+  const recoveryScope = `${orgScopedDraftScope}:${submissionIdentity ?? ""}`;
+  const draftScopeRef = useRef(recoveryScope);
+  draftScopeRef.current = recoveryScope;
   const [showStartChoice, setShowStartChoice] = useState(offerStartChoice);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);
@@ -534,33 +563,34 @@ export default function PromptPopover({
   const composerFilesRef = useRef<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  const draftTextRef = useRef<string | undefined>(undefined);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  // Restores a typed prompt into the composer after a failed submit. The
-  // composer optimistically clears its text as soon as onSubmit is invoked
-  // (see TiptapComposer.submitComposer), so without this an upload failure or
-  // a rejected onSubmit would silently erase what the user wrote. Left
-  // `undefined` in the common case so the composer's normal mount behavior
-  // (restore the last localStorage draft for this scope) still applies —
-  // passing a defined `initialText` (even `""`) would short-circuit that.
+  const contextFileInputRef = useRef<HTMLInputElement>(null);
+  // A failed popover handoff can remount the composer. Leave its normal
+  // localStorage restoration untouched unless that handoff needs recovery;
+  // a defined initialText (even "") would short-circuit draft restoration.
   const [restoredPrompt, setRestoredPrompt] = useState<{
     text: string;
     initialTextKey: number | undefined;
     revision: number;
+    draftScope: string;
   }>();
   const restorePromptText = useCallback(
     (text: string) => {
       setRestoredPrompt((current) => ({
         text,
         initialTextKey,
+        draftScope: recoveryScope,
         revision: (current?.revision ?? 0) + 1,
       }));
     },
-    [initialTextKey],
+    [initialTextKey, recoveryScope],
   );
   // A new starter must not consume its seed key with the previous failed text.
   const activeRestoredPrompt =
-    restoredPrompt?.initialTextKey === initialTextKey
+    restoredPrompt?.initialTextKey === initialTextKey &&
+    restoredPrompt?.draftScope === recoveryScope
       ? restoredPrompt
       : undefined;
   useEffect(() => {
@@ -748,6 +778,8 @@ export default function PromptPopover({
       options: PromptComposerSubmitOptions,
     ) => {
       if (submittingRef.current) return;
+      const recoveryText = inline ? (draftTextRef.current ?? text) : text;
+      const submissionScope = recoveryScope;
       const allFiles = [...files, ...selectedUploadFiles];
       submittingRef.current = true;
       setSubmitting(true);
@@ -756,23 +788,33 @@ export default function PromptPopover({
       // leaves a dead panel over the result. Reopened below if it fails.
       onOpenChange(false);
       let uploaded: UploadedFile[];
+      let submissionOptions = options;
       try {
+        if (beforeSubmitContext)
+          submissionOptions = {
+            ...options,
+            contextItems: await beforeSubmitContext(options.contextItems),
+          };
         uploaded = await uploadFiles(allFiles);
+        if (draftScopeRef.current !== submissionScope)
+          throw new Error(t("promptDialog.failedToSubmitPrompt"));
       } catch (error) {
         setSubmitting(false);
         submittingRef.current = false;
         onOpenChange(true);
-        restorePromptText(text);
+        if (draftScopeRef.current === submissionScope)
+          restorePromptText(recoveryText);
+        onSubmitError?.();
         toast.error(
           error instanceof Error
             ? error.message
             : t("promptDialog.failedToUploadFile"),
         );
-        return;
+        throw error;
       }
       try {
         retainFiles(allFiles);
-        await onSubmit(text, [...uploaded, ...pickedAssets], options);
+        await onSubmit(text, [...uploaded, ...pickedAssets], submissionOptions);
         commitFiles(allFiles);
         setPickedAssets([]);
         setSelectedUploadFiles([]);
@@ -783,12 +825,15 @@ export default function PromptPopover({
         setSubmitting(false);
         submittingRef.current = false;
         onOpenChange(true);
-        restorePromptText(text);
+        if (draftScopeRef.current === submissionScope)
+          restorePromptText(recoveryText);
+        onSubmitError?.();
         toast.error(
           error instanceof Error
             ? error.message
             : t("promptDialog.failedToSubmitPrompt"),
         );
+        throw error;
       }
     },
     [
@@ -796,6 +841,10 @@ export default function PromptPopover({
       discardFiles,
       onOpenChange,
       onSubmit,
+      onSubmitError,
+      beforeSubmitContext,
+      recoveryScope,
+      inline,
       pickedAssets,
       retainFiles,
       restorePromptText,
@@ -1039,6 +1088,7 @@ export default function PromptPopover({
               autoFocus
               attachmentsEnabled
               disabled={disabled || loading || submitting}
+              submissionDisabled={submissionDisabled}
               layoutVariant={inline ? "hero" : undefined}
               className={
                 inline ? "design-home-prompt-composer-area" : undefined
@@ -1049,6 +1099,12 @@ export default function PromptPopover({
               modelStatusChecksEnabled={modelStatusChecksEnabled}
               placeholder={placeholder ?? t("home.describeBuild")}
               onSubmit={handleSubmit}
+              onTextChange={(text) => {
+                draftTextRef.current = text;
+              }}
+              contextItems={contextItems}
+              onRemoveContextItem={onRemoveContextItem}
+              onRetryContextItem={onRetryContextItem}
               onAttachmentsChange={handleAttachmentsChange}
               draftScope={orgScopedDraftScope}
               initialText={activeRestoredPrompt?.text ?? initialText}
@@ -1058,17 +1114,60 @@ export default function PromptPopover({
                   : `seed:${initialTextKey ?? 0}`
               }
               attachButton={
-                <PromptAttachmentMenu
-                  disabled={loading || uploading || submitting}
-                  onUploadFiles={handleUploadFiles}
-                  onPickAsset={() => setAssetsPickerOpen(true)}
-                />
+                contextMenuItems ? (
+                  <LazyContextMenu
+                    disabled={loading || uploading || submitting}
+                    items={[
+                      ...contextMenuItems,
+                      {
+                        id: "upload",
+                        label: t("promptDialog.uploadFile"),
+                        onSelect: () => contextFileInputRef.current?.click(),
+                      },
+                      {
+                        id: "assets",
+                        label: t("promptDialog.pickAsset"),
+                        onSelect: () => setAssetsPickerOpen(true),
+                      },
+                      ...(onSkip
+                        ? [
+                            {
+                              id: "blank",
+                              label: skipLabel ?? t("promptDialog.skipPrompt"),
+                              onSelect: () => {
+                                void onSkip();
+                              },
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
+                ) : (
+                  <PromptAttachmentMenu
+                    disabled={loading || uploading || submitting}
+                    onUploadFiles={handleUploadFiles}
+                    onPickAsset={() => setAssetsPickerOpen(true)}
+                  />
+                )
               }
             />
           </Suspense>
         </LazyChunkErrorBoundary>
+        {contextMenuItems ? (
+          <input
+            ref={contextFileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              handleUploadFiles(Array.from(event.currentTarget.files ?? []));
+              event.currentTarget.value = "";
+            }}
+          />
+        ) : null}
       </div>
-      {!showStartChoice &&
+      {!inline &&
+        !showStartChoice &&
         (onTemplateChange || onDesignSystemChange || onCreateDesignSystem) && (
           <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
             {onTemplateChange ? (
@@ -1215,7 +1314,7 @@ export default function PromptPopover({
 
       {/* The chooser already offers the blank path as a peer, so the corner
             link would be a second, quieter way to do the same thing. */}
-      {onSkip && !offerStartChoice && (
+      {onSkip && !offerStartChoice && !contextMenuItems && (
         <div className="flex justify-end border-t border-border px-3.5 py-2">
           <Button
             type="button"

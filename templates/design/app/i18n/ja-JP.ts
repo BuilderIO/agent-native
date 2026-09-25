@@ -1653,7 +1653,31 @@ export default {
       "このビューを離れたため、未送信のコメント下書き {{count}} 件が破棄されました。",
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
+  homeContext: {
+    notReady:
+      "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
+    search: "コンテキストを検索…",
+    browse: "参照",
+    loadFailed: "この参照を読み込めませんでした。",
+    retry: "再試行",
+    empty: "一致する参照がありません。",
+    none: "なし",
+    design: "デザイン",
+    slides: "スライド",
+    referenceDesign: "参照デザイン",
+    figmaReference: "Figma の参照",
+    referenceDeck: "参照プレゼンテーション",
+    quickSaas: "SaaS ランディングページを作成",
+    quickDashboard: "ダッシュボードを作成",
+    quickDeck: "スライドを作成",
+    deckPrompt:
+      "タイトルスライド、明確なストーリー、視覚化されたデータ、簡潔な締めのスライドを含む洗練されたプレゼンテーションを作成してください。",
+  },
   home: {
+    importFromFigma: "Figma からインポート",
+    figmaFile: "Figma ファイル (.fig)",
+    openImport: "インポートを開く",
+    importSelectedFile: "選択したファイルをインポート",
     starterSaasPrompt:
       "ダークテーマのモダンなSaaSランディングページ。ヒーローセクション、3枚の機能カード、最後の行動喚起セクションを配置してください。",
     starterDashboardPrompt:

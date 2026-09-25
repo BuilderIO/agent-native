@@ -1,4 +1,15 @@
 const messages = {
+  "composer.submitFailed": "Could not submit. Try again.",
+  "composer.addContext": "Add context",
+  "composer.contextActionFailed": "Could not add context.",
+  "composer.contextBack": "Back",
+  "composer.searchContext": "Search context…",
+  "composer.noContextResults": "No matching context.",
+  "composer.contextPending": "Context pending",
+  "composer.contextError": "Context failed",
+  "composer.retryContext": "Retry {{name}} context",
+  "composer.contextLimitExceeded":
+    "Context is too large. Remove an item or attach a smaller selection.",
   "activity.reasoning": "Reasoning",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",

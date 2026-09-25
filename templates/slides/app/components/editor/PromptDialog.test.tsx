@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -7,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import {
+  createRef,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -68,11 +70,17 @@ function useEagerFileUploadsMock<T>(
 vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: {
     disabled?: boolean;
+    submissionDisabled?: boolean;
     showModelSelector?: boolean;
     modelStatusChecksEnabled?: boolean;
     initialText?: string;
     initialTextKey?: string | number;
-    composerRef?: Ref<{ focus(): void }>;
+    composerRef?: Ref<{
+      focus(): void;
+      submitWithText(text: string): Promise<boolean>;
+    }>;
+    onTextChange?: (text: string) => void;
+    contextItems?: readonly unknown[];
     onAttachmentsChange?: (files: File[]) => void;
     onModelSelectionChange?: (selection: {
       model?: string;
@@ -90,6 +98,27 @@ vi.mock("@agent-native/core/client/composer", () => ({
     const inputRef = useRef<HTMLTextAreaElement>(null);
     useImperativeHandle(props.composerRef, () => ({
       focus: () => inputRef.current?.focus(),
+      submitWithText: async (text: string) => {
+        if (props.disabled || props.submissionDisabled) return false;
+        try {
+          await props.onSubmit(text, [promptFile], [], {
+            model: "gpt-5.6-terra",
+            engine: "builder",
+            effort: "high",
+            contextItems: props.contextItems,
+            attachments: [
+              {
+                name: promptFile.name,
+                contentType: promptFile.type,
+                file: promptFile,
+              },
+            ],
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      },
     }));
     useEffect(() => {
       props.onModelSelectionChange?.({
@@ -105,10 +134,12 @@ vi.mock("@agent-native/core/client/composer", () => ({
           aria-label="Prompt"
           value={props.initialText ?? ""}
           readOnly
+          onChange={(event) => props.onTextChange?.(event.target.value)}
         />
         <button
           type="button"
           data-testid="prompt-composer-attach"
+          disabled={props.disabled}
           onClick={() => props.onAttachmentsChange?.([promptFile])}
         >
           Attach
@@ -116,7 +147,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
         <button
           type="button"
           data-testid="prompt-composer"
-          disabled={props.disabled}
+          disabled={props.disabled || props.submissionDisabled}
           onClick={() =>
             void props.onSubmit("  make a deck  \n", [promptFile], [], {
               model: "gpt-5.6-terra",
@@ -166,7 +197,11 @@ import {
   uploadPromptFiles,
 } from "@/lib/prompt-file-uploads";
 
-import PromptPopover, { createPromptChatAttachments } from "./PromptDialog";
+import PromptPopover, {
+  createPromptChatAttachments,
+  type PromptPopoverHandle,
+} from "./PromptDialog";
+import type { useSlidesComposerContext } from "./SlidesComposerContext";
 
 describe("createPromptChatAttachments", () => {
   it("keeps PDFs and pasted text as display-only chat descriptors", async () => {
@@ -793,7 +828,7 @@ describe("inline prompt starters", () => {
     vi.unstubAllGlobals();
   });
 
-  it("forwards provider gating without disabling imports or Skip", async () => {
+  it("forwards submission-only provider gating without disabling staging, imports or Skip", async () => {
     const onImport = vi.fn().mockResolvedValue(false);
     const onSkip = vi.fn();
     render(
@@ -803,7 +838,7 @@ describe("inline prompt starters", () => {
         title="New presentation"
         onOpenChange={vi.fn()}
         onSubmit={vi.fn()}
-        disabled
+        submissionDisabled
         showModelSelector={false}
         modelStatusChecksEnabled={false}
         onImport={onImport}
@@ -814,7 +849,8 @@ describe("inline prompt starters", () => {
     );
     expect(promptComposerProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        disabled: true,
+        disabled: false,
+        submissionDisabled: true,
         showModelSelector: false,
         modelStatusChecksEnabled: false,
       }),
@@ -822,6 +858,10 @@ describe("inline prompt starters", () => {
     expect(
       (screen.getByTestId("prompt-composer") as HTMLButtonElement).disabled,
     ).toBe(true);
+    expect(
+      (screen.getByTestId("prompt-composer-attach") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
     for (const name of ["PDF", "Slides", "PPT", "Skip prompt"]) {
       expect(
         (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
@@ -839,6 +879,52 @@ describe("inline prompt starters", () => {
         files: [promptFile],
       }),
     );
+  });
+
+  it("stages an attachment before connection while blocking imperative quick-start submission", async () => {
+    const onSubmit = vi.fn();
+    const controllerRef = createRef<PromptPopoverHandle>();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            path: "uploads/large.pdf",
+            originalName: "large.pdf",
+            filename: "large.pdf",
+            type: "application/pdf",
+            size: 3,
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <PromptPopover
+        presentation="inline"
+        open
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={onSubmit}
+        submissionDisabled
+        controllerRef={controllerRef}
+        showModelSelector={false}
+        modelStatusChecksEnabled={false}
+      />,
+    );
+    await act(async () =>
+      expect(
+        await controllerRef.current!.submitSource("Create a presentation", []),
+      ).toBe(false),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+    expect(promptComposerProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ disabled: false, submissionDisabled: true }),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("leaves the editor's provider defaults unchanged", () => {
@@ -954,5 +1040,131 @@ describe("inline prompt starters", () => {
       engine: "builder",
       effort: "high",
     });
+  });
+
+  it("submits a structured source through the real controller with current text, files, model and context", async () => {
+    const sourceFile = new File(["source"], "source.pdf", {
+      type: "application/pdf",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify(
+            [promptFile, sourceFile].map((file) => ({
+              path: `uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+          ),
+          { status: 200 },
+        ),
+      ),
+    );
+    const items = [
+      {
+        key: "slides:deck:",
+        title: "Deck",
+        context: "Measured typography",
+        status: "ready" as const,
+      },
+    ];
+    const selection = {
+      designSystemId: null,
+      references: [{ source: "slides" as const, id: "deck", title: "Deck" }],
+    };
+    const beforeSend = vi
+      .fn()
+      .mockResolvedValue({ selection, items, text: "Reference context" });
+    const context = {
+      props: { contextItems: items },
+      beforeSend,
+      dialogs: null,
+    } as unknown as ReturnType<typeof useSlidesComposerContext>;
+    const controllerRef = createRef<PromptPopoverHandle>();
+    const onSubmit = vi.fn().mockReturnValue("retain");
+    render(
+      <PromptPopover
+        open
+        presentation="inline"
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={onSubmit}
+        context={context}
+        controllerRef={controllerRef}
+      />,
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), {
+      target: { value: "Keep our existing brand and audience" },
+    });
+    await act(async () =>
+      expect(
+        await controllerRef.current!.submitSource(
+          "Summarize the PDF",
+          [sourceFile],
+          "Hidden source data",
+        ),
+      ).toBe(true),
+    );
+    expect(beforeSend).toHaveBeenCalledWith(items);
+    expect(onSubmit).toHaveBeenCalledWith(
+      "Keep our existing brand and audience\n\nSummarize the PDF",
+      expect.arrayContaining([
+        expect.objectContaining({ originalName: "large.pdf" }),
+        expect.objectContaining({ originalName: "source.pdf" }),
+      ]),
+      expect.objectContaining({
+        context: "Hidden source data",
+        attachments: expect.arrayContaining([
+          expect.objectContaining({ name: "source.pdf" }),
+        ]),
+      }),
+      expect.objectContaining({
+        model: "gpt-5.6-terra",
+        engine: "builder",
+        effort: "high",
+        contextItems: items,
+        slidesContext: selection,
+      }),
+    );
+    expect(onSubmit.mock.calls[0][0]).not.toContain("Hidden source data");
+  });
+
+  it("does not upload or submit when context revalidation fails", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const onSubmit = vi.fn(),
+      controllerRef = createRef<PromptPopoverHandle>();
+    const context = {
+      props: { contextItems: [] },
+      beforeSend: vi
+        .fn()
+        .mockRejectedValue(new Error("Reference access revoked")),
+      dialogs: null,
+    } as unknown as ReturnType<typeof useSlidesComposerContext>;
+    render(
+      <PromptPopover
+        open
+        presentation="inline"
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={onSubmit}
+        context={context}
+        controllerRef={controllerRef}
+      />,
+    );
+    await act(async () =>
+      expect(
+        await controllerRef.current!.submitSource(
+          "Make a presentation",
+          [],
+          "Private notes",
+        ),
+      ).toBe(false),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

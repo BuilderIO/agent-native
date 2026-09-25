@@ -206,6 +206,46 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 استخدم `TiptapComposer` فقط إذا كنت تقوم بالفعل بتوصيل عناصر واجهة المستخدم المساعدة
 نفسك. إنه الحقل، وليس وقت تشغيل الدردشة بالكامل.
 
+### السياق المُجهّز في المحرر {#composer-context}
+
+تقبل `PromptComposer` و`TiptapComposer` الخاصية `submissionDisabled` لمنع الإرسال مع إبقاء إعداد المسودة والملفات والسياق متاحًا. عدم إعداد المزوّد يمنع الإرسال فقط. تظل `disabled` تعطل المحرر بالكامل.
+
+تقبل `PromptComposer` و`TiptapComposer` و`AgentKitComposer` الخاصيتين `contextItems` و`contextMenuItems`. تتولى التطبيقات قراءة المصادر وتسميات القوائم المترجمة.
+
+يتضمن كل `AgentChatContextItem` الحقول `key` و`title` و`context`. قيمة `status` الاختيارية هي `ready` أو `pending` أو `error`. يوضح `statusMessage` سبب الفشل. تستقبل `onRemoveContextItem` و`onInspectContextItem` و`onRetryContextItem` مفتاح العنصر. تخفي `removable: false` الإزالة. تمنع العناصر المعلقة أو الفاشلة الإرسال ما لم تجعلها `blocksSubmission: false` معلوماتية صراحةً.
+
+يمكن للمضيف تجهيز سياق مصرح بالوصول إليه واستلام لقطة ثابتة عند الإرسال:
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+تستخدم الفئات المتداخلة `children`. تستخدم الإجراءات الطرفية `onSelect()` ويمكنها توفير `render(controls)` لمنتقي داخل النافذة المنبثقة. يتوفر `ComposerContextMenu` و`ComposerContextSearchInput` كتصديرين عامين. يحافظ `attachButton` على مسار الرفع الخاص بالتطبيق.
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+تميّز اللقطة بين `undefined` والمصفوفة الفارغة الصريحة. ترفض أكثر من 32 عنصرًا أو 64 KiB من بيانات UTF-8 المسلسلة دون اقتطاع. يُنتظر `AgentKitComposer.beforeSend(submission)` قبل الإرسال أو الإدراج في الطابور، ويتلقى السياق والمراجع والمرفقات المرفوعة وخيارات التشغيل الثابتة. يحافظ الرفض على المسودة. يُدرج السياق في نص الرسالة وبياناتها الوصفية.
+
+تستخدم `composerRef.current.submitWithText(text)` مسار الإرسال نفسه بالملفات وإعدادات النموذج الحالية دون استبدال نص المحرر أولًا. تُرجع `true` بعد القبول أو `false` عند المنع أو الرفض. اختيار السياق ليس منحًا للوصول. يجب أن تعيد التطبيقات التحقق من وصول المصادر عبر إجراءاتها الموثقة.
+
 ## عرض المحادثة {#conversation}
 
 استخدم `@agent-native/core/client/conversation` لعرض نمط النص

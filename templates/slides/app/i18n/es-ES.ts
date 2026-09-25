@@ -810,6 +810,63 @@ const messages = {
     chooseAnotherFile: "Elegir otro archivo",
   },
   home: {
+    importDeck: "Importar presentación",
+    context: {
+      loadFailed: "No se pudo cargar la referencia. Inténtalo de nuevo.",
+      saveFailed: "No se pudo guardar la selección de contexto.",
+      system: "Sistemas de diseño",
+      figmaUrl: "Pega un enlace de Figma",
+      browse: "Explorar marcos",
+      empty: "No se encontraron referencias.",
+      previous: "Anterior",
+      next: "Siguiente",
+      title: "Contexto",
+      remove: "Quitar referencia",
+      deck: "Presentaciones",
+      design: "Referencias de diseño",
+      figma: "Marcos de Figma",
+      notReady:
+        "El contexto sigue cargando o no está disponible. Reintenta o elimínalo antes de enviar.",
+      emptySource: "La fuente no devolvió contexto utilizable.",
+      tooMany: "Elige hasta 20 referencias.",
+      search: "Buscar referencias",
+      designCategory: "Diseño",
+    },
+    quickStart: {
+      invalidUrl: "Introduce una URL HTTP o HTTPS válida.",
+      starting: "Iniciando…",
+      generate: "Generar",
+      connectionRequired:
+        "Conecta Builder.io encima del mensaje de inicio y vuelve a intentarlo.",
+      invalidPdf: "Elige un archivo PDF.",
+      notReady:
+        "Revisa el contexto pendiente o fallido y la conexión antes de reintentar.",
+      tooLong: "Limita el texto fuente a menos de 20.000 caracteres.",
+      trends: {
+        label: "Crear una presentación sobre las últimas tendencias del sector",
+        field: "Sector o tema",
+        prompt:
+          "Investiga las últimas tendencias del tema indicado y crea una presentación con fuentes actuales. Verifica la información antes de generar.",
+      },
+      notes: {
+        label: "Convertir notas de reunión en una presentación",
+        field: "Notas de reunión",
+        prompt:
+          "Convierte las notas de reunión proporcionadas en una presentación con puntos clave, decisiones y próximos pasos. Usa las notas como fuente.",
+      },
+      pdf: {
+        label: "Resumir las ideas clave de un PDF",
+        field: "Archivo PDF",
+        prompt:
+          "Lee el PDF adjunto y crea una presentación que resuma sus ideas clave. Indica el contenido ilegible en lugar de adivinar.",
+      },
+      website: {
+        label: "Generar una presentación desde la web de mi empresa",
+        field: "URL de la web de la empresa",
+        prompt:
+          "Lee la web de la empresa indicada y crea una presentación sobre ella. Informa de errores de acceso en lugar de inventar datos.",
+      },
+    },
     connectBuilderIo: "Conectar Builder.io",
     connectingBuilder: "Conectando Builder.io…",
     recent: "Recientes",
@@ -858,7 +915,7 @@ const messages = {
     newDeckPromptTitle: "Nueva presentación",
     newDeckPlaceholder: "Describe la presentación que quieres generar...",
     skipPrompt: "Omitir prompt",
-    firstDeckPromptTitle: "¿Qué tipo de presentación quieres que generemos?",
+    firstDeckPromptTitle: "Creemos tu primera presentación",
     firstDeckSkip: "Omitir",
     chooseReferences: "Elegir referencias",
     addDesignSystem: "+ Sistema de diseño",

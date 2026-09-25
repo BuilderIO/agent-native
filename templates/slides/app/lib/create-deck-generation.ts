@@ -287,6 +287,7 @@ export interface StartDeckGenerationOptions {
 
 export interface DeckGenerationContext {
   originalPrompt: string;
+  additionalContext?: string;
   files: Array<{
     path: string;
     url?: string;
@@ -296,6 +297,8 @@ export interface DeckGenerationContext {
   designSystemId: string | null;
   referenceDeckId: string | null;
   referenceSource?: NewDeckReferenceSelection["referenceSource"];
+  composerContext?: NewDeckReferenceSelection["composerContext"];
+  contextItems?: NewDeckReferenceSelection["contextItems"];
   mode: "new" | "source-preserving";
   targetSlideCount?: number;
   generationAttemptId?: string;

@@ -1,6 +1,17 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.submitFailed": "No se pudo enviar. Inténtalo de nuevo.",
+  "composer.addContext": "Añadir contexto",
+  "composer.contextActionFailed": "No se pudo añadir el contexto.",
+  "composer.contextBack": "Atrás",
+  "composer.searchContext": "Buscar contexto…",
+  "composer.noContextResults": "No hay contexto coincidente.",
+  "composer.contextPending": "Contexto pendiente",
+  "composer.contextError": "Error de contexto",
+  "composer.retryContext": "Reintentar contexto {{name}}",
+  "composer.contextLimitExceeded":
+    "El contexto es demasiado grande. Quita un elemento o adjunta una selección más pequeña.",
   "activity.reasoning": "Razonamiento",
   "approval.alwaysAllow": "Permitir siempre",
   "approval.alwaysAllowHint": "Aprobar y permitir siempre este comando exacto",

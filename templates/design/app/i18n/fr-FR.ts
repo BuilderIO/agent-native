@@ -1669,7 +1669,31 @@ export default {
       "Vous avez quitté cette vue : {{count}} brouillons de commentaires non envoyés ont été supprimés.",
     staleAnchorDetail: "L’élément d’origine est introuvable sur le canevas.",
   },
+  homeContext: {
+    notReady:
+      "La demande n’est pas prête. Vérifiez le contexte sélectionné et la connexion, puis réessayez.",
+    search: "Rechercher du contexte…",
+    browse: "Parcourir",
+    loadFailed: "Impossible de charger cette référence.",
+    retry: "Réessayer",
+    empty: "Aucune référence correspondante.",
+    none: "Aucun",
+    design: "Design",
+    slides: "Diapositives",
+    referenceDesign: "Design de référence",
+    figmaReference: "Référence Figma",
+    referenceDeck: "Présentation de référence",
+    quickSaas: "Créer une page SaaS",
+    quickDashboard: "Créer un tableau de bord",
+    quickDeck: "Créer une présentation",
+    deckPrompt:
+      "Créez une présentation soignée avec une diapositive de titre, un récit clair, des données visuelles et une conclusion concise.",
+  },
   home: {
+    importFromFigma: "Importer depuis Figma",
+    figmaFile: "Fichier Figma (.fig)",
+    openImport: "Ouvrir l’importation",
+    importSelectedFile: "Importer le fichier sélectionné",
     starterSaasPrompt:
       "Une page d’accueil SaaS moderne avec un thème sombre, une section principale, trois cartes de fonctionnalités et un appel à l’action final.",
     starterDashboardPrompt:

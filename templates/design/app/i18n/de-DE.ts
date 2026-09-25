@@ -1675,7 +1675,31 @@ export default {
     staleAnchorDetail:
       "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
   },
+  homeContext: {
+    notReady:
+      "Die Anfrage ist noch nicht bereit. Prüfe den ausgewählten Kontext und die Verbindung und versuche es erneut.",
+    search: "Kontext suchen…",
+    browse: "Durchsuchen",
+    loadFailed: "Diese Referenz konnte nicht geladen werden.",
+    retry: "Erneut versuchen",
+    empty: "Keine passenden Referenzen.",
+    none: "Keine",
+    design: "Design",
+    slides: "Folien",
+    referenceDesign: "Referenzdesign",
+    figmaReference: "Figma-Referenz",
+    referenceDeck: "Referenzpräsentation",
+    quickSaas: "SaaS-Landingpage erstellen",
+    quickDashboard: "Dashboard erstellen",
+    quickDeck: "Präsentation erstellen",
+    deckPrompt:
+      "Erstelle eine ansprechende Präsentation mit Titelfolie, klarer Erzählung, visuellen Daten und einer prägnanten Abschlussfolie.",
+  },
   home: {
+    importFromFigma: "Aus Figma importieren",
+    figmaFile: "Figma-Datei (.fig)",
+    openImport: "Import öffnen",
+    importSelectedFile: "Ausgewählte Datei importieren",
     starterSaasPrompt:
       "Eine moderne SaaS-Landingpage mit dunklem Design, einem Hero-Bereich, drei Funktionskarten und einem abschließenden Handlungsaufruf.",
     starterDashboardPrompt:

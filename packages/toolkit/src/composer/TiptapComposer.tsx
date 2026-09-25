@@ -15,6 +15,9 @@ import {
   IconPencil,
   IconPlugConnected,
   IconHelpCircle,
+  IconRefresh,
+  IconAlertCircle,
+  IconLoader2,
 } from "@tabler/icons-react";
 import Placeholder from "@tiptap/extension-placeholder";
 import type { EditorView } from "@tiptap/pm/view";
@@ -40,9 +43,19 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
 import {
+  ComposerContextMenu,
+  type ComposerContextMenuItem,
+} from "./ComposerContextMenu.js";
+import {
   ComposerPlusMenu,
   type ComposerTerminalModeControl,
 } from "./ComposerPlusMenu.js";
+import {
+  areComposerContextItemsReady,
+  ComposerContextError,
+  snapshotComposerContextItems,
+  type ComposerContextSnapshot,
+} from "./context-items.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import { FileReference } from "./extensions/FileReference.js";
 import { MentionReference } from "./extensions/MentionReference.js";
@@ -93,6 +106,8 @@ export interface TiptapComposerHandle {
   /** Insert text through the editor's normal input path. */
   insertText(text: string): void;
   setText(text: string): void;
+  /** Submit replacement text with the current attachments and context, without editing the draft on failure. */
+  submitWithText(text: string): Promise<boolean>;
   insertReference(ref: AgentComposerReference): void;
 }
 
@@ -102,6 +117,7 @@ export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
 export interface TiptapComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
+  contextItems?: ComposerContextSnapshot;
 }
 
 export function canSubmitComposerContent(options: {
@@ -762,6 +778,8 @@ export interface TiptapComposerProps {
   ariaLabel?: string;
   disabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
+  submissionDisabled?: boolean;
+  /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
@@ -889,9 +907,13 @@ export interface TiptapComposerProps {
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
   /** Keyed context nuggets staged for the next submitted prompt. */
-  contextItems?: AgentChatContextItem[];
+  contextItems?: readonly AgentChatContextItem[];
   /** Remove a staged context nugget by key. */
   onRemoveContextItem?: (key: string) => void;
+  onInspectContextItem?: (key: string) => void;
+  onRetryContextItem?: (key: string) => void;
+  contextMenuItems?: readonly ComposerContextMenuItem[];
+  attachmentsEnabled?: boolean;
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
    * normal Upload / Skill / Job / Automation / MCP picker, plus Extension when
@@ -2434,6 +2456,7 @@ export function TiptapComposer({
   placeholder,
   ariaLabel,
   disabled = false,
+  submissionDisabled = false,
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
@@ -2482,14 +2505,19 @@ export function TiptapComposer({
   onConnectLocalRuntime,
   imageModelMenu,
   draftScope,
-  contextItems = [],
+  contextItems: providedContextItems,
   onRemoveContextItem,
+  onInspectContextItem,
+  onRetryContextItem,
+  contextMenuItems,
+  attachmentsEnabled = true,
   plusMenuMode = "full",
   terminalModeControl,
   extensionTools = false,
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
 }: TiptapComposerProps) {
+  const contextItems = providedContextItems ?? [];
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
   const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
@@ -2512,10 +2540,18 @@ export function TiptapComposer({
   >(null);
   const composerText = useComposer((state) => state.text);
   const composerAttachments = useComposer((state) => state.attachments);
+  const [contextSubmissionError, setContextSubmissionError] = useState<
+    string | null
+  >(null);
+  useEffect(() => setContextSubmissionError(null), [providedContextItems]);
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
-    disabled: disabled || submitting,
+    disabled:
+      disabled ||
+      submissionDisabled ||
+      submitting ||
+      !areComposerContextItemsReady(contextItems),
   });
   const primaryAction = resolveComposerPrimaryAction({
     canSubmit: canSend,
@@ -2616,6 +2652,12 @@ export function TiptapComposer({
   onTextChangeRef.current = onTextChange;
   const contextItemsRef = useRef(contextItems);
   contextItemsRef.current = contextItems;
+  const contextItemsProvidedRef = useRef(providedContextItems !== undefined);
+  contextItemsProvidedRef.current = providedContextItems !== undefined;
+  const submissionDisabledRef = useRef(
+    disabled || submissionDisabled || submitting,
+  );
+  submissionDisabledRef.current = disabled || submissionDisabled || submitting;
   const onRemoveContextItemRef = useRef(onRemoveContextItem);
   onRemoveContextItemRef.current = onRemoveContextItem;
   const selectedContextItemKeyRef = useRef<string | null>(null);
@@ -2871,7 +2913,9 @@ export function TiptapComposer({
         const cursorAtStart = from === to && from <= 1;
         if (event.key === "Backspace" && onRemoveContextItemRef.current) {
           const chipAction = resolveContextChipBackspaceAction({
-            contextItemKeys: contextItemsRef.current.map((item) => item.key),
+            contextItemKeys: contextItemsRef.current
+              .filter((item) => item.removable !== false)
+              .map((item) => item.key),
             selectedKey: selectedContextItemKeyRef.current,
             cursorAtStart,
           });
@@ -2883,9 +2927,6 @@ export function TiptapComposer({
             } else {
               selectedContextItemKeyRef.current = null;
               setSelectedContextItemKey(null);
-              contextItemsRef.current = contextItemsRef.current.filter(
-                (item) => item.key !== chipAction.key,
-              );
               onRemoveContextItemRef.current?.(chipAction.key);
             }
             return true;
@@ -3162,6 +3203,7 @@ export function TiptapComposer({
       onTextChangeRef.current?.(trimmed);
       flushComposerDraft();
     },
+    submitWithText: (text: string) => submitComposer("immediate", text),
     insertReference,
   }));
 
@@ -3558,10 +3600,34 @@ export function TiptapComposer({
   );
 
   const submitComposer = useCallback(
-    async (intent: ComposerSubmitIntent = "immediate") => {
+    async (
+      intent: ComposerSubmitIntent = "immediate",
+      textOverride?: string,
+    ): Promise<boolean> => {
       const ed = editor;
-      if (!isComposerEditorUsable(ed)) return;
-      if (submitInFlightRef.current) return;
+      if (!isComposerEditorUsable(ed)) return false;
+      if (submitInFlightRef.current) return false;
+      if (
+        submissionDisabledRef.current ||
+        !areComposerContextItemsReady(contextItemsRef.current)
+      )
+        return false;
+      let contextSnapshot: ComposerContextSnapshot | undefined;
+      setContextSubmissionError(null);
+      try {
+        contextSnapshot = snapshotComposerContextItems(
+          contextItemsProvidedRef.current ? contextItemsRef.current : undefined,
+        );
+      } catch (error) {
+        if (!(error instanceof ComposerContextError)) throw error;
+        setContextSubmissionError(
+          t("agentChat.composer.contextLimitExceeded", {
+            defaultValue:
+              "Context is too large. Remove an item or attach a smaller selection.",
+          }),
+        );
+        return false;
+      }
 
       draftEditorRef.current = ed;
       flushComposerDraft();
@@ -3583,10 +3649,11 @@ export function TiptapComposer({
       const isCurrentDraftScope = () =>
         draftKeyRef.current === submittingDraftKey &&
         draftScopeGenerationRef.current === submittingDraftGeneration;
-      const { text, references } = syncComposerState();
+      const { text: draftText, references } = syncComposerState();
+      const text = textOverride ?? draftText;
       const attachments = composerRuntime.getState().attachments;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
-        return;
+        return false;
       const oversizedDocumentError = getOversizedDocumentAttachmentError(
         attachments,
         {
@@ -3597,7 +3664,7 @@ export function TiptapComposer({
       );
       if (oversizedDocumentError) {
         onAttachmentErrorRef.current?.(oversizedDocumentError);
-        return;
+        return false;
       }
       const cancelActiveVoice = () => {
         if (
@@ -3617,7 +3684,7 @@ export function TiptapComposer({
         if (matched) {
           clearEditorAfterSubmit();
           announceSlashCommand(matched);
-          return;
+          return true;
         }
       }
 
@@ -3634,20 +3701,20 @@ export function TiptapComposer({
       ) {
         cancelActiveVoice();
         clearEditorAfterSubmit();
-        return;
+        return true;
       }
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
         try {
           const shouldSubmit = await onBeforeSubmit();
-          if (!shouldSubmit) return;
+          if (!shouldSubmit) return false;
         } finally {
           submitInFlightRef.current = false;
         }
       }
-      if (!isComposerEditorUsable(ed)) return;
-      if (!isCurrentDraftScope()) return;
+      if (!isComposerEditorUsable(ed)) return false;
+      if (!isCurrentDraftScope()) return false;
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
@@ -3695,32 +3762,44 @@ export function TiptapComposer({
         cancelScheduledDraftPersist();
         clearComposerDraft(draftKey);
         closePopover();
-        return;
+        return true;
       }
 
       if (onSubmit) {
-        if (submitInFlightRef.current) return;
+        if (submitInFlightRef.current) return false;
         submitInFlightRef.current = true;
         try {
-          await onSubmit(text, references, attachments, { intent });
-        } catch {
-          // Hosts own their submit errors. Keep the draft and attachments
-          // available for recovery when a host rejects the submission.
-          return;
+          await onSubmit(text, references, attachments, {
+            intent,
+            ...(contextSnapshot === undefined
+              ? {}
+              : { contextItems: contextSnapshot }),
+          });
+        } catch (error) {
+          setContextSubmissionError(
+            formatAttachmentError(
+              error,
+              t("agentChat.composer.submitFailed", {
+                defaultValue: "Could not submit. Try again.",
+              }),
+            ),
+          );
+          return false;
         } finally {
           submitInFlightRef.current = false;
         }
-        if (!isCurrentDraftScope()) return;
+        if (!isCurrentDraftScope()) return true;
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
           closePopover();
-          return;
+          return true;
         }
         cancelActiveVoice();
         clearEditorAfterSubmit(submittingDraftSnapshot);
-        return;
+        return true;
       } else {
+        if (textOverride !== undefined) composerRuntime.setText(text);
         composerRuntime.send();
       }
       cancelActiveVoice();
@@ -3730,6 +3809,7 @@ export function TiptapComposer({
       cancelScheduledDraftPersist();
       clearComposerDraft(draftKey);
       closePopover();
+      return true;
     },
     [
       closePopover,
@@ -4070,6 +4150,9 @@ export function TiptapComposer({
           {contextItems.map((item) => (
             <span
               key={item.key}
+              data-context-key={item.key}
+              data-context-status={item.status ?? "ready"}
+              title={item.statusMessage}
               data-state={
                 selectedContextItemKey === item.key ? "selected" : undefined
               }
@@ -4079,27 +4162,73 @@ export function TiptapComposer({
                   : "border-border bg-muted/50"
               }`}
             >
-              <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate">{item.title}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  selectedContextItemKeyRef.current = null;
-                  setSelectedContextItemKey(null);
-                  onRemoveContextItem?.(item.key);
-                }}
-                aria-label={t("agentChat.composer.removeContext", {
-                  defaultValue: "Remove {{name}} context",
-                  name: item.title,
-                })}
-                className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <IconX className="h-3 w-3" />
-              </button>
+              {item.status === "pending" ? (
+                <IconLoader2
+                  aria-label={t("agentChat.composer.contextPending", {
+                    defaultValue: "Context pending",
+                  })}
+                  className="size-3 shrink-0 animate-spin motion-reduce:animate-none text-muted-foreground"
+                />
+              ) : item.status === "error" ? (
+                <IconAlertCircle
+                  aria-label={t("agentChat.composer.contextError", {
+                    defaultValue: "Context failed",
+                  })}
+                  className="size-3 shrink-0 text-destructive"
+                />
+              ) : (
+                <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+              )}
+              {onInspectContextItem ? (
+                <button
+                  type="button"
+                  onClick={() => onInspectContextItem(item.key)}
+                  className="min-w-0 truncate hover:underline"
+                >
+                  {item.title}
+                </button>
+              ) : (
+                <span className="min-w-0 truncate">{item.title}</span>
+              )}
+              {item.status === "error" && onRetryContextItem ? (
+                <button
+                  type="button"
+                  onClick={() => onRetryContextItem(item.key)}
+                  aria-label={t("agentChat.composer.retryContext", {
+                    defaultValue: "Retry {{name}} context",
+                    name: item.title,
+                  })}
+                  className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <IconRefresh className="size-3" />
+                </button>
+              ) : null}
+              {onRemoveContextItem && item.removable !== false ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    selectedContextItemKeyRef.current = null;
+                    setSelectedContextItemKey(null);
+                    onRemoveContextItem?.(item.key);
+                  }}
+                  aria-label={t("agentChat.composer.removeContext", {
+                    defaultValue: "Remove {{name}} context",
+                    name: item.title,
+                  })}
+                  className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <IconX className="h-3 w-3" />
+                </button>
+              ) : null}
             </span>
           ))}
         </div>
       )}
+      {contextSubmissionError ? (
+        <p role="alert" className="px-2 text-xs text-destructive">
+          {contextSubmissionError}
+        </p>
+      ) : null}
       <div
         data-agent-composer-variant={layoutVariant}
         data-agent-composer-slot="editor-wrap"
@@ -4121,7 +4250,17 @@ export function TiptapComposer({
         className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5"
       >
         {attachButton ??
-          (plusMenuMode === "hidden" ? null : (
+          (contextMenuItems !== undefined ? (
+            <ComposerContextMenu
+              items={contextMenuItems}
+              addAttachment={
+                attachmentsEnabled ? addAttachmentForCurrentScope : undefined
+              }
+              attachmentAccept={composerRuntime.getState().attachmentAccept}
+              onAttachmentError={onAttachmentError}
+              disabled={disabled}
+            />
+          ) : plusMenuMode === "hidden" ? null : (
             <ComposerPlusMenu
               addAttachment={addAttachmentForCurrentScope}
               attachmentAccept={composerRuntime.getState().attachmentAccept}
@@ -4181,6 +4320,7 @@ export function TiptapComposer({
                     type="button"
                     onClick={() => void submitComposer("immediate")}
                     disabled={!canSend}
+                    aria-label={sendButtonTooltip}
                     data-agent-composer-slot="send-button"
                     className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >

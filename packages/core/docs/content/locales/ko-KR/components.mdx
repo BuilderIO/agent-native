@@ -201,6 +201,46 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 이미 보조 UI 프리미티브를 연결한 경우에만 `TiptapComposer`를 사용하세요.
 당신 자신. 전체 채팅 런타임이 아닌 필드입니다.
 
+### 작성기에 준비된 컨텍스트 {#composer-context}
+
+`PromptComposer`와 `TiptapComposer`의 `submissionDisabled`는 전송만 차단하고 초안, 파일, 컨텍스트 준비는 허용합니다. 공급자를 설정하지 않아도 준비할 수 있습니다. `disabled`는 여전히 작성기 전체를 비활성화합니다.
+
+`PromptComposer`, `TiptapComposer`, `AgentKitComposer`는 `contextItems`와 `contextMenuItems`를 받습니다. 소스 읽기와 번역된 메뉴 이름은 앱이 관리합니다.
+
+각 `AgentChatContextItem`에는 `key`, `title`, `context`가 있습니다. 선택적인 `status`는 `ready`, `pending`, `error`입니다. `statusMessage`는 실패 이유를 설명합니다. `onRemoveContextItem`, `onInspectContextItem`, `onRetryContextItem`은 항목 키를 받습니다. `removable: false`는 제거를 숨깁니다. 대기 중이거나 실패한 항목은 `blocksSubmission: false`로 정보용임을 명시하지 않으면 제출을 차단합니다.
+
+호스트는 접근이 허용된 컨텍스트를 준비하고 제출 시 변경 불가능한 스냅샷을 받을 수 있습니다.
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+중첩 카테고리는 `children`을 사용합니다. 말단 작업은 `onSelect()`를 사용하며 `render(controls)`로 팝오버 내부 선택기를 제공할 수 있습니다. `ComposerContextMenu`와 `ComposerContextSearchInput`은 공개됩니다. `attachButton`은 앱의 업로드 흐름을 유지합니다.
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+스냅샷은 `undefined`와 명시적인 빈 배열을 구분합니다. 32개 항목 또는 직렬화된 UTF-8 데이터 64 KiB를 넘으면 자르지 않고 거부합니다. 전송 또는 대기열 등록 전에 `AgentKitComposer.beforeSend(submission)`을 기다리며 고정된 컨텍스트, 참조, 업로드된 첨부 파일 및 실행 옵션을 전달합니다. 거부되면 초안을 유지합니다. 컨텍스트는 메시지 본문과 메타데이터에 포함됩니다.
+
+`composerRef.current.submitWithText(text)`는 편집기를 먼저 바꾸지 않고 현재 파일과 모델 설정으로 동일한 제출 경로를 사용합니다. 수락 후에는 `true`, 차단 또는 거부 시에는 `false`를 반환합니다. 컨텍스트 선택은 접근 권한을 부여하지 않습니다. 앱은 인증된 작업을 통해 소스 접근을 다시 확인해야 합니다.
+
 ## 대화 렌더링 {#conversation}
 
 대본 스타일 렌더링에 `@agent-native/core/client/conversation` 사용

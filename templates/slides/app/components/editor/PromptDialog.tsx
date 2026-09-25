@@ -13,10 +13,17 @@ import {
   IconPresentation,
   IconUpload,
 } from "@tabler/icons-react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useImperativeHandle,
+} from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
@@ -29,6 +36,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
+import type { useSlidesComposerContext } from "./SlidesComposerContext";
 
 export type { UploadedFile } from "@/lib/prompt-file-uploads";
 
@@ -120,6 +128,14 @@ type PromptModelSelection = Pick<
   "model" | "engine" | "effort"
 >;
 
+export interface PromptPopoverHandle {
+  submitSource(
+    prompt: string,
+    files: File[],
+    sourceContext?: string,
+  ): Promise<boolean>;
+}
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -131,15 +147,18 @@ interface PromptPopoverProps {
     prompt: string,
     files: UploadedFile[],
     attachments: PromptAttachmentActions,
-    options?: PromptComposerSubmitOptions,
+    options?: SlidesPromptSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
   loading?: boolean;
   disabled?: boolean;
+  submissionDisabled?: boolean;
   showModelSelector?: boolean;
   modelStatusChecksEnabled?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
   presentation?: "popover" | "inline";
+  context?: ReturnType<typeof useSlidesComposerContext>;
+  controllerRef?: React.Ref<PromptPopoverHandle>;
   /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
   initialText?: string;
@@ -172,11 +191,14 @@ export default function PromptPopover({
   onSubmit,
   loading = false,
   disabled = false,
+  submissionDisabled = false,
   showModelSelector,
   modelStatusChecksEnabled,
   anchorRef,
   centered = false,
   presentation = "popover",
+  context,
+  controllerRef,
   draftScope,
   initialText,
   initialTextKey,
@@ -208,6 +230,8 @@ export default function PromptPopover({
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<TiptapComposerHandle>(null);
+  const sourceFilesRef = useRef<File[]>([]);
+  const sourceContextRef = useRef<string | undefined>(undefined);
   const [modelSelection, setModelSelection] = useState<
     PromptModelSelection | undefined
   >(initialModelSelection);
@@ -371,8 +395,26 @@ export default function PromptPopover({
       text: string,
       files: File[],
       _references: unknown[],
-      options?: PromptComposerSubmitOptions,
+      options?: SlidesPromptSubmitOptions,
     ) => {
+      files = [...new Set([...files, ...sourceFilesRef.current])];
+      if (sourceFilesRef.current.length) {
+        options = {
+          ...options,
+          attachments: [
+            ...(options?.attachments ?? []),
+            ...sourceFilesRef.current.map((file) => ({
+              name: file.name,
+              contentType: file.type,
+              file,
+            })),
+          ],
+        };
+      }
+      const submittedContext =
+        [googleDocContext, sourceContextRef.current]
+          .filter(Boolean)
+          .join("\n\n") || undefined;
       const preUploadChatAttachments = options?.attachments?.length
         ? await createPromptChatAttachments(options.attachments, [])
         : [];
@@ -380,13 +422,22 @@ export default function PromptPopover({
         onBeforeUpload?.(
           text,
           files,
-          googleDocContext || undefined,
+          submittedContext,
           preUploadChatAttachments,
           options,
         ) === false
       ) {
         return;
       }
+      const resolved = context
+        ? await context.beforeSend(options?.contextItems)
+        : undefined;
+      if (resolved)
+        options = {
+          ...options,
+          contextItems: resolved.items,
+          slidesContext: resolved.selection,
+        };
       submittingRef.current = true;
       setSubmitting(true);
       try {
@@ -411,7 +462,7 @@ export default function PromptPopover({
               setRetainingAttachments(false);
             },
             attachments: chatAttachments,
-            context: googleDocContext || undefined,
+            context: submittedContext,
           },
           options,
         );
@@ -444,12 +495,42 @@ export default function PromptPopover({
       commitFiles,
       discardFiles,
       googleDocContext,
+      context,
       onBeforeUpload,
       onSubmit,
       retainFiles,
       uploadFiles,
       t,
     ],
+  );
+
+  useImperativeHandle(
+    controllerRef,
+    () => ({
+      async submitSource(prompt, files, sourceContext) {
+        if (
+          !open ||
+          disabled ||
+          submissionDisabled ||
+          loading ||
+          uploading ||
+          submittingRef.current ||
+          !composerRef.current
+        )
+          return false;
+        sourceFilesRef.current = files;
+        sourceContextRef.current = sourceContext;
+        try {
+          return await composerRef.current.submitWithText(
+            [promptText.trim(), prompt].filter(Boolean).join("\n\n"),
+          );
+        } finally {
+          sourceFilesRef.current = [];
+          sourceContextRef.current = undefined;
+        }
+      },
+    }),
+    [open, disabled, submissionDisabled, loading, uploading, promptText],
   );
 
   const runImport = useCallback(
@@ -612,6 +693,7 @@ export default function PromptPopover({
           >
             <div className={inline ? undefined : "px-2.5 pb-2.5"}>
               <PromptComposer
+                {...context?.props}
                 composerRef={composerRef}
                 autoFocus={!inline}
                 layoutVariant={inline ? "hero" : undefined}
@@ -621,6 +703,7 @@ export default function PromptPopover({
                 attachmentsEnabled
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
+                submissionDisabled={submissionDisabled}
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
                 disabled={
@@ -744,6 +827,7 @@ export default function PromptPopover({
             )}
 
             {children}
+            {context?.dialogs}
 
             <GoogleDocImportHint
               promptText={promptText}

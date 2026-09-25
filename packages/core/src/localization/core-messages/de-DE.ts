@@ -1,6 +1,17 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.submitFailed": "Senden fehlgeschlagen. Versuche es erneut.",
+  "composer.addContext": "Kontext hinzufügen",
+  "composer.contextActionFailed": "Kontext konnte nicht hinzugefügt werden.",
+  "composer.contextBack": "Zurück",
+  "composer.searchContext": "Kontext suchen…",
+  "composer.noContextResults": "Kein passender Kontext.",
+  "composer.contextPending": "Kontext wird geladen",
+  "composer.contextError": "Kontext fehlgeschlagen",
+  "composer.retryContext": "Kontext {{name}} erneut laden",
+  "composer.contextLimitExceeded":
+    "Der Kontext ist zu groß. Entferne ein Element oder füge eine kleinere Auswahl hinzu.",
   "activity.reasoning": "Überlegung",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":

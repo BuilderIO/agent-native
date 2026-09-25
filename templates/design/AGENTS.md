@@ -29,9 +29,10 @@ Read the relevant skill before deeper work in that area.
 
 | Action | Purpose |
 | --- | --- |
-| `list-design-templates` / `list-designs` | Resolve a named template or prior design; paginated (`page`, `pageSize`, `createdBy: "me"`, `search`) |
+| `list-design-templates` / `list-designs` | Search paginated templates or designs |
+| `read-composer-source` | Read bounded Design, Slides, or Figma references |
 | `create-design-from-template` | Copy a template into a new design; screens keep their `createdFromTemplate` locks |
-| `get-design-snapshot` / `get-design-template` | Inspect a copied design's current files, or the original template |
+| `get-design-snapshot` / `get-design-template` | Read current files or the original template |
 | `open-visual-edit` | Open a running localhost app as live URL-backed iframe screens without a Design login |
 | `add-localhost-screens` / `update-screen-source` | Add route/state screens or switch one selected screen between live URL and static HTML |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames on the canvas |

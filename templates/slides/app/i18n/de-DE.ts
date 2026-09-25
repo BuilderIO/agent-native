@@ -805,6 +805,63 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    importDeck: "Präsentation importieren",
+    context: {
+      loadFailed: "Referenz konnte nicht geladen werden. Versuche es erneut.",
+      saveFailed: "Kontextauswahl konnte nicht gespeichert werden.",
+      system: "Designsysteme",
+      figmaUrl: "Figma-Link einfügen",
+      browse: "Frames durchsuchen",
+      empty: "Keine Referenzen gefunden.",
+      previous: "Zurück",
+      next: "Weiter",
+      title: "Kontext",
+      remove: "Referenz entfernen",
+      deck: "Präsentationen",
+      design: "Designreferenzen",
+      figma: "Figma-Frames",
+      notReady:
+        "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
+      emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
+      tooMany: "Wähle bis zu 20 Referenzen.",
+      search: "Referenzen suchen",
+      designCategory: "Gestaltung",
+    },
+    quickStart: {
+      invalidUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+      starting: "Wird gestartet…",
+      generate: "Generieren",
+      connectionRequired:
+        "Verbinde Builder.io über dem Startseiten-Prompt und versuche es erneut.",
+      invalidPdf: "Wähle eine PDF-Datei.",
+      notReady:
+        "Prüfe ausstehenden oder fehlerhaften Kontext und die Verbindung und versuche es erneut.",
+      tooLong: "Der Quelltext muss unter 20.000 Zeichen bleiben.",
+      trends: {
+        label: "Präsentation zu aktuellen Branchentrends erstellen",
+        field: "Branche oder Thema",
+        prompt:
+          "Recherchiere aktuelle Trends zum angegebenen Thema und erstelle eine Präsentation mit aktuellen Quellen. Prüfe die Informationen vor dem Generieren.",
+      },
+      notes: {
+        label: "Besprechungsnotizen in eine Präsentation umwandeln",
+        field: "Besprechungsnotizen",
+        prompt:
+          "Erstelle aus den bereitgestellten Besprechungsnotizen eine Präsentation zu Kernaussagen, Entscheidungen und nächsten Schritten. Verwende die Notizen als Quelle.",
+      },
+      pdf: {
+        label: "Kernaussagen einer PDF zusammenfassen",
+        field: "PDF-Datei",
+        prompt:
+          "Lies die angehängte PDF und fasse ihre Kernaussagen in einer Präsentation zusammen. Melde unlesbare Inhalte, statt zu raten.",
+      },
+      website: {
+        label: "Präsentation aus meiner Unternehmenswebsite erstellen",
+        field: "URL der Unternehmenswebsite",
+        prompt:
+          "Lies die angegebene Unternehmenswebsite und erstelle eine Präsentation über das Unternehmen. Melde Zugriffsfehler, statt Fakten zu erfinden.",
+      },
+    },
     connectBuilderIo: "Builder.io verbinden",
     connectingBuilder: "Builder.io wird verbunden…",
     recent: "Zuletzt verwendet",
@@ -854,7 +911,7 @@ const messages = {
     newDeckPlaceholder:
       "Beschreibe die Präsentation, die du erstellen möchtest...",
     skipPrompt: "Prompt überspringen",
-    firstDeckPromptTitle: "Welche Art von Präsentation sollen wir erstellen?",
+    firstDeckPromptTitle: "Erstellen wir deine erste Präsentation",
     firstDeckSkip: "Überspringen",
     chooseReferences: "Referenzen auswählen",
     addDesignSystem: "+ Designsystem",

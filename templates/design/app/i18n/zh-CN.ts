@@ -1581,7 +1581,30 @@ export default {
       "离开此视图时，{{count}} 个未发送的评论草稿已被丢弃。",
     staleAnchorDetail: "在画布上已找不到原始元素。",
   },
+  homeContext: {
+    notReady: "提示尚未准备好提交。请检查所选上下文和连接，然后重试。",
+    search: "搜索上下文…",
+    browse: "浏览",
+    loadFailed: "无法加载此参考。",
+    retry: "重试",
+    empty: "没有匹配的参考。",
+    none: "无",
+    design: "设计",
+    slides: "幻灯片",
+    referenceDesign: "参考设计",
+    figmaReference: "Figma 参考",
+    referenceDeck: "参考演示文稿",
+    quickSaas: "创建 SaaS 落地页",
+    quickDashboard: "创建仪表盘",
+    quickDeck: "创建演示文稿",
+    deckPrompt:
+      "创建精美的演示文稿，包含标题页、清晰的叙事、可视化数据和简洁的结束页。",
+  },
   home: {
+    importFromFigma: "从 Figma 导入",
+    figmaFile: "Figma 文件 (.fig)",
+    openImport: "打开导入",
+    importSelectedFile: "导入所选文件",
     starterSaasPrompt:
       "一个现代 SaaS 落地页，采用深色主题，包含首屏主视觉、三张功能卡片和最后的行动号召区域。",
     starterDashboardPrompt:

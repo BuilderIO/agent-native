@@ -13,6 +13,7 @@ import {
 import { useCallback } from "react";
 import { useLocation } from "react-router";
 
+import { HomeImportButton } from "@/components/editor/HomeImportButton";
 import { cn } from "@/lib/utils";
 
 const pageTitleKeys: Record<string, string> = {
@@ -106,6 +107,7 @@ export function Header() {
           </div>
         ) : null}
         <div className="flex items-center justify-end gap-2 shrink-0">
+          {isHome ? <HomeImportButton /> : null}
           {!isHome && actions}
           <RunsTray pollMs={0} onOpenThread={openRunThread} />
           <AgentToggleButton />
@@ -132,6 +134,7 @@ export function MobileHeaderActions() {
       )}
     >
       {actions}
+      {isHome ? <HomeImportButton /> : null}
     </div>
   );
 }

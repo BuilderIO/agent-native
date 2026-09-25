@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   listParams: null as Record<string, unknown> | null,
   refetch: vi.fn(),
   focusComposer: vi.fn(),
+  submitWithText: vi.fn(),
   agentEngine: { state: "configured", missing: false },
   connect: vi.fn(),
   starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
@@ -70,6 +71,9 @@ vi.mock("@agent-native/core/client/org", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: async () => ({ agentContext: "Frozen selected system" }),
+  actionErrorMessage: (error: unknown) =>
+    error instanceof Error ? error.message : undefined,
   useActionQuery: (name: string, params: Record<string, unknown>) => {
     if (name === "list-designs") {
       if (params.compact === "true") {
@@ -202,7 +206,10 @@ vi.mock("@/components/editor/PromptDialog", () => ({
   default: (props: Record<string, any>) => {
     mocks.promptProps = props;
     if (props.composerRef)
-      props.composerRef.current = { focus: mocks.focusComposer };
+      props.composerRef.current = {
+        focus: mocks.focusComposer,
+        submitWithText: mocks.submitWithText,
+      };
     return null;
   },
 }));
@@ -298,7 +305,18 @@ afterEach(async () => {
 });
 
 describe("Index skip to editor", () => {
-  it("seeds and focuses suggestions without spending or losing the selected template/system", async () => {
+  it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
+    mocks.submitWithText.mockResolvedValueOnce(false);
+    const suggestion = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "homeContext.quickDashboard",
+    );
+    await act(async () => suggestion?.click());
+    expect(mocks.toastError).toHaveBeenCalledWith("homeContext.notReady");
+    expect(mocks.promptProps?.initialText).toBeUndefined();
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
+  });
+  it("submits the localized quick start through the current composer without replacing its draft or selections", async () => {
     await act(async () =>
       mocks.promptProps?.onDesignSystemChange("override-system"),
     );
@@ -306,16 +324,15 @@ describe("Index skip to editor", () => {
       mocks.promptProps?.onTemplateChange("saved-template"),
     );
     const suggestion = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "home.starterDashboard",
+      (button) => button.textContent === "homeContext.quickDashboard",
     );
     await act(async () => suggestion?.click());
-    expect(mocks.promptProps?.initialText).toBe(mocks.starterPrompt);
-    expect(mocks.promptProps?.initialTextKey).toBe(1);
+    expect(mocks.submitWithText).toHaveBeenCalledWith(mocks.starterPrompt);
+    expect(mocks.promptProps?.initialText).toBeUndefined();
     expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
     expect(mocks.promptProps?.selectedDesignSystemId).toBe("override-system");
-    expect(mocks.focusComposer).toHaveBeenCalled();
     await act(async () => suggestion?.click());
-    expect(mocks.promptProps?.initialTextKey).toBe(2);
+    expect(mocks.submitWithText).toHaveBeenCalledTimes(2);
     expect(mocks.createDesign).not.toHaveBeenCalled();
     expect(mocks.createFromTemplate).not.toHaveBeenCalled();
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
@@ -377,7 +394,7 @@ describe("Index skip to editor", () => {
     expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 
-  it("offers provider connection and reenables the composer when configured", async () => {
+  it("offers provider connection without disabling draft or context staging and enables sending when configured", async () => {
     mocks.agentEngine = { state: "missing", missing: true };
     await act(async () => root.render(<Index />));
     const connect = Array.from(container.querySelectorAll("button")).find(
@@ -386,16 +403,23 @@ describe("Index skip to editor", () => {
     expect(connect).toBeDefined();
     expect(mocks.connect).not.toHaveBeenCalled();
     expect(mocks.promptProps).toMatchObject({
-      disabled: true,
+      submissionDisabled: true,
       showModelSelector: false,
       modelStatusChecksEnabled: false,
     });
+    expect(mocks.promptProps?.disabled).not.toBe(true);
+    expect(mocks.promptProps?.contextMenuItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "design" }),
+        expect.objectContaining({ id: "slides" }),
+      ]),
+    );
     await act(async () => connect?.click());
     expect(mocks.connect).toHaveBeenCalledTimes(1);
     mocks.agentEngine = { state: "configured", missing: false };
     await act(async () => root.render(<Index />));
     expect(mocks.promptProps).toMatchObject({
-      disabled: false,
+      submissionDisabled: false,
       showModelSelector: true,
       modelStatusChecksEnabled: true,
     });
@@ -519,7 +543,7 @@ describe("Index search empty state", () => {
     expect(container.textContent).toContain("Try a different search.");
     expect(container.textContent).not.toContain("home.createFirstDesign");
     expect(container.textContent).not.toContain("home.pickStartingPoint");
-    expect(container.textContent).toContain("home.starterDashboard");
+    expect(container.textContent).toContain("homeContext.quickDashboard");
   });
 });
 

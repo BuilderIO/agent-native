@@ -3865,6 +3865,7 @@ function DesignEditor() {
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        contextItems: pending.contextItems,
         designSystemId: pending.designSystemId,
         attempt: pending.attempt ?? 1,
         source: pending.source,
@@ -3997,6 +3998,7 @@ function DesignEditor() {
         model: pending?.model,
         engine: pending?.engine,
         effort: pending?.effort,
+        contextItems: pending?.contextItems,
         runTabId,
         attempt: pending?.attempt ?? 1,
         startedAt: Date.now(),
@@ -4026,6 +4028,7 @@ function DesignEditor() {
       prompt: pending.prompt,
       designSystemId: pending.designSystemId,
       images: imageAttachmentsFromUploadedFiles(files),
+      contextItems: pending.contextItems,
       uploadedFileContext: formatUploadedFileContext(files),
     };
   }, [id]);

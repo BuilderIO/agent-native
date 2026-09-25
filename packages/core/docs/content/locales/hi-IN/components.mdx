@@ -203,6 +203,46 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 `TiptapComposer` का उपयोग केवल तभी करें जब आप पहले से ही असिस्टेंट-यूआई प्रिमिटिव वायरिंग कर रहे हों
 स्वयं। यह फ़ील्ड है, संपूर्ण चैट रनटाइम नहीं.
 
+### कंपोज़र में तैयार संदर्भ {#composer-context}
+
+`PromptComposer` और `TiptapComposer` में `submissionDisabled` भेजना रोकता है, लेकिन ड्राफ़्ट, फ़ाइलें और संदर्भ तैयार करने देता है। प्रदाता का सेटअप न होने पर भेजना रुकता है, तैयारी नहीं। `disabled` अब भी पूरा कंपोज़र बंद करता है।
+
+`PromptComposer`, `TiptapComposer` और `AgentKitComposer` में `contextItems` तथा `contextMenuItems` दिए जा सकते हैं। स्रोत पढ़ना और स्थानीयकृत मेनू लेबल ऐप की ज़िम्मेदारी है।
+
+हर `AgentChatContextItem` में `key`, `title` और `context` होते हैं। वैकल्पिक `status` का मान `ready`, `pending` या `error` है। `statusMessage` विफलता बताता है। `onRemoveContextItem`, `onInspectContextItem` और `onRetryContextItem` को आइटम की कुंजी मिलती है। `removable: false` हटाने का विकल्प छिपाता है। लंबित या विफल आइटम भेजने से रोकते हैं, जब तक `blocksSubmission: false` उन्हें स्पष्ट रूप से केवल जानकारी के लिए न रखे।
+
+होस्ट पहले से अधिकृत संदर्भ तैयार करके भेजते समय अपरिवर्तनीय स्नैपशॉट प्राप्त कर सकता है:
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+नेस्टेड श्रेणियाँ `children` का उपयोग करती हैं। अंतिम क्रियाएँ `onSelect()` और पॉपओवर में चयन के लिए वैकल्पिक `render(controls)` देती हैं। `ComposerContextMenu` और `ComposerContextSearchInput` सार्वजनिक हैं। `attachButton` ऐप का अपना अपलोड प्रवाह बनाए रखता है।
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+स्नैपशॉट `undefined` और स्पष्ट खाली ऐरे में अंतर करता है। 32 से अधिक आइटम या 64 KiB से अधिक सीरियलाइज़ किए गए UTF-8 डेटा को बिना काटे अस्वीकार करता है। भेजने या कतार में लगाने से पहले `AgentKitComposer.beforeSend(submission)` की प्रतीक्षा होती है। इसमें स्थिर संदर्भ, रेफ़रेंस, अपलोड किए गए अटैचमेंट और रन विकल्प मिलते हैं। अस्वीकृति पर ड्राफ़्ट बचा रहता है। संदर्भ संदेश के पाठ और मेटाडेटा में शामिल होता है।
+
+`composerRef.current.submitWithText(text)` एडिटर को पहले बदले बिना मौजूदा फ़ाइलों और मॉडल सेटिंग के साथ उसी सबमिशन मार्ग का उपयोग करता है। स्वीकार होने पर `true`, रुकने या अस्वीकार होने पर `false` लौटाता है। संदर्भ चुनना पहुँच की अनुमति नहीं है। ऐप को प्रमाणित क्रियाओं से स्रोत की पहुँच फिर जाँचनी चाहिए।
+
 ## बातचीत प्रतिपादन {#conversation}
 
 प्रतिलेख-शैली प्रतिपादन के लिए `@agent-native/core/client/conversation` का उपयोग करें

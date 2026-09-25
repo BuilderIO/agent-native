@@ -803,6 +803,63 @@ const messages = {
     chooseAnotherFile: "Escolher outro arquivo",
   },
   home: {
+    importDeck: "Importar apresentação",
+    context: {
+      loadFailed: "Não foi possível carregar esta referência. Tente novamente.",
+      saveFailed: "Não foi possível salvar sua seleção de contexto.",
+      system: "Sistemas de design",
+      figmaUrl: "Cole um link do Figma",
+      browse: "Explorar quadros",
+      empty: "Nenhuma referência encontrada.",
+      previous: "Anterior",
+      next: "Próximo",
+      title: "Contexto",
+      remove: "Remover referência",
+      deck: "Apresentações",
+      design: "Referências de design",
+      figma: "Quadros do Figma",
+      notReady:
+        "O contexto está carregando ou indisponível. Tente novamente ou remova-o antes de enviar.",
+      emptySource: "Esta fonte não retornou contexto utilizável.",
+      tooMany: "Escolha até 20 referências.",
+      search: "Buscar referências",
+      designCategory: "Criação",
+    },
+    quickStart: {
+      invalidUrl: "Insira uma URL HTTP ou HTTPS válida.",
+      starting: "Iniciando…",
+      generate: "Gerar",
+      connectionRequired:
+        "Conecte o Builder.io acima do campo inicial e tente novamente.",
+      invalidPdf: "Escolha um arquivo PDF.",
+      notReady:
+        "Revise o contexto pendente ou com erro e a conexão, depois tente novamente.",
+      tooLong: "Mantenha o texto fonte abaixo de 20.000 caracteres.",
+      trends: {
+        label: "Criar uma apresentação sobre as últimas tendências do setor",
+        field: "Setor ou tema",
+        prompt:
+          "Pesquise as últimas tendências do tema fornecido e crie uma apresentação com fontes atuais. Verifique as informações antes de gerar.",
+      },
+      notes: {
+        label: "Transformar notas de reunião em uma apresentação",
+        field: "Notas de reunião",
+        prompt:
+          "Transforme as notas de reunião fornecidas em uma apresentação com pontos principais, decisões e próximos passos. Use as notas como fonte.",
+      },
+      pdf: {
+        label: "Resumir as principais conclusões de um PDF",
+        field: "Arquivo PDF",
+        prompt:
+          "Leia o PDF anexado e crie uma apresentação resumindo suas principais conclusões. Informe conteúdo ilegível em vez de adivinhar.",
+      },
+      website: {
+        label: "Gerar uma apresentação do site da minha empresa",
+        field: "URL do site da empresa",
+        prompt:
+          "Leia o site da empresa fornecido e crie uma apresentação sobre ela. Informe falhas de acesso em vez de inventar fatos.",
+      },
+    },
     connectBuilderIo: "Conectar o Builder.io",
     connectingBuilder: "Conectando ao Builder.io…",
     recent: "Recentes",
@@ -851,7 +908,7 @@ const messages = {
     newDeckPromptTitle: "Nova apresentação",
     newDeckPlaceholder: "Descreva a apresentação que você quer gerar...",
     skipPrompt: "Pular prompt",
-    firstDeckPromptTitle: "Que tipo de apresentação devemos gerar?",
+    firstDeckPromptTitle: "Vamos criar sua primeira apresentação",
     firstDeckSkip: "Pular",
     chooseReferences: "Escolher referências",
     addDesignSystem: "+ Sistema de design",

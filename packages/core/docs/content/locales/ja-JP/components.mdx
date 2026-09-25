@@ -205,6 +205,46 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 すでにアシスタント UI プリミティブを配線している場合にのみ、`TiptapComposer` を使用してください
 あなた自身。これはフィールドであり、チャット ランタイム全体ではありません。
 
+### コンポーザーに準備するコンテキスト {#composer-context}
+
+`PromptComposer` と `TiptapComposer` の `submissionDisabled` は送信だけを無効にし、下書き・ファイル・コンテキストの準備は許可します。プロバイダーが未設定でも準備は可能です。`disabled` は引き続きコンポーザー全体を無効にします。
+
+`PromptComposer`、`TiptapComposer`、`AgentKitComposer` は `contextItems` と `contextMenuItems` を受け取ります。ソースの読み取りとメニューの翻訳はアプリが管理します。
+
+各 `AgentChatContextItem` は `key`、`title`、`context` を持ちます。任意の `status` は `ready`、`pending`、`error` です。`statusMessage` は失敗理由を示します。`onRemoveContextItem`、`onInspectContextItem`、`onRetryContextItem` は項目のキーを受け取ります。`removable: false` は削除を非表示にします。保留中または失敗した項目は、`blocksSubmission: false` で参考情報として明示しない限り送信を阻止します。
+
+ホストはアクセス確認済みのコンテキストを準備し、送信時に不変のスナップショットを受け取れます。
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+入れ子のカテゴリには `children` を使います。末端のアクションは `onSelect()` を使い、`render(controls)` でポップオーバー内に選択画面を表示できます。`ComposerContextMenu` と `ComposerContextSearchInput` は公開されています。`attachButton` でアプリ独自のアップロード処理を維持できます。
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+スナップショットは `undefined` と明示的な空配列を区別します。32 項目またはシリアライズした UTF-8 データ 64 KiB を超えると、切り詰めずに拒否します。送信またはキュー登録前に `AgentKitComposer.beforeSend(submission)` を待機し、不変のコンテキスト、参照、アップロード済み添付、実行オプションを渡します。拒否時は下書きを保持します。コンテキストは本文とメタデータに含まれます。
+
+`composerRef.current.submitWithText(text)` はエディターを先に置き換えず、現在のファイルとモデル設定で同じ送信経路を使います。受理後は `true`、阻止または拒否時は `false` を返します。コンテキストの選択はアクセス権の付与ではありません。アプリの認証済みアクションでソースへのアクセスを再確認する必要があります。
+
 ## 会話のレンダリング {#conversation}
 
 トランスクリプト スタイルのレンダリングには `@agent-native/core/client/conversation` を使用します

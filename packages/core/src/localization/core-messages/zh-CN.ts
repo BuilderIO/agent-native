@@ -1,6 +1,16 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.submitFailed": "无法提交。请重试。",
+  "composer.addContext": "添加上下文",
+  "composer.contextActionFailed": "无法添加上下文。",
+  "composer.contextBack": "返回",
+  "composer.searchContext": "搜索上下文…",
+  "composer.noContextResults": "没有匹配的上下文。",
+  "composer.contextPending": "上下文加载中",
+  "composer.contextError": "上下文加载失败",
+  "composer.retryContext": "重试 {{name}} 上下文",
+  "composer.contextLimitExceeded": "上下文过大。请移除一项或附加更小的选区。",
   "activity.reasoning": "推理",
   "approval.alwaysAllow": "始终允许",
   "approval.alwaysAllowHint": "批准并始终允许此完全相同的命令",

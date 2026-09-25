@@ -1,6 +1,17 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.submitFailed": "भेजा नहीं जा सका। फिर से प्रयास करें।",
+  "composer.addContext": "संदर्भ जोड़ें",
+  "composer.contextActionFailed": "संदर्भ नहीं जोड़ा जा सका।",
+  "composer.contextBack": "वापस",
+  "composer.searchContext": "संदर्भ खोजें…",
+  "composer.noContextResults": "कोई मेल खाता संदर्भ नहीं।",
+  "composer.contextPending": "संदर्भ लंबित है",
+  "composer.contextError": "संदर्भ विफल हुआ",
+  "composer.retryContext": "{{name}} संदर्भ फिर से आज़माएँ",
+  "composer.contextLimitExceeded":
+    "संदर्भ बहुत बड़ा है। कोई आइटम हटाएँ या छोटा चयन संलग्न करें।",
   "activity.reasoning": "तर्क",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",

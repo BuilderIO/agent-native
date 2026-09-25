@@ -1,6 +1,8 @@
 import { useAgentEngineConfigured } from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import {
+  snapshotComposerContextItems,
+  areComposerContextItemsReady,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/core/client/composer";
@@ -41,6 +43,9 @@ import {
   IconCopy,
   IconX,
   IconPencil,
+  IconWorld,
+  IconLayoutDashboard,
+  IconPresentation,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
@@ -51,6 +56,7 @@ import { toast } from "sonner";
 import { trace } from "@/components/design/design-trace";
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import { useHomePromptContext } from "@/components/editor/HomePromptContext";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type {
   PromptTemplateOption,
@@ -147,13 +153,9 @@ export default function Index() {
   );
   const [homeSection, setHomeSection] = useState("templates");
   const composerRef = useRef<TiptapComposerHandle>(null);
-  const [starterDraft, setStarterDraft] = useState<{
-    text: string;
-    revision: number;
-  }>();
-  useEffect(() => {
-    if (starterDraft) composerRef.current?.focus();
-  }, [starterDraft]);
+  const [quickStartPending, setQuickStartPending] = useState(false);
+  const quickStartRef = useRef(false);
+  const submissionErrorRef = useRef(false);
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
@@ -209,6 +211,7 @@ export default function Index() {
     data: templatesData,
     isLoading: templatesLoading,
     isError: templatesError,
+    error: templatesLoadError,
     isFetching: templatesFetching,
     refetch: refetchTemplates,
   } = useActionQuery("list-design-templates", { includePreview: "true" });
@@ -230,6 +233,8 @@ export default function Index() {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
+    error: designSystemsError,
+    refetch: refetchDesignSystems,
   } = useDesignSystems();
   const agentEngine = useAgentEngineConfigured();
   const builderConnect = useBuilderConnectFlow({
@@ -382,6 +387,20 @@ export default function Index() {
     },
     [],
   );
+  const homeContext = useHomePromptContext({
+    systems: designSystemOptions,
+    systemId: newDesignSystemId,
+    onSystemChange: handleNewDesignSystemChange,
+    templates: templateOptions,
+    templateId: newTemplateId,
+    onTemplateChange: handleTemplateChange,
+    systemsLoading: designSystemsLoading,
+    systemsError: designSystemsError,
+    retrySystems: () => void refetchDesignSystems(),
+    templatesLoading,
+    templatesError: templatesLoadError,
+    retryTemplates: () => void refetchTemplates(),
+  });
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -703,7 +722,7 @@ export default function Index() {
           files,
           title,
           designSystemId,
-          skipQuestions: pendingOptions?.skipQuestions,
+          skipQuestions: pendingOptions?.skipQuestions ?? quickStartRef.current,
           ...options,
         });
         // Rejecting here is what lets PromptPopover restore the typed prompt.
@@ -784,12 +803,22 @@ export default function Index() {
 
   const handleSkipToEditor = useCallback(async () => {
     if (selectedTemplate && newDesignMode === "design") {
-      await handleSubmitPrompt("", [], {});
+      await handleSubmitPrompt("", [], {
+        contextItems: await homeContext.prepareSubmission(
+          snapshotComposerContextItems(homeContext.contextItems),
+        ),
+      });
       return false;
     }
     await startBlankDesign();
     return false;
-  }, [handleSubmitPrompt, newDesignMode, selectedTemplate, startBlankDesign]);
+  }, [
+    handleSubmitPrompt,
+    homeContext.contextItems,
+    newDesignMode,
+    selectedTemplate,
+    startBlankDesign,
+  ]);
 
   const handleHomeTemplateSelect = (templateId: string) => {
     handleTemplateChange(templateId);
@@ -972,7 +1001,7 @@ export default function Index() {
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <main className="mx-auto flex w-full max-w-370 flex-col px-4 pb-14 sm:px-6 lg:px-8">
-        <section className="design-home-hero relative flex flex-col items-center justify-center pt-20 text-center sm:pt-24">
+        <section className="design-home-hero relative flex flex-col items-center text-center">
           {agentEngine.missing ? (
             <div className="absolute top-7 flex flex-col items-center gap-2">
               <BuilderConnectPopover flow={builderConnect}>
@@ -990,7 +1019,7 @@ export default function Index() {
               ) : null}
             </div>
           ) : null}
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
             {t("home.designPromptTitle")}
           </h2>
           <div
@@ -1002,9 +1031,7 @@ export default function Index() {
               open
               onOpenChange={() => {}}
               composerRef={composerRef}
-              initialText={starterDraft?.text}
-              initialTextKey={starterDraft?.revision}
-              disabled={agentEngine.missing}
+              submissionDisabled={agentEngine.missing}
               showModelSelector={!agentEngine.missing}
               modelStatusChecksEnabled={!agentEngine.missing}
               title={t("home.newDesignLower")}
@@ -1023,6 +1050,15 @@ export default function Index() {
                   : t("promptDialog.skipPrompt")
               }
               onSubmit={handleSubmitPrompt}
+              onSubmitError={() => {
+                submissionErrorRef.current = true;
+              }}
+              beforeSubmitContext={homeContext.prepareSubmission}
+              submissionIdentity={homeContext.identity}
+              contextItems={homeContext.contextItems}
+              contextMenuItems={homeContext.menuItems}
+              onRemoveContextItem={homeContext.remove}
+              onRetryContextItem={homeContext.retry}
               templateOptions={templateOptions}
               templatesLoading={templatesLoading}
               selectedTemplateId={newTemplateId}
@@ -1046,31 +1082,60 @@ export default function Index() {
                 creativeContextEnabled ? handleCreativeContextChange : undefined
               }
               loading={newDesignHandoffPending}
-              onCreateDesignSystem={() => {
-                void navigate("/design-systems/setup");
-              }}
               creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
               onCreationModeChange={
                 fullAppBuildingEnabled ? setNewDesignMode : undefined
               }
             />
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2 pb-1">
-              {STARTER_PROMPTS.map((starter) => (
-                <Button
-                  key={starter.labelKey}
-                  variant="outline"
-                  size="sm"
-                  disabled={newDesignHandoffPending}
-                  onClick={() =>
-                    setStarterDraft((current) => ({
-                      text: t(starter.promptKey),
-                      revision: (current?.revision ?? 0) + 1,
-                    }))
-                  }
-                >
-                  {t(starter.labelKey)}
-                </Button>
-              ))}
+              {STARTER_PROMPTS.map((starter) => {
+                const button = (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      newDesignHandoffPending ||
+                      quickStartPending ||
+                      !areComposerContextItemsReady(homeContext.contextItems)
+                    }
+                    onClick={
+                      agentEngine.missing
+                        ? undefined
+                        : async () => {
+                            if (quickStartRef.current || !composerRef.current)
+                              return;
+                            quickStartRef.current = true;
+                            submissionErrorRef.current = false;
+                            setQuickStartPending(true);
+                            try {
+                              const accepted =
+                                await composerRef.current.submitWithText(
+                                  t(starter.promptKey),
+                                );
+                              if (!accepted && !submissionErrorRef.current)
+                                toast.error(t("homeContext.notReady"));
+                            } finally {
+                              quickStartRef.current = false;
+                              setQuickStartPending(false);
+                            }
+                          }
+                    }
+                  >
+                    <starter.Icon />
+                    {t(starter.labelKey)}
+                  </Button>
+                );
+                return agentEngine.missing ? (
+                  <BuilderConnectPopover
+                    key={starter.labelKey}
+                    flow={builderConnect}
+                  >
+                    {button}
+                  </BuilderConnectPopover>
+                ) : (
+                  <span key={starter.labelKey}>{button}</span>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -1605,22 +1670,21 @@ function LoadingSkeleton() {
   );
 }
 
-const STARTER_PROMPTS: { labelKey: string; promptKey: string }[] = [
+const STARTER_PROMPTS = [
   {
-    labelKey: "home.starterSaas",
+    labelKey: "homeContext.quickSaas",
     promptKey: "home.starterSaasPrompt",
+    Icon: IconWorld,
   },
   {
-    labelKey: "home.starterDashboard",
+    labelKey: "homeContext.quickDashboard",
     promptKey: "home.starterDashboardPrompt",
+    Icon: IconLayoutDashboard,
   },
   {
-    labelKey: "home.starterMobile",
-    promptKey: "home.starterMobilePrompt",
-  },
-  {
-    labelKey: "home.starterPricing",
-    promptKey: "home.starterPricingPrompt",
+    labelKey: "homeContext.quickDeck",
+    promptKey: "homeContext.deckPrompt",
+    Icon: IconPresentation,
   },
 ];
 

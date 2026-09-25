@@ -29,6 +29,11 @@ import {
   IconArrowRight,
   IconRefresh,
   IconSearch,
+  IconUpload,
+  IconTrendingUp,
+  IconNotes,
+  IconFileTypePdf,
+  IconWorld,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import {
@@ -48,6 +53,11 @@ import DeckCard from "@/components/deck/DeckCard";
 import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import {
+  HomeQuickStartDialog,
+  type HomeQuickStart,
+} from "@/components/editor/HomeQuickStartDialog";
+import { ImportDeckDialog } from "@/components/editor/ImportDeckDialog";
+import {
   NewDeckReferenceStep,
   type ImportedReference,
   type NewDeckReferenceSelection,
@@ -57,7 +67,9 @@ import type {
   PromptAttachmentActions,
   PromptImportSelection,
   PromptChatAttachment,
+  PromptPopoverHandle,
 } from "@/components/editor/PromptDialog";
+import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -82,6 +94,10 @@ import {
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
+import {
+  formatSlidesComposerContext,
+  type SlidesPromptSubmitOptions,
+} from "@/lib/composer-context";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import {
   describeUploadedFilesForAgent,
@@ -370,6 +386,8 @@ export default function Index() {
     designSystems,
     defaultSystem,
     refetch: refetchDesignSystems,
+    error: designSystemsError,
+    isLoading: designSystemsLoading,
   } = useDesignSystems();
   const {
     referenceDeck: workspaceReferenceDeck,
@@ -391,6 +409,8 @@ export default function Index() {
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
     useState<Deck | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(true);
+  const [quickStart, setQuickStart] = useState<HomeQuickStart | null>(null);
+  const homeComposerRef = useRef<PromptPopoverHandle>(null);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
     key: number;
@@ -478,6 +498,26 @@ export default function Index() {
     effectiveDefaultDesignSystemId ??
     workspaceDesignSystemId;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
+  const composerContext = useSlidesComposerContext({
+    defaultDesignSystemId: initialDesignSystemId,
+    defaultReferenceDeck: decks.find(
+      (deck) => deck.id === initialReferenceDeckId,
+    ),
+    systems: designSystems,
+    systemsError: designSystemsError,
+    systemsLoading: designSystemsLoading,
+    retrySystems: refetchDesignSystems,
+  });
+  const setImportOpen = (open: boolean) =>
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (open) next.set("import", "deck");
+        else next.delete("import");
+        return next;
+      },
+      { replace: true },
+    );
   const createdByParam = searchParams.get("createdBy");
   const deckFilter = resolveDeckFilter(createdByParam, storedDeckFilter);
   const normalizedDeckSearch = deckSearch.trim().toLowerCase();
@@ -608,11 +648,6 @@ export default function Index() {
     },
     [setSearchParams],
   );
-
-  const fillStarterPrompt = useCallback((prompt: string) => {
-    setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-    setShowNewDeckPrompt(true);
-  }, []);
 
   const setNewDeckPromptOpen = useCallback(
     (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {
@@ -1048,29 +1083,35 @@ export default function Index() {
         loadReferenceDeckGenerationContext(referenceDeckId),
         loadDesignSystemGenerationContext(selectedDesignSystem?.id),
       ]);
-    const designSystemContext = selectedDesignSystem
-      ? [
-          "",
-          "Design system selection:",
-          `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
-          "- The deck has already been linked to this design system.",
-          "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
-          hydratedDesignSystemContext,
-          "- Do not choose or apply a different design system.",
-        ].join("\n")
-      : [
-          "",
-          "Design system selection:",
-          "- No design system was selected in the picker.",
-          ...(referenceDeckId || hasHydratedReferenceDesign
-            ? [
-                "- A reference deck or attached reference document is selected above. Follow its measured visual language — type scale, weights, colors, alignment, margins, page proportions — as the styling source of truth. Do not call `get-workspace-defaults`, apply a workspace default design system, or substitute a generic look.",
-              ]
-            : [
-                "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
-                "- If no workspace default exists, establish one deliberate deck-level visual contract before the first slide: choose a background family, readable text and surface roles, one accent, a type pairing, spacing, radius, and image treatment that fit the subject. Record those choices as semantic --deck-* values on every fmd-slide wrapper and reuse them exactly; never alternate light and dark canvases, swap fonts, or invent a new palette per slide.",
-              ]),
-        ].join("\n");
+    const designSystemContext = referenceSelection.composerContext
+      ? formatSlidesComposerContext(
+          referenceSelection.composerContext,
+          referenceSelection.contextItems ?? [],
+          t("home.context.notReady"),
+        )
+      : selectedDesignSystem
+        ? [
+            "",
+            "Design system selection:",
+            `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
+            "- The deck has already been linked to this design system.",
+            "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
+            hydratedDesignSystemContext,
+            "- Do not choose or apply a different design system.",
+          ].join("\n")
+        : [
+            "",
+            "Design system selection:",
+            "- No design system was selected in the picker.",
+            ...(referenceDeckId || hasHydratedReferenceDesign
+              ? [
+                  "- A reference deck or attached reference document is selected above. Follow its measured visual language — type scale, weights, colors, alignment, margins, page proportions — as the styling source of truth. Do not call `get-workspace-defaults`, apply a workspace default design system, or substitute a generic look.",
+                ]
+              : [
+                  "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
+                  "- If no workspace default exists, establish one deliberate deck-level visual contract before the first slide: choose a background family, readable text and surface roles, one accent, a type pairing, spacing, radius, and image treatment that fit the subject. Record those choices as semantic --deck-* values on every fmd-slide wrapper and reuse them exactly; never alternate light and dark canvases, swap fonts, or invent a new palette per slide.",
+                ]),
+          ].join("\n");
     const referenceSource = referenceSelection.referenceSource;
     const referenceSourceContext = referenceSource
       ? [
@@ -1148,6 +1189,7 @@ export default function Index() {
     try {
       await persistDeckGenerationContext(deckId, {
         originalPrompt: trimmedPrompt,
+        additionalContext,
         files: filesForGeneration.map((file) => ({
           path: file.path,
           ...(file.url ? { url: file.url } : {}),
@@ -1156,6 +1198,8 @@ export default function Index() {
         })),
         designSystemId,
         referenceDeckId,
+        composerContext: referenceSelection.composerContext,
+        contextItems: referenceSelection.contextItems,
         ...(referenceSource ? { referenceSource } : {}),
         mode: importedSourceDeck ? "source-preserving" : "new",
         targetSlideCount:
@@ -1261,13 +1305,29 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       attachments: PromptAttachmentActions,
-      options?: PromptComposerSubmitOptions,
+      options?: SlidesPromptSubmitOptions,
     ) => {
       pendingDeckAttachmentActionsRef.current = attachments;
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
+      if (options?.slidesContext) {
+        void runPendingDeckGeneration(
+          prompt,
+          files,
+          {
+            designSystemId: options.slidesContext.designSystemId,
+            referenceDeckId: null,
+            composerContext: options.slidesContext,
+            contextItems: options.contextItems,
+          },
+          retryContext,
+          attachments.attachments,
+          options,
+        );
+        return "retain" as const;
+      }
       const retryReferenceFilePaths =
         newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
       setPendingDeck({
@@ -1309,6 +1369,7 @@ export default function Index() {
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
       setNewDeckPromptOpen,
+      runPendingDeckGeneration,
     ],
   );
 
@@ -1915,12 +1976,16 @@ export default function Index() {
 
   return (
     <main className="mx-auto w-full min-w-0 max-w-370 px-4 pb-14 sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-175 pt-3 md:hidden">
+      <div className="mx-auto flex w-full max-w-175 items-center gap-2 pt-3 md:hidden">
         <DeckSearchInput
           value={deckSearch}
           onChange={setDeckSearch}
           className="w-full"
         />
+        <Button onClick={() => setImportOpen(true)}>
+          <IconUpload />
+          {t("home.importDeck")}
+        </Button>
       </div>
       <section className="slides-home-hero relative">
         {agentEngine.missing ? (
@@ -1976,7 +2041,9 @@ export default function Index() {
             >
               <LazyPromptPopover
                 presentation="inline"
-                disabled={agentEngine.missing}
+                context={composerContext}
+                controllerRef={homeComposerRef}
+                submissionDisabled={agentEngine.missing}
                 showModelSelector={!agentEngine.missing}
                 modelStatusChecksEnabled={!agentEngine.missing}
                 open={showNewDeckPrompt}
@@ -1986,9 +2053,6 @@ export default function Index() {
                 onSkip={handlePromptSkip}
                 skipLabel={t("home.skipPrompt")}
                 onSubmit={handlePromptSubmit}
-                onImport={handleDirectImport}
-                importFromLabel={t("home.importFrom")}
-                importingLabel={t("editorToolbar.importing")}
                 onBeforeUpload={(
                   prompt,
                   files,
@@ -2023,23 +2087,44 @@ export default function Index() {
             </Suspense>
           </LazyChunkErrorBoundary>
           <div className="mt-3 flex flex-wrap justify-center gap-2">
-            {(["pitch", "update", "lesson"] as const).map((starter) => (
+            {(
+              [
+                ["trends", IconTrendingUp],
+                ["notes", IconNotes],
+                ["pdf", IconFileTypePdf],
+                ["website", IconWorld],
+              ] as const
+            ).map(([starter, Icon]) => (
               <Button
                 key={starter}
                 type="button"
                 variant="outline"
                 size="sm"
                 disabled={!showNewDeckPrompt || generating}
-                onClick={() =>
-                  fillStarterPrompt(t(`home.starters.${starter}.prompt`))
-                }
+                onClick={() => setQuickStart(starter)}
               >
-                {t(`home.starters.${starter}.label`)}
+                <Icon />
+                {t(`home.quickStart.${starter}.label`)}
               </Button>
             ))}
           </div>
         </div>
       </section>
+      <HomeQuickStartDialog
+        kind={quickStart}
+        onClose={() => setQuickStart(null)}
+        disabled={generating}
+        connectionRequired={agentEngine.missing}
+        onSubmit={async (prompt, files, sourceContext) =>
+          homeComposerRef.current?.submitSource(prompt, files, sourceContext) ??
+          false
+        }
+      />
+      <ImportDeckDialog
+        open={searchParams.get("import") === "deck"}
+        onOpenChange={setImportOpen}
+        onImport={handleDirectImport}
+      />
 
       {viewState === "loading" ? (
         <div className="deck-grid-container" aria-busy="true">

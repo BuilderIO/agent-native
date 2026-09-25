@@ -790,6 +790,63 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    importDeck: "デッキをインポート",
+    context: {
+      loadFailed: "参照を読み込めませんでした。再試行してください。",
+      saveFailed: "コンテキストの選択を保存できませんでした。",
+      system: "デザインシステム",
+      figmaUrl: "Figmaリンクを貼り付け",
+      browse: "フレームを参照",
+      empty: "参照が見つかりません。",
+      previous: "前へ",
+      next: "次へ",
+      title: "コンテキスト",
+      remove: "参照を削除",
+      deck: "プレゼンテーション",
+      design: "デザイン参照",
+      figma: "Figmaフレーム",
+      notReady:
+        "コンテキストを読み込み中、または利用できません。送信前に再試行するか削除してください。",
+      emptySource: "このソースには利用可能なコンテキストがありません。",
+      tooMany: "参照は20件まで選択できます。",
+      search: "参照を検索",
+      designCategory: "デザイン",
+    },
+    quickStart: {
+      invalidUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
+      starting: "開始中…",
+      generate: "生成",
+      connectionRequired:
+        "ホームの入力欄の上でBuilder.ioに接続してから再試行してください。",
+      invalidPdf: "PDFファイルを選択してください。",
+      notReady:
+        "読み込み中または失敗したコンテキストと接続状況を確認して再試行してください。",
+      tooLong: "ソーステキストは20,000文字未満にしてください。",
+      trends: {
+        label: "最新の業界動向についてプレゼンテーションを作成",
+        field: "業界またはトピック",
+        prompt:
+          "指定されたトピックの最新動向を調査し、最新の出典を含むプレゼンテーションを作成してください。生成前に情報を検証してください。",
+      },
+      notes: {
+        label: "会議メモをプレゼンテーションに変換",
+        field: "会議メモ",
+        prompt:
+          "提供された会議メモを基に、要点、決定事項、次のアクションをまとめたプレゼンテーションを作成してください。メモを情報源として使用してください。",
+      },
+      pdf: {
+        label: "PDFの重要なポイントを要約",
+        field: "PDFファイル",
+        prompt:
+          "添付PDFを読み、その要点をまとめたプレゼンテーションを作成してください。読めない内容は推測せずに報告してください。",
+      },
+      website: {
+        label: "自社サイトからデッキを生成",
+        field: "会社サイトのURL",
+        prompt:
+          "指定された会社サイトを読み、会社についてのプレゼンテーションを作成してください。アクセスできない場合は事実を捏造せずに報告してください。",
+      },
+    },
     connectBuilderIo: "Builder.io に接続",
     connectingBuilder: "Builder.io に接続中…",
     recent: "最近の項目",
@@ -838,7 +895,7 @@ const messages = {
     newDeckPromptTitle: "新しいプレゼンテーション",
     newDeckPlaceholder: "生成したいプレゼンテーションを説明してください...",
     skipPrompt: "プロンプトをスキップ",
-    firstDeckPromptTitle: "どのようなプレゼンテーションを生成しますか？",
+    firstDeckPromptTitle: "最初のプレゼンテーションを作成しましょう",
     firstDeckSkip: "スキップ",
     chooseReferences: "参照を選択",
     addDesignSystem: "+ デザインシステム",

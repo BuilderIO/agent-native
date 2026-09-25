@@ -1652,7 +1652,31 @@ export default {
     staleAnchorDetail:
       "O elemento original não foi mais encontrado na tela de design.",
   },
+  homeContext: {
+    notReady:
+      "A solicitação ainda não está pronta. Confira o contexto selecionado e a conexão e tente novamente.",
+    search: "Buscar contexto…",
+    browse: "Explorar",
+    loadFailed: "Não foi possível carregar esta referência.",
+    retry: "Tentar novamente",
+    empty: "Nenhuma referência correspondente.",
+    none: "Nenhum",
+    design: "Design",
+    slides: "Slides",
+    referenceDesign: "Design de referência",
+    figmaReference: "Referência do Figma",
+    referenceDeck: "Apresentação de referência",
+    quickSaas: "Criar uma página de SaaS",
+    quickDashboard: "Criar um painel",
+    quickDeck: "Criar uma apresentação",
+    deckPrompt:
+      "Crie uma apresentação refinada com slide de título, narrativa clara, dados visuais e um slide final conciso.",
+  },
   home: {
+    importFromFigma: "Importar do Figma",
+    figmaFile: "Arquivo do Figma (.fig)",
+    openImport: "Abrir importação",
+    importSelectedFile: "Importar arquivo selecionado",
     starterSaasPrompt:
       "Uma página inicial moderna de SaaS com tema escuro, seção de destaque, três cartões de funcionalidades e uma chamada para ação final.",
     starterDashboardPrompt:

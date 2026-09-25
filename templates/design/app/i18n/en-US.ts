@@ -1640,7 +1640,31 @@ export default {
       "{{count}} unsent comment draft(s) were discarded when you left this view.",
     staleAnchorDetail: "Original element no longer found on the canvas.",
   },
+  homeContext: {
+    notReady:
+      "The prompt is not ready to submit. Check the selected context and connection, then try again.",
+    search: "Search context…",
+    browse: "Browse",
+    loadFailed: "Could not load this reference.",
+    retry: "Retry",
+    empty: "No matching references.",
+    none: "None",
+    design: "Design",
+    slides: "Slides",
+    referenceDesign: "Reference design",
+    figmaReference: "Figma reference",
+    referenceDeck: "Reference deck",
+    quickSaas: "Create a SaaS landing page",
+    quickDashboard: "Create a dashboard",
+    quickDeck: "Create a slide deck",
+    deckPrompt:
+      "Create a polished slide deck with a title slide, a clear narrative, visual data, and a concise closing slide.",
+  },
   home: {
+    importFromFigma: "Import from Figma",
+    figmaFile: "Figma file (.fig)",
+    openImport: "Open import",
+    importSelectedFile: "Import selected file",
     starterSaasPrompt:
       "A modern SaaS landing page with a dark theme, hero section, three feature cards, and a final CTA section.",
     starterDashboardPrompt:

@@ -73,6 +73,19 @@ beforeEach(() => {
 });
 
 describe("list-decks", () => {
+  it("applies title search before pagination without reading slide bodies", async () => {
+    await action.run({ limit: 30, search: "Road%_map" });
+    expect(whereFn).toHaveBeenCalledWith({
+      and: [
+        { allowed: true },
+        undefined,
+        expect.objectContaining({ values: ["title_col", "road%_map"] }),
+      ],
+    });
+    expect(selectFn.mock.calls[0][0]).not.toHaveProperty("data");
+    expect(limitFn).toHaveBeenCalledWith(31);
+  });
+
   it("returns canonical deck URLs for A2A artifact verification", async () => {
     const result = await action.run({});
 
@@ -252,6 +265,7 @@ describe("list-decks", () => {
           strings: ["lower(trim(", ")) = ", ""],
           values: ["owner_email_col", "alice@example.com"],
         },
+        undefined,
       ],
     });
   });

@@ -812,6 +812,63 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
+    importDeck: "Importer une présentation",
+    context: {
+      loadFailed: "Impossible de charger cette référence. Réessayez.",
+      saveFailed: "Impossible d’enregistrer votre sélection de contexte.",
+      system: "Systèmes de design",
+      figmaUrl: "Collez un lien Figma",
+      browse: "Parcourir les cadres",
+      empty: "Aucune référence trouvée.",
+      previous: "Précédent",
+      next: "Suivant",
+      title: "Contexte",
+      remove: "Retirer la référence",
+      deck: "Présentations",
+      design: "Références de design",
+      figma: "Cadres Figma",
+      notReady:
+        "Le contexte est en cours de chargement ou indisponible. Réessayez ou retirez-le avant l’envoi.",
+      emptySource: "Cette source n’a fourni aucun contexte utilisable.",
+      tooMany: "Choisissez jusqu’à 20 références.",
+      search: "Rechercher des références",
+      designCategory: "Création",
+    },
+    quickStart: {
+      invalidUrl: "Saisissez une URL HTTP ou HTTPS valide.",
+      starting: "Démarrage…",
+      generate: "Générer",
+      connectionRequired:
+        "Connectez Builder.io au-dessus du champ d’accueil, puis réessayez.",
+      invalidPdf: "Choisissez un fichier PDF.",
+      notReady:
+        "Vérifiez le contexte en attente ou en erreur et la connexion, puis réessayez.",
+      tooLong: "Limitez le texte source à moins de 20 000 caractères.",
+      trends: {
+        label: "Créer une présentation sur les dernières tendances du secteur",
+        field: "Secteur ou sujet",
+        prompt:
+          "Recherchez les dernières tendances du sujet fourni et créez une présentation avec des sources actuelles. Vérifiez les informations avant de générer.",
+      },
+      notes: {
+        label: "Transformer des notes de réunion en présentation",
+        field: "Notes de réunion",
+        prompt:
+          "Transformez les notes de réunion fournies en présentation avec les points clés, les décisions et les prochaines étapes. Utilisez les notes comme source.",
+      },
+      pdf: {
+        label: "Résumer les points clés d’un PDF",
+        field: "Fichier PDF",
+        prompt:
+          "Lisez le PDF joint et créez une présentation résumant ses points clés. Signalez le contenu illisible au lieu de deviner.",
+      },
+      website: {
+        label: "Générer une présentation depuis le site de mon entreprise",
+        field: "URL du site de l’entreprise",
+        prompt:
+          "Lisez le site d’entreprise fourni et créez une présentation sur celle-ci. Signalez les problèmes d’accès au lieu d’inventer des faits.",
+      },
+    },
     connectBuilderIo: "Connecter Builder.io",
     connectingBuilder: "Connexion à Builder.io…",
     recent: "Récents",
@@ -861,7 +918,7 @@ const messages = {
     newDeckPlaceholder:
       "Décrivez la présentation que vous souhaitez générer...",
     skipPrompt: "Ignorer le prompt",
-    firstDeckPromptTitle: "Quel type de présentation devons-nous générer ?",
+    firstDeckPromptTitle: "Créons votre première présentation",
     firstDeckSkip: "Ignorer",
     chooseReferences: "Choisir des références",
     addDesignSystem: "+ Système de design",

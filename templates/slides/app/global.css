@@ -37,7 +37,7 @@
   }
 }
 
-@container (max-width: 60rem) {
+@container (max-width: 72rem) {
   .slides-home-toolbar {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: 3rem 3rem;
@@ -53,18 +53,11 @@
 
 .slides-home-hero {
   display: flex;
-  min-height: clamp(30rem, 52svh, 40rem);
+  min-height: clamp(36rem, 64svh, 44rem);
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding-top: 5rem;
+  padding-block-start: clamp(12rem, 33svh, 22rem);
   text-align: center;
-}
-
-@media (min-width: 40rem) {
-  .slides-home-hero {
-    padding-top: 6rem;
-  }
 }
 
 .slides-home-prompt-composer-area.agent-composer-area--hero {
@@ -72,8 +65,8 @@
 }
 
 [data-slides-home-composer] {
-  --agent-kit-composer-min-height: 7.75rem;
-  --agent-kit-composer-editor-min-height: 3.875rem;
+  --agent-kit-composer-min-height: 9rem;
+  --agent-kit-composer-editor-min-height: 5.125rem;
 }
 
 /* Keep the editable agent prompt readable even if the generated text utility

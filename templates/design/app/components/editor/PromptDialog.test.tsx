@@ -16,20 +16,28 @@ import PromptPopover, { assetsPickerUrl } from "./PromptDialog";
 
 interface ComposerStubProps {
   disabled?: boolean;
+  submissionDisabled?: boolean;
+  attachButton?: React.ReactElement<{ disabled?: boolean }>;
+  contextItems?: unknown[];
+  onRemoveContextItem?: (key: string) => void;
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
   composerRef?: React.Ref<{ focus: () => void }>;
   layoutVariant?: string;
+  onTextChange?: (text: string) => void;
   onAttachmentsChange?: (files: File[]) => void;
   onSubmit: (
     text: string,
     files: File[],
     references: unknown[],
     options: Record<string, unknown>,
-  ) => void;
+  ) => void | Promise<void>;
   submitting?: boolean;
 }
+const mockComposer = vi.hoisted(() => ({
+  current: null as ComposerStubProps | null,
+}));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
@@ -67,6 +75,7 @@ vi.mock("@agent-native/core/client/org", () => ({
 
 vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: ComposerStubProps) => {
+    mockComposer.current = props;
     const [text, setText] = useState("");
     const [files, setFiles] = useState<File[]>([]);
     const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -95,7 +104,10 @@ vi.mock("@agent-native/core/client/composer", () => ({
           data-testid="prompt-editor"
           disabled={props.disabled}
           value={text}
-          onInput={(event) => setText(event.currentTarget.value)}
+          onInput={(event) => {
+            setText(event.currentTarget.value);
+            props.onTextChange?.(event.currentTarget.value);
+          }}
         />
         <input
           data-testid="prompt-file-input"
@@ -110,9 +122,13 @@ vi.mock("@agent-native/core/client/composer", () => ({
         <button
           type="button"
           data-testid="composer-submit"
-          disabled={props.disabled || props.submitting}
+          disabled={
+            props.disabled || props.submitting || props.submissionDisabled
+          }
           onClick={() =>
-            props.onSubmit(text || "  hello world  \n", files, [], {})
+            Promise.resolve(
+              props.onSubmit(text || "  hello world  \n", files, [], {}),
+            ).catch(() => {})
           }
         >
           submit
@@ -231,6 +247,195 @@ async function renderPopover(props: Record<string, unknown>) {
 }
 
 describe("PromptPopover inline home", () => {
+  it("keeps drafts, files and context editable while only submission is disabled", async () => {
+    const onSubmit = vi.fn();
+    const onRemoveContextItem = vi.fn();
+    const props = {
+      inline: true,
+      onSubmit,
+      contextMenuItems: [],
+      contextItems: [
+        { key: "reference", title: "Reference", context: "Source" },
+      ],
+      onRemoveContextItem,
+    };
+    await renderPopover({ ...props, submissionDisabled: true });
+    const editor = container!.querySelector<HTMLTextAreaElement>(
+      '[data-testid="prompt-editor"]',
+    )!;
+    const input = container!.querySelector<HTMLInputElement>(
+      '[data-testid="prompt-file-input"]',
+    )!;
+    const submit = container!.querySelector<HTMLButtonElement>(
+      '[data-testid="composer-submit"]',
+    )!;
+    expect(editor.disabled).toBe(false);
+    expect(input.disabled).toBe(false);
+    expect(submit.disabled).toBe(true);
+    expect(mockComposer.current!.submissionDisabled).toBe(true);
+    expect(mockComposer.current!.attachButton!.props.disabled).toBe(false);
+    expect(mockComposer.current!.contextItems).toEqual(props.contextItems);
+    const file = new File(["brief"], "brief.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () => {
+      editor.value = "Draft before connecting";
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      mockComposer.current!.onRemoveContextItem!("reference");
+      submit.click();
+    });
+    expect(onRemoveContextItem).toHaveBeenCalledWith("reference");
+    expect(onSubmit).not.toHaveBeenCalled();
+    await act(async () => {
+      root!.render(
+        <PromptPopover
+          open
+          onOpenChange={() => {}}
+          title="Generate design"
+          {...props}
+          submissionDisabled={false}
+        />,
+      );
+    });
+    expect(editor.value).toBe("Draft before connecting");
+    expect(submit.disabled).toBe(false);
+    await act(async () => submit.click());
+    expect(onSubmit).toHaveBeenCalledWith(
+      "Draft before connecting",
+      [{ path: "/uploads/brief.txt" }],
+      {},
+    );
+  });
+
+  it("rejects failed quick-start handoffs without clearing typed draft, files, model, or frozen context", async () => {
+    const onSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("save failed"))
+      .mockResolvedValueOnce(undefined);
+    const onSubmitError = vi.fn();
+    const freshContext = Object.freeze([
+      {
+        key: "reference",
+        title: "Reference",
+        context: "Fresh bounded reference",
+        status: "ready" as const,
+      },
+    ]);
+    const beforeSubmitContext = vi.fn().mockResolvedValue(freshContext);
+    await renderPopover({
+      inline: true,
+      onSubmit,
+      onSubmitError,
+      beforeSubmitContext,
+    });
+    const editor = container!.querySelector<HTMLTextAreaElement>(
+      '[data-testid="prompt-editor"]',
+    )!;
+    await act(async () => {
+      editor.value = "Keep my typed draft";
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const file = new File(["reference"], "reference.png", {
+      type: "image/png",
+    });
+    const input = container!.querySelector<HTMLInputElement>(
+      '[data-testid="prompt-file-input"]',
+    )!;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () =>
+      input.dispatchEvent(new Event("change", { bubbles: true })),
+    );
+    const options = {
+      model: "selected-model",
+      engine: "selected-engine",
+      effort: "high",
+      contextItems: [
+        { key: "reference", title: "Reference", context: "Previous reference" },
+      ],
+    };
+    await act(async () => {
+      await expect(
+        mockComposer.current!.onSubmit(
+          "Localized quick start",
+          [file],
+          [],
+          options,
+        ),
+      ).rejects.toThrow("save failed");
+    });
+    expect(editor.value).toBe("Keep my typed draft");
+    expect(onSubmitError).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledWith(
+      "Localized quick start",
+      [{ path: "/uploads/reference.png" }],
+      { ...options, contextItems: freshContext },
+    );
+    expect(beforeSubmitContext).toHaveBeenCalledWith(options.contextItems);
+    await act(async () => {
+      await mockComposer.current!.onSubmit(
+        "Keep my typed draft",
+        [file],
+        [],
+        options,
+      );
+    });
+    expect(onSubmit).toHaveBeenLastCalledWith(
+      "Keep my typed draft",
+      [{ path: "/uploads/reference.png" }],
+      { ...options, contextItems: freshContext },
+    );
+  });
+
+  it("does not hand off an upload or restore old text into a different identity", async () => {
+    let resolveUpload!: (files: Array<{ path: string }>) => void;
+    mockEagerUpload.implementation = () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      });
+    const onSubmit = vi.fn();
+    const onOpenChange = vi.fn();
+    await renderPopover({
+      inline: true,
+      submissionIdentity: "first",
+      onSubmit,
+    });
+    const file = new File(["reference"], "reference.png");
+    let pending!: Promise<void>;
+    await act(async () => {
+      pending = Promise.resolve(
+        mockComposer.current!.onSubmit("Private draft", [file], [], {}),
+      );
+    });
+    const rejection = expect(pending).rejects.toThrow();
+    await act(async () =>
+      root!.render(
+        <PromptPopover
+          inline
+          open
+          title="Generate design"
+          submissionIdentity="second"
+          initialText="New account draft"
+          initialTextKey={1}
+          onOpenChange={onOpenChange}
+          onSubmit={onSubmit}
+        />,
+      ),
+    );
+    await act(async () => resolveUpload([{ path: "/uploads/reference.png" }]));
+    await rejection;
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(
+      container!.querySelector<HTMLTextAreaElement>(
+        '[data-testid="prompt-editor"]',
+      )?.value,
+    ).toBe("New account draft");
+  });
   it("seeds and focuses the shared composer without remounting or losing eager attachments", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onOpenChange = vi.fn();

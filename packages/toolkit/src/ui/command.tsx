@@ -58,10 +58,16 @@ const CommandDialog = ({
 
 const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
-  React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input> & {
+    leading?: React.ReactNode;
+  }
+>(({ className, leading, ...props }, ref) => (
   <div className="flex items-center border-b px-3" cmdk-input-wrapper="">
-    <IconSearch className="me-2 h-4 w-4 shrink-0 opacity-50" />
+    {leading === undefined ? (
+      <IconSearch className="me-2 h-4 w-4 shrink-0 opacity-50" />
+    ) : (
+      leading
+    )}
     <CommandPrimitive.Input
       ref={ref}
       className={cn(

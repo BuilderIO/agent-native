@@ -1654,7 +1654,31 @@ export default {
       "Se descartaron {{count}} borradores de comentarios sin enviar al salir de esta vista.",
     staleAnchorDetail: "Ya no se encuentra el elemento original en el lienzo.",
   },
+  homeContext: {
+    notReady:
+      "La solicitud aún no está lista. Revisa el contexto seleccionado y la conexión, e inténtalo de nuevo.",
+    search: "Buscar contexto…",
+    browse: "Explorar",
+    loadFailed: "No se pudo cargar esta referencia.",
+    retry: "Reintentar",
+    empty: "No hay referencias coincidentes.",
+    none: "Ninguno",
+    design: "Diseño",
+    slides: "Diapositivas",
+    referenceDesign: "Diseño de referencia",
+    figmaReference: "Referencia de Figma",
+    referenceDeck: "Presentación de referencia",
+    quickSaas: "Crear una página de SaaS",
+    quickDashboard: "Crear un panel",
+    quickDeck: "Crear una presentación",
+    deckPrompt:
+      "Crea una presentación cuidada con una portada, una narrativa clara, datos visuales y una diapositiva final concisa.",
+  },
   home: {
+    importFromFigma: "Importar desde Figma",
+    figmaFile: "Archivo de Figma (.fig)",
+    openImport: "Abrir importación",
+    importSelectedFile: "Importar archivo seleccionado",
     starterSaasPrompt:
       "Una página de inicio moderna para un SaaS con tema oscuro, sección principal, tres tarjetas de funciones y una llamada a la acción final.",
     starterDashboardPrompt:

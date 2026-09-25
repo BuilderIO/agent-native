@@ -1624,7 +1624,31 @@ export default {
       "इस व्यू से बाहर निकलने पर {{count}} नहीं भेजे गए कमेंट ड्राफ़्ट हटा दिए गए।",
     staleAnchorDetail: "मूल एलिमेंट अब कैनवास पर नहीं मिला।",
   },
+  homeContext: {
+    notReady:
+      "प्रॉम्प्ट अभी भेजने के लिए तैयार नहीं है। चुना गया संदर्भ और कनेक्शन जाँचें, फिर प्रयास करें।",
+    search: "संदर्भ खोजें…",
+    browse: "ब्राउज़ करें",
+    loadFailed: "यह संदर्भ लोड नहीं हो सका।",
+    retry: "फिर प्रयास करें",
+    empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
+    none: "कोई नहीं",
+    design: "डिज़ाइन",
+    slides: "स्लाइड",
+    referenceDesign: "संदर्भ डिज़ाइन",
+    figmaReference: "Figma संदर्भ",
+    referenceDeck: "संदर्भ प्रस्तुति",
+    quickSaas: "SaaS लैंडिंग पेज बनाएँ",
+    quickDashboard: "डैशबोर्ड बनाएँ",
+    quickDeck: "स्लाइड प्रस्तुति बनाएँ",
+    deckPrompt:
+      "शीर्षक स्लाइड, स्पष्ट कथा, दृश्य डेटा और संक्षिप्त अंतिम स्लाइड के साथ एक आकर्षक प्रस्तुति बनाएँ।",
+  },
   home: {
+    importFromFigma: "Figma से आयात करें",
+    figmaFile: "Figma फ़ाइल (.fig)",
+    openImport: "आयात खोलें",
+    importSelectedFile: "चुनी गई फ़ाइल आयात करें",
     starterSaasPrompt:
       "डार्क थीम, मुख्य परिचय खंड, तीन फ़ीचर कार्ड और अंत में कार्रवाई के आह्वान वाला एक आधुनिक SaaS लैंडिंग पेज।",
     starterDashboardPrompt:

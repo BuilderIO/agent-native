@@ -52,6 +52,10 @@ import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
+import {
+  readPendingDesignImport,
+  clearPendingDesignImport,
+} from "@/lib/pending-import";
 import { cn } from "@/lib/utils";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
@@ -86,6 +90,9 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const importFigmaFrame = useActionMutation("import-figma-frame");
   const figFileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [homeImport, setHomeImport] = useState(() =>
+    readPendingDesignImport(context.designId),
+  );
   const [figmaUrl, setFigmaUrl] = useState("");
   const [figmaAccessToken, setFigmaAccessToken] = useState("");
   const [figmaConnectionChecked, setFigmaConnectionChecked] = useState(false);
@@ -146,6 +153,8 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const finishImport = useCallback(
     async (result: ImportResult | undefined, fallback: string) => {
       if (result?.error) throw new Error(result.error);
+      clearPendingDesignImport(context.designId);
+      setHomeImport(undefined);
       setLastResult(result ?? null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["action", "get-design"] }),
@@ -533,6 +542,19 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       </div>
 
       <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
+        {homeImport?.kind === "file" ? (
+          <div className="grid gap-2 pb-3">
+            <span className="truncate text-sm">{homeImport.file.name}</span>
+            <Button
+              disabled={figUploadBusy}
+              onClick={() => {
+                void handleFigFileChange(homeImport.file);
+              }}
+            >
+              {t("home.importSelectedFile")}
+            </Button>
+          </div>
+        ) : null}
         <div className="space-y-0.5">
           {figmaRateLimitError ? (
             <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-[11px] leading-snug">

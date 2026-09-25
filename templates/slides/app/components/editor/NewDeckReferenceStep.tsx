@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type { AgentChatContextItem } from "@agent-native/toolkit/composer";
 import {
   IconArrowLeft,
   IconBrandFigma,
@@ -37,12 +38,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
+import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 export interface NewDeckReferenceSelection {
+  composerContext?: SlidesComposerContext;
+  contextItems?: readonly AgentChatContextItem[];
   designSystemId?: string | null;
   referenceDeckId?: string | null;
   referenceFilePaths?: string[];

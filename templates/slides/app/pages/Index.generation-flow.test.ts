@@ -242,7 +242,7 @@ describe("new deck generation flow", () => {
   });
 
   it("preserves the composer model selection through the reference step", () => {
-    expect(source).toContain("options?: PromptComposerSubmitOptions");
+    expect(source).toContain("options?: SlidesPromptSubmitOptions");
     expect(source).toContain("modelSelection: options");
     expect(flow).toContain("...modelSelection");
   });
@@ -271,7 +271,8 @@ describe("new deck generation flow", () => {
     expect(directImportFlow).toContain('callAction("import-file"');
     expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
     expect(source).toContain("onImport={handleDirectImport}");
-    expect(source).toContain('importFromLabel={t("home.importFrom")}');
+    expect(source).toContain("<ImportDeckDialog");
+    expect(source).toContain('open={searchParams.get("import") === "deck"}');
   });
 
   it("turns an imported PPTX into a reusable reference deck", () => {

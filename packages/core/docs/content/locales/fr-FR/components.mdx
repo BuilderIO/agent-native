@@ -208,6 +208,46 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 Utilisez `TiptapComposer` uniquement si vous câblez déjà des primitives d'interface utilisateur de l'assistant
 vous-même. Il s'agit du champ, pas de l'intégralité du temps d'exécution du chat.
 
+### Contexte préparé dans le compositeur {#composer-context}
+
+`PromptComposer` et `TiptapComposer` acceptent `submissionDisabled` pour bloquer l’envoi tout en permettant de préparer le brouillon, les fichiers et le contexte. L’absence de configuration du fournisseur bloque l’envoi, pas la préparation. `disabled` désactive toujours tout le compositeur.
+
+`PromptComposer`, `TiptapComposer` et `AgentKitComposer` acceptent `contextItems` et `contextMenuItems`. Les applications gèrent la lecture des sources et les libellés localisés.
+
+Chaque `AgentChatContextItem` contient `key`, `title` et `context`. Le champ facultatif `status` vaut `ready`, `pending` ou `error`. `statusMessage` explique les échecs. `onRemoveContextItem`, `onInspectContextItem` et `onRetryContextItem` reçoivent la clé. `removable: false` masque la suppression. Les éléments en attente ou en échec bloquent l’envoi sauf si `blocksSubmission: false` les rend explicitement informatifs.
+
+L’hôte peut préparer un contexte déjà autorisé et recevoir un instantané figé lors de l’envoi :
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+Les catégories imbriquées utilisent `children`. Les actions terminales utilisent `onSelect()` et peuvent fournir `render(controls)` pour un sélecteur intégré. `ComposerContextMenu` et `ComposerContextSearchInput` sont publics. `attachButton` permet de conserver le parcours de téléversement de l’application.
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+L’instantané distingue `undefined` d’un tableau vide explicite. Il refuse plus de 32 éléments ou 64 Kio de données UTF-8 sérialisées, sans troncature. `AgentKitComposer.beforeSend(submission)` est attendu avant l’envoi ou la mise en file et reçoit le contexte, les références, les pièces jointes téléversées et les options figés. Un rejet conserve le brouillon. Le contexte figure dans le texte et les métadonnées.
+
+`composerRef.current.submitWithText(text)` utilise le même parcours avec les fichiers et le modèle actuels sans remplacer d’abord le texte de l’éditeur. Il renvoie `true` après acceptation ou `false` en cas de blocage ou de rejet. Sélectionner du contexte ne donne aucun droit d’accès. Les actions authentifiées doivent vérifier à nouveau l’accès aux sources.
+
 ## Rendu des conversations {#conversation}
 
 Utilisez `@agent-native/core/client/conversation` pour un rendu de style transcription

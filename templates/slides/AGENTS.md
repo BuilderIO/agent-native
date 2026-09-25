@@ -35,10 +35,9 @@ Read the relevant skill before deeper work:
 | `duplicate-deck` | Duplicate a deck, minting new slide ids |
 | `get-deck` | Read a deck or one targeted slide's full HTML |
 | `list-decks` | List decks with metadata, paged |
+| `read-composer-source` | Read bounded Slides, Design, or Figma references |
 | `apply-design-system` | Link a design system's colors and typography to a deck |
-| `export-pptx` | Export a deck as a PowerPoint file |
-| `export-html` | Export a deck as a standalone HTML file |
-| `export-google-slides` | Export a deck as a Google-Slides-importable PPTX |
+| `export-pptx` / `export-html` / `export-google-slides` | Export PowerPoint, HTML, or a Google-Slides-importable PPTX |
 | `generate-image-api` | Generate a slide image via the Assets app |
 
 ## Core Rules

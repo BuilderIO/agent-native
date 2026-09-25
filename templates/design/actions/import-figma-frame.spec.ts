@@ -8,6 +8,11 @@ const mocks = vi.hoisted(() => ({
   saveImportedDesignFiles: vi.fn(),
   ssrfSafeFetch: vi.fn(),
   uploadFile: vi.fn(),
+  createDesign: vi.fn(),
+}));
+
+vi.mock("./create-design.js", () => ({
+  default: { run: mocks.createDesign },
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -65,6 +70,7 @@ describe("import-figma-frame", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getRequestUserEmail.mockReturnValue("designer@example.com");
+    mocks.createDesign.mockResolvedValue({ id: "new-design" });
     mocks.resolveImportDesignId.mockImplementation(
       async (designId?: string) => designId ?? "design-1",
     );
@@ -86,6 +92,66 @@ describe("import-figma-frame", () => {
       overview: true,
       urlPath: "/design/design-1",
     });
+  });
+
+  it("imports into an explicit new design without reading stale editor navigation", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValue(
+      jsonEnvelope({ nodes: { "1:2": SIMPLE_FRAME } }),
+    );
+    await action.run({
+      fileKey: "abcDEF12345",
+      nodeId: "1:2",
+      createNew: true,
+    } as any);
+
+    expect(mocks.resolveImportDesignId).not.toHaveBeenCalled();
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      { title: "Hero", projectType: "prototype", designSystemId: null },
+      undefined,
+    );
+    expect(
+      mocks.executeProviderApiRequest.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.createDesign.mock.invocationCallOrder[0]!);
+    expect(mocks.saveImportedDesignFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "new-design",
+        sourceType: "figma-import",
+      }),
+    );
+  });
+
+  it("does not create an empty project when the Figma read fails", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValue(
+      errorEnvelope(403, "No access"),
+    );
+    await expect(
+      action.run({
+        fileKey: "abcDEF12345",
+        nodeId: "1:2",
+        createNew: true,
+      } as any),
+    ).rejects.toThrow("No access");
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+  });
+
+  it("rejects ambiguous or unauthenticated new targets before provider work", async () => {
+    await expect(
+      action.run({
+        fileKey: "abcDEF12345",
+        createNew: true,
+        designId: "existing",
+      } as any),
+    ).rejects.toThrow("not both");
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+    await expect(
+      action.run({
+        fileKey: "abcDEF12345",
+        createNew: true,
+      } as any),
+    ).rejects.toThrow("Sign in");
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
+    expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 
   it("checks target access before any Figma fetch or durable upload", async () => {

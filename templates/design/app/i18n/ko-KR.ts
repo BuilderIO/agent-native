@@ -1631,7 +1631,31 @@ export default {
       "이 보기를 벗어나면서 보내지 않은 댓글 초안 {{count}}개가 삭제되었습니다.",
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
+  homeContext: {
+    notReady:
+      "아직 요청을 제출할 수 없습니다. 선택한 컨텍스트와 연결을 확인한 후 다시 시도하세요.",
+    search: "컨텍스트 검색…",
+    browse: "찾아보기",
+    loadFailed: "이 참조를 불러오지 못했습니다.",
+    retry: "다시 시도",
+    empty: "일치하는 참조가 없습니다.",
+    none: "없음",
+    design: "디자인",
+    slides: "슬라이드",
+    referenceDesign: "참조 디자인",
+    figmaReference: "Figma 참조",
+    referenceDeck: "참조 프레젠테이션",
+    quickSaas: "SaaS 랜딩 페이지 만들기",
+    quickDashboard: "대시보드 만들기",
+    quickDeck: "슬라이드 만들기",
+    deckPrompt:
+      "제목 슬라이드, 명확한 이야기, 시각화된 데이터와 간결한 마무리 슬라이드가 있는 세련된 프레젠테이션을 만들어 주세요.",
+  },
   home: {
+    importFromFigma: "Figma에서 가져오기",
+    figmaFile: "Figma 파일 (.fig)",
+    openImport: "가져오기 열기",
+    importSelectedFile: "선택한 파일 가져오기",
     starterSaasPrompt:
       "어두운 테마, 히어로 섹션, 기능 카드 3개, 마지막 행동 유도 섹션을 갖춘 현대적인 SaaS 랜딩 페이지.",
     starterDashboardPrompt:

@@ -8,7 +8,8 @@
 @source "./**/*.{ts,tsx}";
 
 .design-home-hero {
-  min-height: clamp(30rem, 52svh, 40rem);
+  min-height: clamp(36rem, 64svh, 44rem);
+  padding-block-start: clamp(12rem, 33svh, 22rem);
 }
 
 .design-home-toolbar {
@@ -28,7 +29,7 @@
   grid-row: 2;
 }
 
-@container design-home-toolbar (min-width: 60rem) {
+@container design-home-toolbar (min-width: 72rem) {
   .design-home-header {
     grid-template-columns: minmax(0, 1fr) 43.75rem minmax(0, 1fr);
     grid-template-rows: 3rem;
@@ -44,14 +45,12 @@
   padding: 0;
 }
 
-[data-design-home-composer] {
-  --agent-kit-composer-min-height: 7.75rem;
-  --agent-kit-composer-editor-min-height: 3.875rem;
-}
-
 /* Keep agent context available to the Design agent without making the
  * composer carry implementation details as visible chips. */
-[data-design-app] .agent-composer-context-row {
+[data-design-app]
+  .agent-composer-context-row:not(
+    [data-design-home-composer] .agent-composer-context-row
+  ) {
   display: none;
 }
 

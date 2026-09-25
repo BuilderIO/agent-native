@@ -6,8 +6,10 @@ import {
   useHeaderTitle,
   useHeaderActions,
 } from "@agent-native/toolkit/app-shell";
-import { useLocation } from "react-router";
+import { IconUpload } from "@tabler/icons-react";
+import { useLocation, useSearchParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { useDecks } from "@/context/DeckContext";
 import { cn } from "@/lib/utils";
 
@@ -59,6 +61,8 @@ function ResolvedTitle({ pathname }: { pathname: string }) {
 }
 
 export function Header() {
+  const t = useT();
+  const [, setSearchParams] = useSearchParams();
   const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
@@ -86,6 +90,23 @@ export function Header() {
           </div>
         )}
         <div className="flex items-center justify-end gap-2 shrink-0">
+          {home && (
+            <Button
+              onClick={() =>
+                setSearchParams(
+                  (previous) => {
+                    const next = new URLSearchParams(previous);
+                    next.set("import", "deck");
+                    return next;
+                  },
+                  { replace: true },
+                )
+              }
+            >
+              <IconUpload />
+              {t("home.importDeck")}
+            </Button>
+          )}
           {!home && actions}
           <NotificationsBell pollMs={30_000} />
           <RunsTray pollMs={0} />

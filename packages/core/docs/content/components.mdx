@@ -223,6 +223,46 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 Use `TiptapComposer` only if you are already wiring assistant-ui primitives
 yourself. It is the field, not the whole chat runtime.
 
+### Staged composer context {#composer-context}
+
+`PromptComposer` and `TiptapComposer` accept `submissionDisabled` to block sending while leaving draft, file, and context staging enabled. Missing provider setup blocks submission, not staging. `disabled` still disables the full composer.
+
+`PromptComposer`, `TiptapComposer`, and `AgentKitComposer` accept `contextItems` and `contextMenuItems`. Apps own source reads and localized menu labels.
+
+Each `AgentChatContextItem` has `key`, `title`, and `context`. Optional `status` is `ready`, `pending`, or `error`. `statusMessage` explains failures. `onRemoveContextItem`, `onInspectContextItem`, and `onRetryContextItem` receive the item key. `removable: false` hides removal. Pending or failed items block submission unless `blocksSubmission: false` explicitly keeps them informational.
+
+A host can stage already-authorized context and receive the frozen snapshot on submission:
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+Nested menu categories use `children`. Leaf actions use `onSelect()` and can supply `render(controls)` for an in-popover picker. `ComposerContextMenu` and `ComposerContextSearchInput` are public exports. Apps can retain their own upload flow with `attachButton`.
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+The snapshot preserves `undefined` versus an explicit empty array. It rejects more than 32 items or 64 KiB of serialized UTF-8 data without truncation. `AgentKitComposer.beforeSend(submission)` is awaited before send or queue and receives frozen context, references, uploaded attachments, and run options. Rejection preserves the draft. Context is included in message text and metadata.
+
+`composerRef.current.submitWithText(text)` uses the same submission path with current files and model settings without replacing the editor first. It resolves to `true` after acceptance or `false` when blocked or rejected. Context selection is not an access grant. Apps must resolve and recheck source access through their authenticated actions.
+
 ## Conversation Rendering {#conversation}
 
 Use `@agent-native/core/client/conversation` for transcript-style rendering

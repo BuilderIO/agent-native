@@ -201,6 +201,46 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 仅当您已经连接 Assistant-ui 原语时才使用 `TiptapComposer`
 你自己。这是字段，而不是整个聊天运行时。
 
+### 暂存的输入框上下文 {#composer-context}
+
+`PromptComposer` 和 `TiptapComposer` 的 `submissionDisabled` 仅阻止提交，仍允许编辑草稿、添加文件和准备上下文。未配置提供商不会阻止准备工作。`disabled` 仍会禁用整个输入框。
+
+`PromptComposer`、`TiptapComposer` 和 `AgentKitComposer` 接受 `contextItems` 与 `contextMenuItems`。应用负责读取来源和提供本地化菜单标签。
+
+每个 `AgentChatContextItem` 包含 `key`、`title` 和 `context`。可选 `status` 为 `ready`、`pending` 或 `error`。`statusMessage` 说明失败原因。`onRemoveContextItem`、`onInspectContextItem` 和 `onRetryContextItem` 接收条目键。`removable: false` 隐藏移除操作。等待中或失败的条目会阻止提交，除非用 `blocksSubmission: false` 明确设为仅供参考。
+
+宿主可暂存已获访问授权的上下文，并在提交时接收不可变快照：
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+嵌套分类使用 `children`。叶级操作使用 `onSelect()`，并可通过 `render(controls)` 在弹出层内提供选择器。`ComposerContextMenu` 和 `ComposerContextSearchInput` 均为公开导出。`attachButton` 可保留应用自己的上传流程。
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={[{ id: "design", label: "Design", children: designItems }]}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+快照区分 `undefined` 和显式空数组。超过 32 个条目或 64 KiB 的序列化 UTF-8 数据会被拒绝，不会截断。发送或排队前会等待 `AgentKitComposer.beforeSend(submission)`，传入冻结的上下文、引用、已上传附件和运行选项。拒绝时保留草稿。上下文包含在消息文本与元数据中。
+
+`composerRef.current.submitWithText(text)` 沿用当前文件、模型设置和提交路径，不会先替换编辑器内容。接受后返回 `true`，被阻止或拒绝时返回 `false`。选择上下文并不授予访问权限。应用必须通过已认证的操作重新检查来源访问权限。
+
 ## 对话渲染 {#conversation}
 
 使用 `@agent-native/core/client/conversation` 进行转录样式渲染
