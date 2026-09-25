@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
+  GEIST_MONO_SEMIBOLD_BASE64,
+  GEIST_REGULAR_BASE64,
+  GEIST_SEMIBOLD_BASE64,
   LIBERATION_SANS_BOLD_BASE64,
   LIBERATION_SANS_REGULAR_BASE64,
   NOTO_NASKH_ARABIC_BASE64,
@@ -12,7 +15,8 @@ import {
 /**
  * Liberation Sans is the metric-compatible libre replacement for
  * Arial/Helvetica that the OG image SVG asks for. Noto Naskh Arabic fills the
- * Arabic script gap for localized docs titles. They ship embedded as base64
+ * Arabic script gap for localized docs titles. Geist and Geist Mono match the
+ * first-party sign-in page for app preview cards. They ship embedded as base64
  * (see {@link ./og-fonts-data.ts}) so the renderer never depends on the host's
  * system fonts — Linux serverless runtimes (Netlify/Lambda) have neither Arial,
  * Inter, nor Arabic fallback fonts.
@@ -27,10 +31,15 @@ const OG_FONT_FILES = [
     filename: "NotoNaskhArabic-Variable.ttf",
     base64: NOTO_NASKH_ARABIC_BASE64,
   },
+  { filename: "Geist-Regular.ttf", base64: GEIST_REGULAR_BASE64 },
+  { filename: "Geist-SemiBold.ttf", base64: GEIST_SEMIBOLD_BASE64 },
+  { filename: "GeistMono-SemiBold.ttf", base64: GEIST_MONO_SEMIBOLD_BASE64 },
 ] as const;
 
 export const OG_FONT_FAMILY = "Liberation Sans";
 export const OG_ARABIC_FONT_FAMILY = "Noto Naskh Arabic";
+export const OG_GEIST_FONT_FAMILY = "Geist";
+export const OG_GEIST_MONO_FONT_FAMILY = "Geist Mono";
 
 let cachedFontFiles: string[] | null | undefined;
 

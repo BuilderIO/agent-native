@@ -59,6 +59,7 @@ import {
 import {
   BUILT_IN_AUTH_MARKETING,
   resolveBuiltInAuthMarketing,
+  resolveBuiltInAuthMarketingByName,
   resolveBuiltInAuthMarketingPresentation,
   resolveBuiltInAuthMarketingSlug,
   type AuthMarketingContent,
@@ -147,9 +148,8 @@ function isBuilderPreviewLocalDevEnabled(): boolean {
   ) {
     return false;
   }
-  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
-    ?.trim()
-    .toLowerCase();
+  const value =
+    process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]?.trim().toLowerCase();
   return value === "1" || value === "true";
 }
 
@@ -885,7 +885,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     checkEmailTitle: "अपना ईमेल देखें",
     resetPasswordTitle: "पासवर्ड रीसेट करें",
     createAccountSubtitle: "शुरू करने के लिए खाता बनाएं",
-    googleOnlySubtitle: "जारी रखने के लिए अपना workspace Google खाता उपयोग करें",
+    googleOnlySubtitle:
+      "जारी रखने के लिए अपना workspace Google खाता उपयोग करें",
     signInSubtitle: "अपने खाते में साइन इन करें",
     finishAccountSubtitle: "अपना खाता बनाना पूरा करें",
     resetPasswordSubtitle: "अपना पासवर्ड रीसेट करें",
@@ -911,7 +912,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     sendResetLink: "रीसेट लिंक भेजें",
     backToSignIn: "साइन इन पर वापस जाएं",
     localDevButton: "स्थानीय डेवलपर के रूप में जारी रखें",
-    localDevDescription: "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
+    localDevDescription:
+      "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
     localDevHelp: "स्थानीय विकास साइन-इन के बारे में जानें",
     localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
@@ -924,7 +926,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     closeGoogleChoices: "Google साइन-इन विकल्प बंद करें",
     signInToContinue: "जारी रखने के लिए साइन इन करें।",
     finishSignInFailed: "साइन इन अपने आप पूरा नहीं हो सका।",
-    enterPasswordAfterVerification: "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
+    enterPasswordAfterVerification:
+      "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
     finishSignInManually:
       "साइन इन अपने आप पूरा नहीं हो सका। जारी रखने के लिए साइन इन करें।",
     stillWaitingVerification:
@@ -947,7 +950,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetEmailSent: "अगर वह ईमेल मौजूद है, तो reset लिंक भेजा जा रहा है।",
     resetEmailFailed: "रीसेट ईमेल नहीं भेजा जा सका।",
     googleNotConfigured: "Google OAuth configured नहीं है।",
-    migrateLocalFallback: "स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
+    migrateLocalFallback:
+      "स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
     googlePopupHelp: "इस साइट के लिए pop-ups allow करें और फिर कोशिश करें",
   },
   "ar-SA": {
@@ -1273,6 +1277,21 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
       : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath),
   );
+  // Templates pass their short sign-in name ("Mail"); share cards label the
+  // link with og:title, so first-party apps use the full product name there.
+  const isFirstPartySocial =
+    marketingWasResolvedFromCatalog || isFirstPartyMarketing;
+  const socialAppName =
+    (isFirstPartySocial
+      ? resolveBuiltInAuthMarketingByName(marketing?.appName)?.appName
+      : undefined) ?? marketing?.appName;
+  const socialSiteName = isFirstPartySocial ? "Agent-Native" : socialAppName;
+  const socialImageAlt = marketingPresentation
+    ? `${socialAppName}: ${marketingPresentation.headline.replace(/\s*\n\s*/g, " ")}`
+    : AGENT_NATIVE_SOCIAL_IMAGE_ALT;
+  const socialPageUrl = opts.requestOrigin
+    ? `${opts.requestOrigin}${appBasePath || "/"}`
+    : undefined;
   const t = (key: keyof typeof EN_AUTH_COPY) => EN_AUTH_COPY[key];
   const hostedSignupLegalNotice: SignupLegalNoticeOptions | undefined =
     opts.signupLegalNotice === undefined &&
@@ -2754,9 +2773,28 @@ ${marketingStyles}
                 content: marketing!.tagline,
               }),
               createElement("meta", {
+                key: "og-type",
+                property: "og:type",
+                content: "website",
+              }),
+              socialSiteName
+                ? createElement("meta", {
+                    key: "og-site-name",
+                    property: "og:site_name",
+                    content: socialSiteName,
+                  })
+                : null,
+              socialPageUrl
+                ? createElement("meta", {
+                    key: "og-url",
+                    property: "og:url",
+                    content: socialPageUrl,
+                  })
+                : null,
+              createElement("meta", {
                 key: "og-title",
                 property: "og:title",
-                content: marketing!.appName,
+                content: socialAppName,
               }),
               createElement("meta", {
                 key: "og-description",
@@ -2791,7 +2829,7 @@ ${marketingStyles}
               createElement("meta", {
                 key: "og-image-alt",
                 property: "og:image:alt",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+                content: socialImageAlt,
               }),
               createElement("meta", {
                 key: "twitter-card",
@@ -2806,7 +2844,7 @@ ${marketingStyles}
               createElement("meta", {
                 key: "twitter-image-alt",
                 name: "twitter:image:alt",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+                content: socialImageAlt,
               }),
             ]
           : null,

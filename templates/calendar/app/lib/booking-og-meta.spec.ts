@@ -1,3 +1,4 @@
+import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import { bookingOgLoader, bookingOgMeta } from "../routes/booking-og-meta";
@@ -10,7 +11,9 @@ describe("booking OG meta", () => {
     } as unknown as Parameters<typeof bookingOgLoader>[0]);
     const url = new URL(ogImageUrl);
 
-    expect(url.searchParams.get("v")).toBe("background-v1");
+    expect(url.searchParams.get("v")).toBe(
+      AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+    );
     expect(url.searchParams.get("username")).toBe("steve");
   });
 
