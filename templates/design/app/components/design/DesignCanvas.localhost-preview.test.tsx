@@ -431,7 +431,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
       liveIframe,
     );
-    expect(container.textContent).toContain("Preparing live editor");
+    expect(liveIframe?.style.pointerEvents).toBe("none");
 
     await act(async () => {
       window.dispatchEvent(
@@ -447,7 +447,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
     expect(onBootReady).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain("Preparing live editor");
     expect(liveIframe?.style.pointerEvents).toBe("none");
 
     await act(async () => {

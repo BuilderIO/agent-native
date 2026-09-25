@@ -35,6 +35,9 @@ const messages = {
     disconnect: "Disconnect",
     disconnecting: "Disconnecting…",
   },
+  routeTitles: {
+    agentObservability: "Agent observability navigation",
+  },
   onboarding: {
     back: "Back",
     chooseRole: "Choose your role",
@@ -1831,6 +1834,7 @@ const messages = {
     saveUpdate: "Save draft update",
     draftSaved: "Draft saved",
     noReviews: "No agent outputs to review yet",
+    summarizeWithAgent: "Summarize with agent",
   },
   error: {
     genericTitle: "Something went wrong",
