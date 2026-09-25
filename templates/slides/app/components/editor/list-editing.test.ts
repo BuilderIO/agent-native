@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
-import { detectSlideListKind, toggleSlideList } from "./list-editing";
+import {
+  activeSlideListKind,
+  detectSlideListKind,
+  toggleSlideList,
+} from "./list-editing";
 
 function element(html: string): HTMLElement {
   const host = document.createElement("div");
@@ -81,7 +85,7 @@ describe("toggleSlideList", () => {
       '<div style="display:flex"><span>•</span><span>Water weekly</span></div>',
     );
 
-    toggleSlideList(host, "bullet");
+    toggleSlideList(host, "ordered");
 
     const item = host.querySelector("li");
     expect(item?.textContent).toBe("Water weekly");
@@ -147,5 +151,57 @@ describe("toggleSlideList", () => {
 
   it("reports nothing to convert for an empty object", () => {
     expect(toggleSlideList(element(""), "bullet")).toBeNull();
+  });
+
+  it("turns a paragraph into a div so the list stays inside it after a reload", () => {
+    const host = document.createElement("p");
+    host.setAttribute("data-slide-object-id", "object-p");
+    host.setAttribute("style", "font-size:30px;color:#b91c1c;");
+    host.innerHTML = "Alpha<br>Beta";
+    document.body.replaceChildren(host);
+
+    const result = toggleSlideList(host, "bullet");
+
+    expect(result).toBe(document.body.firstElementChild);
+    expect(result!.tagName).toBe("DIV");
+    expect(result!.getAttribute("data-slide-object-id")).toBe("object-p");
+    expect(result!.style.fontSize).toBe("30px");
+    const html = document.body.innerHTML;
+    document.body.innerHTML = html;
+    expect(document.body.innerHTML).toBe(html);
+    expect(document.body.querySelectorAll("div > ul > li")).toHaveLength(2);
+  });
+
+  describe("a styled bullet column with a label", () => {
+    const row = (text: string) =>
+      `<div style="display:flex;gap:12px"><span style="font-size:8px">\u25CF</span><span>${text}</span></div>`;
+    const column = () =>
+      element(`<div class="label">Sales</div>${row("Alpha")}${row("Beta")}`);
+
+    it("reads as a bullet list for the list control", () => {
+      expect(activeSlideListKind(column())).toBe("bullet");
+      expect(activeSlideListKind(element("<div>Plain</div>"))).toBeNull();
+    });
+
+    it("drops only the row markers when toggled off", () => {
+      const host = column();
+      expect(toggleSlideList(host, "bullet")).toBe(host);
+      expect(host.firstElementChild!.outerHTML).toBe(
+        '<div class="label">Sales</div>',
+      );
+      expect(host.textContent).toBe("SalesAlphaBeta");
+    });
+
+    it("numbers only the rows, leaving the label", () => {
+      const host = column();
+      toggleSlideList(host, "ordered");
+      expect(host.firstElementChild!.outerHTML).toBe(
+        '<div class="label">Sales</div>',
+      );
+      expect(
+        Array.from(host.querySelectorAll("ol > li"), (li) => li.textContent),
+      ).toEqual(["Alpha", "Beta"]);
+      expect(host.textContent).not.toContain("\u25CF");
+    });
   });
 });

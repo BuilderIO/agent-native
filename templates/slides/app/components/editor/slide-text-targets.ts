@@ -231,6 +231,18 @@ export function isSmartGroup(element: HTMLElement): boolean {
   return true;
 }
 
+/**
+ * A text block whose text was all deleted: the edit leaves a `<br>` so the
+ * empty line keeps its height, and it must stay enterable to type again.
+ */
+function isEmptiedTextBlock(element: HTMLElement): boolean {
+  return (
+    !element.textContent?.trim() &&
+    element.children.length > 0 &&
+    Array.from(element.children).every((child) => child.tagName === "BR")
+  );
+}
+
 /** A single canvas target whose descendants are rich-text structure, not layers. */
 export function isRichTextBlock(element: HTMLElement): boolean {
   if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
@@ -250,7 +262,8 @@ export function isRichTextBlock(element: HTMLElement): boolean {
     element.classList.contains("fmd-text-box") ||
     element.getAttribute("data-editing-block") === "true" ||
     isTextLeaf(element) ||
-    isSmartGroup(element)
+    isSmartGroup(element) ||
+    isEmptiedTextBlock(element)
   ) {
     return true;
   }
@@ -306,7 +319,13 @@ function hasUnsafeRichTextDescendant(element: HTMLElement): boolean {
 function canEnterRichTextEdit(element: HTMLElement): boolean {
   if (!isRichTextBlock(element)) return false;
   // A single text layer keeps its outer style while its contents are edited.
-  if (isTextLeaf(element) || detectSlideListKind(element)) return true;
+  if (
+    isTextLeaf(element) ||
+    isEmptiedTextBlock(element) ||
+    detectSlideListKind(element)
+  ) {
+    return true;
+  }
   return !hasUnsafeRichTextDescendant(element);
 }
 

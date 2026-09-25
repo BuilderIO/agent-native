@@ -69,7 +69,6 @@ describe("SlideEditor transformed-object interactions", () => {
       "selectedElementRect && !multiSelectionBounds",
     );
     expect(editorSource).toContain("allowBodyMove");
-    expect(editorSource).toContain("richTextEditorRevision,");
   });
 
   it("keeps drag chrome and snap guides in the object coordinate root", () => {

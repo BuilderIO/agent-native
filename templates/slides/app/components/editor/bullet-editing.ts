@@ -231,7 +231,7 @@ export function findEnclosingList(
 
 /** The non-marker text container of a row: a dedicated text <span> if present,
  * otherwise the row itself (rows whose text is a bare node). */
-function rowTextContainer(
+export function rowTextContainer(
   row: HTMLElement,
   marker: HTMLElement | null,
 ): HTMLElement {

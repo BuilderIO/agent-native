@@ -1,3 +1,5 @@
+import { SOURCE_STAMP_ATTR } from "./slide-source-map";
+
 const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
 
 interface ReplaceOptions {
@@ -216,6 +218,45 @@ export function swapImageSourcesInPlace(
   if (liveImages.length !== nextSources.length) return false;
   liveImages.forEach((image, index) => {
     updateImageAttributesInPlace(image, nextImages[index]);
+  });
+  return true;
+}
+
+/**
+ * For a root whose text is being edited, where nothing else may be replaced:
+ * applies the image attribute changes between two renders to the live
+ * images, matched by order. Each live image keeps its source stamp, so the
+ * edit still merges into the source it started from and carries the new
+ * image as one of its changes. False when no image changed or the images no
+ * longer line up.
+ */
+export function updateLiveImagesUnderEdit(
+  root: HTMLElement,
+  previousContent: string,
+  nextContent: string,
+): boolean {
+  const previousImages = Array.from(
+    parseFragment(previousContent).body.querySelectorAll("img"),
+  );
+  const nextImages = Array.from(
+    parseFragment(nextContent).body.querySelectorAll("img"),
+  );
+  const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  if (
+    nextImages.length === 0 ||
+    previousImages.length !== nextImages.length ||
+    liveImages.length !== nextImages.length ||
+    previousImages.every(
+      (image, index) => image.outerHTML === nextImages[index].outerHTML,
+    )
+  ) {
+    return false;
+  }
+  liveImages.forEach((image, index) => {
+    const stamp = image.getAttribute(SOURCE_STAMP_ATTR);
+    updateImageAttributesInPlace(image, nextImages[index]);
+    if (stamp === null) image.removeAttribute(SOURCE_STAMP_ATTR);
+    else image.setAttribute(SOURCE_STAMP_ATTR, stamp);
   });
   return true;
 }

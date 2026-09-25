@@ -1,3 +1,4 @@
+import { captureError } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useState,
@@ -22,7 +23,10 @@ import {
   sanitizeSlideHtml,
   sanitizeSlideUrl,
 } from "@/lib/sanitize-slide-html";
-import { swapImageSourcesInPlace } from "@/lib/slide-image-replacement";
+import {
+  swapImageSourcesInPlace,
+  updateLiveImagesUnderEdit,
+} from "@/lib/slide-image-replacement";
 import {
   stampSlideSource,
   type RenderedSlideSource,
@@ -874,6 +878,15 @@ export function getRenderedSlideSource(
   return renderedSlideSources.get(root);
 }
 
+/**
+ * Dispatched (bubbling) on a `.slide-content` root that holds an open text
+ * edit, right before another slide's HTML replaces it. The editor must end
+ * and save the edit synchronously; a root still being edited is not replaced.
+ */
+export const SLIDE_CONTENT_REPLACE_EVENT = "slides:before-content-replace";
+
+const EDITING_SELECTOR = '[contenteditable="true"]';
+
 function registerRenderedSlideSource(
   root: HTMLElement,
   source: RenderedSlideSource | null,
@@ -967,6 +980,33 @@ function RawSlideHtmlContent({
     const root = contentRef.current;
     if (!root) return;
     if (renderedHtmlRef.current !== html) {
+      const sameSlide = getRenderedSlideSource(root)?.nonce === source?.nonce;
+      if (root.querySelector(EDITING_SELECTOR) && !sameSlide) {
+        root.dispatchEvent(
+          new Event(SLIDE_CONTENT_REPLACE_EVENT, { bubbles: true }),
+        );
+      }
+      if (root.querySelector(EDITING_SELECTOR)) {
+        // An upload that finishes while this slide's text is edited writes
+        // straight to the deck. Its image lands on the live images and joins
+        // the edit's changes; the edit keeps merging into the source it
+        // started from, which is still what the live stamps map to.
+        if (
+          sameSlide &&
+          updateLiveImagesUnderEdit(root, renderedHtmlRef.current, html)
+        ) {
+          return;
+        }
+        // Rewriting the root would destroy the live edit's DOM and its caret.
+        // Every content write during an edit commits the edit first, so this
+        // is a missed commit, not something to paper over.
+        const error = new Error(
+          "[slides] refused to re-render a slide while its text is being edited",
+        );
+        console.error(error);
+        captureError(error, { tags: { area: "slides-save-boundary" } });
+        return;
+      }
       // Keep the live image node for upload-only changes so pointer-driven transforms survive.
       if (!swapImageSourcesInPlace(root, renderedHtmlRef.current, html)) {
         root.innerHTML = html;

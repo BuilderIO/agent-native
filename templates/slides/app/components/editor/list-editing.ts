@@ -10,7 +10,7 @@
  * No React exports, so this stays Fast-Refresh friendly and unit-testable.
  */
 
-import { isBulletMarker } from "./bullet-editing";
+import { isBulletMarker, isBulletRow } from "./bullet-editing";
 
 export type SlideListKind = "bullet" | "ordered";
 
@@ -54,6 +54,26 @@ export function detectSlideListKind(
   const list = element ? listElement(element) : null;
   if (!list) return null;
   return list.tagName === "OL" ? "ordered" : "bullet";
+}
+
+/** Styled bullet rows directly inside `element` (see `bullet-editing.ts`). */
+function bulletRows(element: HTMLElement): HTMLElement[] {
+  if (isListTag(element)) return [];
+  return Array.from(element.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement && isBulletRow(child),
+  );
+}
+
+/** The kind the list control shows: styled bullet rows are a bullet list too. */
+export function activeSlideListKind(
+  element: HTMLElement | null,
+): SlideListKind | null {
+  if (!element) return null;
+  return (
+    detectSlideListKind(element) ??
+    (bulletRows(element).length > 0 ? "bullet" : null)
+  );
 }
 
 /**
@@ -118,22 +138,22 @@ function blockChildren(source: HTMLElement): HTMLElement[] | null {
  */
 function readLines(source: HTMLElement): string[] {
   const blocks = blockChildren(source);
-
-  if (blocks) {
-    return blocks.flatMap((block) => {
-      const stripped = block.cloneNode(true) as HTMLElement;
-      for (const child of Array.from(stripped.children)) {
-        if (isBulletMarker(child)) child.remove();
-      }
-      const html = stripped.innerHTML.trim();
-      return html ? [html] : [];
-    });
-  }
+  if (blocks) return blocks.flatMap(lineHtml);
 
   return source.innerHTML
     .split(/<br\s*\/?>/i)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+/** One block's line, without the marker a styled bullet row draws. */
+function lineHtml(block: HTMLElement): string[] {
+  const stripped = block.cloneNode(true) as HTMLElement;
+  for (const child of Array.from(stripped.children)) {
+    if (isBulletMarker(child)) child.remove();
+  }
+  const html = stripped.innerHTML.trim();
+  return html ? [html] : [];
 }
 
 function itemHtml(list: HTMLElement): string[] {
@@ -181,10 +201,15 @@ export function toggleSlideList(
   const existing = listElement(element);
 
   if (!existing) {
+    const rows = bulletRows(element);
+    if (rows.length > 0) return toggleBulletRows(element, rows, kind);
     const lines = readLines(element);
     if (lines.length === 0) return null;
-    element.replaceChildren(buildList(doc, kind, lines));
-    return element;
+    // A <p> cannot hold a list: parsing the saved slide would close the
+    // paragraph before it and leave the list and its text unstyled.
+    const holder = element.tagName === "P" ? retag(element, "DIV") : element;
+    holder.replaceChildren(buildList(doc, kind, lines));
+    return holder;
   }
 
   const lines = itemHtml(existing);
@@ -215,5 +240,28 @@ export function toggleSlideList(
   }
 
   existing.replaceWith(buildLines(doc, lines));
+  return element;
+}
+
+/**
+ * Styled bullet rows already are a bullet list, and only the rows are: a
+ * label beside them stays as it is. Toggling bullets drops the row markers;
+ * numbering replaces the rows with an ordered list where they stood.
+ */
+function toggleBulletRows(
+  element: HTMLElement,
+  rows: HTMLElement[],
+  kind: SlideListKind,
+): HTMLElement {
+  if (kind === "bullet") {
+    for (const row of rows) {
+      const marker = row.firstElementChild;
+      if (marker && isBulletMarker(marker)) marker.remove();
+    }
+    return element;
+  }
+  const lines = rows.flatMap(lineHtml);
+  rows[0].before(buildList(element.ownerDocument, kind, lines));
+  for (const row of rows) row.remove();
   return element;
 }

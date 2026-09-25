@@ -375,6 +375,16 @@ describe("slide text targets", () => {
     expect(findSmartBlock(divider, root)).toBe(block);
   });
 
+  it("keeps a heading emptied to a line break enterable", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><h1 style="position:absolute;left:40px;top:20px;font-size:48px"><br></h1></div>';
+    const heading = root.querySelector("h1") as HTMLElement;
+
+    expect(isRichTextBlock(heading)).toBe(true);
+    expect(findSmartBlock(heading, root)).toBe(heading);
+  });
+
   it("does not rewrite unsupported h5 and h6 headings", () => {
     const root = document.createElement("div");
     root.innerHTML = "<h5>Small heading</h5><h6>Smaller heading</h6>";
