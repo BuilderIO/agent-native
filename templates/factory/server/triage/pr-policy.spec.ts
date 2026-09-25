@@ -269,6 +269,23 @@ describe("pull-request governance", () => {
     ).toBe(false);
     expect(
       hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body: "No CSP issues found." }],
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "CSP is safe\nAuthentication bypass permits access.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      hasActiveCredibleSafetyFinding(
         [{ state: "approved", body: "No XSS or CSRF vulnerabilities found." }],
         [],
       ),
@@ -453,7 +470,9 @@ describe("pull-request governance", () => {
     const shomixPullRequest = {
       ...cleanInternalBug,
       author: "Shomix",
-      changedFiles: ["templates/factory/server/triage/policy.ts"],
+      changedFiles: [
+        "templates/factory/server/lib/factory-automation-preview.ts",
+      ],
       clearBug: false,
       productUxImplications: true,
     };

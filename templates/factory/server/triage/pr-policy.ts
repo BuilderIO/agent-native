@@ -553,7 +553,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
 const SAFETY_FINDING_PATTERN =
   /\b(auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\b/i;
 const NON_FINDING_PATTERN =
-  /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+(?:or|and)\s+)*(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+)?(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilities?)|vulnerabilities?|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
+  /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+(?:or|and)\s+)*(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+)?(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilities?)|issues?|findings?|concerns?|risks?|vulnerabilities?|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
 
 export function hasActiveCredibleSafetyFinding(
   reviews: readonly {
@@ -567,7 +567,7 @@ export function hasActiveCredibleSafetyFinding(
   const isFinding = (body: string) =>
     body
       .split(
-        /(?:[.!?]\s+|;\s*|,\s*(?:but|however|while)\s+|\s+(?:but|however|while)\s+)/i,
+        /(?:[.!?]\s+|;\s*|\r?\n+|,\s*(?:but|however|while)\s+|\s+(?:but|however|while)\s+)/i,
       )
       .some(
         (sentence) =>
