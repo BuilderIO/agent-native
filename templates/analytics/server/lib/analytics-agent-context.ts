@@ -274,6 +274,7 @@ async function embedDocuments(
   family: EmbeddingFamily,
   documents: string[],
   shouldCache: () => boolean,
+  signal: AbortSignal,
 ): Promise<number[][]> {
   const vectors = new Array<number[] | undefined>(documents.length);
   const missing = new Map<string, string>();
@@ -291,6 +292,7 @@ async function embedDocuments(
     const embedded = await family.embed(
       entries.map(([, text]) => ({ text })),
       "document",
+      { signal },
     );
     if (
       embedded.length !== entries.length ||
@@ -327,16 +329,19 @@ async function rankWithEmbeddings(
   candidates: AnalyticsQueryCatalogCandidate[],
   shouldCache: () => boolean,
   deadlineAt: number,
+  signal: AbortSignal,
 ): Promise<RankedCandidate[]> {
   const family = await resolveEmbeddingFamily(deadlineAt);
+  signal.throwIfAborted();
   if (Date.now() >= deadlineAt || !family || candidates.length === 0) {
     return candidates.map((candidate) => ({ candidate }));
   }
   const contents = candidates.map(candidateEmbeddingSummary);
   const [queryVectors, documentVectors] = await Promise.all([
-    family.embed([{ text: request }], "query"),
-    embedDocuments(family, contents, shouldCache),
+    family.embed([{ text: request }], "query", { signal }),
+    embedDocuments(family, contents, shouldCache, signal),
   ]);
+  signal.throwIfAborted();
   const queryVector = queryVectors[0];
   if (!validVector(queryVector, family.dimensions)) {
     throw new Error(
@@ -407,18 +412,22 @@ function emptyPromptReferences(): AnalyticsPromptReferences {
 }
 
 async function beforeDeadline<T>(
-  work: () => Promise<T>,
+  work: (signal: AbortSignal) => Promise<T>,
   deadlineAt: number,
 ): Promise<{ status: "completed"; value: T } | { status: "expired" }> {
   const remaining = deadlineAt - Date.now();
   if (remaining <= 0) return { status: "expired" };
+  const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const result = await Promise.race([
     Promise.resolve()
-      .then(work)
+      .then(() => work(controller.signal))
       .then((value) => ({ status: "completed" as const, value })),
     new Promise<{ status: "expired" }>((resolve) => {
-      timeout = setTimeout(() => resolve({ status: "expired" }), remaining);
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve({ status: "expired" });
+      }, remaining);
     }),
   ]);
   if (timeout) clearTimeout(timeout);
@@ -436,12 +445,13 @@ export async function retrieveAnalyticsPromptReferences(input: {
   let searchResults: AnalyticsQueryCatalogCandidate[];
   try {
     const search = await beforeDeadline(
-      () =>
+      (signal) =>
         searchAnalyticsQueryCatalog({
           search: input.request,
           email: input.email,
           orgId: input.orgId,
           limit: CATALOG_CANDIDATE_LIMIT,
+          signal,
         }),
       deadlineAt,
     );
@@ -468,12 +478,13 @@ export async function retrieveAnalyticsPromptReferences(input: {
   }));
   try {
     const semanticRanking = await beforeDeadline(
-      () =>
+      (signal) =>
         rankWithEmbeddings(
           input.request,
           searchResults,
           () => cacheAllowed,
           deadlineAt,
+          signal,
         ),
       deadlineAt,
     );

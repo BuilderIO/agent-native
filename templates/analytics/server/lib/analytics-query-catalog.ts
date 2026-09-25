@@ -138,8 +138,10 @@ export type AnalyticsQueryCatalogSearchResult = {
   candidates: AnalyticsQueryCatalogCandidate[];
   searchedDashboardCount: number;
   dashboardSearchTruncated: boolean;
+  dashboardSearchStatus: "available" | "unavailable";
   searchedDictionaryEntryCount: number;
   dictionarySearchTruncated: boolean;
+  dictionarySearchStatus: "available" | "partial" | "unavailable";
 };
 
 function text(value: unknown): string {
@@ -647,6 +649,7 @@ async function listDictionaryEntries(args: {
   entries: DictionaryEntry[];
   searchedEntryCount: number;
   truncated: boolean;
+  status: "available" | "partial" | "unavailable";
 }> {
   const entries: DictionaryEntry[] = [];
   const seen = new Set<string>();
@@ -703,12 +706,24 @@ async function listDictionaryEntries(args: {
       : 0;
   const userCount =
     userResult.status === "fulfilled" ? userResult.value.length : 0;
+  const scopedResults = [
+    ...(args.orgId ? [orgResult.status === "fulfilled"] : []),
+    userResult.status === "fulfilled",
+  ];
+  const availableScopes = scopedResults.filter(Boolean).length;
+  const scopeCount = args.orgId ? 2 : 1;
   return {
     entries,
     searchedEntryCount: entries.length,
     truncated:
       orgCount > MAX_CATALOG_DICTIONARY_ENTRIES ||
       userCount > MAX_CATALOG_DICTIONARY_ENTRIES,
+    status:
+      availableScopes === scopeCount
+        ? "available"
+        : availableScopes > 0
+          ? "partial"
+          : "unavailable",
   };
 }
 
@@ -740,7 +755,9 @@ export async function searchAnalyticsQueryCatalog(args: {
   email: string;
   orgId: string | null;
   limit: number;
+  signal?: AbortSignal;
 }): Promise<AnalyticsQueryCatalogSearchResult> {
+  args.signal?.throwIfAborted();
   const [summariesResult, dictionaryResult, favoritesResult] =
     await Promise.allSettled([
       listDashboardSummaries(
@@ -756,6 +773,7 @@ export async function searchAnalyticsQueryCatalog(args: {
       listDictionaryEntries({ email: args.email, orgId: args.orgId }),
       listFavoriteDashboardIds(args.email),
     ]);
+  args.signal?.throwIfAborted();
   const savedSummaries =
     summariesResult.status === "fulfilled" ? summariesResult.value : [];
   const searchedSummaries = savedSummaries.slice(
@@ -780,6 +798,12 @@ export async function searchAnalyticsQueryCatalog(args: {
       : 0;
   const dictionarySearchTruncated =
     dictionaryResult.status === "fulfilled" && dictionaryResult.value.truncated;
+  let dashboardSearchStatus: "available" | "unavailable" =
+    summariesResult.status === "fulfilled" ? "available" : "unavailable";
+  const dictionarySearchStatus =
+    dictionaryResult.status === "fulfilled"
+      ? dictionaryResult.value.status
+      : "unavailable";
   if (dictionarySearchTruncated) {
     console.warn("[analytics] Data dictionary search truncated.", {
       searchedDictionaryEntryCount,
@@ -810,13 +834,16 @@ export async function searchAnalyticsQueryCatalog(args: {
     favoriteIds,
   );
   const shortlistedIds = shortlistedSummaries.map((dashboard) => dashboard.id);
+  args.signal?.throwIfAborted();
   const savedDashboardsResult = await loadDashboardCatalogDashboards(
     { email: args.email, orgId: args.orgId },
     shortlistedIds,
   ).catch((error: unknown) => {
     warnCatalogReadFailure("Dashboard detail", error);
+    dashboardSearchStatus = "unavailable";
     return [];
   });
+  args.signal?.throwIfAborted();
   const savedDashboards = new Map(
     savedDashboardsResult.map((dashboard) => [dashboard.id, dashboard]),
   );
@@ -863,7 +890,9 @@ export async function searchAnalyticsQueryCatalog(args: {
     }),
     searchedDashboardCount: searchedSummaries.length,
     dashboardSearchTruncated,
+    dashboardSearchStatus,
     searchedDictionaryEntryCount,
     dictionarySearchTruncated,
+    dictionarySearchStatus,
   };
 }

@@ -55,11 +55,11 @@ describe("preloadJevTools", () => {
     typeSafeClient.mockImplementation(
       function TypeSafeClient(this: {
         handler: typeof systemOne;
-        systemOne: (request: unknown) => unknown;
+        systemOne: (request: unknown, options?: unknown) => unknown;
       }) {
         this.handler = systemOne;
-        this.systemOne = function (request: unknown) {
-          return this.handler(request);
+        this.systemOne = function (request: unknown, options?: unknown) {
+          return this.handler(request, options);
         };
       },
     );
@@ -469,6 +469,36 @@ describe("preloadJevTools", () => {
     });
 
     expect(result).toBe(initialTools);
+  });
+
+  it("passes the shared deadline signal to direct Jev inference", async () => {
+    const controller = new AbortController();
+    systemOne.mockResolvedValue({
+      answers: {
+        best_reference: {
+          choice: "reference-1",
+          probabilities: { "reference-1": 0.9, __no_match__: 0.1 },
+        },
+      },
+    });
+
+    await expect(
+      rankJevCandidatesWithStatus({
+        personalApiKey: "personal-jev-key",
+        request: "Find the active user definition",
+        candidates: [
+          { id: "reference-1", description: "Active user definition" },
+        ],
+        candidateStateKey: "candidate_reference",
+        answerKey: "best_reference",
+        question: "Choose the matching reference.",
+        signal: controller.signal,
+      }),
+    ).resolves.toEqual({ status: "selected", ids: ["reference-1"] });
+
+    expect(systemOne.mock.calls[0]?.[1]).toEqual({
+      signal: controller.signal,
+    });
   });
 
   it("prefers the Builder proxy outside production when Builder auth is available", async () => {

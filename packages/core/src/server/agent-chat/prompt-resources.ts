@@ -1,4 +1,5 @@
 import {
+  JEV_TIMEOUT_MS,
   rankJevCandidatesWithStatus,
   type JevCandidate,
 } from "../../agent/jev-tool-prefetch.js";
@@ -887,7 +888,9 @@ async function loadResourceIndexForPrompt(
   )} Do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
 }
 
-async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
+async function collectJevPromptCandidates(
+  signal: AbortSignal,
+): Promise<JevPromptCandidate[]> {
   // Jev receives the current request and recent user turns, short skill and
   // memory summaries, and bounded Analytics labels with metric definitions,
   // source/table names, or dashboard/panel details. These may be sensitive
@@ -920,8 +923,10 @@ async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
   try {
     const { getRuntimeSkills, loadAgentsBundle } =
       await import("../agents-bundle.js");
+    signal.throwIfAborted();
     const bundle = await loadAgentsBundle();
     for (const skill of getRuntimeSkills(bundle)) {
+      signal.throwIfAborted();
       add({
         kind: "skill",
         name: skill.meta.name,
@@ -983,14 +988,17 @@ async function collectJevMemoryPromptCandidates(input: {
   owner?: string;
   orgId?: string | null;
   request: string;
+  signal: AbortSignal;
 }): Promise<{ candidates: JevPromptCandidate[]; fallbackIds: string[] }> {
   if (!input.owner || input.owner === SHARED_OWNER) {
     return { candidates: [], fallbackIds: [] };
   }
   try {
+    input.signal.throwIfAborted();
     const index = await resourceGetByPath(input.owner, "memory/MEMORY.md", {
       orgId: input.orgId,
     });
+    input.signal.throwIfAborted();
     if (!index?.content) return { candidates: [], fallbackIds: [] };
     const memories = parseMemoryIndex(index.content)
       .filter((memory) => memory.path !== "memory/MEMORY.md")
@@ -1044,25 +1052,32 @@ type PromptBudgetResult<T> =
   | { status: "expired" };
 
 async function withinPromptBudget<T>(
-  work: () => Promise<T>,
+  work: (signal: AbortSignal) => Promise<T>,
   deadlineAt: number,
 ): Promise<PromptBudgetResult<T>> {
   const remaining = deadlineAt - Date.now();
   if (remaining <= 0) return { status: "expired" };
+  const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const result = await Promise.race([
     Promise.resolve()
-      .then(work)
+      .then(() => work(controller.signal))
       .then(
         (value) => ({ status: "completed" as const, value }),
         (error: unknown) => ({ status: "failed" as const, error }),
       ),
     new Promise<{ status: "expired" }>((resolve) => {
-      timeout = setTimeout(() => resolve({ status: "expired" }), remaining);
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve({ status: "expired" });
+      }, remaining);
     }),
   ]);
   if (timeout) clearTimeout(timeout);
-  if (result.status === "failed") throw result.error;
+  if (result.status === "failed") {
+    if (controller.signal.aborted) return { status: "expired" };
+    throw result.error;
+  }
   return result;
 }
 
@@ -1084,24 +1099,24 @@ async function loadSelectedMemoryBodies(input: {
   if (memories.length === 0) return input.candidates;
   let loaded: PromptBudgetResult<Array<{ id: string; content: string } | null>>;
   try {
-    loaded = await withinPromptBudget(
-      () =>
-        Promise.all(
-          memories.map(async (candidate) => {
-            const resource = await resourceGetByPath(
-              input.owner!,
-              candidate.path!,
-              {
-                orgId: input.orgId,
-              },
-            );
-            return resource?.content.trim()
-              ? { id: candidate.id, content: resource.content }
-              : null;
-          }),
-        ),
-      input.deadlineAt,
-    );
+    loaded = await withinPromptBudget(async (signal) => {
+      const entries: Array<{ id: string; content: string } | null> = [];
+      for (const candidate of memories) {
+        signal.throwIfAborted();
+        const resource = await resourceGetByPath(
+          input.owner!,
+          candidate.path!,
+          { orgId: input.orgId },
+        );
+        signal.throwIfAborted();
+        entries.push(
+          resource?.content.trim()
+            ? { id: candidate.id, content: resource.content }
+            : null,
+        );
+      }
+      return entries;
+    }, input.deadlineAt);
   } catch (error) {
     console.warn(
       "[agent] Selected memory bodies unavailable; continuing without them.",
@@ -1207,13 +1222,14 @@ export async function preloadJevContextForPrompt(options: {
   if (hasJev) {
     try {
       const collection = await withinPromptBudget(
-        () =>
+        (signal) =>
           Promise.all([
-            collectJevPromptCandidates(),
+            collectJevPromptCandidates(signal),
             collectJevMemoryPromptCandidates({
               owner: options.owner,
               orgId: options.orgId,
               request,
+              signal,
             }),
           ]),
         deadlineAt,
@@ -1269,7 +1285,7 @@ export async function preloadJevContextForPrompt(options: {
     Awaited<ReturnType<typeof rankJevCandidatesWithStatus>>
   >();
   if (hasJev) {
-    const rankAllCandidates = () =>
+    const rankAllCandidates = (signal: AbortSignal) =>
       Promise.all(
         categories.map(async (category) => {
           const group = candidatesByCategory.get(category) ?? [];
@@ -1282,6 +1298,8 @@ export async function preloadJevContextForPrompt(options: {
             candidates: group,
             candidateStateKey: `candidate_${category.replaceAll("-", "_")}`,
             answerKey: `best_${category.replaceAll("-", "_")}`,
+            signal,
+            timeoutMs: Math.min(JEV_TIMEOUT_MS, deadlineAt - Date.now()),
             question:
               category === "skill"
                 ? "Which skills are relevant to this task? Choose at most 3."

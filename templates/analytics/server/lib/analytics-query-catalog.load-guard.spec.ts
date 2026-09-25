@@ -155,6 +155,7 @@ describe("searchAnalyticsQueryCatalog", () => {
     );
     expect(results.searchedDashboardCount).toBe(30);
     expect(results.dashboardSearchTruncated).toBe(false);
+    expect(results.dashboardSearchStatus).toBe("available");
     expect(state.loadCalls[0]).toHaveLength(24);
     expect(state.loadCalls[0]).toContain("dashboard-01");
     expect(state.loadCalls[0]).toContain("dashboard-30");
@@ -202,6 +203,7 @@ describe("searchAnalyticsQueryCatalog", () => {
 
     expect(result.searchedDashboardCount).toBe(200);
     expect(result.dashboardSearchTruncated).toBe(true);
+    expect(result.dashboardSearchStatus).toBe("available");
     expect(result.candidates).not.toContainEqual(
       expect.objectContaining({ dashboardId: "dashboard-201" }),
     );
@@ -251,6 +253,7 @@ describe("searchAnalyticsQueryCatalog", () => {
     );
     expect(result.searchedDictionaryEntryCount).toBe(400);
     expect(result.dictionarySearchTruncated).toBe(true);
+    expect(result.dictionarySearchStatus).toBe("available");
     expect(result.candidates).not.toContainEqual(
       expect.objectContaining({ id: "org-201" }),
     );
@@ -293,6 +296,8 @@ describe("searchAnalyticsQueryCatalog", () => {
         id: "closed-won-revenue",
       }),
     );
+    expect(results.dashboardSearchStatus).toBe("unavailable");
+    expect(results.dictionarySearchStatus).toBe("available");
   });
 
   it("keeps dashboard results when the dictionary lookup fails", async () => {
@@ -316,6 +321,47 @@ describe("searchAnalyticsQueryCatalog", () => {
         panelId: "revenue-panel",
       }),
     );
+    expect(results.dictionarySearchStatus).toBe("unavailable");
+  });
+
+  it("reports partial dictionary availability when one scoped read fails", async () => {
+    state.listOrgSettings.mockRejectedValueOnce(
+      new Error("org dictionary unavailable"),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "active users",
+      email: "alice@example.com",
+      orgId: "org-analytics",
+      limit: 6,
+    });
+
+    expect(result.dictionarySearchStatus).toBe("partial");
+  });
+
+  it("stops before dashboard hydration when the request budget expires", async () => {
+    let resolveSummaries!: (value: Array<Record<string, unknown>>) => void;
+    state.listDashboardSummaries.mockImplementationOnce(
+      () =>
+        new Promise<Array<Record<string, unknown>>>((resolve) => {
+          resolveSummaries = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const pending = searchAnalyticsQueryCatalog({
+      search: "closed won revenue",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 6,
+      signal: controller.signal,
+    });
+
+    controller.abort();
+    resolveSummaries([savedRevenueSummary()]);
+
+    await expect(pending).rejects.toThrow();
+    expect(state.loadDashboardCatalogDashboards).not.toHaveBeenCalled();
   });
 
   it("keeps dashboard results when favorite settings fail", async () => {

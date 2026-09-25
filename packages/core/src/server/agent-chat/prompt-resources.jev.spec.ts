@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../agent/jev-tool-prefetch.js", () => ({
+  JEV_TIMEOUT_MS: 750,
   rankJevCandidates: (...args: unknown[]) => mocks.rankJevCandidates(...args),
   rankJevCandidatesWithStatus: async (...args: unknown[]) => {
     const ids = (await mocks.rankJevCandidates(...args)) as string[];
@@ -347,6 +348,43 @@ describe("preloadJevContextForPrompt", () => {
     );
   });
 
+  it("does not start another selected memory read after the shared budget expires", async () => {
+    const owner = "user@example.test";
+    const startedBodyPaths: string[] = [];
+    mocks.resourceGetByPath.mockImplementation(
+      async (_resourceOwner: string, path: string) => {
+        if (path === "memory/MEMORY.md") {
+          return {
+            content:
+              "# Memory Index\n- [first](first.md) — First confirmed preference.\n- [second](second.md) — Second confirmed preference.",
+          };
+        }
+        startedBodyPaths.push(path);
+        if (startedBodyPaths.length === 1) return new Promise(() => {});
+        return { content: "Second memory body." };
+      },
+    );
+    mocks.getRuntimeSkills.mockReturnValue([]);
+    mocks.rankJevCandidates.mockImplementation(
+      (options: {
+        candidateStateKey: string;
+        candidates: Array<{ id: string }>;
+      }) =>
+        options.candidateStateKey === "candidate_memory"
+          ? options.candidates.map((candidate) => candidate.id)
+          : [],
+    );
+
+    await preloadJevContextForPrompt({
+      request: "Use the saved preferences.",
+      apiKey: "jev-test-key",
+      owner,
+      contextPrefetchDeadlineAt: Date.now() + 100,
+    });
+
+    expect(startedBodyPaths).toHaveLength(1);
+  });
+
   it("does not inject a lexical memory fallback after Jev explicitly returns no-match", async () => {
     const owner = "user@example.test";
     mocks.resourceGetByPath.mockImplementation(
@@ -431,14 +469,18 @@ describe("preloadJevContextForPrompt", () => {
 
   it("uses lexical reference fallbacks when Jev outlives the shared budget", async () => {
     mocks.getRuntimeSkills.mockReturnValue([]);
+    const signals: AbortSignal[] = [];
     mocks.rankJevCandidates.mockImplementation(
-      () => new Promise<string[]>(() => {}),
+      (options: { signal?: AbortSignal }) => {
+        if (options.signal) signals.push(options.signal);
+        return new Promise<string[]>(() => {});
+      },
     );
 
     const result = await preloadJevContextForPrompt({
       request: "How many active users last month?",
       apiKey: "jev-test-key",
-      contextPrefetchDeadlineAt: Date.now() + 10,
+      contextPrefetchDeadlineAt: Date.now() + 100,
       candidates: [
         {
           id: "analytics-reference-1",
@@ -453,6 +495,8 @@ describe("preloadJevContextForPrompt", () => {
     });
 
     expect(result).toContain("Metric: active users.");
+    expect(signals.length).toBeGreaterThan(0);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 
   it("records privacy-safe Analytics Jev selection counts", async () => {

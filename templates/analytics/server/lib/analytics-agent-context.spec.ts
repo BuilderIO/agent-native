@@ -84,8 +84,10 @@ describe("retrieveAnalyticsPromptReferences", () => {
       candidates: [candidates[1], candidates[0], candidates[2]],
       searchedDashboardCount: 2,
       dashboardSearchTruncated: false,
+      dashboardSearchStatus: "available",
       searchedDictionaryEntryCount: 1,
       dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
     });
     mocks.availableEmbeddingFamilies.mockResolvedValue([
       {
@@ -119,12 +121,15 @@ describe("retrieveAnalyticsPromptReferences", () => {
       orgId: "org-analytics",
     });
 
-    expect(mocks.searchAnalyticsQueryCatalog).toHaveBeenCalledWith({
-      search: "How many active users were there last month?",
-      email: "owner@example.com",
-      orgId: "org-analytics",
-      limit: 24,
-    });
+    expect(mocks.searchAnalyticsQueryCatalog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        search: "How many active users were there last month?",
+        email: "owner@example.com",
+        orgId: "org-analytics",
+        limit: 24,
+        signal: expect.anything(),
+      }),
+    );
     expect(result.jevPromptCandidates[0]).toMatchObject({
       id: "analytics-reference-1",
       name: "Data dictionary: Monthly active users",
@@ -159,6 +164,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
     expect(mocks.embed).toHaveBeenCalledWith(
       [{ text: "How many active users were there last month?" }],
       "query",
+      { signal: expect.anything() },
     );
     const documentEmbedding = mocks.embed.mock.calls.find(
       ([, purpose]) => purpose === "document",
@@ -192,8 +198,10 @@ describe("retrieveAnalyticsPromptReferences", () => {
       candidates: [weaker, stronger],
       searchedDashboardCount: 2,
       dashboardSearchTruncated: false,
+      dashboardSearchStatus: "available",
       searchedDictionaryEntryCount: 0,
       dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
     });
     mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
       inputs.map(() => [1, 0]),
@@ -228,8 +236,10 @@ describe("retrieveAnalyticsPromptReferences", () => {
       candidates: [ordinary, certified],
       searchedDashboardCount: 2,
       dashboardSearchTruncated: false,
+      dashboardSearchStatus: "available",
       searchedDictionaryEntryCount: 0,
       dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
     });
     mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
       inputs.map(({ text }) => (text?.includes("Certified") ? [0, 1] : [1, 0])),
@@ -266,13 +276,23 @@ describe("retrieveAnalyticsPromptReferences", () => {
   });
 
   it("returns catalog-order references when an embedding request hangs", async () => {
-    mocks.embed.mockImplementation(() => new Promise(() => {}));
+    const signals: AbortSignal[] = [];
+    mocks.embed.mockImplementation(
+      (
+        _inputs: unknown,
+        _purpose: unknown,
+        options?: { signal?: AbortSignal },
+      ) => {
+        if (options?.signal) signals.push(options.signal);
+        return new Promise(() => {});
+      },
+    );
 
     const result = await retrieveAnalyticsPromptReferences({
       request: "How many active users last month?",
       email: "owner@example.com",
       orgId: "org-analytics",
-      deadlineAt: Date.now() + 10,
+      deadlineAt: Date.now() + 100,
     });
 
     expect(
@@ -286,6 +306,8 @@ describe("retrieveAnalyticsPromptReferences", () => {
       "analytics-reference-1",
       "analytics-reference-2",
     ]);
+    expect(signals.length).toBeGreaterThan(0);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 
   it("does not start embedding requests after catalog lookup exhausts the budget", async () => {

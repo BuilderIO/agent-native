@@ -15,7 +15,7 @@ import type {
 const MAX_JEV_CANDIDATES = 128;
 const DEFAULT_PREFETCH_LIMIT = 3;
 const MAX_PREFETCH_LIMIT = 5;
-const JEV_TIMEOUT_MS = 750;
+export const JEV_TIMEOUT_MS = 750;
 const JEV_MODEL = "jev-latest";
 const MAX_JEV_THREAD_CONTEXT_CHARS = 6_000;
 const MAX_JEV_PRIOR_USER_MESSAGES = 4;
@@ -53,6 +53,8 @@ export interface JevRankCandidatesOptions {
   answerKey: string;
   question: string;
   limit?: number;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface JevCandidateRanking {
@@ -191,7 +193,9 @@ export async function rankJevCandidatesWithStatus(
   if (
     !request ||
     (!apiKey && !builderAuth) ||
-    options.candidates.length === 0
+    options.candidates.length === 0 ||
+    options.signal?.aborted ||
+    (options.timeoutMs !== undefined && options.timeoutMs <= 0)
   ) {
     return { status: "unavailable", ids: [] };
   }
@@ -239,6 +243,8 @@ export async function rankJevCandidatesWithStatus(
       personalApiKey: options.personalApiKey,
       builderAuth,
       request: jevRequest,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
     });
 
     const answer = response.answers?.[options.answerKey];
@@ -446,21 +452,26 @@ async function requestJev(options: {
   personalApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   request: JevRequest;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }): Promise<JevResponse> {
+  options.signal?.throwIfAborted();
   const personalApiKey = options.personalApiKey?.trim();
   if (options.builderAuth) {
     try {
       return await requestJevThroughBuilder(
         options.builderAuth,
         options.request,
+        { signal: options.signal, timeoutMs: options.timeoutMs },
       );
     } catch (error) {
+      options.signal?.throwIfAborted();
       if (!personalApiKey) throw error;
       console.warn(
         "[agent] Builder Jev proxy unavailable; falling back to the direct Jev API.",
         error instanceof Error ? error.message : "unknown error",
       );
-      return requestJevDirect(personalApiKey, options.request);
+      return requestJevDirect(personalApiKey, options.request, options);
     }
   }
 
@@ -468,31 +479,41 @@ async function requestJev(options: {
     throw new Error("Builder Jev proxy is unavailable.");
   }
 
-  return requestJevDirect(personalApiKey, options.request);
+  return requestJevDirect(personalApiKey, options.request, options);
 }
 
 async function requestJevDirect(
   apiKey: string,
   request: JevRequest,
+  options: { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<JevResponse> {
+  options.signal?.throwIfAborted();
   const { choice, TypeSafeClient } = await import("@typesafe-ai/sdk");
+  options.signal?.throwIfAborted();
   const client = new TypeSafeClient({
     apiKey,
-    timeout: JEV_TIMEOUT_MS,
+    timeout: Math.max(
+      1,
+      Math.min(JEV_TIMEOUT_MS, options.timeoutMs ?? JEV_TIMEOUT_MS),
+    ),
     retry: { maxRetries: 0 },
   });
   const systemOne = client.systemOne.bind(client) as unknown as (
     request: unknown,
+    options?: { signal?: AbortSignal },
   ) => Promise<unknown>;
-  return (await systemOne({
-    ...request,
-    questions: {
-      [Object.keys(request.questions)[0]!]: choice(
-        Object.values(request.questions)[0]!.instructions,
-        Object.values(request.questions)[0]!.criteria,
-      ),
+  return (await systemOne(
+    {
+      ...request,
+      questions: {
+        [Object.keys(request.questions)[0]!]: choice(
+          Object.values(request.questions)[0]!.instructions,
+          Object.values(request.questions)[0]!.criteria,
+        ),
+      },
     },
-  })) as JevResponse;
+    options.signal ? { signal: options.signal } : undefined,
+  )) as JevResponse;
 }
 
 export async function requestJevThroughBuilder(
