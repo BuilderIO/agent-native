@@ -1187,8 +1187,48 @@ export interface VisualEditorSuggestion {
   beforePresentation?: SuggestionPresentationContext;
   afterPresentation?: SuggestionPresentationContext;
   anchor: { from: number; prefix: string; suffix: string };
+  settlementReadbackContent?: string | null;
   /** Draft documents already contain the proposed result; canonical ones do not. */
-  presentation: "draft" | "canonical";
+  presentation: "draft" | "canonical" | "settling";
+}
+
+export function acceptedSuggestionRendered(
+  actualMarkdown: string,
+  readbackMarkdown: string,
+  suggestion: VisualEditorSuggestion,
+) {
+  const afterSource = suggestion.afterPresentation?.source;
+  const beforeSource = suggestion.beforePresentation?.source;
+  if (afterSource === undefined || beforeSource === undefined) return false;
+  const actual = canonicalizeNfm(actualMarkdown);
+  const readback = canonicalizeNfm(readbackMarkdown);
+  const before = canonicalizeNfm(beforeSource);
+  return readback !== before && actual === readback;
+}
+
+export function acceptedSuggestionReadbackOutdated(
+  actualMarkdown: string,
+  readbackMarkdown: string,
+  suggestion: VisualEditorSuggestion,
+) {
+  const beforeSource = suggestion.beforePresentation?.source;
+  if (beforeSource === undefined) return false;
+  const actual = canonicalizeNfm(actualMarkdown);
+  return (
+    actual !== canonicalizeNfm(beforeSource) &&
+    actual !== canonicalizeNfm(readbackMarkdown)
+  );
+}
+
+export function canProjectAcceptedSuggestion(
+  suggestion: VisualEditorSuggestion,
+) {
+  return (
+    suggestion.kind !== "add_text_block" &&
+    !/[\r\n]/.test(suggestion.beforeText + suggestion.afterText) &&
+    !suggestion.beforeText.includes("<empty-block/>") &&
+    !suggestion.afterText.includes("<empty-block/>")
+  );
 }
 
 function suggestionAnchorRange(
@@ -1376,6 +1416,29 @@ export function suggestionHighlightSpec(
   if (beforePresentation === null || afterPresentation === null) return null;
   const range = suggestionAnchorRange(doc, suggestion);
   if (!range) return null;
+  if (
+    suggestion.presentation === "settling" &&
+    canProjectAcceptedSuggestion(suggestion)
+  ) {
+    return {
+      suggestionId: suggestion.id,
+      kind:
+        suggestion.kind === "delete_text"
+          ? "delete"
+          : suggestion.kind === "insert_text"
+            ? "insert"
+            : suggestion.kind === "add_text_block"
+              ? "add_block"
+              : "replace",
+      from: range.from,
+      to: range.to,
+      insertedText: suggestion.afterText,
+      insertedPresentation: suggestion.afterPresentation,
+      settling: true,
+      settlingAfterSource: suggestion.afterPresentation?.source,
+      settlingReadbackContent: suggestion.settlementReadbackContent,
+    };
+  }
   if (suggestion.presentation === "draft") {
     if (
       /^\n+$/.test(suggestionAnchorText(suggestion.afterText)) ||
@@ -1541,6 +1604,12 @@ interface VisualEditorProps {
   /** Called when the user clicks an inline highlight in the document. */
   onActivateThread?: (threadId: string) => void;
   suggestions?: VisualEditorSuggestion[];
+  acceptedDecisionReadback?: { id: string; content: string } | null;
+  onAcceptedDecisionRendered?: (id: string) => void;
+  onAcceptedDecisionReadbackOutdated?: (
+    id: string,
+    actualContent: string,
+  ) => void;
   activeSuggestionId?: string | null;
   onActivateSuggestion?: (suggestionId: string) => void;
   onHoverSuggestion?: (suggestionId: string | null) => void;
@@ -3079,6 +3148,9 @@ export function VisualEditor({
   pendingHighlight,
   onActivateThread,
   suggestions = [],
+  acceptedDecisionReadback = null,
+  onAcceptedDecisionRendered,
+  onAcceptedDecisionReadbackOutdated,
   activeSuggestionId,
   onActivateSuggestion,
   onHoverSuggestion,
@@ -4287,7 +4359,7 @@ export function VisualEditor({
     [suggestions],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const apply = () => {
       if (editor.isDestroyed) return;
@@ -4299,7 +4371,9 @@ export function VisualEditor({
       onSuggestionAnchorsChange?.(
         Array.from(new Set(specs.map((spec) => spec.suggestionId))),
       );
-      const visibleSpecs = showCommentIndicators ? specs : [];
+      const visibleSpecs = showCommentIndicators
+        ? specs
+        : specs.filter((spec) => spec.settling);
       const selection = pendingNativeSuggestionSelection(
         editor.view,
         visibleSpecs,
@@ -4325,6 +4399,49 @@ export function VisualEditor({
     suggestions,
     suggestionsSignature,
     showCommentIndicators,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || !acceptedDecisionReadback) return;
+    const settlingSuggestion = suggestions.find(
+      (suggestion) => suggestion.id === acceptedDecisionReadback.id,
+    );
+    if (!settlingSuggestion) return;
+    const check = () => {
+      if (editor.isDestroyed) return;
+      const actualContent = docToNfm(editor.getJSON() as any);
+      if (
+        acceptedSuggestionRendered(
+          actualContent,
+          acceptedDecisionReadback.content,
+          settlingSuggestion,
+        )
+      ) {
+        onAcceptedDecisionRendered?.(acceptedDecisionReadback.id);
+      } else if (
+        acceptedSuggestionReadbackOutdated(
+          actualContent,
+          acceptedDecisionReadback.content,
+          settlingSuggestion,
+        )
+      ) {
+        onAcceptedDecisionReadbackOutdated?.(
+          acceptedDecisionReadback.id,
+          actualContent,
+        );
+      }
+    };
+    editor.on("transaction", check);
+    check();
+    return () => {
+      editor.off("transaction", check);
+    };
+  }, [
+    acceptedDecisionReadback,
+    editor,
+    onAcceptedDecisionRendered,
+    onAcceptedDecisionReadbackOutdated,
+    suggestions,
   ]);
 
   useEffect(() => {

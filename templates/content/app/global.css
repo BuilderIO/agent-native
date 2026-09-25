@@ -2431,6 +2431,14 @@ audio.media-block__content {
 }
 
 /* Pending suggested edits are presentation-only decorations over canonical text. */
+.notion-editor .suggestion-settling-original {
+  display: none;
+}
+
+.notion-editor .suggestion-settling-text[data-suggestion-widget] {
+  color: inherit;
+}
+
 .notion-editor .suggestion-proposed-text,
 .notion-editor .suggestion-deleted-text {
   cursor: text;

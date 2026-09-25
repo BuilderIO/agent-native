@@ -212,7 +212,7 @@ import {
   type ReconcileRecoveryDraft,
   type ReconcileSaveBase,
 } from "./useDocumentReconcileRecovery";
-import { VisualEditor } from "./VisualEditor";
+import { canProjectAcceptedSuggestion, VisualEditor } from "./VisualEditor";
 import type {
   NotionPageLink,
   VisualEditorSuggestion,
@@ -1726,9 +1726,14 @@ function PageEditorSessionBody({
     decision: SuggestionDecision;
     continueSuggesting: boolean;
     optimistic: boolean;
+    readbackContent: string | null;
   } | null>(null);
   const [decisionRefreshFailed, setDecisionRefreshFailed] = useState(false);
   const decisionRefreshInFlightRef = useRef(false);
+  const [decisionReadbackDivergence, setDecisionReadbackDivergence] = useState<{
+    suggestionId: string;
+    actualContent: string;
+  } | null>(null);
   const suggestionDecisionInFlightRef = useRef(false);
   const [preserveInlineReviewSpace, setPreserveInlineReviewSpace] =
     useState(false);
@@ -4095,7 +4100,11 @@ function PageEditorSessionBody({
   }, []);
 
   const refreshSuggestionDecisionDocument = useCallback(
-    async (continueSuggesting: boolean) => {
+    async (
+      continueSuggesting: boolean,
+      accepted: boolean,
+      resumeSuggestionMode = true,
+    ) => {
       if (decisionRefreshInFlightRef.current) return;
       decisionRefreshInFlightRef.current = true;
       setDecisionRefreshFailed(false);
@@ -4110,9 +4119,15 @@ function PageEditorSessionBody({
           { method: "GET" },
         );
         patchDocumentCaches(queryClient, documentId, refreshedDocument);
-        if (continueSuggesting) continueSuggestionModeFrom(refreshedDocument);
-        setPendingSuggestionDecision(null);
-        suggestionDecisionInFlightRef.current = false;
+        if (continueSuggesting && resumeSuggestionMode)
+          continueSuggestionModeFrom(refreshedDocument);
+        setPendingSuggestionDecision((current) => {
+          if (!accepted || !current || !current.optimistic) return null;
+          return { ...current, readbackContent: refreshedDocument.content };
+        });
+        if (!accepted) {
+          suggestionDecisionInFlightRef.current = false;
+        }
       } catch (error) {
         setDecisionRefreshFailed(true);
         void queryClient.invalidateQueries(documentQueryFilter(documentId));
@@ -4133,6 +4148,63 @@ function PageEditorSessionBody({
       t,
     ],
   );
+
+  const handleAcceptedDecisionRendered = useCallback((suggestionId: string) => {
+    setDecisionReadbackDivergence((current) =>
+      current?.suggestionId === suggestionId ? null : current,
+    );
+    setPendingSuggestionDecision((current) => {
+      if (
+        current?.suggestion.id !== suggestionId ||
+        current.readbackContent === null
+      )
+        return current;
+      suggestionDecisionInFlightRef.current = false;
+      return null;
+    });
+  }, []);
+
+  const handleAcceptedDecisionReadbackOutdated = useCallback(
+    (suggestionId: string, actualContent: string) => {
+      const current = pendingSuggestionDecision;
+      if (
+        current?.suggestion.id !== suggestionId ||
+        current.readbackContent === null
+      )
+        return;
+      setDecisionReadbackDivergence((previous) =>
+        previous?.suggestionId === suggestionId &&
+        previous.actualContent === actualContent
+          ? previous
+          : { suggestionId, actualContent },
+      );
+    },
+    [pendingSuggestionDecision],
+  );
+
+  useEffect(() => {
+    if (
+      !decisionReadbackDivergence ||
+      pendingSuggestionDecision?.suggestion.id !==
+        decisionReadbackDivergence.suggestionId ||
+      pendingSuggestionDecision.readbackContent === null ||
+      decisionRefreshFailed
+    )
+      return;
+    const timer = window.setTimeout(() => {
+      void refreshSuggestionDecisionDocument(
+        pendingSuggestionDecision.continueSuggesting,
+        true,
+        false,
+      );
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [
+    decisionReadbackDivergence,
+    decisionRefreshFailed,
+    pendingSuggestionDecision,
+    refreshSuggestionDecisionDocument,
+  ]);
 
   const handleSuggestionModeChange = useCallback(
     async (next: boolean) => {
@@ -4342,6 +4414,29 @@ function PageEditorSessionBody({
         anchor: suggestion.anchor,
         presentation: "draft" as const,
       });
+    }
+    if (
+      pendingSuggestionDecision?.decision === "accepted" &&
+      pendingSuggestionDecision.optimistic
+    ) {
+      const operation = pendingSuggestionDecision.suggestion.operations[0];
+      const before = operation?.before as { markdown?: unknown } | undefined;
+      if (typeof before?.markdown === "string") {
+        const presentation = suggestionPresentation(
+          { ...pendingSuggestionDecision.suggestion, status: "pending" },
+          before.markdown,
+        );
+        if (presentation) {
+          byId.set(presentation.id, {
+            ...presentation,
+            presentation: canProjectAcceptedSuggestion(presentation)
+              ? "settling"
+              : "canonical",
+            settlementReadbackContent:
+              pendingSuggestionDecision.readbackContent,
+          });
+        }
+      }
     }
     return [...byId.values()];
   }, [
@@ -5423,6 +5518,7 @@ function PageEditorSessionBody({
           decision,
           continueSuggesting,
           optimistic: true,
+          readbackContent: null,
         });
         setDecisionRefreshFailed(false);
         let result: Awaited<ReturnType<typeof decideSuggestion.mutateAsync>>;
@@ -5447,7 +5543,11 @@ function PageEditorSessionBody({
         if (result.suggestion.status !== decision) {
           setPendingSuggestionDecision((current) =>
             current?.suggestion.id === observedSuggestion.id
-              ? { ...current, suggestion: result.suggestion, optimistic: false }
+              ? {
+                  ...current,
+                  suggestion: result.suggestion,
+                  optimistic: false,
+                }
               : current,
           );
         }
@@ -5459,7 +5559,10 @@ function PageEditorSessionBody({
           return [...byId.values()];
         });
         void suggestionsQuery.refetch();
-        await refreshSuggestionDecisionDocument(continueSuggesting);
+        await refreshSuggestionDecisionDocument(
+          continueSuggesting,
+          result.suggestion.status === "accepted",
+        );
         if (result.suggestion.status === "stale") {
           toast.error(t("editor.toolbar.conflict"));
           setSelectedSuggestionId(result.suggestion.id);
@@ -6087,9 +6190,27 @@ function PageEditorSessionBody({
                                 onRetry={() =>
                                   void refreshSuggestionDecisionDocument(
                                     pendingSuggestionDecision.continueSuggesting,
+                                    pendingSuggestionDecision.decision ===
+                                      "accepted" &&
+                                      pendingSuggestionDecision.optimistic,
                                   )
                                 }
                               />
+                            </div>
+                          ) : null}
+                          {pendingSuggestionDecision?.decision === "accepted" &&
+                          pendingSuggestionDecision.optimistic &&
+                          visualSuggestions.some(
+                            (suggestion) =>
+                              suggestion.id ===
+                                pendingSuggestionDecision.suggestion.id &&
+                              suggestion.presentation === "canonical",
+                          ) ? (
+                            <div
+                              role="status"
+                              className="mb-3 text-sm text-muted-foreground"
+                            >
+                              {t("editor.pageBodySyncing")}
                             </div>
                           ) : null}
                           {suggestionDraftPreview.status ===
@@ -6103,6 +6224,23 @@ function PageEditorSessionBody({
                           ) : null}
                           <VisualEditor
                             onEscape={handleEditorEscape}
+                            acceptedDecisionReadback={
+                              pendingSuggestionDecision?.decision ===
+                                "accepted" &&
+                              pendingSuggestionDecision.readbackContent !== null
+                                ? {
+                                    id: pendingSuggestionDecision.suggestion.id,
+                                    content:
+                                      pendingSuggestionDecision.readbackContent,
+                                  }
+                                : null
+                            }
+                            onAcceptedDecisionRendered={
+                              handleAcceptedDecisionRendered
+                            }
+                            onAcceptedDecisionReadbackOutdated={
+                              handleAcceptedDecisionReadbackOutdated
+                            }
                             contentResetKey={
                               pendingSuggestionDecision
                                 ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}:${pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"}`

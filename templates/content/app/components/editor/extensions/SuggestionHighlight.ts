@@ -1,3 +1,4 @@
+import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import {
   suggestionTextPresentationForSource,
   suggestionTextPresentation,
@@ -32,6 +33,9 @@ export interface SuggestionHighlightSpec {
   deletedPresentation?: SuggestionPresentationContext;
   editableBoundary?: boolean;
   editableText?: boolean;
+  settling?: boolean;
+  settlingAfterSource?: string;
+  settlingReadbackContent?: string | null;
 }
 
 export interface SuggestionHighlightState {
@@ -120,6 +124,16 @@ function appendSuggestionText(
 function insertionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   return () => {
     const widget = document.createElement("span");
+    if (spec.settling) {
+      widget.className = "suggestion-settling-text suggestion-inline-widget";
+      widget.setAttribute("data-suggestion-widget", "true");
+      appendSuggestionText(
+        widget,
+        spec.insertedText ?? "",
+        spec.insertedPresentation,
+      );
+      return widget;
+    }
     widget.className = classes(
       `${
         spec.kind === "add_block" ? "suggestion-add-block" : "suggestion-insert"
@@ -173,20 +187,54 @@ function buildDecorations(
 ): DecorationSet {
   const decorations: Decoration[] = [];
   const size = doc.content.size;
+  const settledContent = specs.some((spec) => spec.settling)
+    ? canonicalizeNfm(docToNfm(doc.toJSON()))
+    : null;
 
   for (const spec of specs) {
+    if (
+      spec.settling &&
+      ((spec.settlingAfterSource !== undefined &&
+        settledContent === canonicalizeNfm(spec.settlingAfterSource)) ||
+        (spec.settlingReadbackContent !== null &&
+          spec.settlingReadbackContent !== undefined &&
+          settledContent === canonicalizeNfm(spec.settlingReadbackContent)))
+    )
+      continue;
     const active = activeId === spec.suggestionId;
     const range = clampRange(spec.from, spec.to, size);
-    const attrs = {
-      "data-suggestion-id": spec.suggestionId,
-      ...(spec.editableText
-        ? {}
-        : {
-            role: "button",
-            tabindex: "0",
-            "aria-label": "Inspect suggested change",
+    const attrs = spec.settling
+      ? {}
+      : {
+          "data-suggestion-id": spec.suggestionId,
+          ...(spec.editableText
+            ? {}
+            : {
+                role: "button",
+                tabindex: "0",
+                "aria-label": "Inspect suggested change",
+              }),
+        };
+
+    if (spec.settling) {
+      if (range && range.to > range.from) {
+        decorations.push(
+          Decoration.inline(range.from, range.to, {
+            class: "suggestion-settling-original",
           }),
-    };
+        );
+      }
+      if (spec.kind !== "delete") {
+        decorations.push(
+          Decoration.widget(
+            clampPosition(range ? range.to : spec.from, size),
+            insertionWidget(spec, false),
+            { key: `${spec.suggestionId}:settling`, marks: [], side: 1 },
+          ),
+        );
+      }
+      continue;
+    }
 
     if (spec.kind === "delete" || spec.kind === "replace") {
       if (range) {

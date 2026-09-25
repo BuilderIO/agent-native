@@ -371,8 +371,8 @@ describe("document editor layout", () => {
       source.indexOf("const position = resolveAnchorPoint", start),
     );
     expect(effect).toContain("new Set(specs.map((spec) => spec.suggestionId))");
-    expect(effect).toContain(
-      "const visibleSpecs = showCommentIndicators ? specs : []",
+    expect(effect).toMatch(
+      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling\)/,
     );
     expect(effect).toContain("specs: visibleSpecs");
     expect(effect).toMatch(
@@ -2090,9 +2090,8 @@ describe("document editor layout", () => {
     expect(source).toContain("!!pendingSuggestionDecision");
     expect(decision).toContain("setPendingSuggestionDecision({");
     expect(decision).toContain("continueSuggesting,");
-    expect(decision).toContain(
-      "await refreshSuggestionDecisionDocument(continueSuggesting)",
-    );
+    expect(decision).toContain("await refreshSuggestionDecisionDocument(");
+    expect(decision).toContain('result.suggestion.status === "accepted"');
     expect(decision).toContain("if (suggestion.id === editingSuggestionId)");
     expect(source).toContain("setDecisionRefreshFailed(true)");
     expect(source).toContain("if (decisionRefreshInFlightRef.current) return");

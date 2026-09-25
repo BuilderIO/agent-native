@@ -116,6 +116,9 @@ import {
   markdownSuggestionOperations,
 } from "./suggestions/markdown-operation";
 import {
+  acceptedSuggestionRendered,
+  acceptedSuggestionReadbackOutdated,
+  canProjectAcceptedSuggestion,
   createVisualEditorExtensions,
   commitPendingImageUpload,
   didCommitMediaSource,
@@ -1027,6 +1030,118 @@ describe("live suggestion presentation", () => {
       content: nfmToDoc(content),
     });
   }
+  it("keeps an accepted insertion visible while the mounted editor is still behind", () => {
+    const before = "Before";
+    const after = " AddedBefore";
+    const suggestion: VisualEditorSuggestion = {
+      id: "accept-settlement",
+      kind: "insert_text",
+      beforeText: "",
+      afterText: " Added",
+      beforePresentation: { source: before, from: 0, to: 0 },
+      afterPresentation: { source: after, from: 0, to: 6 },
+      anchor: { from: 0, prefix: "", suffix: before },
+      presentation: "settling",
+    };
+    const editor = createSuggestionEditor(before);
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, suggestion);
+      expect(spec).toMatchObject({ kind: "insert", settling: true });
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      expect(editor.view.dom.textContent).toBe(after);
+      expect(
+        editor.view.dom
+          .querySelector(".suggestion-settling-text")
+          ?.getAttribute("role"),
+      ).toBeNull();
+      expect(docToNfm(editor.getJSON() as any)).toBe(before);
+      expect(acceptedSuggestionRendered(before, after, suggestion)).toBe(false);
+      expect(acceptedSuggestionRendered(after, before, suggestion)).toBe(false);
+      expect(acceptedSuggestionRendered(after, after, suggestion)).toBe(true);
+      expect(
+        acceptedSuggestionRendered(
+          `Intro ${after}`,
+          `Intro ${after}`,
+          suggestion,
+        ),
+      ).toBe(true);
+      expect(
+        acceptedSuggestionRendered(before, `Other ${after}`, suggestion),
+      ).toBe(false);
+      expect(
+        acceptedSuggestionRendered(`${after} peer`, after, suggestion),
+      ).toBe(false);
+      expect(
+        acceptedSuggestionReadbackOutdated(`${after} peer`, after, suggestion),
+      ).toBe(true);
+      expect(
+        acceptedSuggestionReadbackOutdated(before, after, suggestion),
+      ).toBe(false);
+      expect(canProjectAcceptedSuggestion(suggestion)).toBe(true);
+      expect(
+        canProjectAcceptedSuggestion({
+          ...suggestion,
+          kind: "add_text_block",
+          afterText: "\nAdded block",
+        }),
+      ).toBe(false);
+      expect(
+        canProjectAcceptedSuggestion({
+          ...suggestion,
+          kind: "delete_text",
+          beforeText: "Before\n",
+        }),
+      ).toBe(false);
+      editor.commands.setContent(nfmToDoc(after));
+      expect(
+        editor.view.dom.querySelector(".suggestion-settling-text"),
+      ).toBeNull();
+      expect(editor.view.dom.textContent).toBe(after);
+    } finally {
+      editor.destroy();
+    }
+  });
+  it.each([
+    { kind: "delete_text" as const, beforeText: "Old", afterText: "" },
+    { kind: "replace_text" as const, beforeText: "Old", afterText: "New" },
+  ])(
+    "projects an inline $kind without changing the Yjs document",
+    ({ kind, beforeText, afterText }) => {
+      const before = "Old tail";
+      const after = `${afterText} tail`;
+      const suggestion: VisualEditorSuggestion = {
+        id: kind,
+        kind,
+        beforeText,
+        afterText,
+        beforePresentation: { source: before, from: 0, to: 3 },
+        afterPresentation: { source: after, from: 0, to: afterText.length },
+        anchor: { from: 0, prefix: "", suffix: " tail" },
+        presentation: "settling",
+      };
+      const editor = createSuggestionEditor(before);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, suggestion);
+        expect(spec).toMatchObject({ settling: true });
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector(".suggestion-settling-original")
+            ?.textContent,
+        ).toBe("Old");
+        expect(
+          editor.view.dom.querySelector(".suggestion-settling-text")
+            ?.textContent ?? "",
+        ).toBe(afterText);
+        expect(docToNfm(editor.getJSON() as any)).toBe(before);
+        expect(acceptedSuggestionRendered(before, after, suggestion)).toBe(
+          false,
+        );
+        expect(acceptedSuggestionRendered(after, after, suggestion)).toBe(true);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
   it.each([
     "**Echo**",
     "*Echo*",
