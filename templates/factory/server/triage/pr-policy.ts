@@ -607,10 +607,10 @@ function isSafeHtmlHandlingAt(
   const sinks = Array.from(
     finding.matchAll(new RegExp(HTML_SINK_PATTERN, "gi")),
   );
-  const lastSink = sinks.at(-1);
+  const lastSink = sinks[sinks.length - 1];
   if (!lastSink) return false;
 
-  const previousSink = sinks.at(-2);
+  const previousSink = sinks[sinks.length - 2];
   const flowStart = previousSink
     ? start + (previousSink.index ?? 0) + previousSink[0].length
     : start;
