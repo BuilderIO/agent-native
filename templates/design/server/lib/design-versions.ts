@@ -1225,7 +1225,8 @@ export async function listDesignVersions(
     .orderBy(
       asc(isNull(schema.designVersions.createdAt)),
       asc(schema.designVersions.createdAt),
-    );
+    )
+    .limit(limit);
   const rowsById = new Map(
     [...rows, ...beginningRows].map((row) => [row.id, row]),
   );

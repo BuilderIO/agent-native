@@ -89,7 +89,8 @@ export default defineAction({
       .where(
         and(where, like(schema.deckVersions.chatContext, '%"phase":"start"%')),
       )
-      .orderBy(desc(schema.deckVersions.createdAt));
+      .orderBy(desc(schema.deckVersions.createdAt))
+      .limit(limit);
     const versionsById = new Map(
       [...versions, ...beginningVersions].map((version) => [
         version.id,

@@ -181,8 +181,12 @@ export async function recordDocumentHistoryTransition(args: {
   const afterCreatedAt = beforeCheckpointId
     ? new Date(new Date(checkpointCreatedAt).getTime() + 1).toISOString()
     : checkpointCreatedAt;
-  const afterCheckpointId = crypto.randomUUID();
-  await args.db.insert(schema.documentVersions).values({
+  const isChatStart =
+    cause.groupKind === "agent_run" && cause.operation === "chat start";
+  const afterCheckpointId = isChatStart
+    ? `agent-chat-start:${encodeURIComponent(args.ownerEmail)}:${encodeURIComponent(args.documentId)}:${encodeURIComponent(cause.groupId)}`
+    : crypto.randomUUID();
+  const afterValues = {
     id: afterCheckpointId,
     ownerEmail: args.ownerEmail,
     documentId: args.documentId,
@@ -196,6 +200,38 @@ export async function recordDocumentHistoryTransition(args: {
     checkpointKind: "after",
     createdAt: afterCreatedAt,
     updatedAt: afterCreatedAt,
-  });
+  };
+  if (isChatStart) {
+    const [inserted] = await args.db
+      .insert(schema.documentVersions)
+      .values(afterValues)
+      .onConflictDoNothing()
+      .returning({ id: schema.documentVersions.id });
+    if (!inserted) {
+      const [existing] = await args.db
+        .select({ id: schema.documentVersions.id })
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.ownerEmail, args.ownerEmail),
+            eq(schema.documentVersions.documentId, args.documentId),
+            eq(schema.documentVersions.id, afterCheckpointId),
+          ),
+        )
+        .limit(1);
+      if (!existing) {
+        throw new Error(
+          "Chat-start history checkpoint conflict had no matching checkpoint.",
+        );
+      }
+      return {
+        groupId: cause.groupId,
+        beforeCheckpointId,
+        afterCheckpointId: existing.id,
+      };
+    }
+  } else {
+    await args.db.insert(schema.documentVersions).values(afterValues);
+  }
   return { groupId: cause.groupId, beforeCheckpointId, afterCheckpointId };
 }

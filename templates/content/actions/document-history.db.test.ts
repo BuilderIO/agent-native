@@ -104,6 +104,47 @@ function inlineDatabaseBlock(args: {
 }
 
 describe("grouped document history", () => {
+  it("deduplicates concurrent chat-start checkpoints at the insert boundary", async () => {
+    const document = await currentDocument();
+    const cause = {
+      groupId: `agent:${OWNER}:concurrent-run`,
+      groupKind: "agent_run" as const,
+      actorEmail: OWNER,
+      actorKind: "agent" as const,
+      origin: "agent-chat",
+      operation: "chat start",
+      chatContext: {
+        threadId: "thread-concurrent",
+        runId: "concurrent-run",
+        phase: "start" as const,
+      },
+      skipBeforeCheckpoint: true,
+    };
+    const transition = () =>
+      recordDocumentHistoryTransition({
+        db: getDb(),
+        ownerEmail: OWNER,
+        documentId: DOCUMENT_ID,
+        before: { title: document.title, content: document.content },
+        after: { title: document.title, content: document.content },
+        cause,
+        now: new Date().toISOString(),
+      });
+
+    await Promise.all([transition(), transition()]);
+
+    const versions = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, DOCUMENT_ID));
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({
+      groupId: cause.groupId,
+      operation: "chat start",
+      checkpointKind: "after",
+    });
+  });
+
   it("stores a single chat-start checkpoint with its phase", async () => {
     const document = await currentDocument();
     await recordDocumentHistoryTransition({

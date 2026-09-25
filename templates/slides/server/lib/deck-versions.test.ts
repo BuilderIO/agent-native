@@ -199,6 +199,7 @@ describe("deck version snapshot deduplication", () => {
     expect(insertedVersions).toHaveLength(1);
     expect(insertedVersions[0]).toEqual(
       expect.objectContaining({
+        changeGroup: "start:run-2",
         chatContext: JSON.stringify({
           threadId: "thread-2",
           runId: "run-2",
@@ -206,6 +207,26 @@ describe("deck version snapshot deduplication", () => {
         }),
       }),
     );
+  });
+
+  it("separates the beginning checkpoint from the end snapshot group", async () => {
+    await createDeckVersionSnapshot(
+      {
+        id: "deck-1",
+        title: "Deck",
+        data: JSON.stringify({ slides: [{ id: "s1", content: "same" }] }),
+        ownerEmail: "owner@example.com",
+      },
+      {
+        force: true,
+        chatContext: { threadId: "thread-1", runId: "run-1", phase: "start" },
+        db: db as unknown as ReturnType<typeof getDb>,
+      },
+    );
+
+    expect(insertedVersions).toEqual([
+      expect.objectContaining({ changeGroup: "start:run-1" }),
+    ]);
   });
 
   it("uses an atomic change-group insert for concurrent agent turns", async () => {

@@ -59,6 +59,7 @@ export default defineAction({
             ),
           )
           .orderBy(desc(schema.documentVersions.createdAt))
+          .limit(args.limit)
       : await db
           .select({
             id: schema.documentVersions.id,
@@ -74,7 +75,8 @@ export default defineAction({
               like(schema.documentVersions.chatContext, '%"phase":"start"%'),
             ),
           )
-          .orderBy(desc(schema.documentVersions.createdAt));
+          .orderBy(desc(schema.documentVersions.createdAt))
+          .limit(args.limit);
     const versionsById = new Map(
       [...versions, ...beginningVersions].map((version) => [
         version.id,

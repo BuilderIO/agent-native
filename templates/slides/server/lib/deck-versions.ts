@@ -156,8 +156,12 @@ export async function createDeckVersionSnapshot(
   const requestedChatContext = serializeDeckVersionChatContext(
     options.chatContext,
   );
-  const changeGroup =
+  const turnGroup =
     options.chatContext?.turnId ?? options.chatContext?.runId ?? undefined;
+  const changeGroup =
+    options.chatContext?.phase === "start" && turnGroup
+      ? `start:${turnGroup}`
+      : turnGroup;
   if (
     requestedChatContext &&
     requestedChatContext === normalizedChatContext(latestVersion?.chatContext)

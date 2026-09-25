@@ -628,6 +628,7 @@ export function findMatchingAssistantChatHistoryVersion<
       continue;
     }
     const chatContext = version.chatContext;
+    if (chatContext?.phase !== "end") continue;
     const matchesChatTurn = Boolean(
       chatContext &&
       ((message.turnId && chatContext.turnId
