@@ -24,7 +24,11 @@ export default defineAction({
     const runtime = (await getUserSetting(
       owner,
       "calendar-event-rules-runtime",
-    )) as { lastError?: string; lastConflictCount?: number } | null;
+    )) as {
+      lastError?: string;
+      lastConflictCount?: number;
+      accountRefreshErrors?: Array<{ email: string; error: string }>;
+    } | null;
     return {
       enabled: configured,
       reason: configured ? null : unavailableReason,
@@ -36,6 +40,7 @@ export default defineAction({
           ? "calendar-rule-handler-not-registered"
           : (unavailableReason ?? "calendar-rule-handler-not-scheduled"),
       lastError: runtime?.lastError ?? null,
+      accountRefreshErrors: runtime?.accountRefreshErrors ?? [],
       conflictsSkipped: (runtime?.lastConflictCount ?? 0) > 0,
     };
   },

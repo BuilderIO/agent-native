@@ -135,6 +135,7 @@ describe("calendar event rules sweep", () => {
                 { email: "two@example.com", accessToken: "two" },
               ]
             : [],
+        errors: [],
       }),
     );
     mocks.calendarListEvents.mockImplementation(async (token: string) => {
@@ -185,6 +186,65 @@ describe("calendar event rules sweep", () => {
     });
   });
 
+  it("processes healthy accounts and records each token refresh error", async () => {
+    const owner = "owner@example.com";
+    const settingsByOwner: Record<string, Record<string, any>> = {
+      [owner]: {
+        "calendar-settings": { eventRules: { hide: "Hide focus blocks" } },
+      },
+    };
+    mocks.listOAuthAccounts.mockResolvedValue([{ owner }]);
+    mocks.getUserSetting.mockImplementation(
+      async (email: string, key: string) => settingsByOwner[email]?.[key],
+    );
+    mocks.mutateUserSetting.mockImplementation(
+      async (email: string, key: string, update: any) => {
+        const current = settingsByOwner[email]?.[key];
+        const next = typeof update === "function" ? update(current) : update;
+        settingsByOwner[email] ??= {};
+        settingsByOwner[email][key] = structuredClone(next);
+        return settingsByOwner[email][key];
+      },
+    );
+    mocks.getClientsForAccountsWithErrors.mockResolvedValue({
+      clients: [{ email: "healthy@example.com", accessToken: "healthy" }],
+      errors: [
+        { email: "first@example.com", error: "refresh denied" },
+        { email: "second@example.com", error: "connection expired" },
+      ],
+    });
+    mocks.calendarListEvents.mockResolvedValue({
+      items: [],
+      nextSyncToken: "healthy-account-cursor",
+    });
+
+    let failure: unknown;
+    try {
+      await runCalendarEventRulesOnce();
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(mocks.calendarListEvents).toHaveBeenCalledWith(
+      "healthy",
+      "primary",
+      expect.objectContaining({ showDeleted: true }),
+    );
+    expect(failure).toMatchObject({ name: "AggregateError" });
+    const ownerFailure = (failure as Error & { errors: Error[] }).errors[0];
+    expect(ownerFailure.message).toContain("2 account(s)");
+    expect(
+      settingsByOwner[owner]["calendar-event-rules-runtime"],
+    ).toMatchObject({
+      accountRefreshErrors: [
+        { email: "first@example.com", error: "refresh denied" },
+        { email: "second@example.com", error: "connection expired" },
+      ],
+      cursors: { "healthy@example.com:primary": "healthy-account-cursor" },
+      lastError: expect.stringContaining("2 account(s)"),
+    });
+  });
+
   it("persists the first watermark before evaluation so a failure retries the same backlog", async () => {
     const accountKey = "one@example.com:primary";
     const settingsByOwner: Record<string, Record<string, any>> = {
@@ -220,6 +280,7 @@ describe("calendar event rules sweep", () => {
     );
     mocks.getClientsForAccountsWithErrors.mockResolvedValue({
       clients: [{ email: "one@example.com", accessToken: "one" }],
+      errors: [],
     });
     mocks.calendarListEvents.mockResolvedValue({
       items: [event],
@@ -291,6 +352,7 @@ describe("calendar event rules sweep", () => {
     );
     mocks.getClientsForAccountsWithErrors.mockResolvedValue({
       clients: [{ email: account, accessToken: "one" }],
+      errors: [],
     });
     mocks.calendarListEvents
       .mockResolvedValueOnce({ items: [event], nextSyncToken: "sync-token" })

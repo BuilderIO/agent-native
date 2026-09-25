@@ -6,6 +6,13 @@ const PEOPLE_BASE = "https://people.googleapis.com/v1";
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+// Keep provider requests shorter than the calendar Undo claim lease.
+const GOOGLE_REQUEST_TIMEOUT_MS = 30_000;
+
+function googleRequestSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
 
 // ---------------------------------------------------------------------------
 // OAuth2 helpers
@@ -39,6 +46,7 @@ export function createOAuth2Client(
       const res = await fetch(OAUTH_TOKEN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        signal: googleRequestSignal(),
         body: new URLSearchParams({
           code,
           client_id: clientId,
@@ -77,6 +85,7 @@ export function createOAuth2Client(
       const res = await fetch(OAUTH_TOKEN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        signal: googleRequestSignal(),
         body: new URLSearchParams({
           refresh_token: refreshToken,
           client_id: clientId,
@@ -146,7 +155,11 @@ export async function googleFetch(
   const headers = new Headers(opts?.headers);
   headers.set("Authorization", `Bearer ${accessToken}`);
 
-  const res = await fetch(url, { ...opts, headers });
+  const res = await fetch(url, {
+    ...opts,
+    headers,
+    signal: googleRequestSignal(opts?.signal ?? undefined),
+  });
 
   // 204 No Content — return null
   if (res.status === 204) return null;

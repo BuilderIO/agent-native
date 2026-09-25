@@ -30,6 +30,7 @@ type Runtime = {
   processed?: Record<string, string>;
   initialSyncAt?: Record<string, string>;
   pendingRsvps?: Record<string, PendingRsvp>;
+  accountRefreshErrors?: Array<{ email: string; error: string }>;
   lastError?: string;
   lastConflictCount?: number;
   lastSweepAt?: number;
@@ -259,6 +260,19 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     return;
 
   const accounts = await googleCalendar.getClientsForAccountsWithErrors(owner);
+  const accountRefreshErrors = accounts.errors
+    .slice(0, 10)
+    .map(({ email, error }) => ({
+      email,
+      error: error.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").slice(0, 300),
+    }));
+  await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+    const next = { ...((current ?? {}) as Runtime) };
+    if (accountRefreshErrors.length)
+      next.accountRefreshErrors = accountRefreshErrors;
+    else delete next.accountRefreshErrors;
+    return next;
+  });
 
   for (const account of accounts.clients) {
     signal?.throwIfAborted();
@@ -386,6 +400,11 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     await persistProgress();
   }
   await persistProgress(Date.now());
+  if (accountRefreshErrors.length) {
+    throw new Error(
+      `Google Calendar token refresh failed for ${accounts.errors.length} account(s).`,
+    );
+  }
 }
 
 export async function runCalendarEventRulesOnce(signal?: AbortSignal) {

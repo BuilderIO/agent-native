@@ -174,15 +174,26 @@ describe("saveCalendarSettings", () => {
       timezone: "Europe/Warsaw",
       eventRuleActivity: [activity],
       hiddenEventKeys: ["google:owner@example.com:primary:event-2"],
+      __calendarEventRuleUndoClaims: {
+        "activity-1": { token: "undo-token", expiresAt: Date.now() + 60_000 },
+      },
     };
-    mutateUserSettingMock.mockImplementationOnce(async (_email, _key, update) =>
-      update(current),
+    let persisted: Record<string, unknown> | undefined;
+    mutateUserSettingMock.mockImplementationOnce(
+      async (_email, _key, update) => {
+        persisted = update(current);
+        return persisted;
+      },
     );
 
     const saved = await saveCalendarSettings(EMAIL, { weekStart: "monday" });
 
     expect(saved.eventRuleActivity).toEqual([activity]);
     expect(saved.hiddenEventKeys).toEqual(current.hiddenEventKeys);
+    expect(persisted?.__calendarEventRuleUndoClaims).toEqual(
+      current.__calendarEventRuleUndoClaims,
+    );
+    expect(saved).not.toHaveProperty("__calendarEventRuleUndoClaims");
   });
 
   // Saving an unrelated field must not quietly move an account to the fixed

@@ -924,13 +924,24 @@ export default defineAction({
       } | null;
       const hidden = new Set(settings?.hiddenEventKeys ?? []);
       if (hidden.size) {
-        result.events = result.events.filter(
-          (event) =>
-            !hidden.has(event.id) &&
-            !hidden.has(
-              `${event.source}:${event.accountEmail?.trim().toLowerCase()}:${event.calendarId ?? "primary"}:${event.googleEventId ?? event.id}`,
-            ),
-        );
+        const legacyAccount =
+          result.requestedAccounts === null &&
+          result.resolvedAccounts.length === 1
+            ? result.resolvedAccounts[0]!.trim().toLowerCase()
+            : undefined;
+        result.events = result.events.filter((event) => {
+          const legacyHidden =
+            legacyAccount &&
+            event.source === "google" &&
+            event.accountEmail?.trim().toLowerCase() === legacyAccount &&
+            !event.calendarSourceKey &&
+            (event.calendarId == null || event.calendarId === "primary") &&
+            hidden.has(event.id);
+          const scopedHidden = hidden.has(
+            `${event.source}:${event.accountEmail?.trim().toLowerCase()}:${event.calendarId ?? "primary"}:${event.googleEventId ?? event.id}`,
+          );
+          return !legacyHidden && !scopedHidden;
+        });
       }
     }
 

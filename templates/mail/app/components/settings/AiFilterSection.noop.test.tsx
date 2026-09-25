@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   updateRule: vi.fn(),
   updatePreferences: vi.fn(),
   includeTagRule: false,
+  includeDisabledImportant: false,
+  includeExtraDuplicate: false,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -77,6 +79,23 @@ vi.mock("@/hooks/use-automations", () => ({
         updatedAt: "2026-09-25T00:00:00.000Z",
       },
     ];
+    const disabledImportantRule = {
+      id: "important-rule-disabled",
+      ownerEmail: "mail-test@example.test",
+      domain: "mail",
+      kind: "ai-filter",
+      name: "Disabled important rule",
+      condition: "Do not include this instruction",
+      actions: [{ type: "label", labelName: "agent-native-important" }],
+      enabled: false,
+      createdAt: "2026-09-25T00:00:00.000Z",
+      updatedAt: "2026-09-25T00:00:00.000Z",
+    };
+    const extraDuplicate = {
+      ...data[1],
+      id: "important-rule-duplicate-2",
+      condition: "Another active instruction",
+    };
     const tagRule = {
       id: "tag-rule",
       ownerEmail: "mail-test@example.test",
@@ -89,9 +108,17 @@ vi.mock("@/hooks/use-automations", () => ({
       createdAt: "2026-09-25T00:00:00.000Z",
       updatedAt: "2026-09-25T00:00:00.000Z",
     };
+    const dataWithDisabledImportant = [...data, disabledImportantRule];
+    const dataWithExtraDuplicate = [...data, extraDuplicate];
     const dataWithTag = [...data, tagRule];
     return () => ({
-      data: mocks.includeTagRule ? dataWithTag : data,
+      data: mocks.includeExtraDuplicate
+        ? dataWithExtraDuplicate
+        : mocks.includeDisabledImportant
+          ? dataWithDisabledImportant
+          : mocks.includeTagRule
+            ? dataWithTag
+            : data,
       isLoading: false,
     });
   })(),
@@ -117,6 +144,11 @@ describe("AiFilterSection prompt blur saves", () => {
     cleanup();
     vi.clearAllMocks();
     mocks.includeTagRule = false;
+    mocks.includeDisabledImportant = false;
+    mocks.includeExtraDuplicate = false;
+    mocks.createRule.mockReset();
+    mocks.deleteRule.mockReset();
+    mocks.updateRule.mockReset();
   });
 
   it("does not mutate existing rules when a prompt blurs unchanged", async () => {
@@ -141,6 +173,67 @@ describe("AiFilterSection prompt blur saves", () => {
     expect(
       screen.queryByRole("button", { name: "mail.sort.aiSetupRunAgain" }),
     ).toBeNull();
+  });
+
+  it("keeps disabled instructions out of prompt edits", async () => {
+    mocks.includeDisabledImportant = true;
+    render(<AiFilterSection />);
+
+    const prompt = screen.getByRole("textbox", {
+      name: "mail.aiFilter.importantMode",
+    });
+    expect((prompt as HTMLTextAreaElement).value).toBe(
+      "Human comments on GitHub matter\nImportant customer conversations",
+    );
+
+    fireEvent.change(prompt, { target: { value: "Only active rules apply" } });
+    fireEvent.blur(prompt);
+
+    await waitFor(() => {
+      expect(mocks.updateRule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "important-rule",
+          condition: "Only active rules apply",
+        }),
+      );
+      expect(mocks.deleteRule).toHaveBeenCalledWith("important-rule-duplicate");
+    });
+    expect(mocks.updateRule).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: "important-rule-disabled" }),
+    );
+    expect(mocks.deleteRule).not.toHaveBeenCalledWith(
+      "important-rule-disabled",
+    );
+  });
+
+  it("restores the prompt and deleted duplicates when consolidation fails", async () => {
+    mocks.includeExtraDuplicate = true;
+    mocks.createRule.mockResolvedValue({ id: "restored-rule" });
+    mocks.deleteRule.mockImplementation(async (id: string) => {
+      if (id === "important-rule-duplicate-2") throw new Error("delete failed");
+    });
+    render(<AiFilterSection />);
+
+    const prompt = screen.getByRole("textbox", {
+      name: "mail.aiFilter.importantMode",
+    });
+    fireEvent.change(prompt, { target: { value: "Updated instruction" } });
+    fireEvent.blur(prompt);
+
+    await waitFor(() => {
+      expect(mocks.createRule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "AI important: customers",
+          condition: "Important customer conversations",
+        }),
+      );
+      expect(mocks.updateRule).toHaveBeenLastCalledWith({
+        id: "important-rule",
+        name: "AI important",
+        condition: "Human comments on GitHub matter",
+        actions: [{ type: "label", labelName: "agent-native-important" }],
+      });
+    });
   });
 
   it("does not patch tags when trimmed drafts match the saved rule", async () => {

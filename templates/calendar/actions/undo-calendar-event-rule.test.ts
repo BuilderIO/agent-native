@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
-  getUserSetting: vi.fn(),
   mutateUserSetting: vi.fn(),
   getEvent: vi.fn(),
   resolveOwnedAccountEmail: vi.fn(),
@@ -19,7 +18,6 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 vi.mock("@agent-native/core/settings", () => ({
-  getUserSetting: mocks.getUserSetting,
   mutateUserSetting: mocks.mutateUserSetting,
 }));
 vi.mock("../server/lib/google-calendar.js", () => ({
@@ -52,9 +50,11 @@ const acceptedActivity = {
 
 describe("undo-calendar-event-rule", () => {
   let settings: Record<string, unknown>;
+  let mutationQueue: Promise<unknown>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mutationQueue = Promise.resolve();
     settings = {
       hiddenEventKeys: [
         hiddenActivity.hiddenEventKey,
@@ -62,10 +62,18 @@ describe("undo-calendar-event-rule", () => {
       ],
       eventRuleActivity: [hiddenActivity, acceptedActivity],
     };
-    mocks.getUserSetting.mockResolvedValue(settings);
+    mocks.rsvpEvent.mockResolvedValue(undefined);
     mocks.mutateUserSetting.mockImplementation(
       async (_owner: string, _key: string, update: any) => {
-        settings = update(settings);
+        const operation = mutationQueue.then(async () => {
+          settings = await update(settings);
+          return settings;
+        });
+        mutationQueue = operation.then(
+          () => undefined,
+          () => undefined,
+        );
+        return operation;
       },
     );
     mocks.resolveOwnedAccountEmail.mockResolvedValue("owner@example.com");
@@ -104,6 +112,7 @@ describe("undo-calendar-event-rule", () => {
       "none",
     );
     expect(settings.eventRuleActivity).toEqual([hiddenActivity]);
+    expect(settings.__calendarEventRuleUndoClaims).toEqual({});
   });
 
   it("preserves activity when the RSVP no longer matches the recorded action", async () => {
@@ -118,5 +127,77 @@ describe("undo-calendar-event-rule", () => {
       hiddenActivity,
       acceptedActivity,
     ]);
+    expect(settings.__calendarEventRuleUndoClaims).toEqual({});
+  });
+
+  it("claims the activity before a concurrent undo can send a second RSVP", async () => {
+    let finishRsvp!: () => void;
+    mocks.rsvpEvent.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRsvp = resolve;
+        }),
+    );
+
+    const first = action.run({ activityId: acceptedActivity.id });
+    await vi.waitFor(() => expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1));
+
+    await expect(
+      action.run({ activityId: acceptedActivity.id }),
+    ).rejects.toThrow("already being undone");
+    expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1);
+
+    finishRsvp();
+    await expect(first).resolves.toEqual({
+      success: true,
+      activityId: acceptedActivity.id,
+    });
+  });
+
+  it("recovers an ambiguous RSVP failure after the claim lease without resending", async () => {
+    mocks.rsvpEvent.mockRejectedValueOnce(
+      new Error("temporary provider error"),
+    );
+    const initialTime = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(initialTime);
+
+    try {
+      await expect(
+        action.run({ activityId: acceptedActivity.id }),
+      ).rejects.toThrow("temporary provider error");
+      expect(settings.eventRuleActivity).toContainEqual(acceptedActivity);
+      expect(settings.__calendarEventRuleUndoClaims).toHaveProperty(
+        acceptedActivity.id,
+      );
+
+      await expect(
+        action.run({ activityId: acceptedActivity.id }),
+      ).rejects.toThrow("already being undone");
+
+      now.mockReturnValue(initialTime + 5 * 60 * 1000 + 1);
+      mocks.getEvent.mockResolvedValue({ responseStatus: "needsAction" });
+      await expect(
+        action.run({ activityId: acceptedActivity.id }),
+      ).resolves.toEqual({ success: true, activityId: acceptedActivity.id });
+      expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1);
+      expect(settings.eventRuleActivity).toEqual([hiddenActivity]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("finishes an expired claim without repeating an already completed RSVP", async () => {
+    settings.__calendarEventRuleUndoClaims = {
+      [acceptedActivity.id]: { token: "expired", expiresAt: 0 },
+    };
+    mocks.getEvent.mockResolvedValue({ responseStatus: "needsAction" });
+
+    await expect(
+      action.run({ activityId: acceptedActivity.id }),
+    ).resolves.toEqual({ success: true, activityId: acceptedActivity.id });
+
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+    expect(settings.eventRuleActivity).toEqual([hiddenActivity]);
+    expect(settings.__calendarEventRuleUndoClaims).toEqual({});
   });
 });

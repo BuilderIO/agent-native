@@ -213,7 +213,9 @@ export function AiFilterSection() {
       Object.fromEntries(
         PROMPT_MODES.map((mode) => [
           mode,
-          instructions.filter((rule) => ruleMode(rule) === mode),
+          instructions.filter(
+            (rule) => rule.enabled && ruleMode(rule) === mode,
+          ),
         ]),
       ) as Record<PromptMode, AutomationRule[]>,
     [instructions],
@@ -265,17 +267,30 @@ export function AiFilterSection() {
     if (condition === promptForRules(existing)) return;
 
     const restoreRules = async (rulesToRestore: AutomationRule[]) => {
+      const errors: unknown[] = [];
       for (const rule of rulesToRestore) {
-        const restored = await createRule.mutateAsync({
-          name: rule.name,
-          condition: rule.condition,
-          actions: rule.actions,
-          kind: rule.kind,
-          domain: rule.domain,
-        });
-        if (!rule.enabled) {
-          await updateRule.mutateAsync({ id: restored.id, enabled: false });
+        try {
+          const restored = await createRule.mutateAsync({
+            name: rule.name,
+            condition: rule.condition,
+            actions: rule.actions,
+            kind: rule.kind,
+            domain: rule.domain,
+          });
+          if (!rule.enabled) {
+            await updateRule.mutateAsync({ id: restored.id, enabled: false });
+          }
+        } catch (error) {
+          errors.push(error);
         }
+      }
+      if (errors.length) {
+        throw new AggregateError(
+          errors,
+          errors[0] instanceof Error
+            ? errors[0].message
+            : t("mail.aiFilter.instructionFailed"),
+        );
       }
     };
     try {
@@ -287,7 +302,16 @@ export function AiFilterSection() {
             removed.push(rule);
           }
         } catch (error) {
-          await restoreRules(removed);
+          try {
+            await restoreRules(removed);
+          } catch (restoreError) {
+            throw new AggregateError(
+              [error, restoreError],
+              error instanceof Error
+                ? error.message
+                : t("mail.aiFilter.instructionFailed"),
+            );
+          }
           throw error;
         }
         toast(t("mail.aiFilter.promptRulesCleared"), {
@@ -301,15 +325,45 @@ export function AiFilterSection() {
       const name = `AI ${mode}: ${condition.slice(0, 72)}`;
       const [first, ...duplicates] = existing;
       if (first) {
-        await updateRule.mutateAsync({
-          id: first.id,
-          name,
-          condition,
-          actions,
-        });
-        await Promise.all(
-          duplicates.map((rule) => deleteRule.mutateAsync(rule.id)),
-        );
+        const removed: AutomationRule[] = [];
+        try {
+          await updateRule.mutateAsync({
+            id: first.id,
+            name,
+            condition,
+            actions,
+          });
+          for (const rule of duplicates) {
+            await deleteRule.mutateAsync(rule.id);
+            removed.push(rule);
+          }
+        } catch (error) {
+          const rollbackErrors: unknown[] = [];
+          try {
+            await updateRule.mutateAsync({
+              id: first.id,
+              name: first.name,
+              condition: first.condition,
+              actions: first.actions,
+            });
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackError);
+          }
+          try {
+            await restoreRules(removed);
+          } catch (rollbackError) {
+            rollbackErrors.push(rollbackError);
+          }
+          if (rollbackErrors.length) {
+            throw new AggregateError(
+              [error, ...rollbackErrors],
+              error instanceof Error
+                ? error.message
+                : t("mail.aiFilter.instructionFailed"),
+            );
+          }
+          throw error;
+        }
       } else {
         await createRule.mutateAsync({
           name,

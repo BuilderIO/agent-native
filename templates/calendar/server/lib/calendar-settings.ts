@@ -76,23 +76,38 @@ export async function saveCalendarSettings(
     patch && typeof patch === "object"
       ? (patch as Record<string, unknown>)
       : {};
-  const settings = (await mutateUserSetting(email, SETTINGS_KEY, (current) => {
-    const currentSettings = normalizeCalendarSettings(current, {
-      timezone: callerTimezone(),
-    });
-    return normalizeCalendarSettings(
-      {
-        ...currentSettings,
-        ...patchRecord,
-        eventRules: {
-          ...currentSettings.eventRules,
-          ...((patchRecord.eventRules as Record<string, unknown> | undefined) ??
-            {}),
-        },
-      },
-      { timezone: callerTimezone() },
-    ) as unknown as Record<string, unknown>;
-  })) as unknown as Settings;
+  const storedSettings = await mutateUserSetting(
+    email,
+    SETTINGS_KEY,
+    (current) => {
+      const currentRecord = current ?? {};
+      const currentSettings = normalizeCalendarSettings(currentRecord, {
+        timezone: callerTimezone(),
+      });
+      return {
+        ...normalizeCalendarSettings(
+          {
+            ...currentSettings,
+            ...patchRecord,
+            eventRules: {
+              ...currentSettings.eventRules,
+              ...((patchRecord.eventRules as
+                | Record<string, unknown>
+                | undefined) ?? {}),
+            },
+          },
+          { timezone: callerTimezone() },
+        ),
+        ...(currentRecord.__calendarEventRuleUndoClaims !== undefined
+          ? {
+              __calendarEventRuleUndoClaims:
+                currentRecord.__calendarEventRuleUndoClaims,
+            }
+          : {}),
+      } as unknown as Record<string, unknown>;
+    },
+  );
+  const settings = normalizeCalendarSettings(storedSettings);
   const record = settings as unknown as Record<string, unknown>;
   const publicRecord = { ...record };
   delete publicRecord.eventRules;

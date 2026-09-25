@@ -268,6 +268,77 @@ describe("list-events inventory contract", () => {
     expect(Array.isArray(result)).toBe(true);
   });
 
+  it("does not apply a legacy bare id when multiple Google accounts make it ambiguous", async () => {
+    getOwnedAccountEmailsMock.mockResolvedValue([
+      "steve@example.com",
+      "other@example.com",
+    ]);
+    getUserSettingMock.mockResolvedValue({
+      timezone: "UTC",
+      hiddenEventKeys: ["google-legacy-event"],
+    });
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-legacy-event",
+          googleEventId: "legacy-event",
+          title: "Legacy event",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          allDay: false,
+          source: "google",
+          accountEmail: "steve@example.com",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await (listEventsAction as any).run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        sources: ["google"],
+      },
+      { caller: "frontend" },
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("google-legacy-event");
+  });
+
+  it("still applies a legacy bare id for an unfiltered single-account primary event", async () => {
+    getUserSettingMock.mockResolvedValue({
+      timezone: "UTC",
+      hiddenEventKeys: ["google-legacy-event"],
+    });
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-legacy-event",
+          googleEventId: "legacy-event",
+          title: "Legacy event",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          allDay: false,
+          source: "google",
+          accountEmail: "steve@example.com",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await (listEventsAction as any).run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        sources: ["google"],
+      },
+      { caller: "frontend" },
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it("returns compact coverage-aware inventory to MCP", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [

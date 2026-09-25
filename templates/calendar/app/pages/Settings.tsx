@@ -86,6 +86,7 @@ export default function Settings() {
     intervalMinutes: number | null;
     message: string | null;
     lastError: string | null;
+    accountRefreshErrors: Array<{ email: string; error: string }>;
     conflictsSkipped: boolean;
     reason: string | null;
     registered: boolean;
@@ -428,6 +429,15 @@ export default function Settings() {
                   {eventRulesStatusError}
                 </p>
               ) : null}
+              {statusData?.accountRefreshErrors.map(({ email, error }) => (
+                <p
+                  key={email}
+                  className="text-sm text-destructive"
+                  role="status"
+                >
+                  {email}: {error}
+                </p>
+              ))}
               {(["accept", "decline", "hide"] as const).map((rule) => (
                 <div key={rule} className="space-y-2">
                   <Label htmlFor={`event-rule-${rule}`}>
