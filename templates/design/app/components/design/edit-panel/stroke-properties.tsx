@@ -1176,11 +1176,9 @@ function VectorStrokeProperties({
           ) : null}
           <InspectorGrid className="items-center" layout="stroke-details">
             <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-              {canAlignStroke ? (
-                <SubsectionLabel>
-                  {t("editPanel.labels.position")}
-                </SubsectionLabel>
-              ) : null}
+              <SubsectionLabel>
+                {t("editPanel.labels.position")}
+              </SubsectionLabel>
             </InspectorGridCell>
             <InspectorGridCell
               span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
@@ -1192,53 +1190,52 @@ function VectorStrokeProperties({
           </InspectorGrid>
           <InspectorGrid className="items-center" layout="stroke-details">
             <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-              {canAlignStroke ? (
-                <Select
-                  value={position}
-                  onValueChange={(next) => {
-                    if (!STROKE_POSITION_OPTIONS.some((o) => o.value === next))
-                      return;
-                    const patch = {
-                      stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
-                      strokeWidth: width === "0px" ? "1px" : width,
-                      strokeOpacity: styles.strokeOpacity,
-                      strokeDasharray: styles.strokeDasharray,
-                      strokeDashoffset: styles.strokeDashoffset,
-                      strokeLinecap: styles.strokeLinecap,
-                      strokeLinejoin: styles.strokeLinejoin,
-                      strokeMiterlimit: styles.strokeMiterlimit,
-                      opacity: styles.vectorOpacity,
-                      transform: styles.vectorTransform,
-                      transformOrigin: styles.vectorTransformOrigin,
-                      transformBox: styles.vectorTransformBox,
-                      "--an-vector-stroke-position": next,
-                    };
-                    if (onStylesChange) onStylesChange(patch);
-                    else
-                      Object.entries(patch).forEach(([property, value]) =>
-                        onStyleChange(property, value),
-                      );
-                  }}
+              <Select
+                value={canAlignStroke ? position : "center"}
+                disabled={!canAlignStroke}
+                onValueChange={(next) => {
+                  if (!STROKE_POSITION_OPTIONS.some((o) => o.value === next))
+                    return;
+                  const patch = {
+                    stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
+                    strokeWidth: width === "0px" ? "1px" : width,
+                    strokeOpacity: styles.strokeOpacity,
+                    strokeDasharray: styles.strokeDasharray,
+                    strokeDashoffset: styles.strokeDashoffset,
+                    strokeLinecap: styles.strokeLinecap,
+                    strokeLinejoin: styles.strokeLinejoin,
+                    strokeMiterlimit: styles.strokeMiterlimit,
+                    opacity: styles.vectorOpacity,
+                    transform: styles.vectorTransform,
+                    transformOrigin: styles.vectorTransformOrigin,
+                    transformBox: styles.vectorTransformBox,
+                    "--an-vector-stroke-position": next,
+                  };
+                  if (onStylesChange) onStylesChange(patch);
+                  else
+                    Object.entries(patch).forEach(([property, value]) =>
+                      onStyleChange(property, value),
+                    );
+                }}
+              >
+                <SelectTrigger
+                  aria-label={t("editPanel.labels.position")}
+                  className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
                 >
-                  <SelectTrigger
-                    aria-label={t("editPanel.labels.position")}
-                    className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {positionOptions.map((option) => (
-                      <SelectItem
-                        key={option.value}
-                        value={option.value}
-                        className="!text-[11px]"
-                      >
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {positionOptions.map((option) => (
+                    <SelectItem
+                      key={option.value}
+                      value={option.value}
+                      className="!text-[11px]"
+                    >
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </InspectorGridCell>
             <InspectorGridCell
               span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}

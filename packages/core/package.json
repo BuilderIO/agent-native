@@ -87,6 +87,7 @@
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
     "./brand-kit/tokens": "./dist/brand-kit/tokens.js",
+    "./icons": "./dist/icons/index.js",
     "./data-widgets": "./dist/data-widgets/index.js",
     "./action": {
       "types": "./dist/action.d.ts",
@@ -187,6 +188,7 @@
     "./client/observability": "./dist/client/observability/index.js",
     "./observability/actions/list-observability-reviews": "./dist/observability/actions/list-observability-reviews.js",
     "./observability/actions/get-observability-review-app": "./dist/observability/actions/get-observability-review-app.js",
+    "./observability/actions/get-observability-review-detail": "./dist/observability/actions/get-observability-review-detail.js",
     "./observability/actions/save-observability-instruction-update": "./dist/observability/actions/save-observability-instruction-update.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
@@ -348,6 +350,7 @@
     "./usage/actions/get-usage-alerts": "./dist/usage/actions/get-usage-alerts.js",
     "./usage/actions/manage-usage-alert": "./dist/usage/actions/manage-usage-alert.js",
     "./usage/actions/get-usage-metrics": "./dist/usage/actions/get-usage-metrics.js",
+    "./usage/actions/get-builder-credit-usage": "./dist/usage/actions/get-builder-credit-usage.js",
     "./connections": "./dist/connections/index.js",
     "./connections/runtime": "./dist/connections/runtime.js",
     "./provider-api": "./dist/provider-api/index.js",

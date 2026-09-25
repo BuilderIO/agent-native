@@ -67,9 +67,62 @@ use util::{
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
 const POPOVER_BLUR_GUARD: Duration = Duration::from_millis(1500);
+// Focused(false) can arrive before the bubble's pointer-down reaches Rust.
+const POPOVER_BLUR_SETTLE: Duration = Duration::from_millis(100);
 
-fn popover_blur_delay(elapsed: Duration) -> Option<Duration> {
-    (elapsed < POPOVER_BLUR_GUARD).then(|| POPOVER_BLUR_GUARD - elapsed)
+fn popover_blur_delay(elapsed: Duration, bubble_dragging: bool) -> Option<Duration> {
+    if bubble_dragging {
+        None
+    } else if elapsed < POPOVER_BLUR_GUARD {
+        Some(POPOVER_BLUR_GUARD - elapsed)
+    } else {
+        Some(POPOVER_BLUR_SETTLE)
+    }
+}
+
+pub(crate) fn schedule_popover_dismissal(app_handle: &tauri::AppHandle) {
+    if is_recording_active(app_handle) && clips::popover_is_parked(app_handle) {
+        dlog!("[clips-tray] popover blur ignored — popover parked");
+        return;
+    }
+    if !config::auto_hide_popover_enabled(app_handle) {
+        dlog!("[clips-tray] popover blur ignored — auto-hide disabled");
+        return;
+    }
+    let Some(handle) = app_handle.get_webview_window("popover") else {
+        return;
+    };
+    let shown_at = app_handle
+        .try_state::<PopoverShownAt>()
+        .and_then(|s| s.0.lock().ok().and_then(|g| *g));
+    let elapsed = shown_at.map(|t| t.elapsed()).unwrap_or(Duration::MAX);
+    let Some(delay) = popover_blur_delay(elapsed, clips::is_bubble_dragging()) else {
+        dlog!("[clips-tray] popover blur ignored — camera bubble drag active");
+        return;
+    };
+    dlog!(
+        "[clips-tray] popover blur, elapsed_ms={}",
+        elapsed.as_millis()
+    );
+    let delayed_handle = handle.clone();
+    let delayed_app_handle = (*app_handle).clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(delay).await;
+        let still_current = delayed_app_handle
+            .try_state::<PopoverShownAt>()
+            .and_then(|state| state.0.lock().ok().map(|guard| *guard == shown_at))
+            .unwrap_or(false);
+        if !still_current
+            || clips::is_bubble_dragging()
+            || (is_recording_active(&delayed_app_handle)
+                && clips::popover_is_parked(&delayed_app_handle))
+            || !config::auto_hide_popover_enabled(&delayed_app_handle)
+            || delayed_handle.is_focused().unwrap_or(true)
+        {
+            return;
+        }
+        clips::hide_popover(&delayed_app_handle);
+    });
 }
 
 fn present_popover(app: &tauri::AppHandle) {
@@ -496,7 +549,6 @@ pub fn run() {
             // itself macOS briefly steals focus from the popover, which would
             // fire Focused(false) and hide the window we literally just showed.
             if let Some(window) = app.get_webview_window("popover") {
-                let handle = window.clone();
                 let app_handle = app.handle().clone();
                 // NOTE: Intentionally NOT calling window.open_devtools()
                 // here. An auto-opened devtools window steals focus from
@@ -506,55 +558,7 @@ pub fn run() {
                 // Element if they need devtools.
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        // A parked popover is still alive for WebKit, but it
-                        // is intentionally not a user-facing menu. Ignore
-                        // its blur while native capture owns the handoff;
-                        // a full-size visible popover must still dismiss even
-                        // if an earlier start flow left the recording flag
-                        // latched.
-                        if is_recording_active(&app_handle) && clips::popover_is_parked(&app_handle) {
-                            dlog!("[clips-tray] popover blur ignored — popover parked");
-                            return;
-                        }
-                        if !config::auto_hide_popover_enabled(&app_handle) {
-                            dlog!("[clips-tray] popover blur ignored — auto-hide disabled");
-                            return;
-                        }
-                        let shown_at = app_handle
-                            .try_state::<PopoverShownAt>()
-                            .and_then(|s| s.0.lock().ok().and_then(|g| *g));
-                        let elapsed = shown_at.map(|t| t.elapsed()).unwrap_or(Duration::MAX);
-                        dlog!(
-                            "[clips-tray] popover blur, elapsed_ms={}",
-                            elapsed.as_millis()
-                        );
-                        if let Some(delay) = popover_blur_delay(elapsed) {
-                            let Some(shown_at) = shown_at else {
-                                return;
-                            };
-                            let delayed_handle = handle.clone();
-                            let delayed_app_handle = app_handle.clone();
-                            tauri::async_runtime::spawn(async move {
-                                tokio::time::sleep(delay).await;
-                                let still_current = delayed_app_handle
-                                    .try_state::<PopoverShownAt>()
-                                    .and_then(|state| {
-                                        state.0.lock().ok().map(|guard| *guard == Some(shown_at))
-                                    })
-                                    .unwrap_or(false);
-                                if !still_current
-                                    || (is_recording_active(&delayed_app_handle)
-                                        && clips::popover_is_parked(&delayed_app_handle))
-                                    || !config::auto_hide_popover_enabled(&delayed_app_handle)
-                                    || delayed_handle.is_focused().unwrap_or(true)
-                                {
-                                    return;
-                                }
-                                clips::hide_popover(&delayed_app_handle);
-                            });
-                        } else {
-                            clips::hide_popover(&app_handle);
-                        }
+                        schedule_popover_dismissal(&app_handle);
                     }
                 });
             }
@@ -661,15 +665,19 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{popover_blur_delay, POPOVER_BLUR_GUARD};
+    use super::{popover_blur_delay, POPOVER_BLUR_GUARD, POPOVER_BLUR_SETTLE};
     use std::time::Duration;
 
     #[test]
     fn retries_blur_until_guard_expires() {
         assert_eq!(
-            popover_blur_delay(Duration::from_millis(400)),
+            popover_blur_delay(Duration::from_millis(400), false),
             Some(Duration::from_millis(1100))
         );
-        assert_eq!(popover_blur_delay(POPOVER_BLUR_GUARD), None);
+        assert_eq!(
+            popover_blur_delay(POPOVER_BLUR_GUARD, false),
+            Some(POPOVER_BLUR_SETTLE)
+        );
+        assert_eq!(popover_blur_delay(Duration::MAX, true), None);
     }
 }

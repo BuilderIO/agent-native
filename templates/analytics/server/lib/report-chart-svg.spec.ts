@@ -52,6 +52,12 @@ function rightAxisTicks(svg: string): string[] {
   ].map((match) => match[1]);
 }
 
+function leftAxisTicks(svg: string): string[] {
+  return [
+    ...svg.matchAll(/<text x="48" y="[\d.]+" text-anchor="end"[^>]*>([^<]*)</g),
+  ].map((match) => match[1]);
+}
+
 function legendEntries(
   svg: string,
 ): Array<{ label: string; x: number; row: number }> {
@@ -270,6 +276,58 @@ describe("renderReportChartSvg", () => {
     // rather than being piled on top of the currency stack.
     expect(svg).toContain(">30<");
     expect(rightAxisTicks(svg)).toEqual(["0.4", "0.3", "0.2", "0.1", "0"]);
+  });
+
+  it("stacks area paths and scales the axis to their cumulative values", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      labels: ["W1", "W2"],
+      type: "area",
+      stacked: true,
+      series: [
+        { label: "Base", color: "#ff0000", data: [100, 100] },
+        { label: "Top", color: "#0000ff", data: [200, 200] },
+      ],
+    });
+
+    expect(leftAxisTicks(svg)).toEqual(["300", "225", "150", "75", "0"]);
+    const topPath = svg.match(
+      /<path d="([^"]*)" fill="none" stroke="#0000ff"/,
+    )?.[1];
+    const topValues = topPath
+      ? [...topPath.matchAll(/[ML] -?[\d.]+,(-?[\d.]+)/g)].map((match) =>
+          Number(match[1]),
+        )
+      : [];
+    const firstGridY = Number(svg.match(/<line [^>]*y1="([\d.]+)"/)?.[1]);
+    expect(topValues).toEqual([firstGridY, firstGridY]);
+  });
+
+  it("uses signed cumulative segments for mixed-sign stacked areas", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      labels: ["W1", "W2"],
+      type: "area",
+      stacked: true,
+      series: [
+        { label: "Base", color: "#ff0000", data: [10, 10] },
+        { label: "Negative", color: "#0000ff", data: [-20, -20] },
+      ],
+    });
+
+    expect(leftAxisTicks(svg)).toEqual(["10", "5", "0", "-5", "-10"]);
+    const baseY = Number(
+      svg
+        .match(/<path d="[^"]*" fill="none" stroke="#ff0000"[^>]*>/)?.[0]
+        ?.match(/[ML] -?[\d.]+,(-?[\d.]+)/)?.[1],
+    );
+    const negativeArea = svg.match(/<path d="([^"]*)" fill="#0000ff"/)?.[1];
+    const negativeAreaYs = negativeArea
+      ? [...negativeArea.matchAll(/[ML] -?[\d.]+,(-?[\d.]+)/g)].map((match) =>
+          Number(match[1]),
+        )
+      : [];
+    expect(negativeAreaYs).toContain(baseY);
   });
 
   it("keeps a mixed-sign stacked bar inside the plot area", () => {
