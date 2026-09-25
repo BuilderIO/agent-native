@@ -770,6 +770,10 @@ export async function mergeCoreSharingActions(
       () => import("../agent/actions/check-provider-key.js"),
     ],
     [
+      "manage-provider-key-policy",
+      () => import("../agent/actions/manage-provider-key-policy.js"),
+    ],
+    [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),
     ],

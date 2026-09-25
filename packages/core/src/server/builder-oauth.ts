@@ -12,6 +12,7 @@ import {
   type McpOAuthCredentialBundle,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens } from "../oauth-tokens/store.js";
+import { isPersonalProviderKeyUseRestricted } from "./personal-provider-key-policy.js";
 
 const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
   (...args) =>
@@ -101,16 +102,19 @@ export function canRoleConnectPersonalBuilder(
 
 /**
  * Whether a member's personal Builder.io grant may be used and created. The
- * "Restrict personal API keys" org policy (settings-redesign task 09) answers
- * here; until it lands every personal grant is allowed. The reads that pick a
+ * "Restrict personal API keys" org policy answers here. The reads that pick a
  * request's grant, the status route's `restricted` flag, and personal connect
- * start all call this, so the policy needs no other hook.
+ * start all call this, so the policy needs no other hook. Throws when the
+ * policy cannot be read.
  */
-export async function isPersonalBuilderGrantAllowed(_input: {
+export async function isPersonalBuilderGrantAllowed(input: {
   ownerEmail: string;
   orgId: string | null;
 }): Promise<boolean> {
-  return true;
+  return !(await isPersonalProviderKeyUseRestricted({
+    email: input.ownerEmail,
+    orgId: input.orgId,
+  }));
 }
 
 export type BuilderOAuthSession = {

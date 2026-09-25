@@ -263,6 +263,7 @@
     "./agent/actions/get-chatgpt-subscription-status": "./dist/agent/actions/get-chatgpt-subscription-status.js",
     "./agent/actions/disconnect-chatgpt-subscription": "./dist/agent/actions/disconnect-chatgpt-subscription.js",
     "./agent/actions/check-provider-key": "./dist/agent/actions/check-provider-key.js",
+    "./agent/actions/manage-provider-key-policy": "./dist/agent/actions/manage-provider-key-policy.js",
     "./agent/observational-memory": "./dist/agent/observational-memory/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",

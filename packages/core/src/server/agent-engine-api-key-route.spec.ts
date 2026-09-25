@@ -28,6 +28,18 @@ vi.mock("../extensions/url-safety.js", () => ({
   ssrfSafeFetch: vi.fn(),
 }));
 
+const mockResolvePersonalProviderKeySaveDenial = vi.fn(
+  async (..._args: unknown[]): Promise<string | null> => null,
+);
+
+vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./personal-provider-key-policy.js")
+  >()),
+  resolvePersonalProviderKeySaveDenial: (...args: unknown[]) =>
+    mockResolvePersonalProviderKeySaveDenial(...args),
+}));
+
 vi.mock("./credential-provider.js", () => ({
   clearProviderCredentialAuthFailure: (...args: unknown[]) =>
     mockClearProviderCredentialAuthFailure(...args),
@@ -167,6 +179,66 @@ describe("agent engine api-key route helpers", () => {
       code: "rejected",
     });
     expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("refuses a restricted member's personal save and keeps their stored key", async () => {
+    mockWriteAppSecret.mockClear();
+    mockDeleteAppSecret.mockClear();
+    mockGetSession.mockResolvedValue({ email: "member@example.test" });
+    mockResolvePersonalProviderKeySaveDenial.mockResolvedValueOnce(
+      "Owners and admins restricted personal API keys.",
+    );
+    const event = {
+      req: new Request("http://localhost/_agent-native/agent-engine-key", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "anthropic",
+          apiKey: "sk-ant-example",
+          scope: "user",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      error: "Owners and admins restricted personal API keys.",
+      errorCode: "personal_provider_keys_restricted",
+    });
+    expect(event.res.status).toBe(403);
+    expect(mockResolvePersonalProviderKeySaveDenial).toHaveBeenLastCalledWith(
+      event,
+      "member@example.test",
+      "ANTHROPIC_API_KEY",
+    );
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("still lets a restricted member remove their personal key", async () => {
+    mockDeleteAppSecret.mockClear();
+    mockResolvePersonalProviderKeySaveDenial.mockClear();
+    mockGetSession.mockResolvedValue({ email: "member@example.test" });
+    const event = {
+      req: new Request("http://localhost/_agent-native/agent-engine-key", {
+        method: "DELETE",
+        body: JSON.stringify({ provider: "anthropic" }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toMatchObject({ ok: true, scope: "user" });
+    expect(mockDeleteAppSecret).toHaveBeenCalledWith({
+      key: "ANTHROPIC_API_KEY",
+      scope: "user",
+      scopeId: "member@example.test",
+    });
+    expect(mockResolvePersonalProviderKeySaveDenial).not.toHaveBeenCalled();
   });
 
   it("rejects private provider endpoints at the server validation boundary", async () => {

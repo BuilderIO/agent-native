@@ -4965,6 +4965,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const secretKey =
             PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
 
+          const { resolvePersonalProviderKeySaveDenial } =
+            await import("./personal-provider-key-policy.js");
+          const denial = await resolvePersonalProviderKeySaveDenial(
+            event,
+            ownerEmail,
+            secretKey,
+          );
+          if (denial) {
+            setResponseStatus(event, 403);
+            return { error: denial };
+          }
+
           try {
             const { writeAppSecret } = await import("../secrets/storage.js");
             await writeAppSecret({

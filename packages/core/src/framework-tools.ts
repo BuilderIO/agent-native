@@ -104,7 +104,8 @@ export interface FrameworkToolsOption {
   /** `describe-workspace-apps` and `call-agent` for cross-app delegation. */
   workspaceApps?: boolean;
   /** `chat-history`, `manage-agent-engine`, `manage-agent-loop-settings`,
-   *  `preview-secret-removal`, `check-provider-key`. */
+   *  `preview-secret-removal`, `check-provider-key`,
+   *  `manage-provider-key-policy`. */
   chat?: boolean;
   /** `core-send-email`. */
   email?: boolean;
@@ -306,6 +307,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "disconnect-chatgpt-subscription": "chat",
   "preview-secret-removal": "chat",
   "check-provider-key": "chat",
+  "manage-provider-key-policy": "chat",
   "get-experiments": "labs",
   "set-experiment": "labs",
 

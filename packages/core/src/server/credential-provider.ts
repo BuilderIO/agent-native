@@ -39,6 +39,10 @@ import {
   hasBuilderOAuthSession,
 } from "./builder-oauth.js";
 import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
+import {
+  isPersonalProviderKeyUseRestricted,
+  isPersonalProviderPolicyKey,
+} from "./personal-provider-key-policy.js";
 export {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
@@ -483,6 +487,25 @@ async function resolveOrgIdForRequestEmail(
   }
 }
 
+/**
+ * A member's personal Builder key pair (user row, or the pre-org solo row) is
+ * unused while their org restricts personal API keys. Mirrors the resolvers'
+ * org choice: a background identity's explicit org, `null` for none, else the
+ * request's org.
+ */
+function isPersonalBuilderCredentialRestricted(
+  email: string,
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<boolean> {
+  if (identity === undefined)
+    return isPersonalProviderKeyUseRestricted({ email });
+  if (identity.orgId === null) return Promise.resolve(false);
+  const orgId = identity.orgId?.trim();
+  return isPersonalProviderKeyUseRestricted(
+    orgId ? { email, orgId } : { email },
+  );
+}
+
 interface ScopedCredentialResult {
   value: string | null;
   source: "user" | "org" | "workspace" | null;
@@ -517,13 +540,20 @@ async function resolveScopedBuilderCredential(
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
 
+    const personalRestricted = await isPersonalBuilderCredentialRestricted(
+      email,
+      identity,
+    );
+
     // 1. Per-user override: a user can paste their own key in settings to
     //    overrule the org-shared one (handy for a personal sandbox).
-    const userSecret = await readAppSecret({
-      key,
-      scope: "user",
-      scopeId: email,
-    });
+    const userSecret = personalRestricted
+      ? null
+      : await readAppSecret({
+          key,
+          scope: "user",
+          scopeId: email,
+        });
     if (userSecret) {
       if (traceLookup) {
         console.log(
@@ -611,11 +641,13 @@ async function resolveScopedBuilderCredential(
     //    written before the user joined/created an org must not become
     //    unreachable once that org exists.
     scopeAttempted = "workspace-solo";
-    const soloWorkspaceSecret = await readAppSecret({
-      key,
-      scope: "workspace",
-      scopeId: `solo:${email}`,
-    });
+    const soloWorkspaceSecret = personalRestricted
+      ? null
+      : await readAppSecret({
+          key,
+          scope: "workspace",
+          scopeId: `solo:${email}`,
+        });
     if (soloWorkspaceSecret) {
       if (traceLookup) {
         console.log(
@@ -691,14 +723,20 @@ async function resolveScopedBuilderCredentials(
       );
     };
 
-    const userCreds = await readBuilderCredentialScope(
-      readAppSecrets,
-      "user",
+    const personalRestricted = await isPersonalBuilderCredentialRestricted(
       email,
+      identity,
     );
-    await traceScope(userCreds, email);
-    if (await isCompleteBuilderConnection(userCreds)) {
-      return { creds: userCreds, lookupFailed: false };
+    if (!personalRestricted) {
+      const userCreds = await readBuilderCredentialScope(
+        readAppSecrets,
+        "user",
+        email,
+      );
+      await traceScope(userCreds, email);
+      if (await isCompleteBuilderConnection(userCreds)) {
+        return { creds: userCreds, lookupFailed: false };
+      }
     }
 
     let orgId: string | null | undefined =
@@ -746,18 +784,20 @@ async function resolveScopedBuilderCredentials(
     // gated behind "no org".
     scopeAttempted = "workspace-solo";
     const soloScopeId = `solo:${email}`;
-    const soloCreds = await readBuilderCredentialScope(
-      readAppSecrets,
-      "workspace",
-      soloScopeId,
-    );
-    await traceScope(
-      soloCreds,
-      soloScopeId,
-      ` orgId=${orgId ?? "(none)"} orgSource=${orgSource}`,
-    );
-    if (await isCompleteBuilderConnection(soloCreds)) {
-      return { creds: soloCreds, lookupFailed: false };
+    if (!personalRestricted) {
+      const soloCreds = await readBuilderCredentialScope(
+        readAppSecrets,
+        "workspace",
+        soloScopeId,
+      );
+      await traceScope(
+        soloCreds,
+        soloScopeId,
+        ` orgId=${orgId ?? "(none)"} orgSource=${orgSource}`,
+      );
+      if (await isCompleteBuilderConnection(soloCreds)) {
+        return { creds: soloCreds, lookupFailed: false };
+      }
     }
   } catch (err) {
     if (traceLookup) {
@@ -2142,15 +2182,21 @@ export async function resolveSecretDetailed(
   if (email) {
     try {
       const { readAppSecret } = await import("../secrets/storage.js");
+      // A restricted member's own provider keys stay stored but unused: skip
+      // both personal rows (user and pre-org solo workspace), never delete.
+      const personalRestricted =
+        isPersonalProviderPolicyKey(key) &&
+        (await isPersonalProviderKeyUseRestricted({ email }));
 
       // Per-user override first.
-      const userSecret = options.skipUserScope
-        ? null
-        : await readAppSecret({
-            key,
-            scope: "user",
-            scopeId: email,
-          });
+      const userSecret =
+        options.skipUserScope || personalRestricted
+          ? null
+          : await readAppSecret({
+              key,
+              scope: "user",
+              scopeId: email,
+            });
       if (userSecret?.value) {
         if (traceLookup) {
           console.log(
@@ -2237,11 +2283,13 @@ export async function resolveSecretDetailed(
       // here, and must not become unreachable once that org exists. It stays
       // inside this try so a failed org-scoped read still surfaces as
       // retryable instead of being answered by a stale pre-org row.
-      const soloWorkspaceSecret = await readAppSecret({
-        key,
-        scope: "workspace",
-        scopeId: `solo:${email}`,
-      });
+      const soloWorkspaceSecret = personalRestricted
+        ? null
+        : await readAppSecret({
+            key,
+            scope: "workspace",
+            scopeId: `solo:${email}`,
+          });
       if (soloWorkspaceSecret?.value) {
         if (traceLookup) {
           console.log(

@@ -6,6 +6,10 @@ import {
 } from "../secrets/crypto.js";
 import { readAppSecret, type SecretRef } from "../secrets/storage.js";
 import { assertCredentialStoreReadable } from "../server/credential-provider.js";
+import {
+  isPersonalProviderKeyUseRestricted,
+  isPersonalProviderPolicyKey,
+} from "../server/personal-provider-key-policy.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 
 const SETTING_PREFIX = "credential:";
@@ -133,14 +137,25 @@ export async function resolveCredential(
 ): Promise<string | undefined> {
   if (!ctx?.userEmail) return undefined;
 
-  const userSecret = await readScopedAppSecret(key, "user", ctx.userEmail);
-  if (userSecret) return userSecret;
+  // Stored but unused while the org restricts a member's provider keys.
+  const personalRestricted =
+    isPersonalProviderPolicyKey(key) &&
+    (await isPersonalProviderKeyUseRestricted(
+      ctx.orgId
+        ? { email: ctx.userEmail, orgId: ctx.orgId }
+        : { email: ctx.userEmail },
+    ));
 
-  const userSetting = await resolveCredentialForScope(key, {
-    ...ctx,
-    scope: "user",
-  });
-  if (userSetting) return userSetting;
+  if (!personalRestricted) {
+    const userSecret = await readScopedAppSecret(key, "user", ctx.userEmail);
+    if (userSecret) return userSecret;
+
+    const userSetting = await resolveCredentialForScope(key, {
+      ...ctx,
+      scope: "user",
+    });
+    if (userSetting) return userSetting;
+  }
 
   const orgLookup = await resolveEffectiveOrgId(ctx);
   assertCredentialStoreReadable(orgLookup);
@@ -165,6 +180,7 @@ export async function resolveCredential(
   // above. A credential written before the user joined/created an org lives
   // here, and must not become unreachable once that org exists. Last on
   // purpose — a current org-scoped value always wins over a pre-org one.
+  if (personalRestricted) return undefined;
   return readScopedAppSecret(key, "workspace", `solo:${ctx.userEmail}`);
 }
 

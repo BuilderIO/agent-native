@@ -43,6 +43,17 @@ Resolution order (highest priority first):
 3. `AGENT_ENGINE` environment variable
 4. Default: `"anthropic"` (requires `ANTHROPIC_API_KEY`)
 
+## Restricting Personal API Keys
+
+`manage-provider-key-policy` reads or changes the organization's "Restrict personal API keys" setting. While it is on, members (not owners or admins) can't use or save their own provider keys or a personal Builder.io connection, so their chats use organization providers; with none, a chat fails with "Owners and admins restricted personal API keys." Nothing is deleted, and turning it off restores their keys.
+
+```
+manage-provider-key-policy            # read; owners/admins also get affectedMembers
+manage-provider-key-policy --set true # owners and admins only
+```
+
+Read it first and tell the user which members lose which providers before turning it on.
+
 ## Testing a New Engine
 
 Before switching, verify the engine is working:

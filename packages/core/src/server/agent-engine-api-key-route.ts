@@ -32,6 +32,10 @@ import {
   isTrustedSelfHostedRuntime,
 } from "./credential-provider.js";
 import { readBody } from "./h3-helpers.js";
+import {
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+  resolvePersonalProviderKeySaveDenial,
+} from "./personal-provider-key-policy.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const PROVIDER_TO_ENV_VAR = new Map(
@@ -337,6 +341,24 @@ export function createAgentEngineApiKeyHandler() {
     if (!resolved.ok) {
       setResponseStatus(event, resolved.statusCode);
       return { error: resolved.error };
+    }
+    // Removing a personal key stays allowed; only new personal saves stop.
+    if (
+      resolved.target.scope === "user" &&
+      (payload.value || payload.baseUrl)
+    ) {
+      const denial = await resolvePersonalProviderKeySaveDenial(
+        event,
+        resolved.target.scopeId,
+        payload.key,
+      );
+      if (denial) {
+        setResponseStatus(event, 403);
+        return {
+          error: denial,
+          errorCode: PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+        };
+      }
     }
 
     if (payload.baseUrl) {

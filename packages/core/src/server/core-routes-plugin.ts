@@ -287,6 +287,10 @@ import {
 import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import {
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+} from "./personal-provider-key-policy.js";
+import {
   createPollEventsHandler,
   validateSseMaxDurationMs,
 } from "./poll-events.js";
@@ -592,10 +596,31 @@ export async function resolveBuilderConnectAuthorization(
   ) {
     return {
       ...member,
-      deny: "Owners and admins restricted personal API keys.",
+      deny: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
     };
   }
   return member;
+}
+
+/**
+ * A connect that names no connection lands as a personal grant for anyone who
+ * isn't an owner or admin, so it is refused while personal keys are
+ * restricted. Returns the refusal, or null.
+ */
+export async function resolveScopelessBuilderConnectRestriction(
+  event: H3Event,
+  ownerEmail: string,
+): Promise<string | null> {
+  const member = await resolveBuilderOrgMutation(event, {
+    allowMemberInitiation: true,
+  });
+  if (!member.orgId || isBuilderOrgManagerRole(member.role)) return null;
+  return (await isPersonalBuilderGrantAllowed({
+    ownerEmail,
+    orgId: member.orgId,
+  }))
+    ? null
+    : PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE;
 }
 
 /**
@@ -4013,6 +4038,19 @@ export function createCoreRoutesPlugin(
               403,
               scopedConnectAuthorization.deny,
               "org_authorization_required",
+            );
+          }
+          const scopelessRestriction = requestedConnectionScope
+            ? null
+            : await resolveScopelessBuilderConnectRestriction(
+                event,
+                ownerEmail,
+              );
+          if (scopelessRestriction) {
+            return denyConnect(
+              403,
+              scopelessRestriction,
+              PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
             );
           }
           if (

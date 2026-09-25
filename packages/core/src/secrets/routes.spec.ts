@@ -13,6 +13,7 @@ const mockListOAuthAccountsByOwner = vi.fn();
 const mockResolveSecretDetailed = vi.fn();
 const mockPreviewSecretRemoval = vi.fn();
 const mockReadProviderCredentialRejections = vi.fn();
+const mockGetOrgSetting = vi.fn();
 
 let lastStatus = 200;
 
@@ -37,6 +38,11 @@ vi.mock("../server/auth.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
+}));
+
+vi.mock("../settings/org-settings.js", () => ({
+  getOrgSetting: (...args: any[]) => mockGetOrgSetting(...args),
+  mutateOrgSetting: vi.fn(),
 }));
 
 vi.mock("../oauth-tokens/store.js", () => ({
@@ -76,6 +82,7 @@ vi.mock("../server/credential-provider.js", () => ({
 
 vi.mock("../server/request-context.js", () => ({
   runWithRequestContext: (_ctx: any, fn: () => any) => fn(),
+  getRequestContext: () => undefined,
   getRequestOrgId: () => "org-qa",
 }));
 
@@ -117,6 +124,45 @@ describe("secrets routes", () => {
     mockReadAppSecretMeta.mockResolvedValue(null);
     mockListAppSecretsForScope.mockResolvedValue([]);
     mockReadProviderCredentialRejections.mockResolvedValue(new Map());
+    mockGetOrgSetting.mockResolvedValue(null);
+  });
+
+  it("refuses a restricted member's personal provider key and allows an owner's", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "ANTHROPIC_API_KEY",
+      label: "Anthropic API key",
+      scope: "user",
+      kind: "api-key",
+    });
+    mockGetOrgSetting.mockImplementation(async (_orgId: string, key: string) =>
+      key === "restrict-personal-provider-keys" ? { restricted: true } : null,
+    );
+    mockGetOrgContext.mockResolvedValue({
+      orgId: "org-qa",
+      email: "alice+qa@example.com",
+      role: "member",
+    });
+
+    const handler = createWriteSecretHandler();
+    await expect(
+      handler(event("/ANTHROPIC_API_KEY", "POST", { value: "sk-ant-example" })),
+    ).resolves.toEqual({
+      error: "Owners and admins restricted personal API keys.",
+      errorCode: "personal_provider_keys_restricted",
+    });
+    expect(lastStatus).toBe(403);
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+
+    lastStatus = 200;
+    mockGetOrgContext.mockResolvedValue({
+      orgId: "org-qa",
+      email: "alice+qa@example.com",
+      role: "owner",
+    });
+    await expect(
+      handler(event("/ANTHROPIC_API_KEY", "POST", { value: "sk-ant-example" })),
+    ).resolves.toEqual({ ok: true, status: "set" });
+    expect(mockWriteAppSecret).toHaveBeenCalledTimes(1);
   });
 
   it("uses the registered user secret scope and ignores caller-supplied scopeId", async () => {

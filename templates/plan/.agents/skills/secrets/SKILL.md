@@ -476,6 +476,29 @@ with `deleteAgentEngineProviderSettings({ provider, scope })`.
   never falls back to a personal save. Every provider key registers at `scope: "user"`, so Settings → API keys
   writes the same personal row.
 
+### Restrict personal API keys
+
+An org setting that stops members (not owners or admins) from using or adding
+their own model provider keys and personal Builder.io connection. Read and
+change it with the `manage-provider-key-policy` action: omit `set` to read it
+(owners and admins also get `affectedMembers`, each member and the providers
+that stop), `set: true|false` to change it (owners and admins only, audited).
+Read it before turning it on and tell the user who is affected.
+
+- Nothing is deleted. Restricted rows stay stored and work again when it is
+  turned off.
+- Scope is the provider keys, their endpoints, and the Builder key pair
+  (`isPersonalProviderPolicyKey` in `server/personal-provider-key-policy.ts`).
+  Other personal secrets are untouched.
+- Every resolver asks `isPersonalProviderKeyUseRestricted`: it skips the
+  member's `user` row, their `solo:<email>` row, and legacy personal settings
+  rows, then continues to the org's. An unreadable policy is a failed lookup,
+  never "not restricted". Add any new resolver or personal write path here.
+- Personal saves (provider-key route, secrets routes, scoped key saves,
+  personal Builder.io connect) refuse with "Owners and admins restricted
+  personal API keys." Removing a personal key stays allowed. A chat with no
+  usable key answers with the same message (`personal_provider_keys_restricted`).
+
 ## Dispatch Vault Access
 
 Dispatch workspaces have a vault access policy for workspace app credentials:

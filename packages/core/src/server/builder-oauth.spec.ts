@@ -32,6 +32,15 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: resolveOrgMock,
 }));
 
+const isRestrictedMock = vi.hoisted(() => vi.fn(async () => false));
+
+vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./personal-provider-key-policy.js")
+  >()),
+  isPersonalProviderKeyUseRestricted: isRestrictedMock,
+}));
+
 import {
   BUILDER_OAUTH_ISSUER,
   BUILDER_OAUTH_RESOURCE,
@@ -115,6 +124,8 @@ beforeEach(() => {
   resolveOrgMock.mockReset();
   // Every user belongs to an org; individual tests override the org id.
   resolveOrgMock.mockResolvedValue(DEFAULT_ORG);
+  isRestrictedMock.mockReset();
+  isRestrictedMock.mockResolvedValue(false);
 });
 
 describe("Builder hosted user OAuth", () => {
@@ -863,6 +874,34 @@ describe("Builder organization and personal connections", () => {
       org: { connectedAt: 1_000, needsReconnect: false },
       personal: { connectedAt: 2_000, needsReconnect: true, restricted: false },
     });
+  });
+
+  it("skips a restricted member's personal grant for the org's and keeps it stored", async () => {
+    const rows = installTokenStore();
+    rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
+    rows.set(`user:${ownerEmail}`, { ...credentials(), connectedAt: 2_000 });
+    isRestrictedMock.mockResolvedValue(true);
+
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "org" });
+    await expect(
+      getBuilderOAuthGrants(ownerEmail, DEFAULT_ORG),
+    ).resolves.toEqual({
+      org: { connectedAt: 1_000, needsReconnect: false },
+      personal: { connectedAt: 2_000, needsReconnect: false, restricted: true },
+    });
+    expect(isRestrictedMock).toHaveBeenCalledWith({
+      email: ownerEmail,
+      orgId: DEFAULT_ORG,
+    });
+    expect(rows.has(`user:${ownerEmail}`)).toBe(true);
+
+    // Turning the restriction off restores the personal grant.
+    isRestrictedMock.mockResolvedValue(false);
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "user" });
   });
 
   it("reports a stored grant that no longer reads as Builder custody as needing reconnect", async () => {

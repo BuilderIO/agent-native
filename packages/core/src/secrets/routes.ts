@@ -62,6 +62,10 @@ async function canMutateOrgScope(
 }
 import { listOAuthAccountsByOwner } from "../oauth-tokens/store.js";
 import {
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+  resolvePersonalProviderKeySaveDenial,
+} from "../server/personal-provider-key-policy.js";
+import {
   isManagedDeleteAllowed,
   managedDeleteRefusal,
   resolveSecretManagedBy,
@@ -459,6 +463,20 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
     return {
       error: "Only organization owners and admins can set org-scoped secrets",
     };
+  }
+  if (secret.scope === "user") {
+    const denial = await resolvePersonalProviderKeySaveDenial(
+      event,
+      scopeId,
+      secret.key,
+    );
+    if (denial) {
+      setResponseStatus(event, 403);
+      return {
+        error: denial,
+        errorCode: PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+      };
+    }
   }
 
   // Run validator if registered — return the validator's error on failure.

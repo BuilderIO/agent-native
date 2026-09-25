@@ -7,6 +7,15 @@ vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
 }));
 
+const isRestrictedMock = vi.hoisted(() => vi.fn(async () => false));
+
+vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./personal-provider-key-policy.js")
+  >()),
+  isPersonalProviderKeyUseRestricted: isRestrictedMock,
+}));
+
 import {
   appendBuilderConnectStateCookie,
   createBuilderConnectState,
@@ -18,6 +27,7 @@ import {
   resolveBuilderCallbackWrite,
   resolveBuilderConnectAuthorization,
   resolveBuilderOrgMutation,
+  resolveScopelessBuilderConnectRestriction,
   selectLiveBuilderConnectStates,
   type BuilderScopedDisconnectDeps,
 } from "./core-routes-plugin.js";
@@ -46,6 +56,8 @@ function createMockEvent(): H3Event {
 
 beforeEach(() => {
   getOrgContextMock.mockReset();
+  isRestrictedMock.mockReset();
+  isRestrictedMock.mockResolvedValue(false);
 });
 
 describe("resolveBuilderOrgMutation", () => {
@@ -138,6 +150,60 @@ describe("Builder connection scope", () => {
     ).resolves.toMatchObject({
       deny: "Owners and admins connect Builder.io for the organization.",
     });
+  });
+
+  it("refuses a member's personal connect while personal API keys are restricted", async () => {
+    isRestrictedMock.mockResolvedValue(true);
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "member" });
+    await expect(
+      resolveBuilderConnectAuthorization(
+        createMockEvent(),
+        "member@example.com",
+        "personal",
+      ),
+    ).resolves.toMatchObject({
+      deny: "Owners and admins restricted personal API keys.",
+    });
+    expect(isRestrictedMock).toHaveBeenCalledWith({
+      email: "member@example.com",
+      orgId: "org-123",
+    });
+
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "admin" });
+    await expect(
+      resolveBuilderConnectAuthorization(
+        createMockEvent(),
+        "admin@example.com",
+        "org",
+      ),
+    ).resolves.toMatchObject({ deny: null });
+  });
+
+  it("refuses a scopeless member connect, which would land personally, while restricted", async () => {
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "member" });
+    await expect(
+      resolveScopelessBuilderConnectRestriction(
+        createMockEvent(),
+        "member@example.com",
+      ),
+    ).resolves.toBeNull();
+
+    isRestrictedMock.mockResolvedValue(true);
+    await expect(
+      resolveScopelessBuilderConnectRestriction(
+        createMockEvent(),
+        "member@example.com",
+      ),
+    ).resolves.toBe("Owners and admins restricted personal API keys.");
+
+    // An owner's scopeless connect saves for the organization, so it stays open.
+    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "owner" });
+    await expect(
+      resolveScopelessBuilderConnectRestriction(
+        createMockEvent(),
+        "owner@example.com",
+      ),
+    ).resolves.toBeNull();
   });
 
   it("still requires organization membership for a named connection", async () => {

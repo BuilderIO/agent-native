@@ -1,4 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const isRestrictedMock = vi.hoisted(() => vi.fn(async () => false));
+
+vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./personal-provider-key-policy.js")
+  >()),
+  isPersonalProviderKeyUseRestricted: isRestrictedMock,
+}));
+
+beforeEach(() => {
+  isRestrictedMock.mockReset();
+  isRestrictedMock.mockResolvedValue(false);
+});
 
 import {
   BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS,
@@ -203,6 +217,45 @@ describe("resolveBuilderConnectionsStatus", () => {
     ).resolves.toMatchObject({
       grants: { org: { connectedAt: 1_000, kind: "oauth" } },
     });
+  });
+
+  it("marks a member's personal connection restricted and stops new ones", async () => {
+    isRestrictedMock.mockResolvedValue(true);
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "member@example.com", orgId: "org-123", role: "member" },
+        {
+          getGrants: async () => ({}),
+          getKeyConnections: async () => ({
+            personal: { connectedAt: 4_000, needsReconnect: false },
+          }),
+        },
+      ),
+    ).resolves.toEqual({
+      grants: {
+        personal: {
+          connectedAt: 4_000,
+          needsReconnect: false,
+          kind: "keys",
+          restricted: true,
+        },
+      },
+      canConnect: { org: false, personal: false },
+    });
+    expect(isRestrictedMock).toHaveBeenCalledWith({
+      email: "member@example.com",
+      orgId: "org-123",
+    });
+  });
+
+  it("fails the status read when the restriction can't be read", async () => {
+    isRestrictedMock.mockRejectedValue(new Error("settings unavailable"));
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "member@example.com", orgId: "org-123", role: "member" },
+        { getGrants: async () => ({}), getKeyConnections: noKeys },
+      ),
+    ).rejects.toThrow("settings unavailable");
   });
 
   it("lets owners and admins connect only the organization's connection", async () => {

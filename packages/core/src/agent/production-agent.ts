@@ -83,6 +83,12 @@ import {
 import { readBody } from "../server/h3-helpers.js";
 import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
+  isPersonalProviderKeyUseRestricted,
+  isPersonalProviderPolicyKey,
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+} from "../server/personal-provider-key-policy.js";
+import {
   assertRequestActionSurfaceIsolation,
   getRequestRunContext,
   ensureRequestRunContext,
@@ -583,19 +589,35 @@ export async function getOwnerApiKey(
   const secretKey =
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
+  const orgId = getRequestOrgId();
+  // Restricted members keep their stored keys, but none of the personal rows
+  // below (user, solo workspace, legacy settings) may answer. Unknown is a
+  // failed lookup, never "not restricted". Keys outside the policy (Jev) are
+  // never gated, so their lookup must not depend on the policy read either.
+  let personalRestricted = false;
+  try {
+    personalRestricted =
+      isPersonalProviderPolicyKey(secretKey) &&
+      (await isPersonalProviderKeyUseRestricted(
+        orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
+      ));
+  } catch {
+    lookupFailed = true;
+    reportLookupFailure();
+    return undefined;
+  }
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
     const refs: Array<{
       scope: "user" | "org" | "workspace";
       scopeId: string;
-    }> = [{ scope: "user", scopeId: ownerEmail }];
-    const orgId = getRequestOrgId();
+    }> = personalRestricted ? [] : [{ scope: "user", scopeId: ownerEmail }];
     if (orgId && !syntheticTraffic) {
       refs.push(
         { scope: "org", scopeId: orgId },
         { scope: "workspace", scopeId: orgId },
       );
-    } else if (!syntheticTraffic) {
+    } else if (!syntheticTraffic && !personalRestricted) {
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
     }
     for (const ref of refs) {
@@ -623,7 +645,7 @@ export async function getOwnerApiKey(
       return undefined;
     }
   }
-  if (syntheticTraffic) {
+  if (syntheticTraffic || personalRestricted) {
     reportLookupFailure();
     return undefined;
   }
@@ -895,6 +917,44 @@ export async function resolveOwnerEngineApiKey(input: {
     canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
     ? { apiKey: fallback, apiKeyEnvVar: "ANTHROPIC_API_KEY" }
     : NO_OWNER_API_KEY;
+}
+
+/**
+ * The error a chat turn answers with when no model credential is usable. A
+ * member whose org restricts personal API keys can't fix that by adding a key,
+ * so they get the restriction instead of the connect-a-provider prompt.
+ */
+export async function missingCredentialsChatError(input: {
+  ownerEmail: string | null | undefined;
+  visitorFacing: boolean;
+}): Promise<{
+  type: "error";
+  error: string;
+  errorCode: string;
+  recoverable?: false;
+}> {
+  let restricted = false;
+  if (!input.visitorFacing && input.ownerEmail) {
+    const lookup = isPersonalProviderKeyUseRestricted({
+      email: input.ownerEmail,
+    });
+    // coercion-ok: the turn has already failed; an unreadable policy keeps the generic copy.
+    restricted = await lookup.catch(() => false);
+  }
+  return restricted
+    ? {
+        type: "error",
+        error: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+        errorCode: PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+        recoverable: false,
+      }
+    : {
+        type: "error",
+        error: formatLlmCredentialErrorMessage({
+          visitorFacing: input.visitorFacing,
+        }),
+        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+      };
 }
 
 /** @deprecated Use getOwnerApiKey("anthropic", ownerEmail) instead */
@@ -10333,18 +10393,15 @@ export function createProductionAgentHandler(
       // failure arms the 15-minute marker: the credits lane stops resolving,
       // engine selection falls back to the anthropic default, and this branch —
       // not the engine's own error — is what answers the turn.
-      const missingCredentialsError = formatLlmCredentialErrorMessage({
+      const missingCredentialsEvent = await missingCredentialsChatError({
+        ownerEmail,
         visitorFacing: isBuilderGatewayDeployConfigured(),
       });
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({
-                type: "error",
-                error: missingCredentialsError,
-                errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
-              })}\n\n`,
+              `data: ${JSON.stringify(missingCredentialsEvent)}\n\n`,
             ),
           );
           controller.close();
