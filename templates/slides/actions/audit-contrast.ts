@@ -42,11 +42,25 @@ export default defineAction({
 
     const data = JSON.parse(access.resource.data) as {
       tweaks?: unknown;
-      slides?: Array<{ id: string; content?: string }>;
+      aspectRatio?: string | null;
+      slides?: Array<{
+        id: string;
+        content?: string;
+        background?: string | null;
+        imageUrl?: string | null;
+        layout?: string | null;
+        excalidrawData?: string | null;
+      }>;
     };
+    const designSystemId = resolveDeckDesignSystemId(access.resource, data);
+    const designSystemAccess = designSystemId
+      ? await resolveAccess("design-system", designSystemId)
+      : null;
     const request = buildContrastAuditRequest(deckId, {
-      designSystemId: resolveDeckDesignSystemId(access.resource, data),
+      designSystemId,
+      designSystemData: designSystemAccess?.resource.data ?? null,
       tweaks: data.tweaks,
+      aspectRatio: data.aspectRatio,
       slides: Array.isArray(data.slides) ? data.slides : [],
     });
 

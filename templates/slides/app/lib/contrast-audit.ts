@@ -1,13 +1,16 @@
 import type {
   ContrastAuditBrowserResult,
   ContrastAuditRequest,
+  ContrastAuditSlideInput,
   ContrastAuditSlideTarget,
   ContrastFailure,
   ContrastSkipped,
   ContrastUnverified,
 } from "@shared/contrast-audit";
-import { deckContrastRenderKey } from "@shared/contrast-audit";
-import { hashSlideContent } from "@shared/slide-fit";
+import {
+  contrastSlideRenderFingerprint,
+  deckContrastRenderKey,
+} from "@shared/contrast-audit";
 import type { AxeResults, NodeResult, RunOptions } from "axe-core";
 
 const MAX_TEXT_CHARS = 80;
@@ -26,8 +29,11 @@ type ContrastResults = Pick<AxeResults, "violations" | "incomplete" | "passes">;
 export interface AuditableDeck {
   id: string;
   designSystemId?: string | null;
+  /** Raw JSON of the linked design system's data, if resolved. */
+  designSystemData?: string | null;
   tweaks?: unknown;
-  slides: Array<{ id: string; content?: string; skipped?: boolean }>;
+  aspectRatio?: string | null;
+  slides: Array<ContrastAuditSlideInput & { skipped?: boolean }>;
 }
 
 type ContrastCheckData = {
@@ -184,7 +190,7 @@ async function waitForRequestedVersion(
       const current = new Map(
         deck.slides.map((slide) => [
           slide.id,
-          hashSlideContent(slide.content ?? ""),
+          contrastSlideRenderFingerprint(slide),
         ]),
       );
       const caughtUp =
@@ -244,7 +250,7 @@ export async function runContrastAudit(
 
   for (const target of request.slides) {
     const slide = slidesById.get(target.id);
-    const contentHash = slide ? hashSlideContent(slide.content ?? "") : null;
+    const contentHash = slide ? contrastSlideRenderFingerprint(slide) : null;
     if (!slide || contentHash !== target.contentHash) {
       skipped.push({ slideId: target.id, reason: "stale-render" });
       continue;
@@ -287,6 +293,21 @@ export async function runContrastAudit(
     // slide with text and zero checked nodes was not checked — not clean.
     if (mapped.checkedNodeCount === 0 && canvas.textContent?.trim()) {
       skipped.push({ slideId: target.id, reason: "not-checked" });
+      continue;
+    }
+    // axe.run() is async; sync or a user edit can change this slide (or the
+    // design system it inherits colors from) before it resolves. Re-read the
+    // live deck rather than trust the snapshot captured before the await.
+    const liveDeck = getDeck();
+    const liveSlide = liveDeck?.slides.find((entry) => entry.id === target.id);
+    const stillCurrent =
+      liveDeck &&
+      liveDeck.id === request.deckId &&
+      deckContrastRenderKey(liveDeck) === request.renderKey &&
+      liveSlide &&
+      contrastSlideRenderFingerprint(liveSlide) === target.contentHash;
+    if (!stillCurrent) {
+      skipped.push({ slideId: target.id, reason: "stale-render" });
       continue;
     }
     audited.push({ id: target.id, contentHash });

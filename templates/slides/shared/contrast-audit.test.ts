@@ -93,4 +93,15 @@ describe("finalizeContrastAudit", () => {
       "malformed",
     );
   });
+
+  it("rejects a finding for a slide outside the request instead of dropping it", () => {
+    expect(() =>
+      finalizeContrastAudit(
+        request,
+        browserResult({
+          failures: [{ ...failure, slideId: "unknown-slide" }],
+        }),
+      ),
+    ).toThrow("unknown slide");
+  });
 });

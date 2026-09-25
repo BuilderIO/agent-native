@@ -15,12 +15,13 @@ import { TAB_ID } from "@/lib/tab-id";
 
 export function useContrastAuditBridge(
   deck: AuditableDeck | null | undefined,
+  designSystemData?: string | null,
 ): void {
   // Synced after commit, so the audit reads the version that is on screen.
   const deckRef = useRef<AuditableDeck | null>(null);
   useEffect(() => {
-    deckRef.current = deck ?? null;
-  }, [deck]);
+    deckRef.current = deck ? { ...deck, designSystemData } : null;
+  }, [deck, designSystemData]);
 
   const deckId = deck?.id;
   useEffect(() => {

@@ -33,8 +33,10 @@ const slides = [
   { id: "a", content: "<p>A</p>" },
   { id: "b", content: "<p>B</p>" },
 ];
+const designSystemData = JSON.stringify({ colors: { primary: "#000000" } });
 const expectedRequest = buildContrastAuditRequest("deck-1", {
   designSystemId: "ds-1",
+  designSystemData,
   slides,
 });
 
@@ -66,8 +68,13 @@ const run = (args: { deckId: string }) =>
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetCurrentRequestBrowserTabId.mockReturnValue(null);
-  mockResolveAccess.mockResolvedValue({
-    resource: { designSystemId: "ds-1", data: JSON.stringify({ slides }) },
+  mockResolveAccess.mockImplementation((type: string) => {
+    if (type === "design-system") {
+      return Promise.resolve({ resource: { data: designSystemData } });
+    }
+    return Promise.resolve({
+      resource: { designSystemId: "ds-1", data: JSON.stringify({ slides }) },
+    });
   });
   mockCallBrowserSession.mockResolvedValue(cleanResult());
 });

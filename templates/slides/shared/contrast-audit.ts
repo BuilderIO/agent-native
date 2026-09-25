@@ -71,12 +71,41 @@ export interface ContrastAuditReport {
 
 export function deckContrastRenderKey(deck: {
   designSystemId?: string | null;
+  /** Raw JSON of the linked design system's data, if resolved. */
+  designSystemData?: string | null;
   tweaks?: unknown;
+  aspectRatio?: string | null;
 }): string {
   return hashSlideContent(
     stableStringify({
       designSystemId: deck.designSystemId ?? null,
+      designSystemData: deck.designSystemData ?? null,
       tweaks: deck.tweaks ?? {},
+      aspectRatio: deck.aspectRatio ?? null,
+    }),
+  );
+}
+
+export interface ContrastAuditSlideInput {
+  id: string;
+  content?: string;
+  background?: string | null;
+  imageUrl?: string | null;
+  layout?: string | null;
+  excalidrawData?: string | null;
+}
+
+/** Fingerprint of every slide field the renderer can paint with, not just its HTML. */
+export function contrastSlideRenderFingerprint(
+  slide: Omit<ContrastAuditSlideInput, "id">,
+): string {
+  return hashSlideContent(
+    stableStringify({
+      content: slide.content ?? "",
+      background: slide.background ?? null,
+      imageUrl: slide.imageUrl ?? null,
+      layout: slide.layout ?? null,
+      excalidrawData: slide.excalidrawData ?? null,
     }),
   );
 }
@@ -85,8 +114,10 @@ export function buildContrastAuditRequest(
   deckId: string,
   deck: {
     designSystemId?: string | null;
+    designSystemData?: string | null;
     tweaks?: unknown;
-    slides: Array<{ id: string; content?: string }>;
+    aspectRatio?: string | null;
+    slides: ContrastAuditSlideInput[];
   },
 ): ContrastAuditRequest {
   return {
@@ -94,7 +125,7 @@ export function buildContrastAuditRequest(
     renderKey: deckContrastRenderKey(deck),
     slides: deck.slides.map((slide) => ({
       id: slide.id,
-      contentHash: hashSlideContent(slide.content ?? ""),
+      contentHash: contrastSlideRenderFingerprint(slide),
     })),
   };
 }
@@ -159,6 +190,17 @@ export function finalizeContrastAudit(
   for (const slide of request.slides) {
     if (!auditedIds.has(slide.id) && !skipped.has(slide.id)) {
       skipped.set(slide.id, "missing-from-result");
+    }
+  }
+
+  // A finding for a slide outside the request is not a legitimate stale-render
+  // drop (those still refer to a requested slide); it means the editor's
+  // result is corrupt, so surface that loudly instead of reading it as clean.
+  for (const entry of [...result.failures, ...result.unverified]) {
+    if (!expectedHashes.has(entry.slideId)) {
+      throw new Error(
+        `The editor reported a contrast finding for unknown slide ${entry.slideId}.`,
+      );
     }
   }
 

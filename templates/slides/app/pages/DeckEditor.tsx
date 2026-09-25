@@ -677,7 +677,6 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
-  useContrastAuditBridge(deck);
 
   useEffect(() => {
     setAnimationTarget(null);
@@ -1053,9 +1052,12 @@ export default function DeckEditor() {
     flushPendingSaves();
     await flushDeckSave(id);
   }, [flushDeckSave, id]);
-  const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
-    deck?.designSystemId,
-  );
+  const {
+    designSystem,
+    imageStyleReferenceUrls,
+    rawData: designSystemRawData,
+  } = useDeckDesignSystem(deck?.designSystemId);
+  useContrastAuditBridge(deck, designSystemRawData);
   const commentsOpen = sidePanel === "comments";
 
   const {
