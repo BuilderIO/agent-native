@@ -346,6 +346,7 @@ export function createBuilderEmbeddingFamily(
           {
             Authorization: auth.authorization,
             ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+            ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
           },
           {
             model: BUILDER_EMBEDDING_MODEL,

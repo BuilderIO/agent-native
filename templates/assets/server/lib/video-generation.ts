@@ -19,6 +19,56 @@ import { getGeminiApiKey } from "./generation.js";
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
+export class RetryableVideoGenerationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RetryableVideoGenerationError";
+  }
+}
+
+function isRetryableStatus(status: number): boolean {
+  return [408, 409, 425, 429].includes(status) || status >= 500;
+}
+
+function isRetryableTransportError(error: unknown): error is Error {
+  return (
+    error instanceof TypeError ||
+    (error instanceof Error &&
+      ["AbortError", "TimeoutError"].includes(error.name))
+  );
+}
+
+async function pollFetch(
+  input: string | URL | Request,
+  init?: RequestInit,
+): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    if (isRetryableTransportError(error)) {
+      throw new RetryableVideoGenerationError(error.message);
+    }
+    throw error;
+  }
+}
+
+async function readVideoBuffer(response: Response): Promise<Buffer> {
+  try {
+    return Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    if (isRetryableTransportError(error)) {
+      throw new RetryableVideoGenerationError(error.message);
+    }
+    throw error;
+  }
+}
+
+function videoHttpError(status: number, message: string): Error {
+  return isRetryableStatus(status)
+    ? new RetryableVideoGenerationError(message)
+    : new Error(message);
+}
+
 export interface VideoReferenceImage {
   id: string;
   mimeType: string;
@@ -176,6 +226,7 @@ export async function startVideoGeneration(input: {
     headers: {
       Authorization: auth.authorization,
       ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+      ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -241,7 +292,7 @@ export async function pollGeminiVideoGeneration(
   const operationUrl = operationName.startsWith("http")
     ? operationName
     : `${GEMINI_BASE_URL}/${operationName}`;
-  const response = await fetch(operationUrl, {
+  const response = await pollFetch(operationUrl, {
     headers: { "x-goog-api-key": apiKey },
     signal: AbortSignal.timeout(30_000),
   });
@@ -253,7 +304,8 @@ export async function pollGeminiVideoGeneration(
       `[assets] video-gen poll error status=${response.status} bodyShape=${describeProviderPayloadShape(body)} bodyChars=${body.length}`,
     );
     const detail = videoErrorDetailForUser(body);
-    throw new Error(
+    throw videoHttpError(
+      response.status,
       `Gemini video operation poll failed (${response.status})${detail ? `: ${detail}` : "."}`,
     );
   }
@@ -288,19 +340,20 @@ export async function pollGeminiVideoGeneration(
   if (!video.uri) {
     throw new Error("Gemini video operation returned no video URI.");
   }
-  const videoResponse = await fetch(video.uri, {
+  const videoResponse = await pollFetch(video.uri, {
     headers: { "x-goog-api-key": apiKey },
     signal: AbortSignal.timeout(120_000),
   });
   if (!videoResponse.ok) {
-    throw new Error(
+    throw videoHttpError(
+      videoResponse.status,
       `Could not download generated video (${videoResponse.status}).`,
     );
   }
   return {
     status: "completed",
     video: {
-      buffer: Buffer.from(await videoResponse.arrayBuffer()),
+      buffer: await readVideoBuffer(videoResponse),
       mimeType:
         video.mimeType ||
         videoResponse.headers.get("content-type") ||
@@ -314,21 +367,23 @@ export async function pollGeminiVideoGeneration(
 
 export async function pollBuilderVideoGeneration(
   generationId: string,
+  identity?: { userEmail?: string | null; orgId?: string | null },
 ): Promise<
   | { status: "processing"; operation: Record<string, unknown> }
   | { status: "completed"; video: GeneratedVideoBytes }
 > {
-  const auth = await resolveBuilderGatewayAuth();
+  const auth = await resolveBuilderGatewayAuth(identity);
   if (!auth)
     throw new Error("Builder connection is unavailable for video generation.");
   const baseUrl = getBuilderVideoGenerationBaseUrl().replace(/\/$/, "");
-  const response = await fetch(
+  const response = await pollFetch(
     `${baseUrl}/generations/${encodeURIComponent(generationId)}/poll`,
     {
       method: "POST",
       headers: {
         Authorization: auth.authorization,
         ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+        ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
       },
       signal: AbortSignal.timeout(30_000),
     },
@@ -337,7 +392,8 @@ export async function pollBuilderVideoGeneration(
     // coercion-ok: the HTTP status is still reported when the provider body is unreadable.
     const body = await response.text().catch(() => "");
     const detail = readableProviderErrorDetail(body, 500);
-    throw new Error(
+    throw videoHttpError(
+      response.status,
       `Builder video generation poll failed (${response.status})${detail ? `: ${detail}` : "."}`,
     );
   }
@@ -365,18 +421,19 @@ export async function pollBuilderVideoGeneration(
       "Builder video generation returned an unsupported video URL.",
     );
   }
-  const videoResponse = await fetch(downloadUrl, {
+  const videoResponse = await pollFetch(downloadUrl, {
     signal: AbortSignal.timeout(120_000),
   });
   if (!videoResponse.ok) {
-    throw new Error(
+    throw videoHttpError(
+      videoResponse.status,
       `Could not download generated video (${videoResponse.status}).`,
     );
   }
   return {
     status: "completed",
     video: {
-      buffer: Buffer.from(await videoResponse.arrayBuffer()),
+      buffer: await readVideoBuffer(videoResponse),
       mimeType:
         stringValue(output?.mimeType) ||
         videoResponse.headers.get("content-type") ||

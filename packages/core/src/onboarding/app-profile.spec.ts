@@ -132,7 +132,7 @@ describe("onboarding app profiles", () => {
           id: "video-generation",
           required: false,
           suggested: true,
-          builderIncluded: true,
+          builderIncluded: false,
         }),
         expect.objectContaining({
           id: "file-storage",

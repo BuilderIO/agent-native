@@ -26,7 +26,10 @@ import {
   startVideoGeneration,
   type VideoReferenceImage,
 } from "../server/lib/video-generation.js";
-import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
+import {
+  completeVideoGenerationRun,
+  failVideoGenerationRun,
+} from "../server/lib/video-runs.js";
 import {
   IMAGE_CATEGORIES,
   normalizeCallerAppId,
@@ -240,21 +243,27 @@ export default defineAction({
       createdAt: now,
     });
 
-    const operation = await startVideoGeneration({
-      runId,
-      libraryId: args.libraryId,
-      callerAppId: callerAppId ?? undefined,
-      model: args.model,
-      compiledPrompt,
-      aspectRatio: args.aspectRatio,
-      durationSeconds: args.durationSeconds,
-      resolution: args.resolution,
-      sourceImage,
-      referenceImages,
-      negativePrompt: args.negativePrompt,
-      enhancePrompt: args.enhancePrompt,
-      generateAudio: args.generateAudio,
-    });
+    let operation: Awaited<ReturnType<typeof startVideoGeneration>>;
+    try {
+      operation = await startVideoGeneration({
+        runId,
+        libraryId: args.libraryId,
+        callerAppId: callerAppId ?? undefined,
+        model: args.model,
+        compiledPrompt,
+        aspectRatio: args.aspectRatio,
+        durationSeconds: args.durationSeconds,
+        resolution: args.resolution,
+        sourceImage,
+        referenceImages,
+        negativePrompt: args.negativePrompt,
+        enhancePrompt: args.enhancePrompt,
+        generateAudio: args.generateAudio,
+      });
+    } catch (error) {
+      await failVideoGenerationRun(runId, error);
+      throw error;
+    }
     const processingMetadata = {
       ...baseMetadata,
       ...(operation.provider === "builder"

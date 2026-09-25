@@ -54,6 +54,11 @@ describe("Builder video generation", () => {
   });
 
   it("starts and polls a Builder video, then downloads the staged output", async () => {
+    mocks.resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-session",
+      spaceId: null,
+      userId: "builder-user-123",
+    });
     const fetchMock = vi.fn(
       async (url: string | URL | Request, _init?: RequestInit) => {
         const target = String(url);
@@ -102,6 +107,7 @@ describe("Builder video generation", () => {
     });
     expect(startCall?.[1]?.headers).toMatchObject({
       Authorization: "Bearer builder-session",
+      "x-builder-user-id": "builder-user-123",
     });
     if (operation.provider !== "builder") {
       throw new Error("Expected Builder video generation.");
@@ -120,6 +126,9 @@ describe("Builder video generation", () => {
       },
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      "x-builder-user-id": "builder-user-123",
+    });
     expect(mocks.getGeminiApiKey).not.toHaveBeenCalled();
   });
 
@@ -142,16 +151,20 @@ describe("Builder video generation", () => {
   });
 
   it("does not fall back to a Gemini key after Builder rejects a request", async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json(
-        { code: "video_generation_not_enabled", message: "Not enabled" },
-        { status: 403 },
-      ),
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init: RequestInit) =>
+        Response.json(
+          { code: "video_generation_not_enabled", message: "Not enabled" },
+          { status: 403 },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(startVideoGeneration(baseInput)).rejects.toThrow(
       "Builder video generation failed (403)",
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+      "x-builder-user-id",
     );
     expect(mocks.getGeminiApiKey).not.toHaveBeenCalled();
   });

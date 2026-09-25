@@ -71,7 +71,7 @@ describe("embedding family availability", () => {
     mocks.resolveBuilderGatewayAuth.mockResolvedValue({
       authorization: "Bearer builder-session",
       spaceId: null,
-      userId: null,
+      userId: "builder-user-123",
     });
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, init: RequestInit) => {
@@ -109,6 +109,7 @@ describe("embedding family availability", () => {
         method: "POST",
         headers: expect.objectContaining({
           Authorization: "Bearer builder-session",
+          "x-builder-user-id": "builder-user-123",
         }),
       }),
     );
@@ -152,6 +153,9 @@ describe("embedding family availability", () => {
         "document",
       ),
     ).resolves.toHaveLength(2);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+      "x-builder-user-id",
+    );
 
     const requestInputs = fetchMock.mock.calls.map(
       ([, init]) => JSON.parse(String(init?.body)).inputs as unknown[],

@@ -7,6 +7,7 @@ import { nowIso, parseJson, stringifyJson } from "./json.js";
 import {
   pollBuilderVideoGeneration,
   pollGeminiVideoGeneration,
+  RetryableVideoGenerationError,
 } from "./video-generation.js";
 
 type VideoRunDb = Pick<ReturnType<typeof getDb>, "select" | "update">;
@@ -21,6 +22,27 @@ async function findAssetForRun(
     .where(eq(schema.assets.generationRunId, runId))
     .limit(1);
   return asset;
+}
+
+export async function failVideoGenerationRun(
+  runId: string,
+  error: unknown,
+): Promise<void> {
+  const message =
+    error instanceof Error ? error.message : "Video generation failed.";
+  const completedAt = nowIso();
+  const [failedRun] = await getDb()
+    .update(schema.assetGenerationRuns)
+    .set({ status: "failed", error: message, completedAt })
+    .where(
+      and(
+        eq(schema.assetGenerationRuns.id, runId),
+        ne(schema.assetGenerationRuns.status, "completed"),
+        ne(schema.assetGenerationRuns.status, "failed"),
+      ),
+    )
+    .returning();
+  if (failedRun) await notifyGenerationRunFinished(failedRun, "failed");
 }
 
 async function markRunCompletedWithAsset(
@@ -56,6 +78,7 @@ async function markRunCompletedWithAsset(
   const nextRun = {
     ...run,
     status: "completed",
+    error: null,
     completedAt,
     metadata: stringifyJson(nextMetadata),
   };
@@ -63,6 +86,7 @@ async function markRunCompletedWithAsset(
     .update(schema.assetGenerationRuns)
     .set({
       status: "completed",
+      error: null,
       completedAt,
       metadata: nextRun.metadata,
     })
@@ -120,128 +144,73 @@ export async function completeVideoGenerationRun(
     (provider === "builder" && !generationId) ||
     (provider === "gemini" && !operationName)
   ) {
-    throw new Error("Video generation run has no provider generation ID.");
+    const error = new Error(
+      "Video generation run has no provider generation ID.",
+    );
+    await failVideoGenerationRun(run.id, error);
+    throw error;
+  }
+
+  let polled: Awaited<ReturnType<typeof pollBuilderVideoGeneration>>;
+  try {
+    polled =
+      provider === "builder"
+        ? await pollBuilderVideoGeneration(generationId!, {
+            userEmail: run.ownerEmail,
+            orgId: run.orgId,
+          })
+        : await pollGeminiVideoGeneration(operationName!);
+  } catch (error) {
+    if (error instanceof RetryableVideoGenerationError) {
+      const [retryingRun] = await getDb()
+        .update(schema.assetGenerationRuns)
+        .set({ status: "processing", error: error.message })
+        .where(eq(schema.assetGenerationRuns.id, run.id))
+        .returning();
+      if (!retryingRun) {
+        throw new Error(
+          "Video generation run disappeared while recording a retryable poll error.",
+        );
+      }
+      return {
+        status: "processing",
+        run: retryingRun,
+        completionClaimed: false,
+      };
+    }
+    await failVideoGenerationRun(run.id, error);
+    throw error;
+  }
+
+  if (polled.status === "processing") {
+    const nextMetadata = {
+      ...metadata,
+      providerStatus: "processing",
+      lastPolledAt: nowIso(),
+    };
+    const nextRun = {
+      ...run,
+      status: "processing",
+      error: null,
+      metadata: stringifyJson(nextMetadata),
+    };
+    await getDb()
+      .update(schema.assetGenerationRuns)
+      .set({
+        status: "processing",
+        error: null,
+        metadata: nextRun.metadata,
+      })
+      .where(eq(schema.assetGenerationRuns.id, run.id));
+    return { status: "processing", run: nextRun, completionClaimed: false };
   }
 
   try {
-    const polled =
-      provider === "builder"
-        ? await pollBuilderVideoGeneration(generationId!)
-        : await pollGeminiVideoGeneration(operationName!);
-    if (polled.status === "processing") {
-      const nextMetadata = {
-        ...metadata,
-        providerStatus: "processing",
-        lastPolledAt: nowIso(),
-      };
-      const nextRun = {
-        ...run,
-        status: "processing",
-        metadata: stringifyJson(nextMetadata),
-      };
-      await getDb()
-        .update(schema.assetGenerationRuns)
-        .set({
-          status: "processing",
-          metadata: nextRun.metadata,
-        })
-        .where(eq(schema.assetGenerationRuns.id, run.id));
-      return { status: "processing", run: nextRun, completionClaimed: false };
-    }
-
-    try {
-      return await getDb().transaction(async (tx) => {
-        const existing = await findAssetForRun(tx, run.id);
-        if (existing) {
-          const completed = await markRunCompletedWithAsset(
-            tx,
-            run,
-            metadata,
-            existing,
-            {
-              provider: polled.video.provider,
-              providerGenerationId: polled.video.providerGenerationId,
-              sourceUrl: polled.video.sourceUrl,
-              operationName,
-            },
-          );
-          return {
-            status: "completed" as const,
-            run: completed.run,
-            asset: existing,
-            completionClaimed: completed.completionClaimed,
-          };
-        }
-
-        const folderId =
-          typeof metadata.folderId === "string" ? metadata.folderId : null;
-        const category =
-          typeof metadata.category === "string" ? metadata.category : "video";
-        const asset = await createAssetFromBuffer({
-          id: `video_${run.id}`,
-          libraryId: run.libraryId,
-          collectionId: run.collectionId,
-          folderId,
-          buffer: polled.video.buffer,
-          mimeType: polled.video.mimeType,
-          mediaType: "video",
-          role: "generated",
-          status: "candidate",
-          title:
-            typeof metadata.title === "string"
-              ? metadata.title
-              : "Generated video",
-          description:
-            typeof metadata.description === "string"
-              ? metadata.description
-              : null,
-          altText:
-            typeof metadata.description === "string"
-              ? metadata.description
-              : null,
-          prompt: run.prompt,
-          model: run.model,
-          aspectRatio: run.aspectRatio,
-          imageSize: run.resolution ?? run.imageSize,
-          durationSeconds: run.durationSeconds,
-          generationRunId: run.id,
-          sourceUrl: polled.video.sourceUrl,
-          db: tx,
-          metadata: {
-            ...metadata,
-            provider: polled.video.provider,
-            mediaType: "video",
-            compiledPrompt: run.compiledPrompt,
-            providerGenerationId: polled.video.providerGenerationId,
-            sourceUrl: polled.video.sourceUrl,
-            ...(operationName ? { operationName } : {}),
-          },
-          category: category as any,
-        });
-        const completed = await markRunCompletedWithAsset(
-          tx,
-          run,
-          metadata,
-          asset,
-          {
-            provider: polled.video.provider,
-            providerGenerationId: polled.video.providerGenerationId,
-            sourceUrl: polled.video.sourceUrl,
-            operationName,
-          },
-        );
-        return {
-          status: "completed" as const,
-          run: completed.run,
-          asset,
-          completionClaimed: completed.completionClaimed,
-        };
-      });
-    } catch (err) {
-      const existing = await findAssetForRun(getDb(), run.id);
+    return await getDb().transaction(async (tx) => {
+      const existing = await findAssetForRun(tx, run.id);
       if (existing) {
         const completed = await markRunCompletedWithAsset(
-          getDb(),
+          tx,
           run,
           metadata,
           existing,
@@ -253,30 +222,99 @@ export async function completeVideoGenerationRun(
           },
         );
         return {
-          status: "completed",
+          status: "completed" as const,
           run: completed.run,
           asset: existing,
           completionClaimed: completed.completionClaimed,
         };
       }
-      throw err;
-    }
+
+      const folderId =
+        typeof metadata.folderId === "string" ? metadata.folderId : null;
+      const category =
+        typeof metadata.category === "string" ? metadata.category : "video";
+      const asset = await createAssetFromBuffer({
+        id: `video_${run.id}`,
+        libraryId: run.libraryId,
+        collectionId: run.collectionId,
+        folderId,
+        buffer: polled.video.buffer,
+        mimeType: polled.video.mimeType,
+        mediaType: "video",
+        role: "generated",
+        status: "candidate",
+        title:
+          typeof metadata.title === "string"
+            ? metadata.title
+            : "Generated video",
+        description:
+          typeof metadata.description === "string"
+            ? metadata.description
+            : null,
+        altText:
+          typeof metadata.description === "string"
+            ? metadata.description
+            : null,
+        prompt: run.prompt,
+        model: run.model,
+        aspectRatio: run.aspectRatio,
+        imageSize: run.resolution ?? run.imageSize,
+        durationSeconds: run.durationSeconds,
+        generationRunId: run.id,
+        sourceUrl: polled.video.sourceUrl,
+        db: tx,
+        metadata: {
+          ...metadata,
+          provider: polled.video.provider,
+          mediaType: "video",
+          compiledPrompt: run.compiledPrompt,
+          providerGenerationId: polled.video.providerGenerationId,
+          sourceUrl: polled.video.sourceUrl,
+          ...(operationName ? { operationName } : {}),
+        },
+        category: category as any,
+      });
+      const completed = await markRunCompletedWithAsset(
+        tx,
+        run,
+        metadata,
+        asset,
+        {
+          provider: polled.video.provider,
+          providerGenerationId: polled.video.providerGenerationId,
+          sourceUrl: polled.video.sourceUrl,
+          operationName,
+        },
+      );
+      return {
+        status: "completed" as const,
+        run: completed.run,
+        asset,
+        completionClaimed: completed.completionClaimed,
+      };
+    });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Video generation failed.";
-    const completedAt = nowIso();
-    await getDb()
-      .update(schema.assetGenerationRuns)
-      .set({
-        status: "failed",
-        error: message,
-        completedAt,
-      })
-      .where(eq(schema.assetGenerationRuns.id, run.id));
-    await notifyGenerationRunFinished(
-      { ...run, status: "failed", error: message, completedAt },
-      "failed",
-    );
+    const existing = await findAssetForRun(getDb(), run.id);
+    if (existing) {
+      const completed = await markRunCompletedWithAsset(
+        getDb(),
+        run,
+        metadata,
+        existing,
+        {
+          provider: polled.video.provider,
+          providerGenerationId: polled.video.providerGenerationId,
+          sourceUrl: polled.video.sourceUrl,
+          operationName,
+        },
+      );
+      return {
+        status: "completed",
+        run: completed.run,
+        asset: existing,
+        completionClaimed: completed.completionClaimed,
+      };
+    }
     throw err;
   }
 }

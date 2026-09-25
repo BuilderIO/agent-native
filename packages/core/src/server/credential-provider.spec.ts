@@ -2250,6 +2250,8 @@ describe("Builder gateway credential lane", () => {
   });
 
   it("does not resolve another org for an explicitly Personal Builder lookup", async () => {
+    hostedVisitor();
+    mockGetRequestOrgId.mockReturnValue("collaborator-org");
     mockHasBuilderOAuthSession.mockResolvedValue(false);
 
     await resolveBuilderGatewayAuth({
@@ -2260,6 +2262,10 @@ describe("Builder gateway credential lane", () => {
     expect(mockHasBuilderOAuthSession).toHaveBeenCalledWith(
       "owner@example.com",
       null,
+    );
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+    expect(mockReadAppSecret).not.toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "org", scopeId: "collaborator-org" }),
     );
   });
 
