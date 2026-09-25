@@ -18,6 +18,19 @@ afterEach(() => {
 });
 
 describe("agent-native config loading", () => {
+  it("keeps runtime config imports outside Vite analysis", () => {
+    const source = fs.readFileSync(
+      new URL("./agent-native-config-loader.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(
+      source.match(
+        /import\(\s*\/\* @vite-ignore \*\/ pathToFileURL\(configPath\)\.href\s*\)/g,
+      ),
+    ).toHaveLength(2);
+  });
+
   it("inherits workspace config and lets an app override its policy", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
     temporaryRoots.push(root);
