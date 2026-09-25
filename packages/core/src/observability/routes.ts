@@ -33,10 +33,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
-import {
-  getRequestContext,
-  getRequestOrgId,
-} from "../server/request-context.js";
+import { getRequestContext } from "../server/request-context.js";
 import { track } from "../tracking/registry.js";
 import { emitAiFeedbackSurveyEvent } from "./posthog-ai.js";
 import {
@@ -233,6 +230,7 @@ export function createObservabilityHandler() {
         feedbackType === "text"
           ? getHeader(event, "idempotency-key")?.trim() || null
           : null;
+      const org = await getOrgContext(event);
       const inserted = await insertFeedback({
         id,
         runId: body.runId ? String(body.runId) : null,
@@ -243,7 +241,7 @@ export function createObservabilityHandler() {
         value,
         idempotencyKey,
         userId: owner,
-        orgId: getRequestOrgId() ?? null,
+        orgId: org.orgId,
         source: "chat",
         createdAt: Date.now(),
       });

@@ -10,7 +10,6 @@ import {
   getTraceSummary,
   getTraceSummaries,
 } from "./store.js";
-import { redactSensitiveFields } from "./traces.js";
 import type {
   FeedbackEntry,
   InstructionUpdate,
@@ -100,6 +99,9 @@ function readThreadMessages(threadData: string): Array<{
   runId?: string;
   inlineApps: AgentMcpAppPayload[];
 }> {
+  if (threadData.length > MAX_THREAD_DATA_CHARS) {
+    throw new Error("Observability thread data exceeds the maximum size");
+  }
   try {
     const repository = JSON.parse(threadData);
     const values: unknown[] = Array.isArray(repository?.messages)
@@ -345,6 +347,7 @@ export async function listOutputReviews(opts: {
 
 const MAX_SOURCE_MESSAGES = 40;
 const MAX_SOURCE_TEXT = 500;
+const MAX_THREAD_DATA_CHARS = 1_000_000;
 const MAX_TOOL_SPANS = 20;
 const MAX_EVIDENCE_TEXT = 600;
 const MAX_EVIDENCE_NODES_PER_SPAN = 80;
@@ -352,7 +355,7 @@ const MAX_EVIDENCE_CHARS_PER_SPAN = 2_400;
 const OMITTED_EVIDENCE_FIELDS =
   /^(html|markup|content|body|blob|data|base64|image|screenshot|file|payload|thread_data|resource|source|raw|prompt|query|request|response|text|message|messages|document|code|description)$/i;
 const REDACTED_EVIDENCE_FIELDS =
-  /(?:token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|cookie|session)/i;
+  /(?:token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|cookie|session|jwt|bearer)/i;
 const SAFE_EVIDENCE_STRING_FIELDS =
   /^(?:id|artifact_?id|(?:design|slide|deck|presentation|chart|dashboard|analysis)_?id|app_?id|app|application|server_?id|tool_?name|title|name|path|route|type|kind|status|action|operation|slug)$/i;
 
@@ -361,9 +364,7 @@ function normalizedEvidenceKey(key: string): string {
 }
 
 function isSensitiveEvidenceKey(key: string): boolean {
-  return /(?:authorization|cookie|token|secret|password|passwd|apikey|accesskey|privatekey|credential|session)/.test(
-    normalizedEvidenceKey(key),
-  );
+  return REDACTED_EVIDENCE_FIELDS.test(normalizedEvidenceKey(key));
 }
 
 function isSensitiveHeaderKey(key: string): boolean {
@@ -378,6 +379,15 @@ function redactEvidenceString(value: string): string {
     .replace(/\b[A-Za-z0-9+/]{128,}={0,2}\b/g, "[omitted encoded payload]")
     .replace(/<\/?(?:html|script|svg|iframe)\b[^>]*>/gi, "[omitted markup]")
     .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [REDACTED]")
+    .replace(
+      /\beyJ[A-Za-z0-9_-]{1,512}\.[A-Za-z0-9_-]{1,4096}\.[A-Za-z0-9_-]{1,4096}\b/g,
+      "[REDACTED]",
+    )
+    .replace(/(\b[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/\s@]+@/gi, "$1[REDACTED]@")
+    .replace(
+      /(\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>#]*)#[^\s"'<>]*/gi,
+      "$1#[REDACTED]",
+    )
     .replace(/\bAIza[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
     .replace(/\bSG\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
     .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}\b/gi, "[REDACTED]")
@@ -420,7 +430,7 @@ function redactEvidenceString(value: string): string {
         return `${separator}${rawKey}=[REDACTED]`;
       }
       const normalizedKey = normalizedEvidenceKey(key);
-      return /(?:token|secret|password|credential|signature|apikey|accesskey|privatekey|authorization|auth|cookie|session|jwt)/.test(
+      return /(?:token|secret|password|credential|signature|apikey|accesskey|privatekey|authorization|auth|cookie|session|jwt|bearer)/.test(
         normalizedKey,
       ) ||
         normalizedKey === "key" ||
@@ -474,18 +484,19 @@ function boundedEvidence(
       .slice(0, 20)
       .map((item) => boundedEvidence(item, budget, depth + 1, key));
   if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .slice(0, 30)
-        .map(([key, item]) => [
-          key,
-          REDACTED_EVIDENCE_FIELDS.test(key)
-            ? "[REDACTED]"
-            : OMITTED_EVIDENCE_FIELDS.test(key)
-              ? "[omitted]"
-              : boundedEvidence(item, budget, depth + 1, key),
-        ]),
-    );
+    const bounded: Record<string, unknown> = {};
+    let entries = 0;
+    for (const childKey in value) {
+      if (!Object.hasOwn(value, childKey)) continue;
+      if (entries++ >= 30) break;
+      const item = (value as Record<string, unknown>)[childKey];
+      bounded[childKey] = REDACTED_EVIDENCE_FIELDS.test(childKey)
+        ? "[REDACTED]"
+        : OMITTED_EVIDENCE_FIELDS.test(childKey)
+          ? "[omitted]"
+          : boundedEvidence(item, budget, depth + 1, childKey);
+    }
+    return bounded;
   }
   return undefined;
 }
@@ -546,7 +557,7 @@ export async function getOutputReviewSummarySource(opts: {
     )
     .slice(0, MAX_TOOL_SPANS);
   const toolEvidence = toolSpans.flatMap((span) => {
-    const metadata = record(redactSensitiveFields(span.metadata));
+    const metadata = record(span.metadata);
     const inputBudget = {
       nodes: MAX_EVIDENCE_NODES_PER_SPAN,
       chars: MAX_EVIDENCE_CHARS_PER_SPAN,

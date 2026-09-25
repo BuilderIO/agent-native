@@ -108,6 +108,12 @@ describe("observability store: per-user isolation", () => {
           /ON agent_feedback \(org_id, source, created_at DESC\)/,
         ),
       );
+      expect(mockEnsureIndexExists).toHaveBeenCalledWith(
+        "idx_feedback_org_run_created",
+        expect.stringMatching(
+          /ON agent_feedback \(org_id, run_id, created_at DESC\)/,
+        ),
+      );
     });
 
     it("getTraceSummaries omits user_id filter when userId is undefined", async () => {

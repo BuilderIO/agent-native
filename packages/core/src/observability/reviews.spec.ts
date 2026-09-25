@@ -281,6 +281,8 @@ describe("listOutputReviews", () => {
           input: {
             designId: "design-42",
             api_key: "not-a-real-key",
+            jwt: "fake-jwt-field",
+            bearer: "fake-bearer-field",
             html: "<html>private app markup</html>",
             note: "private unstructured tool text",
             path: "data:image/png;base64,AAAA",
@@ -315,6 +317,8 @@ describe("listOutputReviews", () => {
           input: {
             designId: "design-42",
             api_key: "[REDACTED]",
+            jwt: "[REDACTED]",
+            bearer: "[REDACTED]",
             html: "[omitted]",
             note: "[omitted]",
             path: "[omitted data payload]",
@@ -337,6 +341,7 @@ describe("listOutputReviews", () => {
     expect(JSON.stringify(source)).not.toContain("fake-presigned-signature");
     expect(JSON.stringify(source)).not.toContain("inline%20secret");
     expect(JSON.stringify(source)).not.toContain("fake-jwt");
+    expect(JSON.stringify(source)).not.toContain("fake-bearer-field");
     expect(JSON.stringify(source)).not.toContain("fake-cookie-query");
     expect(JSON.stringify(source)).not.toContain("fake-session-query");
     expect(mockGetTraceSpansForRun).toHaveBeenCalledWith("run-1", {
@@ -350,6 +355,7 @@ describe("listOutputReviews", () => {
   });
 
   it("redacts prefixed secrets and sends only messages from the selected run", async () => {
+    const standaloneJwt = ["eyJx", "e30", "signature"].join(".");
     mockGetTraceSummary.mockResolvedValueOnce({
       runId: "run-1",
       threadId: "thread-1",
@@ -367,8 +373,7 @@ describe("listOutputReviews", () => {
               {
                 message: {
                   role: "user",
-                  content:
-                    "AWS_SECRET_ACCESS_KEY=target-secret\nAuthorization: Basic fake-encoded-credential\naccessToken=fake-access-token\nclientSecret=fake-client-secret\nCookie: session=fake-cookie; refresh=fake-refresh\nSet-Cookie: session=fake-set-cookie; refresh=fake-set-cookie-two; Path=/\nAIzaEXAMPLE_NOT_A_REAL_KEY SG.EXAMPLE_ONLY.NOT_A_REAL_TOKEN xoxb-example-not-a-real-token AKIAEXAMPLE sk-proj-example sk-ant-example",
+                  content: `AWS_SECRET_ACCESS_KEY=target-secret\nAuthorization: Basic fake-encoded-credential\naccessToken=fake-access-token\nclientSecret=fake-client-secret\nCookie: session=fake-cookie; refresh=fake-refresh\nSet-Cookie: session=fake-set-cookie; refresh=fake-set-cookie-two; Path=/\nAIzaEXAMPLE_NOT_A_REAL_KEY SG.EXAMPLE_ONLY.NOT_A_REAL_TOKEN xoxb-example-not-a-real-token AKIAEXAMPLE sk-proj-example sk-ant-example ${standaloneJwt} https://viewer:fake-url-password@example.test/review#access_token=fake-url-fragment`,
                   metadata: { runId: "run-1" },
                 },
               },
@@ -404,7 +409,7 @@ describe("listOutputReviews", () => {
       messages: [
         {
           role: "user",
-          text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]\naccessToken=[REDACTED]\nclientSecret=[REDACTED]\nCookie: [REDACTED]\nSet-Cookie: [REDACTED]\n[REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED]",
+          text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]\naccessToken=[REDACTED]\nclientSecret=[REDACTED]\nCookie: [REDACTED]\nSet-Cookie: [REDACTED]\n[REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] https://[REDACTED]@example.test/review#[REDACTED]",
         },
         {
           role: "assistant",
@@ -438,6 +443,52 @@ describe("listOutputReviews", () => {
     expect(JSON.stringify(source)).not.toContain("fake-json-client-secret");
     expect(JSON.stringify(source)).not.toContain("fake-json-cookie");
     expect(JSON.stringify(source)).not.toContain("fake-json-set-cookie");
+    expect(JSON.stringify(source)).not.toContain("fake-url-password");
+    expect(JSON.stringify(source)).not.toContain("fake-url-fragment");
+    expect(JSON.stringify(source)).not.toContain(standaloneJwt);
+  });
+
+  it("rejects oversized serialized thread data before parsing it", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-1",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+    });
+    mockGetOrgScopedThreadData.mockResolvedValueOnce(
+      new Map([["thread-1", "x".repeat(1_000_001)]]),
+    );
+
+    await expect(
+      getOutputReviewSummarySource({ runId: "run-1", orgId: "org-a" }),
+    ).rejects.toThrow("thread data exceeds the maximum size");
+  });
+
+  it("bounds metadata traversal before reading later fields", async () => {
+    const input = Object.fromEntries(
+      Array.from({ length: 30 }, (_, index) => [`field-${index}`, "value"]),
+    );
+    Object.defineProperty(input, "overflow", {
+      enumerable: true,
+      get() {
+        throw new Error("read beyond evidence bounds");
+      },
+    });
+    mockGetTraceSummary.mockResolvedValueOnce({ runId: "run-1" });
+    mockGetTraceSpansForRun.mockResolvedValueOnce([
+      {
+        spanType: "tool_call",
+        name: "create_design",
+        status: "success",
+        metadata: { input },
+      },
+    ]);
+
+    await expect(
+      getOutputReviewSummarySource({ runId: "run-1", orgId: "org-a" }),
+    ).resolves.toMatchObject({
+      found: true,
+      toolEvidenceAvailable: true,
+    });
   });
 
   it("keeps a saved inline MCP App with its run's answer", async () => {

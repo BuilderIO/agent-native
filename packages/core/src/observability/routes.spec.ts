@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockGetOrgContext = vi.hoisted(() => vi.fn());
-const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 const mockGetObservabilityOverview = vi.hoisted(() => vi.fn());
 const mockGetTraceSummaries = vi.hoisted(() => vi.fn());
 const mockGetTraceSummary = vi.hoisted(() => vi.fn());
@@ -48,7 +47,6 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("../server/request-context.js", () => ({
   getRequestContext: () => undefined,
-  getRequestOrgId: () => mockGetRequestOrgId(),
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
@@ -99,7 +97,6 @@ describe("observability routes", () => {
     vi.clearAllMocks();
     mockGetSession.mockResolvedValue({ email: "alice@example.com" });
     mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "admin" });
-    mockGetRequestOrgId.mockReturnValue(null);
     mockGetObservabilityOverview.mockResolvedValue({ runs: 0 });
     mockGetTraceSummaries.mockResolvedValue([]);
     mockGetTraceSummary.mockResolvedValue(null);
@@ -308,8 +305,8 @@ describe("observability routes", () => {
     expect(properties).not.toHaveProperty("sentiment");
   });
 
-  it("attributes chat feedback only from trusted request org context", async () => {
-    mockGetRequestOrgId.mockReturnValue("org-a");
+  it("persists chat feedback to the authenticated org without ambient context", async () => {
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "member" });
     mockReadBody.mockResolvedValue({
       feedbackType: "thumbs_up",
       runId: "run-1",
@@ -323,7 +320,7 @@ describe("observability routes", () => {
     expect(mockInsertFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: "org-a", source: "chat" }),
     );
-    expect(mockGetOrgContext).not.toHaveBeenCalled();
+    expect(mockGetOrgContext).toHaveBeenCalledOnce();
   });
 
   it("reports free-text feedback, which previously emitted nothing", async () => {
