@@ -20,6 +20,8 @@ The framework supports pluggable AI engines beneath the agent loop. The **Anthro
 | `set-agent-engine` | Set the organization's default engine and model (owners and admins only) |
 | `test-agent-engine` | Send a trivial prompt to verify the engine works (connectivity + API key) |
 | `check-provider-key` | Check a provider API key by listing the models it reaches, before saving it |
+| `get-provider-models` | Read which models each provider shows in the model picker and default-model select |
+| `manage-provider-models` | Choose those models (`set`) or go back to the recommended ones (`reset`) |
 
 ## Checking the Current Engine
 
@@ -27,7 +29,7 @@ The framework supports pluggable AI engines beneath the agent loop. The **Anthro
 list-agent-engines
 ```
 
-Returns the registry of all engines (name, label, capabilities, supported models) plus the currently active engine and model. `credentialRejected: true` means the provider rejected that engine's saved key (`credentialRejectedAt` says when); chats with it stop until the key is replaced, so tell the user.
+Returns the registry of all engines (name, label, capabilities, supported models) plus the currently active engine and model. `supportedModels` is what the model picker offers: the provider's checked models when `modelSelection.state` is `"selected"`, otherwise its `recommendedModels`. `credentialRejected: true` means the provider rejected that engine's saved key (`credentialRejectedAt` says when); chats with it stop until the key is replaced, so tell the user.
 
 ## Switching Engines
 
@@ -71,6 +73,22 @@ check-provider-key --provider "anthropic" --key "<the key>"
 ```
 
 Returns `{ ok: true, models }` or `{ ok: false, code, reason }` (`rejected`, `wrong-provider`, `missing-key`, `invalid-endpoint`, `unreachable`, `provider-error`). Relay the reason. Omit `--key` to re-check the saved key; it is only checked against its saved endpoint, so `--baseUrl` needs `--key` (except for Ollama). `--scope org` is for owners and admins.
+
+## Choosing Which Models Show
+
+Each provider (Builder.io included) keeps the models its owner checked. Only checked models appear in the chat model picker and the default-model select; Builder.io and providers with their own key show side by side.
+
+```
+get-provider-models --provider "openai"
+manage-provider-models --action "set" --provider "openai" --models '["gpt-6-sol"]'
+manage-provider-models --action "reset" --provider "openai"
+```
+
+- A selection lives at the same scope as the provider's key: `--scope user` is the caller's own, `--scope org` is the organization's (owners and admins only; members get an error to relay). Without `--scope`, the call changes the selection in effect, which follows the key in effect (a member's personal key uses their personal selection).
+- A member's personal selection never changes the organization's. The default-model select always offers the organization's checked models.
+- `set` with an empty list hides the provider's chat models, for a key used only by services. Builder.io accepts only its own catalog.
+- A chat already on an unchecked model keeps running on it. When nothing picked a model and the engine default is unchecked, chats use the first checked model.
+- A row with `models: null` has nothing chosen and shows the recommended models. `state: "unreadable"` means the selection couldn't be read, not that it is empty.
 
 ## Built-in Engines
 

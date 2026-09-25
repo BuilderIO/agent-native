@@ -2,6 +2,9 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 
 describe("list-agent-engines", () => {
   let readAppSecrets: ReturnType<typeof vi.fn>;
+  let readAppSecret: ReturnType<typeof vi.fn>;
+  let userSettings: Map<string, Record<string, unknown>>;
+  let orgSettings: Map<string, Record<string, unknown>>;
   let defaultSetting: {
     value: Record<string, unknown> | null;
     source: string;
@@ -19,8 +22,16 @@ describe("list-agent-engines", () => {
     delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     delete process.env.BUILDER_PRIVATE_KEY;
     delete process.env.BUILDER_PUBLIC_KEY;
+    userSettings = new Map();
+    orgSettings = new Map();
     vi.doMock("../../settings/index.js", () => ({
       getSetting: vi.fn().mockResolvedValue(null),
+      getUserSetting: vi.fn(
+        async (_email: string, key: string) => userSettings.get(key) ?? null,
+      ),
+      getOrgSetting: vi.fn(
+        async (_orgId: string, key: string) => orgSettings.get(key) ?? null,
+      ),
     }));
     vi.doMock("../../oauth-tokens/store.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../../oauth-tokens/store.js")>()),
@@ -36,8 +47,9 @@ describe("list-agent-engines", () => {
       resolveDefaultAgentEngineAuthority: vi.fn(async () => defaultAuthority),
     }));
     readAppSecrets = vi.fn().mockResolvedValue(new Map());
+    readAppSecret = vi.fn().mockResolvedValue(null);
     vi.doMock("../../secrets/storage.js", () => ({
-      readAppSecret: vi.fn().mockResolvedValue(null),
+      readAppSecret: (...args: unknown[]) => readAppSecret(...args),
       readAppSecrets,
     }));
   });
@@ -85,14 +97,12 @@ describe("list-agent-engines", () => {
 
   it("flags an engine whose saved key its provider rejected", async () => {
     const savedKey = "sk-ant-fake-placeholder";
-    vi.doMock("../../secrets/storage.js", () => ({
-      readAppSecret: vi.fn(async (ref: { key: string; scope: string }) =>
+    readAppSecret.mockImplementation(
+      async (ref: { key: string; scope: string }) =>
         ref.key === "ANTHROPIC_API_KEY" && ref.scope === "user"
           ? { value: savedKey }
           : null,
-      ),
-      readAppSecrets,
-    }));
+    );
     const { providerCredentialFingerprint } =
       await import("../../server/credential-provider.js");
     const fingerprint = providerCredentialFingerprint(
@@ -141,6 +151,52 @@ describe("list-agent-engines", () => {
     });
     expect(byName("ai-sdk:openai")?.credentialRejected).toBe(false);
     expect(byName("builder")?.credentialRejected).toBe(false);
+  });
+
+  it("offers only the checked models, at the scope of the key in effect", async () => {
+    readAppSecret.mockImplementation(
+      async (ref: { key: string; scope: string }) =>
+        ref.key === "ANTHROPIC_API_KEY" && ref.scope === "user"
+          ? { value: "sk-ant-fake-placeholder" }
+          : null,
+    );
+    userSettings.set("agent-provider-models:anthropic", {
+      models: ["claude-opus-5-5"],
+    });
+    orgSettings.set("agent-provider-models:openai", { models: ["gpt-6-sol"] });
+    const { getAgentEngineEntry } = await import("../../agent/engine/index.js");
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(
+      await runWithRequestContext(
+        { userEmail: "member@example.com", orgId: "org-models" },
+        () => run(),
+      ),
+    );
+    const byName = (name: string) =>
+      result.engines.find((engine: any) => engine.name === name);
+
+    expect(byName("anthropic")).toMatchObject({
+      supportedModels: ["claude-opus-5-5"],
+      recommendedModels: getAgentEngineEntry("anthropic")?.supportedModels,
+      modelSelection: { state: "selected", scope: "user" },
+    });
+    // No organization OpenAI key is saved, but its models still belong to the
+    // organization, which is where an admin's key would go.
+    expect(byName("ai-sdk:openai")).toMatchObject({
+      supportedModels: ["gpt-6-sol"],
+      modelSelection: { state: "selected", scope: "org" },
+    });
+    expect(byName("ai-sdk:google")?.modelSelection).toEqual({
+      state: "default",
+      scope: "org",
+    });
+    expect(result.current).toEqual({
+      engine: "anthropic",
+      model: "claude-opus-5-5",
+    });
   });
 
   it("does not report AGENT_ENGINE as current when its optional package is missing", async () => {

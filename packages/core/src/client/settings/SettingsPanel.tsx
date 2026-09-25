@@ -81,6 +81,10 @@ import {
 import { agentNativePath, appMountedPath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
 import {
+  usesLiveOllamaModels,
+  type ChatModelSelectionState,
+} from "../chat-model-groups.js";
+import {
   fetchAgentEngineStatus,
   fetchEnvironmentStatus,
 } from "../client-status-requests.js";
@@ -800,6 +804,7 @@ interface EngineInfo {
   installPackage?: string;
   packageInstalled?: boolean;
   configured?: boolean;
+  modelSelection?: ChatModelSelectionState;
 }
 
 const PROVIDER_DOCS: Record<string, string> = {
@@ -2292,7 +2297,7 @@ function AppDefaultModelPicker({
   // never touched Ollama and never even open this picker.
   useEffect(() => {
     if (!open) return;
-    if (!engines.some((engine) => engine.name === "ai-sdk:ollama")) return;
+    if (!engines.some(usesLiveOllamaModels)) return;
     let cancelled = false;
     void fetchOllamaModels()
       .then((models) => {
@@ -2390,7 +2395,7 @@ function AppDefaultModelPicker({
                   ? "Builder.io"
                   : engine.label || engine.name;
               const modelIds =
-                engine.name === "ai-sdk:ollama" && ollamaModels?.length
+                usesLiveOllamaModels(engine) && ollamaModels?.length
                   ? ollamaModels
                   : latestModelsOnly(engine.supportedModels);
               const models = modelIds.length
@@ -2524,7 +2529,9 @@ function AppModelDefaultsSectionInner({
   const selectedEngineInfo =
     settings?.engines.find((engine) => engine.name === selectedEngine) ?? null;
   const selectedEngineModels =
-    selectedEngine === "ai-sdk:ollama" && ollamaModels?.length
+    selectedEngineInfo &&
+    usesLiveOllamaModels(selectedEngineInfo) &&
+    ollamaModels?.length
       ? ollamaModels
       : (selectedEngineInfo?.supportedModels ?? []);
   const engineOptions: SettingsSelectOption[] = (settings?.engines ?? [])

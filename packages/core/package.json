@@ -265,6 +265,8 @@
     "./agent/actions/check-provider-key": "./dist/agent/actions/check-provider-key.js",
     "./agent/actions/manage-provider-key-policy": "./dist/agent/actions/manage-provider-key-policy.js",
     "./agent/actions/manage-service-providers": "./dist/agent/actions/manage-service-providers.js",
+    "./agent/actions/get-provider-models": "./dist/agent/actions/get-provider-models.js",
+    "./agent/actions/manage-provider-models": "./dist/agent/actions/manage-provider-models.js",
     "./agent/observational-memory": "./dist/agent/observational-memory/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",

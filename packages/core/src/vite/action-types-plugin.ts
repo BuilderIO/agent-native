@@ -93,6 +93,14 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/agent/actions/manage-provider-key-policy",
   },
   {
+    name: "get-provider-models",
+    specifier: "@agent-native/core/agent/actions/get-provider-models",
+  },
+  {
+    name: "manage-provider-models",
+    specifier: "@agent-native/core/agent/actions/manage-provider-models",
+  },
+  {
     name: "get-hosted-harness-config",
     specifier:
       "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",

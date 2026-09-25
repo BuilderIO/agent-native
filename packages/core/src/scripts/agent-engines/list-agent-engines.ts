@@ -19,6 +19,13 @@ import {
   resolveEngineAcceptsCustomModels,
   resolveEnginePreservesCustomModels,
 } from "../../agent/engine/index.js";
+import {
+  applyProviderModelSelection,
+  providerForEngineName,
+  resolveEffectiveProviderModelSelection,
+  type EffectiveProviderModelSelection,
+  type ProviderModelSelectionProvider,
+} from "../../agent/provider-model-selection.js";
 import type { ActionTool } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
 import {
@@ -30,7 +37,7 @@ import {
 
 export const tool: ActionTool = {
   description:
-    'List all available AI agent engines (Anthropic, OpenAI, Gemini, Groq, etc.), the currently selected engine, and whether the caller can change the organization default (canUpdateDefault). credentialRejected marks an engine whose saved key its provider rejected; chats with it stop until the key is replaced. Use this to check what engines are available before calling manage-agent-engine with action="set".',
+    'List all available AI agent engines (Anthropic, OpenAI, Gemini, Groq, etc.), the currently selected engine, and whether the caller can change the organization default (canUpdateDefault). supportedModels is what the model picker shows: the models checked for that provider (modelSelection.state "selected") or its recommendedModels. credentialRejected marks an engine whose saved key its provider rejected; chats with it stop until the key is replaced. Use this to check what engines are available before calling manage-agent-engine with action="set".',
   parameters: {
     type: "object",
     properties: {},
@@ -83,6 +90,22 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
   ];
   await prefetchSecrets(providerKeys);
   const keyRejections = await readSavedKeyRejections(providerKeys);
+  const selections = new Map<
+    ProviderModelSelectionProvider,
+    Promise<EffectiveProviderModelSelection>
+  >();
+  const selectionFor = (
+    engineName: string,
+  ): Promise<EffectiveProviderModelSelection> | null => {
+    const provider = providerForEngineName(engineName);
+    if (!provider) return null;
+    let pending = selections.get(provider);
+    if (!pending) {
+      pending = resolveEffectiveProviderModelSelection(provider);
+      selections.set(provider, pending);
+    }
+    return pending;
+  };
   const [defaultSetting, defaultAuthority] = await Promise.all([
     readDefaultAgentEngineSettingDetailed(),
     resolveDefaultAgentEngineAuthority(),
@@ -145,11 +168,23 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
   const preserveCustomModels = currentEntry
     ? await resolveEnginePreservesCustomModels(currentEntry)
     : false;
+  // Mirrors the runtime: an engine default nobody picked yields to the first
+  // checked model once it's unchecked.
+  const currentSelection =
+    currentEntry && !currentModelCandidate
+      ? await selectionFor(currentEntry.name)
+      : null;
+  const checkedDefault =
+    currentSelection?.state === "selected" &&
+    currentEntry &&
+    !currentSelection.models.includes(currentEntry.defaultModel)
+      ? currentSelection.models[0]
+      : undefined;
   const currentModel =
     currentEntry && !envUnavailable
       ? normalizeModelForEngine(
           currentEntry,
-          currentModelCandidate ?? currentEntry.defaultModel,
+          currentModelCandidate ?? checkedDefault ?? currentEntry.defaultModel,
           { acceptsCustomModels, preserveCustomModels },
         )
       : undefined;
@@ -184,6 +219,9 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           ? []
           : e.requiredEnvVars.map((key) => keyRejections.get(key));
       const rejection = rejectionStates.find((state) => !!state);
+      const modelSelection = isAgentEnginePackageInstalled(e)
+        ? await selectionFor(e.name)
+        : null;
       const credentialRejected = rejection
         ? true
         : rejectionStates.includes(undefined)
@@ -194,7 +232,22 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         label: e.label,
         description: e.description,
         defaultModel: e.defaultModel,
-        supportedModels: e.supportedModels,
+        supportedModels: applyProviderModelSelection(
+          e.supportedModels,
+          modelSelection,
+        ),
+        recommendedModels: e.supportedModels,
+        ...(modelSelection
+          ? {
+              modelSelection:
+                modelSelection.state === "unreadable"
+                  ? { state: modelSelection.state, error: modelSelection.error }
+                  : {
+                      state: modelSelection.state,
+                      scope: modelSelection.scope,
+                    },
+            }
+          : {}),
         acceptsCustomModels: await resolveEngineAcceptsCustomModels(e),
         preserveCustomModels: await resolveEnginePreservesCustomModels(e),
         capabilities: e.capabilities,

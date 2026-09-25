@@ -208,6 +208,7 @@ import {
   toolCallsFromContent,
   type Processor,
 } from "./processors.js";
+import { resolveUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
 import {
   startRun,
   subscribeToRun,
@@ -10325,7 +10326,14 @@ export function createProductionAgentHandler(
       storedModel,
       defaultModel: engine.defaultModel,
     });
-    const modelCandidate = modelSelection.model;
+    // Only the engine default yields to the provider's checked models. A model
+    // the request or a stored default names still runs after it is unchecked,
+    // so chats already on it keep working.
+    const modelCandidate =
+      modelSelection.source === "default"
+        ? ((await resolveUncheckedDefaultModelReplacement(engine)) ??
+          modelSelection.model)
+        : modelSelection.model;
     // DIAGNOSTIC-ONLY: stored-model resolution finished.
     workerStep("model_done");
     const model = normalizeModelForEngine(engine, modelCandidate);

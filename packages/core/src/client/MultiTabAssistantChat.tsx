@@ -48,19 +48,12 @@ import {
   type AssistantChatSendOptions,
 } from "./AssistantChat.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
-import {
-  buildChatModelGroups,
-  type EngineModelGroup,
-} from "./chat-model-groups.js";
+import { type EngineModelGroup } from "./chat-model-groups.js";
 import {
   ChatHistoryList,
   type ChatHistoryItem,
   type ChatHistorySection,
 } from "./chat/ChatHistoryList.js";
-import {
-  fetchBuilderStatus,
-  fetchEnvironmentStatus,
-} from "./client-status-requests.js";
 import {
   Popover,
   PopoverAnchor,
@@ -75,11 +68,11 @@ import {
 import { isTrustedFrameMessage } from "./frame.js";
 import { DEFAULT_LOCALE, useOptionalLocale, useT } from "./i18n.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
-import { callAction } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
 import {
   CHAT_MODEL_SELECTION_CHANGED_EVENT,
   chatModelSelectionStorageKey,
+  loadChatModelCatalog,
 } from "./use-chat-models.js";
 import {
   useChatThreads,
@@ -1345,47 +1338,23 @@ export function MultiTabAssistantChat({
   const refreshEngines = useCallback(() => {
     if (hostManagedModels) return;
     setModelListLoading(true);
-    Promise.all([
-      callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
-        () => null,
-      ),
-      fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
-      fetchBuilderStatus<{ configured?: boolean }>(),
-    ])
-      .then(([enginesData, envResult, builderResult]) => {
-        if (!enginesData?.engines) {
-          // Leaves `availableModels` empty for the session, so an override with
-          // no engine of its own has nothing to resolve against.
-          console.warn(
-            "[agent-chat] no engine list; model overrides cannot be catalog-resolved",
-          );
+    loadChatModelCatalog()
+      .then((catalog) => {
+        if (catalog.state !== "available") {
+          if (catalog.enginesUnavailable) {
+            // Leaves `availableModels` empty for the session, so an override
+            // with no engine of its own has nothing to resolve against.
+            console.warn(
+              "[agent-chat] no engine list; model overrides cannot be catalog-resolved",
+            );
+          }
           return;
         }
-        if (
-          envResult.state !== "available" ||
-          builderResult.state !== "available"
-        ) {
-          return;
-        }
-        const envKeys = envResult.value;
-        const builderStatus = builderResult.value;
-        const configuredKeys = new Set(
-          envKeys.filter((k) => k.configured).map((k) => k.key),
-        );
-        const builderConnected = builderStatus?.configured === true;
-        const currentEngineName: string | undefined =
-          enginesData.current?.engine;
-        const currentModel: string | undefined = enginesData.current?.model;
-
-        const groups = buildChatModelGroups({
-          engines: enginesData.engines,
-          configuredKeys,
-          builderConnected,
-          currentEngineName,
-          currentModel,
+        setDiscoveredModels(catalog.groups);
+        setDefaultModel(catalog.defaultModel);
+        void catalog.loadLiveGroups().then((liveGroups) => {
+          if (liveGroups) setDiscoveredModels(liveGroups);
         });
-        setDiscoveredModels(groups);
-        setDefaultModel(currentModel ?? DEFAULT_MODEL);
       })
       .catch(() => {})
       .finally(() => setModelListLoading(false));
