@@ -448,7 +448,8 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
     version: 32,
     name: "design-visual-edit-pending-bigint-revision",
     // guard:allow-unscoped — widen the revision in place so old and new workers keep sharing one high-water mark.
-    sql: `ALTER TABLE design_visual_edit_pending
+    sql: `-- guard:allow-destructive-ddl — losslessly widen the shipped int4 revision column so millisecond revisions fit and workers share one high-water mark.
+ALTER TABLE design_visual_edit_pending
 ALTER COLUMN revision TYPE BIGINT USING revision::BIGINT`,
   },
 ];
