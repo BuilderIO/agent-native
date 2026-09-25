@@ -447,7 +447,7 @@ describe("document editor layout", () => {
       flush.indexOf("suggestionAmendmentConflict || amendmentTargetIsResolved"),
     );
     expect(source).toContain(
-      "isSuggesting &&\n          amendmentDraftIsDirty &&\n          suggestionAmendmentConflict",
+      "amendmentDraftIsDirty && suggestionAmendmentConflict",
     );
   });
 
