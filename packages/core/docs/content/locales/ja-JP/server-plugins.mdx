@@ -153,6 +153,14 @@ Nitro はプラグインをファイル名のアルファベット順で開始�
   `pnpm migrate:production` が用意されています。
 </Callout>
 
+<Callout tone="info">
+  1つのデータベースを共有するアプリは `migrate:production`
+  を並行実行できます（例: `--workspace-concurrency` を `1`
+  より大きくする）。プロセスをまたいだ PostgreSQL
+  のアドバイザリロックが共有フレームワークマイグレーションを直列化します。詳細は
+  [データベース](/docs/server-database#migrations) を参照してください。
+</Callout>
+
 カスタム プラグインを追加する場合は、シーケンス内の位置を制御するためにファイル名にプレフィックスを付けてください。
 
 ## 次は何ですか {#whats-next}

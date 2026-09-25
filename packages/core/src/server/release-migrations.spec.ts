@@ -5,6 +5,12 @@ const mocks = vi.hoisted(() => {
   return {
     isLocalDatabase: vi.fn(() => false),
     getDatabaseUrl: vi.fn(() => "postgres://db.example/app"),
+    getMigrationDatabaseUrl: vi.fn(() => "postgres://db.example/app"),
+    // Pass-through: the advisory lock itself is covered by
+    // migration-lock.spec.ts, not re-exercised here.
+    withMigrationAdvisoryLock: vi.fn((_url: string, run: () => Promise<void>) =>
+      run(),
+    ),
     getAppConfig: vi.fn(() => ({
       migration: { deployContext: undefined as string | undefined },
     })),
@@ -72,6 +78,10 @@ vi.mock("../app-config/index.js", () => ({
 vi.mock("../db/client.js", () => ({
   isLocalDatabase: mocks.isLocalDatabase,
   getDatabaseUrl: mocks.getDatabaseUrl,
+  getMigrationDatabaseUrl: mocks.getMigrationDatabaseUrl,
+}));
+vi.mock("../db/migration-lock.js", () => ({
+  withMigrationAdvisoryLock: mocks.withMigrationAdvisoryLock,
 }));
 vi.mock("../db/migrations.js", () => ({
   runMigrations: mocks.runMigrations,
@@ -126,6 +136,7 @@ describe("runFrameworkReleaseMigrations", () => {
     });
     mocks.isLocalDatabase.mockReturnValue(false);
     mocks.getDatabaseUrl.mockReturnValue("postgres://db.example/app");
+    mocks.getMigrationDatabaseUrl.mockReturnValue("postgres://db.example/app");
     mocks.identityRows.clear();
     mocks.order.length = 0;
     mocks.runFrameworkSchemaEnsures.mockImplementation(async () => {
@@ -134,6 +145,51 @@ describe("runFrameworkReleaseMigrations", () => {
     mocks.runBetterAuthMigrations.mockImplementation(async () => {
       mocks.order.push("better-auth");
     });
+    mocks.runAutomationSchedulerHealthMigrations.mockImplementation(
+      async () => {},
+    );
+    // Pass-through default; the lock-wiring test below overrides this to
+    // observe ordering, and this restores the no-op for every other test.
+    mocks.withMigrationAdvisoryLock.mockImplementation(
+      (_url: string, run: () => Promise<void>) => run(),
+    );
+  });
+
+  // The lock has to actually wrap the batch, not just exist somewhere in the
+  // module — a future edit that moves a step outside the callback, or passes
+  // the wrong URL, would otherwise pass every other test in this file.
+  it("holds the cross-process migration lock for getMigrationDatabaseUrl() around the whole framework batch", async () => {
+    mocks.withMigrationAdvisoryLock.mockImplementation(
+      async (_url: string, run: () => Promise<void>) => {
+        mocks.order.push("lock-start");
+        try {
+          return await run();
+        } finally {
+          mocks.order.push("lock-end");
+        }
+      },
+    );
+    mocks.runAutomationSchedulerHealthMigrations.mockImplementation(
+      async () => {
+        mocks.order.push("scheduler-health");
+      },
+    );
+
+    await runFrameworkReleaseMigrations(null);
+
+    expect(mocks.withMigrationAdvisoryLock).toHaveBeenCalledTimes(1);
+    expect(mocks.withMigrationAdvisoryLock).toHaveBeenCalledWith(
+      "postgres://db.example/app",
+      expect.any(Function),
+    );
+    expect(mocks.order[0]).toBe("lock-start");
+    expect(mocks.order.at(-1)).toBe("lock-end");
+    expect(mocks.order.indexOf("schema-ensures")).toBeGreaterThan(
+      mocks.order.indexOf("lock-start"),
+    );
+    expect(mocks.order.indexOf("scheduler-health")).toBeLessThan(
+      mocks.order.indexOf("lock-end"),
+    );
   });
 
   // Most framework tables have no migration list at all — their only definition
@@ -271,6 +327,7 @@ describe("runFrameworkReleaseMigrations", () => {
     );
     expect(mocks.runFrameworkSchemaEnsures).not.toHaveBeenCalled();
     expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+    expect(mocks.withMigrationAdvisoryLock).not.toHaveBeenCalled();
   });
 
   // The beta lane runs release migrations under a branch-deploy context against

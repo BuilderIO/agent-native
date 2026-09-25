@@ -259,6 +259,18 @@ named migrations को version number से स्वतंत्र track क
   migrate:production` देता है।
 </Callout>
 
+<Callout tone="info">
+  जो ऐप्स एक ही डेटाबेस साझा करते हैं उन्हें पहले `migrate:production`
+  एक-एक करके चलाना पड़ता था (जैसे `pnpm -r --workspace-concurrency=1
+  --filter './apps/*' migrate:production`), क्योंकि हर ऐप उसी डेटाबेस पर वही
+  साझा फ्रेमवर्क माइग्रेशन लागू करता है। अब `runFrameworkReleaseMigrations`
+  इस साझा काम के दौरान एक क्रॉस-प्रोसेस PostgreSQL एडवाइज़री लॉक बनाए रखता
+  है, जिससे एक ही डेटाबेस की ओर इशारा करने वाले ऐप्स एक साथ माइग्रेट कर सकते
+  हैं — `--workspace-concurrency` को `1` से अधिक करें ताकि हर ऐप का प्रोसेस
+  स्टार्टअप और उसके निजी टेबल माइग्रेशन आपस में ओवरलैप हों, और केवल साझा
+  फ्रेमवर्क माइग्रेशन ही क्रमबद्ध (serialize) हों।
+</Callout>
+
 ### Drizzle Kit के साथ नए ऐप माइग्रेशन बनाएं {#drizzle-migrations}
 
 ऐप स्कीमा में नए बदलावों के लिए समीक्षा योग्य SQL बनाने हेतु

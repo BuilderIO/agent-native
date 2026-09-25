@@ -152,6 +152,12 @@ Nitro 依檔名字母順序啟動外掛。檔案順序只控制外掛何時開�
   `pnpm migrate:production`。
 </Callout>
 
+<Callout tone="info">
+  共用同一個資料庫的應用程式可以並行執行 `migrate:production`（例如將
+  `--workspace-concurrency` 設為大於 `1`）：跨行程的 PostgreSQL
+  建議鎖會將共用的框架遷移序列化。詳情請見[資料庫](/docs/server-database#migrations)。
+</Callout>
+
 若您新增自訂外掛，請為其檔名加上前綴，以控制它們在順序中的位置。
 
 ## 下一步是什麼 {#whats-next}

@@ -260,6 +260,19 @@ von ihrer Versionsnummer verfolgt.
   Teil des Release-Schritts auszuführen.
 </Callout>
 
+<Callout tone="info">
+  Apps, die sich eine Datenbank teilen, mussten `migrate:production` bisher
+  nacheinander ausführen (z. B. `pnpm -r --workspace-concurrency=1 --filter
+  './apps/*' migrate:production`), da jede App dieselben gemeinsamen
+  Framework-Migrationen auf dieselbe Datenbank anwendet.
+  `runFrameworkReleaseMigrations` hält jetzt eine prozessübergreifende
+  PostgreSQL-Advisory-Lock um diese gemeinsame Arbeit, sodass Apps, die auf
+  dieselbe Datenbank zeigen, parallel migrieren können — erhöhen Sie
+  `--workspace-concurrency` über `1`, damit sich Prozessstart und private
+  Tabellenmigrationen jeder App überlappen und nur bei den gemeinsam
+  genutzten Framework-Migrationen serialisiert wird.
+</Callout>
+
 ### Neue App-Migrationen mit Drizzle Kit erzeugen {#drizzle-migrations}
 
 Verwenden Sie für neue Schemaänderungen der App `pnpm db:generate`, um

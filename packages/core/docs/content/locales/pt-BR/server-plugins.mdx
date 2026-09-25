@@ -154,6 +154,14 @@ O Nitro inicia os plugins em ordem alfabética de nome de arquivo. A ordem dos a
   migrate:production` para isso.
 </Callout>
 
+<Callout tone="info">
+  Apps que compartilham um banco de dados podem executar `migrate:production`
+  simultaneamente (por exemplo, com `--workspace-concurrency` acima de `1`):
+  um advisory lock do PostgreSQL entre processos serializa as migrações de
+  framework compartilhadas. Veja [Banco de
+  dados](/docs/server-database#migrations) para mais detalhes.
+</Callout>
+
 Se você adicionar plugins personalizados, prefixe seus nomes de arquivo para controlar onde eles ficam na sequência.
 
 ## O que vem a seguir {#whats-next}

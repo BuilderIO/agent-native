@@ -153,6 +153,14 @@ Nitro startet Plugins in alphabetischer Dateinamenreihenfolge. Die Dateireihenfo
   Chat-Template stellt dafür `pnpm migrate:production` bereit.
 </Callout>
 
+<Callout tone="info">
+  Apps, die sich eine Datenbank teilen, können `migrate:production` parallel
+  ausführen (z. B. mit `--workspace-concurrency` über `1`): eine
+  prozessübergreifende PostgreSQL-Advisory-Lock serialisiert die gemeinsamen
+  Framework-Migrationen. Details siehe
+  [Datenbank](/docs/server-database#migrations).
+</Callout>
+
 Wenn Sie eigene Plugins hinzufügen, versehen Sie deren Dateinamen mit einem Präfix, um zu steuern, wo sie in der Abfolge einsortiert werden.
 
 ## Was kommt als nächstes? {#whats-next}

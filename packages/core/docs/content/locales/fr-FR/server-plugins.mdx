@@ -154,6 +154,15 @@ Nitro démarre les plugins dans l'ordre alphabétique des noms de fichiers. L'or
   template Chat fournit `pnpm migrate:production` pour cela.
 </Callout>
 
+<Callout tone="info">
+  Les apps qui partagent une même base de données peuvent exécuter
+  `migrate:production` simultanément (par exemple avec
+  `--workspace-concurrency` supérieur à `1`) : un verrou consultatif
+  PostgreSQL inter-processus sérialise les migrations de framework partagées.
+  Voir [Base de données](/docs/server-database#migrations) pour plus de
+  détails.
+</Callout>
+
 Si vous ajoutez des plugins personnalisés, préfixez leurs noms de fichiers pour contrôler leur place dans la séquence.
 
 ## Quelle est la prochaine étape {#whats-next}

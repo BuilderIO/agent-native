@@ -17,7 +17,8 @@ import {
   CHAT_THREAD_SCHEMA_MIGRATIONS,
   CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
 } from "../chat-threads/schema-migrations.js";
-import { getDatabaseUrl } from "../db/client.js";
+import { getDatabaseUrl, getMigrationDatabaseUrl } from "../db/client.js";
+import { withMigrationAdvisoryLock } from "../db/migration-lock.js";
 import { runMigrations } from "../db/migrations.js";
 import {
   REMOTE_DEVICE_MIGRATIONS,
@@ -95,51 +96,61 @@ export async function runFrameworkReleaseMigrations(
   nitroApp: unknown,
 ): Promise<void> {
   assertReleaseMigrationTargetsRemoteDatabase();
-  // First: the versioned migration lists below only cover the tables that have
-  // one. Most framework tables are defined by their store's `ensureTable()`,
-  // which production serverless can never run — see `./release-schema.ts`.
-  await runFrameworkSchemaEnsures();
-  // Immediately after: the `settings` table this writes to now exists, and
-  // this must fail the release the same way a schema-ensure failure does —
-  // a deploy that silently never recorded which app owns this database is
-  // the exact incident this exists to catch, not something to shrug off and
-  // keep migrating on.
-  await recordDatabaseIdentity();
-  await runBetterAuthMigrations(nitroApp);
-  await runMigrations(AGENT_TOOL_APPROVAL_MIGRATIONS, {
-    table: AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(OAUTH_TOKEN_MIGRATIONS, {
-    table: OAUTH_TOKEN_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(CHAT_THREAD_SCHEMA_MIGRATIONS, {
-    table: CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(AGENT_RUN_MIGRATIONS, {
-    table: AGENT_RUN_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(AGENT_HARNESS_SESSION_MIGRATIONS, {
-    table: AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(USAGE_ALERT_MIGRATIONS, {
-    table: USAGE_ALERT_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })(nitroApp);
-  await runMigrations(REMOTE_DEVICE_MIGRATIONS, {
-    table: REMOTE_DEVICE_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runMigrations(IDENTITY_SSO_MIGRATIONS, {
-    table: "_identity_sso_migrations",
-  })(nitroApp);
-  await runMigrations(CONTEXT_XRAY_MIGRATIONS, {
-    table: "_context_xray_migrations",
-  })(nitroApp);
-  await runMigrations(OBSERVATIONAL_MEMORY_MIGRATIONS, {
-    table: "_observational_memory_migrations",
-  })(nitroApp);
-  await runMigrations(WORKSPACE_CONNECTIONS_MIGRATIONS, {
-    table: WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
-  })(nitroApp);
-  await runAutomationRunMigrations(nitroApp);
-  await runAutomationSchedulerHealthMigrations(nitroApp);
+  // Every app in a workspace runs this same function against the same
+  // database, applying the same framework migrations. A workspace that
+  // parallelizes `migrate:production` across apps (e.g.
+  // `--workspace-concurrency=<n>`) needs those runs to serialize on the
+  // shared tables below without serializing the whole release job — this
+  // holds the cross-process advisory lock for exactly that span, so each
+  // app's own process startup (and any app migrations its script runs after
+  // this call) still overlaps.
+  await withMigrationAdvisoryLock(getMigrationDatabaseUrl(), async () => {
+    // First: the versioned migration lists below only cover the tables that have
+    // one. Most framework tables are defined by their store's `ensureTable()`,
+    // which production serverless can never run — see `./release-schema.ts`.
+    await runFrameworkSchemaEnsures();
+    // Immediately after: the `settings` table this writes to now exists, and
+    // this must fail the release the same way a schema-ensure failure does —
+    // a deploy that silently never recorded which app owns this database is
+    // the exact incident this exists to catch, not something to shrug off and
+    // keep migrating on.
+    await recordDatabaseIdentity();
+    await runBetterAuthMigrations(nitroApp);
+    await runMigrations(AGENT_TOOL_APPROVAL_MIGRATIONS, {
+      table: AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(OAUTH_TOKEN_MIGRATIONS, {
+      table: OAUTH_TOKEN_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(CHAT_THREAD_SCHEMA_MIGRATIONS, {
+      table: CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(AGENT_RUN_MIGRATIONS, {
+      table: AGENT_RUN_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(AGENT_HARNESS_SESSION_MIGRATIONS, {
+      table: AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(USAGE_ALERT_MIGRATIONS, {
+      table: USAGE_ALERT_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })(nitroApp);
+    await runMigrations(REMOTE_DEVICE_MIGRATIONS, {
+      table: REMOTE_DEVICE_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runMigrations(IDENTITY_SSO_MIGRATIONS, {
+      table: "_identity_sso_migrations",
+    })(nitroApp);
+    await runMigrations(CONTEXT_XRAY_MIGRATIONS, {
+      table: "_context_xray_migrations",
+    })(nitroApp);
+    await runMigrations(OBSERVATIONAL_MEMORY_MIGRATIONS, {
+      table: "_observational_memory_migrations",
+    })(nitroApp);
+    await runMigrations(WORKSPACE_CONNECTIONS_MIGRATIONS, {
+      table: WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+    })(nitroApp);
+    await runAutomationRunMigrations(nitroApp);
+    await runAutomationSchedulerHealthMigrations(nitroApp);
+  });
 }

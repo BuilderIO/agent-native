@@ -259,6 +259,18 @@ export const getDb = createGetDb(schema);
   migrate:production`을 제공합니다.
 </Callout>
 
+<Callout tone="info">
+  하나의 데이터베이스를 공유하는 앱들은 이전에는 `migrate:production`을 한
+  번에 하나씩만 실행해야 했습니다(예: `pnpm -r --workspace-concurrency=1
+  --filter './apps/*' migrate:production`). 모든 앱이 동일한 공유 프레임워크
+  마이그레이션을 같은 데이터베이스에 적용하기 때문입니다. 이제
+  `runFrameworkReleaseMigrations`는 이 공유 작업 동안 프로세스 간 PostgreSQL
+  어드바이저리 락을 유지하므로, 같은 데이터베이스를 가리키는 앱들이 동시에
+  마이그레이션할 수 있습니다 — `--workspace-concurrency`를 `1`보다 크게
+  설정하면 각 앱의 프로세스 시작과 전용 테이블 마이그레이션이 겹치고,
+  공유하는 프레임워크 마이그레이션에서만 직렬화됩니다.
+</Callout>
+
 ### Drizzle Kit으로 새 앱 마이그레이션 생성하기 {#drizzle-migrations}
 
 새 앱 스키마 변경에는 `pnpm db:generate`를 사용해 검토 가능한 SQL을
