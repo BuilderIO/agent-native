@@ -189,6 +189,37 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
+  it("classifies aborts without a normalized cause as unknown", async () => {
+    mockReadBody.mockResolvedValue({});
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "failed",
+          failureCode: "unknown",
+          failureReason: "unknown",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps user cancellation distinct from upload failure", async () => {
+    mockReadBody.mockResolvedValue({
+      reason: "user_cancelled",
+      failureCode: "user_cancelled",
+    });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ failureCode: "user_cancelled" }),
+      ]),
+    );
+  });
+
   it("does not let an older client abort durable media verification", async () => {
     mockSelectRows.rows = [
       {

@@ -112,6 +112,7 @@ export function useDropVideoUpload(scope: {
             titleSource: "upload",
             hasCamera: false,
             hasAudio: true,
+            recordingPlatform: "web",
             width: meta.width,
             height: meta.height,
             spaceIds: spaceId ? [spaceId] : undefined,
@@ -294,7 +295,10 @@ export function useDropVideoUpload(scope: {
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reason: message }),
+            body: JSON.stringify({
+              reason: message,
+              failureCode: "upload_failed",
+            }),
           }).catch((abortError) => {
             console.warn("[clips] dropped-upload cleanup failed", abortError);
           });

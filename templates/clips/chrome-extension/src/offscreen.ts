@@ -1011,7 +1011,7 @@ async function abortServerUpload(
       method: "POST",
       headers,
       credentials: "include",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, failureCode: "upload_failed" }),
       signal: controller?.signal,
     });
     if (!response.ok) {

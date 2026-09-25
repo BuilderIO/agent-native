@@ -18,6 +18,7 @@ import { eq } from "drizzle-orm";
 import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
+import { trackRecordingFailure } from "../server/lib/recording-failures.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -74,6 +75,7 @@ export default defineAction({
       title,
       titleSource,
       sourceAppName: args.sourceAppName?.trim() || null,
+      recordingPlatform: args.recordingPlatform ?? "unknown",
       sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
       status: "uploading",
       uploadProgress: 0,
@@ -117,8 +119,18 @@ export default defineAction({
       const failedAt = new Date().toISOString();
       await db
         .update(schema.recordings)
-        .set({ status: "failed", failureReason: reason, updatedAt: failedAt })
+        .set({
+          status: "failed",
+          failureCode: "storage_setup_required",
+          failureReason: reason,
+          updatedAt: failedAt,
+        })
         .where(eq(schema.recordings.id, id));
+      trackRecordingFailure({
+        recordingId: id,
+        platform: args.recordingPlatform,
+        failureCode: "storage_setup_required",
+      });
       await writeAppState(`recording-upload-${id}`, {
         recordingId: id,
         status: "failed",

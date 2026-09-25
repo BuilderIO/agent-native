@@ -51,6 +51,17 @@ describe("create-recording schema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("normalizes the recorder platform", () => {
+    const parsed = createRecordingSchema.parse({
+      recordingPlatform: " Desktop ",
+    });
+
+    expect(parsed.recordingPlatform).toBe("desktop");
+    expect(
+      createRecordingSchema.safeParse({ recordingPlatform: "mobile" }).success,
+    ).toBe(false);
+  });
+
   it("keeps streaming opt-in optional for buffered-default recorder clients", () => {
     const parsed = createRecordingSchema.safeParse({
       hasCamera: true,

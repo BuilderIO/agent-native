@@ -879,7 +879,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         recording_attempt_id: "rec-1",
         upload_mode: "buffered",
       }),
-      { userId: "owner@example.com" },
     );
   });
 
@@ -914,7 +913,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         recording_attempt_id: "rec-1",
         upload_mode: "buffered",
       }),
-      { userId: "owner@example.com" },
     );
   });
 
@@ -1017,6 +1015,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockUpdateSets).toEqual([
       expect.objectContaining({
         status: "failed",
+        failureCode: "recording_too_large",
         failureReason: RECORDING_TOO_LARGE_REASON,
       }),
     ]);

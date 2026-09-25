@@ -38,6 +38,7 @@ import {
 } from "../server/lib/media-verification-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
+import { trackRecordingFailure } from "../server/lib/recording-failures.js";
 import {
   listRecordingChunkKeys,
   validateRecordingChunkKeys,
@@ -313,6 +314,7 @@ async function failStoredButUnservableRecording(params: {
     .update(schema.recordings)
     .set({
       status: "failed",
+      failureCode: "media_verification_failed",
       failureReason,
       updatedAt: now,
     })
@@ -326,32 +328,33 @@ async function failStoredButUnservableRecording(params: {
     .returning({
       id: schema.recordings.id,
       uploadAttemptId: schema.recordings.uploadAttemptId,
+      recordingPlatform: schema.recordings.recordingPlatform,
     });
   if (failed.length !== 1) return false;
   try {
-    track(
-      "clips_upload_blocking_failure",
-      {
-        app: "clips",
-        template: "clips",
-        surface: "media_verification",
-        stage: "media_verification",
-        outcome: "failed",
-        failure_type: "media_verification",
-        failure_code: "media_verification_failed",
-        output_id: id,
-        output_type: "clip",
-        recording_id: id,
-        recording_attempt_id: id,
-        ...(failed[0]?.uploadAttemptId
-          ? { upload_attempt_id: failed[0].uploadAttemptId }
-          : {}),
-      },
-      { userId: ownerEmail },
-    );
+    track("clips_upload_blocking_failure", {
+      app: "clips",
+      template: "clips",
+      surface: "media_verification",
+      stage: "media_verification",
+      outcome: "failed",
+      failure_type: "media_verification",
+      failure_code: "media_verification_failed",
+      recording_attempt_id: id,
+      ...(failed[0]?.uploadAttemptId
+        ? { upload_attempt_id: failed[0].uploadAttemptId }
+        : {}),
+      recording_platform: failed[0]?.recordingPlatform ?? "unknown",
+    });
   } catch {
     // coercion-ok: analytics is best-effort and must not change media recovery behavior.
   }
+  trackRecordingFailure({
+    recordingId: id,
+    uploadAttemptId: failed[0]?.uploadAttemptId,
+    platform: failed[0]?.recordingPlatform,
+    failureCode: "media_verification_failed",
+  });
   const uploadStateRaw = await readAppState(`recording-upload-${id}`).catch(
     () => null,
   );
@@ -459,6 +462,7 @@ async function persistPendingMediaVerification(params: {
       hasAudio: media.finalHasAudio,
       hasCamera: media.finalHasCamera,
       failureReason: null,
+      failureCode: null,
       uploadProgress: 100,
       updatedAt: now,
     })
@@ -672,6 +676,7 @@ async function markRecordingReady(params: {
       hasAudio: finalHasAudio,
       hasCamera: finalHasCamera,
       failureReason: null,
+      failureCode: null,
       uploadProgress: 100,
       updatedAt: now,
     })
@@ -1288,6 +1293,7 @@ export default defineAction({
             .set({
               status: "processing",
               failureReason: null,
+              failureCode: null,
               updatedAt: recoveryStartedAt,
             })
             .where(
@@ -1303,6 +1309,7 @@ export default defineAction({
             recordingId: id,
             status: "processing",
             failureReason: null,
+            failureCode: null,
             updatedAt: recoveryStartedAt,
           });
         }
@@ -1313,6 +1320,7 @@ export default defineAction({
             .set({
               status: "processing",
               failureReason: null,
+              failureCode: null,
               uploadProgress: 100,
               updatedAt: processingStartedAt,
             })
@@ -1497,15 +1505,26 @@ export default defineAction({
         failureReason: string,
       ): Promise<never> => {
         const now = new Date().toISOString();
-        await db
+        const [failedRecording] = await db
           .update(schema.recordings)
           .set({
             status: "failed",
+            failureCode: "chunk_assembly_failed",
             failureReason,
             mediaUpdatedAt: now,
             updatedAt: now,
           })
-          .where(eq(schema.recordings.id, id));
+          .where(eq(schema.recordings.id, id))
+          .returning({
+            uploadAttemptId: schema.recordings.uploadAttemptId,
+            recordingPlatform: schema.recordings.recordingPlatform,
+          });
+        trackRecordingFailure({
+          recordingId: id,
+          uploadAttemptId: failedRecording?.uploadAttemptId,
+          platform: failedRecording?.recordingPlatform,
+          failureCode: "chunk_assembly_failed",
+        });
         await writeAppState(`recording-upload-${id}`, {
           ...(uploadState ?? {}),
           recordingId: id,
@@ -1812,10 +1831,11 @@ export default defineAction({
       if (upload === null) {
         const now = new Date().toISOString();
         if (requiresConfiguredVideoStorage()) {
-          await db
+          const [failedRecording] = await db
             .update(schema.recordings)
             .set({
               status: "failed",
+              failureCode: "storage_setup_required",
               failureReason: STORAGE_SETUP_REQUIRED_REASON,
               durationMs: finalDurationMs,
               width: finalWidth,
@@ -1826,7 +1846,17 @@ export default defineAction({
               mediaUpdatedAt: now,
               updatedAt: now,
             })
-            .where(eq(schema.recordings.id, id));
+            .where(eq(schema.recordings.id, id))
+            .returning({
+              uploadAttemptId: schema.recordings.uploadAttemptId,
+              recordingPlatform: schema.recordings.recordingPlatform,
+            });
+          trackRecordingFailure({
+            recordingId: id,
+            uploadAttemptId: failedRecording?.uploadAttemptId,
+            platform: failedRecording?.recordingPlatform,
+            failureCode: "storage_setup_required",
+          });
 
           await writeAppState(`recording-upload-${id}`, {
             recordingId: id,

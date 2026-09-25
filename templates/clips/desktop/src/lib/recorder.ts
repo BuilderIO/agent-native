@@ -1744,6 +1744,7 @@ export async function createPrivateAgentRewindRecording(
       title: `Rewind · ${new Date(startedAt).toLocaleString()}`,
       titleSource: "context",
       sourceAppName: "Clips Rewind",
+      recordingPlatform: "desktop",
       sourceWindowTitle: null,
     },
     {
@@ -2033,6 +2034,7 @@ async function abortRecordingUpload(
   serverUrl: string,
   recordingId: string,
   reason: string,
+  failureCode = "upload_failed",
 ): Promise<void> {
   try {
     await fetch(
@@ -2041,7 +2043,7 @@ async function abortRecordingUpload(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ reason, failureCode }),
       },
     );
   } catch (err) {
@@ -2132,6 +2134,7 @@ async function cleanupCancelledRemoteRecording(
     serverUrl,
     recordingId,
     "Recording cancelled by user",
+    "user_cancelled",
   );
   await trashRecording(serverUrl, recordingId);
 }
@@ -2684,6 +2687,7 @@ function abortCreatedRecordingOnCountdownCancel(
         serverUrl,
         recording.id,
         "Recording cancelled during countdown",
+        "user_cancelled",
       ),
     )
     .catch(() => {});

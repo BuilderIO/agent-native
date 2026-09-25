@@ -333,6 +333,7 @@ export async function handleResetRecordingChunks(
       .set({
         status: "uploading",
         failureReason: null,
+        failureCode: null,
         uploadProgress: 0,
         uploadGenerationId: nextGenerationId,
         ...(!recoveryEnabled && existingAttemptId === null

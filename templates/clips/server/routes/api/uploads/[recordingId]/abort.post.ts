@@ -23,6 +23,10 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
+import {
+  normalizeRecordingFailureCode,
+  trackRecordingFailure,
+} from "../../../../lib/recording-failures.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -57,13 +61,15 @@ export async function handleAbortRecordingUpload(
       }));
   const body = (await readBody(event).catch(() => null)) as {
     reason?: unknown;
+    failureCode?: unknown;
     attemptId?: unknown;
     uploadGenerationId?: unknown;
   } | null;
+  const failureCode = normalizeRecordingFailureCode(body?.failureCode);
   const failureReason =
     typeof body?.reason === "string" && body.reason.trim()
       ? body.reason.trim().slice(0, 1000)
-      : "Upload aborted by user";
+      : failureCode;
   const requestedAttemptId =
     typeof body?.attemptId === "string" &&
     body.attemptId.length > 0 &&
@@ -187,6 +193,7 @@ export async function handleAbortRecordingUpload(
       .update(schema.recordings)
       .set({
         status: "failed",
+        failureCode,
         failureReason,
         updatedAt: now,
       })
@@ -208,6 +215,8 @@ export async function handleAbortRecordingUpload(
       .returning({
         id: schema.recordings.id,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        recordingPlatform: schema.recordings.recordingPlatform,
       });
 
     if (aborted.length !== 1) {
@@ -230,6 +239,12 @@ export async function handleAbortRecordingUpload(
       };
     }
 
+    trackRecordingFailure({
+      recordingId,
+      uploadAttemptId: aborted[0]?.uploadAttemptId,
+      platform: aborted[0]?.recordingPlatform,
+      failureCode,
+    });
     const abortedGenerationId =
       typeof aborted[0]?.uploadGenerationId === "string"
         ? aborted[0].uploadGenerationId

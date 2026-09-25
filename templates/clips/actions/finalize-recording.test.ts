@@ -124,6 +124,7 @@ vi.mock("../server/db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       status: "recordings.status",
       uploadAttemptId: "recordings.uploadAttemptId",
+      recordingPlatform: "recordings.recordingPlatform",
       uploadGenerationId: "recordings.uploadGenerationId",
       videoUrl: "recordings.videoUrl",
       trashedAt: "recordings.trashedAt",
@@ -809,11 +810,18 @@ describe("finalize-recording media serve verification", () => {
       expect.objectContaining({
         stage: "media_verification",
         failure_code: "media_verification_failed",
-        output_id: "rec_1",
         recording_attempt_id: "rec_1",
         upload_attempt_id: "attempt-1",
       }),
-      { userId: "owner@example.com" },
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.objectContaining({
+        recording_attempt_id: "rec_1",
+        upload_attempt_id: "attempt-1",
+        recording_platform: "unknown",
+        failure_code: "media_verification_failed",
+      }),
     );
   });
 

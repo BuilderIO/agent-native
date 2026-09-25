@@ -1319,7 +1319,7 @@ export default function RecordRoute() {
         // transient activation is still live.
         const { previewStream: ps, cameraStream: cs } = await engine.acquire();
         if (isStale()) {
-          await engine.cancel().catch(() => {});
+          await engine.cancel("unknown").catch(() => {});
           return;
         }
         const captureTitle = buildCaptureTitle({
@@ -1352,7 +1352,7 @@ export default function RecordRoute() {
             } catch {
               // The recording is already stale; cleanup failure cannot change the outcome.
             }
-            await engine.cancel().catch(() => {});
+            await engine.cancel("storage_setup_required").catch(() => {});
             return;
           }
           markStorageConfigured(status);
@@ -1369,6 +1369,7 @@ export default function RecordRoute() {
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
         const recordingPayload = {
+          recordingPlatform: "web" as const,
           title: reportTitle ?? captureTitle.title,
           titleSource: reportTitle ? "context" : captureTitle.titleSource,
           sourceAppName: captureTitle.sourceAppName,
@@ -1432,6 +1433,10 @@ export default function RecordRoute() {
             fetch(`${appBasePath()}${info.abortUrl}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                reason: "user_cancelled",
+                failureCode: "user_cancelled",
+              }),
             }).catch(() => {});
           } else {
             fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
@@ -1440,7 +1445,7 @@ export default function RecordRoute() {
               body: JSON.stringify({ id: info.id }),
             }).catch(() => {});
           }
-          await engine.cancel().catch(() => {});
+          await engine.cancel("unknown").catch(() => {});
           return;
         }
         const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl!}`;
@@ -1484,6 +1489,10 @@ export default function RecordRoute() {
             fetch(orphan.abortUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                reason: "upload_failed",
+                failureCode: "upload_failed",
+              }),
             }).catch(() => {});
           } else {
             fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
@@ -1495,7 +1504,7 @@ export default function RecordRoute() {
         }
         // Release any tracks the engine grabbed before failing.
         try {
-          await engineRef.current?.cancel();
+          await engineRef.current?.cancel("upload_failed");
         } catch {
           // ignore
         }
@@ -1666,6 +1675,7 @@ export default function RecordRoute() {
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
         const recordingPayload = {
+          recordingPlatform: "web" as const,
           title:
             reportTitle ??
             (file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle()),
@@ -1991,7 +2001,10 @@ export default function RecordRoute() {
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ reason: message }),
+              body: JSON.stringify({
+                reason: message,
+                failureCode: "upload_failed",
+              }),
             },
           ).catch(() => {});
         }
@@ -2368,6 +2381,7 @@ export default function RecordRoute() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             reason: message,
+            failureCode: "upload_failed",
             ...engine.getUploadAbortFence(),
           }),
         }).catch(() => {});
@@ -2418,6 +2432,7 @@ export default function RecordRoute() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             reason: message,
+            failureCode: "upload_failed",
             ...engine.getUploadAbortFence(),
           }),
         }).catch(() => {});
@@ -2497,6 +2512,10 @@ export default function RecordRoute() {
         fetch(pendingAbortUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reason: "user_cancelled",
+            failureCode: "user_cancelled",
+          }),
         }).catch(() => {});
       } else {
         fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
@@ -2516,6 +2535,10 @@ export default function RecordRoute() {
         fetch(uploadAbortUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reason: "user_cancelled",
+            failureCode: "user_cancelled",
+          }),
         }).catch(() => {});
       } else {
         fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
@@ -2851,7 +2874,7 @@ export default function RecordRoute() {
       pendingRef.current = null;
       setCameraStream(null);
       setPreviewStream(null);
-      void engine?.cancel();
+      void engine?.cancel("unknown");
     };
     const warnBeforeDiscard = (event: BeforeUnloadEvent) => {
       if (!engineRef.current?.hasRecordingAtRisk()) return;

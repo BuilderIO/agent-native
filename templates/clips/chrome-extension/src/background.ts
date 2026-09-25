@@ -1657,6 +1657,7 @@ async function armRecording(args: {
       title: tab.title || "Untitled recording",
       titleSource: tab.title ? "context" : "default",
       sourceAppName: "Chrome",
+      recordingPlatform: "extension",
       sourceWindowTitle: tab.title ?? null,
       hasCamera: cameraInvolved,
       hasAudio: settings.includeMicrophone,

@@ -1250,6 +1250,16 @@ export const migrations = runMigrations(
       name: "recording-browser-diagnostics-interaction-events",
       sql: `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS interaction_events_json TEXT NOT NULL DEFAULT '[]'`,
     },
+    {
+      // guard:allow-unscoped — one-time system migration backfills legacy failure rows.
+      version: 74,
+      name: "recording-failure-codes-platform",
+      sql: `
+        ALTER TABLE recordings ADD COLUMN IF NOT EXISTS failure_code TEXT;
+        ALTER TABLE recordings ADD COLUMN IF NOT EXISTS recording_platform TEXT;
+        UPDATE recordings SET failure_code = 'legacy_unknown', recording_platform = COALESCE(recording_platform, 'unknown') WHERE status = 'failed' AND failure_code IS NULL
+      `,
+    },
   ],
   { table: "clips_migrations" },
 );
