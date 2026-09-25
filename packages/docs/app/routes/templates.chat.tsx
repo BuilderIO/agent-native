@@ -141,7 +141,7 @@ export default function ChatTemplate() {
               style={{ gap: "4px" }}
               onClick={(event: MouseEvent<HTMLAnchorElement>) => {
                 applyFirstTouchAttributionToLink(event.currentTarget);
-                trackEvent("open hosted demo", {
+                trackEvent("open_hosted_demo", {
                   template: template.slug,
                   location: "landing_page_hero",
                 });

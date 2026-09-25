@@ -287,7 +287,7 @@ function DispatchTask({
   icon: ReactNode;
   title: string;
   app: string;
-  description: string;
+  description?: string;
   state: string;
   tone: "done" | "working" | "queued";
 }) {
@@ -303,7 +303,13 @@ function DispatchTask({
       <span className="dispatch-task-copy">
         <b>{title}</b>
         <small>
-          {app} <i>·</i> {description}
+          {app}
+          {description ? (
+            <>
+              {" "}
+              <i>·</i> {description}
+            </>
+          ) : null}
         </small>
       </span>
       <span className={"dispatch-task-state is-" + tone}>

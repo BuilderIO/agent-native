@@ -508,7 +508,7 @@ function ContentAgent({
   children,
 }: {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -517,7 +517,7 @@ function ContentAgent({
         <span>AI</span>
         <div>
           <b>{title}</b>
-          <small>{subtitle}</small>
+          {subtitle ? <small>{subtitle}</small> : null}
         </div>
         <i>···</i>
       </div>
