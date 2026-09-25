@@ -1555,7 +1555,7 @@ function SharedSnapshotPoller({
   fileId: string;
   knownPublishedRevision: string | null;
   active: boolean;
-  onSnapshot: (snapshot: VisualEditSharedSnapshot) => void;
+  onSnapshot: (snapshot: VisualEditSharedSnapshot | null) => void;
 }) {
   const { data, refetch } = useActionQuery<{
     designId: string;
@@ -1581,19 +1581,24 @@ function SharedSnapshotPoller({
 
   useEffect(() => {
     if (
-      data?.publishedRevision &&
-      !data.unchanged &&
-      data.designId === designId &&
-      data.fileId === fileId
+      !data ||
+      data.unchanged ||
+      data.designId !== designId ||
+      data.fileId !== fileId
     ) {
-      onSnapshot({
-        designId,
-        fileId,
-        html: data.html,
-        updatedAt: data.updatedAt,
-        publishedRevision: data.publishedRevision,
-      });
+      return;
     }
+    if (!data.publishedRevision) {
+      onSnapshot(null);
+      return;
+    }
+    onSnapshot({
+      designId,
+      fileId,
+      html: data.html,
+      updatedAt: data.updatedAt,
+      publishedRevision: data.publishedRevision,
+    });
   }, [data, designId, fileId, onSnapshot]);
 
   return null;
@@ -2446,7 +2451,8 @@ export function DesignCanvas({
       ? cachedSharedSnapshot
       : null;
   const handleSharedSnapshot = useCallback(
-    (snapshot: VisualEditSharedSnapshot) => setCachedSharedSnapshot(snapshot),
+    (snapshot: VisualEditSharedSnapshot | null) =>
+      setCachedSharedSnapshot(snapshot),
     [],
   );
   // The screen's own URL wins: it carries the route path and may address the

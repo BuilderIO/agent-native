@@ -187,7 +187,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(container.innerHTML).not.toContain("localhost:5173");
   });
 
-  it("clears a cached snapshot when a newer published revision is empty", async () => {
+  it("clears a cached snapshot when collaboration is disabled", async () => {
     let data: {
       designId: string;
       fileId: string;
@@ -233,7 +233,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       ...data,
       html: null,
       updatedAt: null,
-      publishedRevision: "5",
+      publishedRevision: null,
     };
     await act(async () => root.render(renderSnapshotCanvas()));
 

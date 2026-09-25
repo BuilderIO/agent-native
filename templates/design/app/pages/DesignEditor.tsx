@@ -759,6 +759,7 @@ import {
   createVisualEditSnapshotPublicationState,
   runClearVisualEditSnapshotPublications,
   runInvalidateVisualEditSnapshotPublication,
+  runReserveVisualEditSnapshotInOrder,
   runScheduleVisualEditSnapshotPublication,
   type VisualEditSnapshotPublicationState,
 } from "./design-editor/commands/publish-visual-edit-snapshot";
@@ -4282,6 +4283,8 @@ function DesignEditor() {
             visualEditSnapshotPublicationState,
           );
         }
+        await refetchDesign().catch(() => undefined);
+        setLiveCollaborationOverride(null);
       } catch (error) {
         toast.error(
           actionErrorMessage(error) ??
@@ -4296,6 +4299,7 @@ function DesignEditor() {
       id,
       isSignedIn,
       liveCollaborationSaving,
+      refetchDesign,
       t,
       visualEditSnapshotPublicationState,
     ],
@@ -5788,12 +5792,18 @@ function DesignEditor() {
       if (!id || !fileId) {
         return Promise.reject(new Error("Missing visual edit snapshot target"));
       }
-      return callAction<{ reservationToken: string }>(
-        "reserve-visual-edit-snapshot",
-        { designId: id, fileId },
+      return runReserveVisualEditSnapshotInOrder(
+        visualEditSnapshotPublicationState,
+        id,
+        fileId,
+        () =>
+          callAction<{ reservationToken: string }>(
+            "reserve-visual-edit-snapshot",
+            { designId: id, fileId },
+          ),
       );
     },
-    [id],
+    [id, visualEditSnapshotPublicationState],
   );
   const scheduleVisualEditSnapshotPublication = useCallback(
     (screenId: string, html: string, reservationToken?: string) => {

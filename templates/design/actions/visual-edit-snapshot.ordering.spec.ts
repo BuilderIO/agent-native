@@ -11,6 +11,7 @@ const localDb = vi.hoisted(() => ({
   putPrivateBlob: vi.fn(),
   deletePrivateBlob: vi.fn(),
   assertAccess: vi.fn(),
+  getRequestUserEmail: vi.fn(),
   getDb: vi.fn(),
   sourceMutationCalls: [] as string[],
 }));
@@ -27,6 +28,10 @@ vi.mock("@agent-native/core/private-blob", () => ({
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: localDb.assertAccess,
+  currentAccess: () => ({}),
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: localDb.getRequestUserEmail,
 }));
 vi.mock("../server/source-workspace.js", () => ({
   designSourceMutationLockKey: (designId: string) =>
@@ -63,6 +68,10 @@ vi.mock("../server/db/index.js", async () => {
     visibility: pgCore.text("visibility").notNull(),
     ownerEmail: pgCore.text("owner_email").notNull(),
     orgId: pgCore.text("org_id"),
+    liveCollaborationEnabled: pgCore
+      .boolean("live_collaboration_enabled")
+      .notNull()
+      .default(false),
   });
   const designFiles = pgCore.pgTable("design_files", {
     id: pgCore.text("id").primaryKey(),
@@ -109,7 +118,8 @@ vi.mock("../server/db/index.js", async () => {
       updated_at TEXT,
       visibility TEXT NOT NULL,
       owner_email TEXT NOT NULL,
-      org_id TEXT
+      org_id TEXT,
+      live_collaboration_enabled BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE TABLE design_files (
       id TEXT PRIMARY KEY,
@@ -160,6 +170,7 @@ const design = {
   ownerEmail: "owner@example.test",
   orgId: null,
   visibility: "private",
+  liveCollaborationEnabled: true,
   data: JSON.stringify({
     sourceType: "localhost",
     screenMetadata: {
@@ -178,13 +189,15 @@ function context() {
 beforeEach(async () => {
   localDb.assertAccess.mockReset();
   localDb.assertAccess.mockResolvedValue({ role: "owner", resource: design });
+  localDb.getRequestUserEmail.mockReset();
+  localDb.getRequestUserEmail.mockReturnValue("owner@example.test");
   localDb.putPrivateBlob.mockReset();
   localDb.deletePrivateBlob.mockReset();
   localDb.deletePrivateBlob.mockResolvedValue({ deleted: true });
   localDb.sourceMutationCalls.length = 0;
   await localDb.pglite?.query("DELETE FROM designs");
   await localDb.pglite?.query(
-    "INSERT INTO designs (id, data, updated_at, visibility, owner_email, org_id) VALUES ($1, $2, $3, $4, $5, $6)",
+    "INSERT INTO designs (id, data, updated_at, visibility, owner_email, org_id, live_collaboration_enabled) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     [
       "design-one",
       design.data,
@@ -192,6 +205,7 @@ beforeEach(async () => {
       "private",
       "owner@example.test",
       null,
+      true,
     ],
   );
   await localDb.pglite?.query("DELETE FROM design_visual_edit_snapshots");

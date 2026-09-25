@@ -4,11 +4,47 @@ import {
   createVisualEditSnapshotPublicationState,
   runClearVisualEditSnapshotPublications,
   runInvalidateVisualEditSnapshotPublication,
+  runReserveVisualEditSnapshotInOrder,
   runScheduleVisualEditSnapshotPublication,
 } from "./publish-visual-edit-snapshot";
 
 describe("visual edit snapshot publication", () => {
   afterEach(() => vi.useRealTimers());
+
+  it("reserves captures in arrival order even when requests overlap", async () => {
+    const state = createVisualEditSnapshotPublicationState();
+    let releaseFirst!: () => void;
+    const firstRequest = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const calls: string[] = [];
+
+    const first = runReserveVisualEditSnapshotInOrder(
+      state,
+      "design-1",
+      "screen-1",
+      async () => {
+        calls.push("first");
+        await firstRequest;
+        return "1";
+      },
+    );
+    const second = runReserveVisualEditSnapshotInOrder(
+      state,
+      "design-1",
+      "screen-1",
+      async () => {
+        calls.push("second");
+        return "2";
+      },
+    );
+
+    await Promise.resolve();
+    expect(calls).toEqual(["first"]);
+    releaseFirst();
+    await expect(Promise.all([first, second])).resolves.toEqual(["1", "2"]);
+    expect(calls).toEqual(["first", "second"]);
+  });
 
   it("debounces changes and publishes only the latest HTML with a reservation", async () => {
     vi.useFakeTimers();

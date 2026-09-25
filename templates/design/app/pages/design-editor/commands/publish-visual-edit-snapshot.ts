@@ -7,6 +7,7 @@ export interface VisualEditSnapshotPublicationState {
   latestReservationTokens: Map<string, string>;
   published: Map<string, string>;
   generations: Map<string, number>;
+  reservations: Map<string, Promise<void>>;
   queue: Promise<void>;
 }
 
@@ -18,8 +19,31 @@ export function createVisualEditSnapshotPublicationState(): VisualEditSnapshotPu
     latestReservationTokens: new Map(),
     published: new Map(),
     generations: new Map(),
+    reservations: new Map(),
     queue: Promise.resolve(),
   };
+}
+
+export function runReserveVisualEditSnapshotInOrder<T>(
+  state: VisualEditSnapshotPublicationState,
+  designId: string,
+  fileId: string,
+  reserve: () => Promise<T>,
+): Promise<T> {
+  const key = `${designId}:${fileId}`;
+  const previous = state.reservations.get(key) ?? Promise.resolve();
+  const request = previous.then(reserve);
+  const queue = request.then(
+    () => undefined,
+    () => undefined,
+  );
+  state.reservations.set(key, queue);
+  void queue.then(() => {
+    if (state.reservations.get(key) === queue) {
+      state.reservations.delete(key);
+    }
+  });
+  return request;
 }
 
 export interface ScheduleVisualEditSnapshotPublicationArgs {
