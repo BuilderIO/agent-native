@@ -691,7 +691,9 @@ export function InboxPage() {
     inboxThreads.data?.syncing === true &&
     inboxItems.length === 0;
   const isLoading = isInboxView
-    ? inboxThreads.isLoading || inboxStillSyncingEmpty
+    ? inboxThreads.isLoading ||
+      inboxThreads.isPlaceholderData ||
+      inboxStillSyncingEmpty
     : emailsIsLoading;
   const isFetching = isInboxView ? inboxThreads.isFetching : emailsIsFetching;
   const isError = isInboxView ? inboxThreads.isError : emailsIsError;

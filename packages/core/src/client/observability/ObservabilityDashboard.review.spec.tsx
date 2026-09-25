@@ -5,12 +5,17 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockOutputReviews, mockSubmitFeedback, mockSaveInstructionUpdate } =
-  vi.hoisted(() => ({
-    mockOutputReviews: vi.fn(),
-    mockSubmitFeedback: vi.fn(),
-    mockSaveInstructionUpdate: vi.fn(),
-  }));
+const {
+  mockOutputReviews,
+  mockOutputReviewDetail,
+  mockSubmitFeedback,
+  mockSaveInstructionUpdate,
+} = vi.hoisted(() => ({
+  mockOutputReviews: vi.fn(),
+  mockOutputReviewDetail: vi.fn(),
+  mockSubmitFeedback: vi.fn(),
+  mockSaveInstructionUpdate: vi.fn(),
+}));
 
 vi.mock("./useObservability.js", () => ({
   useObservabilityOverview: () => ({
@@ -34,24 +39,8 @@ vi.mock("./useObservability.js", () => ({
   useExperimentDetail: vi.fn(),
   useExperimentResults: vi.fn(),
   useOutputReviews: () => mockOutputReviews(),
-  useOutputReviewApp: (runId: string | null) => ({
-    data:
-      runId === "run-2"
-        ? {
-            serverId: "slides",
-            toolName: "render",
-            originalToolName: "render",
-            resourceUri: "ui://slides/render",
-            toolInput: {},
-            toolResult: {},
-            resource: {
-              uri: "ui://slides/render",
-              mimeType: "text/html;profile=mcp-app",
-              text: "<html><body>Saved slide preview</body></html>",
-            },
-          }
-        : undefined,
-  }),
+  useOutputReviewDetail: (runId: string | null) =>
+    mockOutputReviewDetail(runId),
   useSaveInstructionUpdate: () => ({
     mutate: mockSaveInstructionUpdate,
     isPending: false,
@@ -62,14 +51,17 @@ vi.mock("./useObservability.js", () => ({
 import { AgentNativeI18nProvider } from "../i18n.js";
 import { ObservabilityDashboard } from "./ObservabilityDashboard.js";
 
-function reviewDialog(ask?: string) {
-  const dialogs = Array.from(
-    document.body.querySelectorAll<HTMLElement>('[role="dialog"]'),
-  ).filter((dialog) => dialog.querySelector("h2"));
-  return dialogs.find((dialog) => !ask || dialog.textContent?.includes(ask));
+function reviewDetail(runId: string) {
+  return document.body.querySelector<HTMLElement>(
+    `[data-review-detail-for="${runId}"]:not([hidden])`,
+  );
 }
 
-function closeReviewButton(dialog: HTMLElement) {
+function lightboxDialog() {
+  return document.body.querySelector<HTMLElement>("[data-review-lightbox]");
+}
+
+function closeLightboxButton(dialog: HTMLElement) {
   return Array.from(dialog.querySelectorAll<HTMLButtonElement>("button")).find(
     (button) => button.textContent?.trim() === "Close",
   );
@@ -113,6 +105,8 @@ describe("ObservabilityDashboard human review", () => {
           threadId: "thread-1",
           ask: "Design a compact analytics view",
           answer: "Sessions grew 18% this week.",
+          hasInlineApp: true,
+          inlineAppTitle: "Analytics preview",
           model: "test-model",
           createdAt: Date.now(),
           feedback: [
@@ -145,6 +139,33 @@ describe("ObservabilityDashboard human review", () => {
         },
       ],
     });
+    mockOutputReviewDetail.mockImplementation((runId: string | null) => ({
+      isLoading: false,
+      isError: false,
+      data:
+        runId === "run-1"
+          ? {
+              app: {
+                serverId: "analytics",
+                toolName: "render",
+                originalToolName: "render",
+                resourceUri: "ui://analytics/render",
+                toolInput: {},
+                toolResult: {},
+                resource: {
+                  uri: "ui://analytics/render",
+                  mimeType: "text/html;profile=mcp-app",
+                  text: "<html><body>Saved analytics preview</body></html>",
+                },
+              },
+              messages: [
+                { role: "user", text: "Design a compact analytics view" },
+                { role: "assistant", text: "Sessions grew 18% this week." },
+                { role: "user", text: "Keep the chart inline." },
+              ],
+            }
+          : { app: null, messages: [] },
+    }));
     mockSubmitFeedback.mockImplementation((_input, callbacks) =>
       callbacks?.onSuccess?.(),
     );
@@ -161,7 +182,7 @@ describe("ObservabilityDashboard human review", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows compact review thumbnails, then full output and thumbs feedback on demand", async () => {
+  it("expands one inline row with its preview, transcript, thread link, and actions", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -179,10 +200,13 @@ describe("ObservabilityDashboard human review", () => {
     await act(async () => reviewTab?.click());
 
     expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(2);
-    expect(container.querySelector("iframe")).toBeNull();
     expect(
-      container.querySelector('[data-preview-kind="text"]'),
+      container.querySelector('[data-preview-kind="app-thumbnail"]'),
     ).not.toBeNull();
+    expect(
+      container.querySelector("[data-review-detail-for]:not([hidden])"),
+    ).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     const reviewRow = container.querySelector<HTMLButtonElement>(
       '[data-review-run-id="run-1"]',
     );
@@ -191,31 +215,74 @@ describe("ObservabilityDashboard human review", () => {
 
     await act(async () => reviewRow?.click());
 
-    const dialog = await vi.waitFor(() => {
-      const current = reviewDialog("Design a compact analytics view");
+    const detail = await vi.waitFor(() => {
+      const current = reviewDetail("run-1");
       expect(current).toBeTruthy();
       return current!;
     });
-    expect(dialog?.textContent).toContain("Design a compact analytics view");
-    expect(dialog?.textContent).toContain("Sessions grew 18% this week.");
-    expect(dialog?.textContent).toContain("Keep the chart inline.");
+    expect(reviewRow?.getAttribute("aria-expanded")).toBe("true");
+    await vi.waitFor(async () => {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(
+        detail.querySelector("[data-review-preview] iframe"),
+      ).not.toBeNull();
+    });
     expect(
-      dialog
+      detail.querySelector("[data-review-transcript]")?.textContent,
+    ).toContain("Keep the chart inline.");
+    const threadLink = detail.querySelector<HTMLAnchorElement>("a[href]");
+    expect(threadLink?.textContent).toContain("Open task thread");
+    const threadUrl = new URL(threadLink!.href);
+    expect(threadUrl.searchParams.get("thread")).toBe("thread-1");
+    expect(threadUrl.searchParams.get("agentSidebar")).toBe("open");
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    expect(
+      detail
         .querySelector('[aria-label="Thumbs down"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
     expect(
-      dialog
+      detail
         .querySelector('[aria-label="Thumbs up"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("false");
     await act(async () =>
-      dialog?.querySelector('[aria-label="Thumbs up"]')?.click(),
+      detail.querySelector('[aria-label="Thumbs up"]')?.click(),
     );
     expect(mockSubmitFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ runId: "run-1", feedbackType: "thumbs_up" }),
       expect.any(Object),
     );
+
+    await act(async () =>
+      detail
+        .querySelector<HTMLButtonElement>("[data-review-lightbox-trigger]")
+        ?.click(),
+    );
+    const lightbox = await vi.waitFor(() => {
+      const current = lightboxDialog();
+      expect(current).toBeTruthy();
+      return current!;
+    });
+    expect(lightbox.querySelector('[aria-label="Thumbs up"]')).toBeNull();
+    await act(async () => closeLightboxButton(lightbox)?.click());
+    await vi.waitFor(() => expect(lightboxDialog()).toBeNull());
+    expect(reviewDetail("run-1")).not.toBeNull();
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-2"]')
+        ?.click(),
+    );
+    expect(reviewDetail("run-1")).toBeNull();
+    expect(reviewDetail("run-2")).not.toBeNull();
+    expect(
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-2"]')
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true");
   });
 
   it("keeps notes scoped to their review and allows instruction drafts without a thread", async () => {
@@ -239,13 +306,13 @@ describe("ObservabilityDashboard human review", () => {
         ?.click(),
     );
 
-    let dialog = await vi.waitFor(() => {
-      const current = reviewDialog("Design a compact analytics view");
+    let detail = await vi.waitFor(() => {
+      const current = reviewDetail("run-1");
       expect(current).toBeTruthy();
       return current!;
     });
     await act(async () =>
-      dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
+      detail.querySelector('[aria-label="Add feedback"]')?.click(),
     );
     const feedbackInput = await vi.waitFor(() => {
       const input = popoverTextarea("What should change or stay the same?");
@@ -263,22 +330,19 @@ describe("ObservabilityDashboard human review", () => {
       feedbackInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    await act(async () => dialog && closeReviewButton(dialog)?.click());
-    await vi.waitFor(() => expect(reviewDialog()).toBeUndefined());
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[data-review-run-id="run-2"]')
         ?.click(),
     );
 
-    dialog = await vi.waitFor(() => {
-      const current = reviewDialog("Make a slide from the campaign results");
+    detail = await vi.waitFor(() => {
+      const current = reviewDetail("run-2");
       expect(current).toBeTruthy();
       return current!;
     });
-    expect(dialog?.querySelector("iframe")).not.toBeNull();
     await act(async () =>
-      dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
+      detail.querySelector('[aria-label="Add feedback"]')?.click(),
     );
     const secondFeedbackInput = await vi.waitFor(() => {
       const input = popoverTextarea("What should change or stay the same?");
@@ -286,21 +350,31 @@ describe("ObservabilityDashboard human review", () => {
       return input!;
     });
     expect(secondFeedbackInput?.value).toBe("");
-    await act(async () => dialog && closeReviewButton(dialog)?.click());
-    await vi.waitFor(() => expect(reviewDialog()).toBeUndefined());
     await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('[data-review-run-id="run-2"]')
-        ?.click(),
+      detail.querySelector('[aria-label="Add feedback"]')?.click(),
     );
-    dialog = await vi.waitFor(() => {
-      const current = reviewDialog("Make a slide from the campaign results");
+    await vi.waitFor(() =>
+      expect(
+        popoverTextarea("What should change or stay the same?"),
+      ).toBeUndefined(),
+    );
+
+    const secondRow = container.querySelector<HTMLButtonElement>(
+      '[data-review-run-id="run-2"]',
+    );
+    await act(async () => secondRow?.click());
+    await vi.waitFor(() => expect(reviewDetail("run-2")).toBeNull());
+    await act(async () => secondRow?.click());
+    detail = await vi.waitFor(() => {
+      const current = reviewDetail("run-2");
       expect(current).toBeTruthy();
       return current!;
     });
-    const draftButton = dialog?.querySelector<HTMLButtonElement>(
+
+    const draftButton = detail.querySelector<HTMLButtonElement>(
       '[aria-label="Draft instruction"]',
     );
+    expect(draftButton).toBeTruthy();
     await act(async () => draftButton?.click());
     const instructionInput = await vi.waitFor(() => {
       const input = popoverTextarea(
@@ -356,22 +430,12 @@ describe("ObservabilityDashboard human review", () => {
     await act(async () => reviewTab?.click());
 
     const openRun = async (runId: string) => {
-      const dialog = reviewDialog();
-      const closeButton = dialog && closeReviewButton(dialog);
-      if (closeButton) {
-        await act(async () => closeButton.click());
-        await vi.waitFor(() => expect(reviewDialog()).toBeUndefined());
-      }
       await act(async () => {
         container
           .querySelector<HTMLButtonElement>(`[data-review-run-id="${runId}"]`)
           ?.click();
       });
-      const ask =
-        runId === "run-1"
-          ? "Design a compact analytics view"
-          : "Make a slide from the campaign results";
-      await vi.waitFor(() => expect(reviewDialog(ask)).toBeTruthy());
+      await vi.waitFor(() => expect(reviewDetail(runId)).toBeTruthy());
     };
     const setText = async (input: HTMLTextAreaElement, value: string) => {
       await act(async () => {
@@ -390,7 +454,7 @@ describe("ObservabilityDashboard human review", () => {
         ?.click(),
     );
     await act(async () =>
-      reviewDialog("Design a compact analytics view")
+      reviewDetail("run-1")
         ?.querySelector<HTMLButtonElement>('[aria-label="Add feedback"]')
         ?.click(),
     );
@@ -401,7 +465,7 @@ describe("ObservabilityDashboard human review", () => {
 
     await openRun("run-2");
     await act(async () =>
-      reviewDialog("Make a slide from the campaign results")
+      reviewDetail("run-2")
         ?.querySelector<HTMLButtonElement>('[aria-label="Add feedback"]')
         ?.click(),
     );
@@ -415,7 +479,7 @@ describe("ObservabilityDashboard human review", () => {
 
     await openRun("run-1");
     await act(async () =>
-      reviewDialog("Design a compact analytics view")
+      reviewDetail("run-1")
         ?.querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
         ?.click(),
     );
@@ -428,7 +492,7 @@ describe("ObservabilityDashboard human review", () => {
 
     await openRun("run-2");
     await act(async () =>
-      reviewDialog("Make a slide from the campaign results")
+      reviewDetail("run-2")
         ?.querySelector<HTMLButtonElement>('[aria-label="Draft instruction"]')
         ?.click(),
     );

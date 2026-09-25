@@ -105,6 +105,14 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain('{ enabled: view === "inbox" },');
   });
 
+  it("shows the row skeleton while the selected inbox tab loads", () => {
+    const source = inboxSource();
+
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "const isLoading = isInboxView ? inboxThreads.isLoading || inboxThreads.isPlaceholderData || inboxStillSyncingEmpty : emailsIsLoading;",
+    );
+  });
+
   it("navigates the inbox tab bar when an agent command sets `tab`", () => {
     const source = inboxSource();
 

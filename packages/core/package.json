@@ -187,6 +187,7 @@
     "./client/observability": "./dist/client/observability/index.js",
     "./observability/actions/list-observability-reviews": "./dist/observability/actions/list-observability-reviews.js",
     "./observability/actions/get-observability-review-app": "./dist/observability/actions/get-observability-review-app.js",
+    "./observability/actions/get-observability-review-detail": "./dist/observability/actions/get-observability-review-detail.js",
     "./observability/actions/save-observability-instruction-update": "./dist/observability/actions/save-observability-instruction-update.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
