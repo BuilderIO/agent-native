@@ -164,28 +164,25 @@ out one `update-slide` per slide: that is the batching the agent instructions
 rule out, and because the calls issue in parallel, a mistake in the first one
 repeats across all of them before any rejection comes back.
 
-1. Read the reference slide with `get-deck` (`slideId`, `compact=false`) and
-   take the background declaration off its `.fmd-slide` wrapper — not off a
-   child. `deckStyle` summarizes the whole deck, including interior gradients,
-   so it is not a substitute for the wrapper's own value.
-2. Read the target slides for their exact current declarations, as late as
-   possible before the write.
-3. Send one `patch-deck` call carrying every affected slide, then verify with
-   `get-deck` using `compact=true`.
+1. Read the reference and targets together: use one `get-deck` call with
+   `slideIds` and `compact=false` when their IDs are known, or one full-deck
+   `compact=false` read when they are not. Take the reference background from
+   its `.fmd-slide` wrapper — not a child. `deckStyle` summarizes the whole
+   deck, including interior gradients, so it is not a substitute for the
+   wrapper's own value. Keep each returned `contentHash` with its exact HTML.
+2. Send one `patch-deck` call carrying every affected slide and its matching
+   `baseContentHash`, then verify once with `get-deck` using the same `slideIds`
+   and `compact=false`.
 
-Reserve `styleOnly` `update-slide` for one slide, or a handful of named slides.
-Two protections only exist on that path, so know what the deck-wide route gives
-up:
+Set `styleOnly: true` on each CSS-only content operation. `patch-deck` enforces
+that text, markup, element order, and protected layout CSS stay unchanged, and
+rejects stale per-slide hashes before writing. For content or structural edits,
+omit `styleOnly` and include the complete intended slide HTML. Use
+`update-slide` for a focused single-slide edit or when a person is actively
+editing and the smaller scoped mutation matters.
 
-- `patch-deck` patches `fields.content` wholesale and gets no style-only
-  invariant, so keep the rest of each slide's HTML byte-identical yourself.
-- `patch-deck` takes no per-slide `baseContentHash`. It serializes on the deck
-  lock and rejects a write when the deck row moved under it, but it cannot tell
-  that a human edited slide 4 between your read and your patch. Read
-  immediately before patching, and verify after.
-
-When a person is actively editing the deck, prefer per-slide `styleOnly`
-`update-slide` with `baseContentHash` and accept the extra round trips.
+When a person is actively editing the deck or making a focused change, use
+`update-slide` with `baseContentHash` to keep the write scoped to that slide.
 
 Either way, change only the `.fmd-slide` wrapper's background. Interior card
 fills, image backgrounds, and gradients are separate visual elements; leave them

@@ -147,6 +147,69 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[1].content).toBe("<p>Two</p>"); // unchanged
   });
 
+  it("rejects a stale per-slide hash without mutating the slide", () => {
+    const source = "<p>Current</p>";
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(
+        deck,
+        {
+          op: "patch-slide",
+          slideId: "s1",
+          fields: { content: "<p>Overwrite</p>" },
+          baseContentHash: "stale-hash",
+        },
+        { sourceContentHashes: new Map([["s1", hashSlideContent(source)]]) },
+      ),
+    ).toThrow(/changed since it was read/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it("accepts CSS-only edits through styleOnly and preserves markup", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content:
+            '<div class="fmd-slide" style="background:#000;padding:80px"><p>Keep this</p></div>',
+        },
+      ],
+    };
+    const nextContent =
+      '<div class="fmd-slide" style="background:#fff;padding:80px"><p>Keep this</p></div>';
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: nextContent },
+      baseContentHash: hashSlideContent(deck.slides[0].content),
+      styleOnly: true,
+    });
+
+    expect(deck.slides[0].content).toBe(nextContent);
+  });
+
+  it("rejects styleOnly edits that change protected layout CSS", () => {
+    const source =
+      '<div class="fmd-slide" style="background:#000;padding:80px"><p>Keep this</p></div>';
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide" style="background:#fff;padding:40px"><p>Keep this</p></div>',
+        },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
   it("ignores the op when the slide has been concurrently deleted", () => {
     const deck = { slides: [{ id: "s2", content: "<p>Two</p>" }] };
     const op: Operation = {
@@ -1016,6 +1079,10 @@ describe("patch-deck agent schema", () => {
     expect(slidePatch.properties.fields.properties.content).toMatchObject({
       type: "string",
     });
+    expect(slidePatch.properties.baseContentHash).toMatchObject({
+      type: "string",
+    });
+    expect(slidePatch.properties.styleOnly).toMatchObject({ type: "boolean" });
     expect(slideDelete.properties.slideId).toMatchObject({ type: "string" });
     expect(slideDelete.properties.allowEmpty).toMatchObject({
       type: "boolean",
@@ -1030,6 +1097,26 @@ describe("patch-deck agent schema", () => {
     expect(parameters.properties.requireAllSourceSlides).toMatchObject({
       type: "boolean",
     });
+  });
+
+  it("requires a content hash and content-only fields for styleOnly patches", () => {
+    const base = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { content: "<div style='color:red'>Slide</div>" },
+      styleOnly: true,
+    };
+    expect(OperationSchema.safeParse(base).success).toBe(false);
+    expect(
+      OperationSchema.safeParse({ ...base, baseContentHash: "abc123" }).success,
+    ).toBe(true);
+    expect(
+      OperationSchema.safeParse({
+        ...base,
+        baseContentHash: "abc123",
+        fields: { ...base.fields, notes: "notes" },
+      }).success,
+    ).toBe(false);
   });
 
   // An untyped `animations` array sends callers probing a live deck to learn
@@ -1264,6 +1351,95 @@ describe("run() — asynchronous layout fit metadata", () => {
       expect(lastUpdatedDeckData).toBeUndefined();
     },
   );
+
+  it("requires a source hash for every slide in an agent content batch", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>Updated one</div>" },
+            },
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Updated two</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining("requires the contentHash read"),
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects a stale single-slide hash before writing", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>Overwritten</div>" },
+              baseContentHash: "stale-hash",
+            },
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining("changed since it was read"),
+      statusCode: 409,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("keeps reveal metadata when patch-deck applies a styleOnly batch", async () => {
+    const source =
+      '<div class="fmd-slide" style="background:#000;padding:80px"><p>One</p></div>';
+    const nextContent =
+      '<div class="fmd-slide" style="background:#fff;padding:80px"><p>One</p></div>';
+    const animations = [
+      { id: "reveal-1", elementIndex: 0, elementPath: [0], type: "fade" },
+    ];
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: source, animations }],
+    });
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: nextContent },
+            baseContentHash: hashSlideContent(source),
+            styleOnly: true,
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0]).toMatchObject({
+      content: nextContent,
+      animations,
+    });
+  });
 
   it("returns pending hashes for every content-changed slide", async () => {
     const result = (await patchDeckAction.run(
@@ -1821,6 +1997,7 @@ describe("run() — partial no-op deck restyle", () => {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>One restyled</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           // Byte-identical to what is already persisted: a no-op the agent
           // still believes it "beautified".
@@ -1828,11 +2005,13 @@ describe("run() — partial no-op deck restyle", () => {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-3",
             fields: { content: "<div>Three</div>" },
+            baseContentHash: hashSlideContent("<div>Three</div>"),
           },
         ],
       },
@@ -1882,11 +2061,13 @@ describe("run() — all-no-op deck restyle masked by animation clearing", () => 
               op: "patch-slide",
               slideId: "slide-1",
               fields: { content: "<div>One</div>" },
+              baseContentHash: hashSlideContent("<div>One</div>"),
             },
             {
               op: "patch-slide",
               slideId: "slide-2",
               fields: { content: "<div>Two</div>" },
+              baseContentHash: hashSlideContent("<div>Two</div>"),
             },
           ],
         },
@@ -1937,11 +2118,13 @@ describe("run() — no-op content patches leave the slide alone", () => {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
         ],
       },
@@ -2312,16 +2495,19 @@ describe("run() — a content round-trip is not an edit", () => {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>Interim</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
         ],
       },
@@ -2368,16 +2554,19 @@ describe("run() — derived state and lifecycle around net-zero edits", () => {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>Interim</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
         ],
       },
@@ -2410,11 +2599,13 @@ describe("run() — derived state and lifecycle around net-zero edits", () => {
               content: "<div>One</div>",
               layoutWarningDismissed: false,
             },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
         ],
       },

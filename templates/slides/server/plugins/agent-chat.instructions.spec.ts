@@ -25,10 +25,14 @@ describe("Slides content-edit agent guidance", () => {
 
   it("batches multi-slide edits and verifies once", () => {
     expect(agentChatSource).toContain(
-      "collect the needed source, send all changed slides in one call, and verify once after the batch",
+      "make one get-deck read with compact=false",
     );
-    expect(agentChatSource).toMatch(
-      /After a multi-slide\s+patch-deck write, verify the completed batch once with get-deck compact=true\./,
+    expect(agentChatSource).toContain(
+      "Send each matching contentHash as baseContentHash in the same patch-deck call",
+    );
+    expect(agentChatSource).toContain("Set styleOnly=true for CSS-only");
+    expect(agentChatSource).toContain(
+      "After the write, verify once with get-deck slideIds and compact=false",
     );
   });
 });
