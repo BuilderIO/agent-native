@@ -35,6 +35,47 @@ const LIST_STYLE: Record<SlideListKind, string> = {
 const ROW_TEXT_PROPERTY =
   /^(color|font(-.+)?|letter-spacing|word-spacing|line-height|text-(transform|shadow|decoration(-.+)?))$/;
 
+const HEADING_TAG = /^H[1-6]$/;
+
+/** What a heading's tag gives its text, which is lost with the tag. */
+const HEADING_TEXT_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-transform",
+] as const;
+
+export type TextLook = [property: string, value: string][];
+
+/**
+ * A heading's computed text look, or null for any other element. A heading
+ * holds only phrasing content, so a list made of one takes its place (or its
+ * line's) and has to carry the look its tag gave it.
+ */
+export function headingTextLook(element: Element): TextLook | null {
+  if (!HEADING_TAG.test(element.tagName)) return null;
+  const computed = element.ownerDocument.defaultView!.getComputedStyle(element);
+  return HEADING_TEXT_PROPERTIES.map((property) => [
+    property,
+    computed.getPropertyValue(property),
+  ]);
+}
+
+/** Restates each part of `look` that `target` (in the document) now differs from. */
+export function keepTextLook(target: HTMLElement, look: TextLook | null) {
+  if (!look) return;
+  const computed = target.ownerDocument.defaultView!.getComputedStyle(target);
+  for (const [property, value] of look) {
+    if (value && computed.getPropertyValue(property) !== value) {
+      target.style.setProperty(property, value);
+    }
+  }
+}
+
 function isListTag(element: Element): boolean {
   return element.tagName === "UL" || element.tagName === "OL";
 }
@@ -134,19 +175,30 @@ function blockChildren(source: HTMLElement): HTMLElement[] | null {
   return blocks.length > 0 ? blocks : null;
 }
 
+interface Line {
+  html: string;
+  /** The look of the heading the line was, which its item keeps. */
+  look: TextLook | null;
+}
+
 /**
  * The inner HTML of each line the object currently holds. A styled bullet row
  * contributes only its text, so converting agent-generated bullets to a real
  * list drops the now-duplicated marker instead of rendering two markers.
  */
-function readLines(source: HTMLElement): string[] {
+function readLines(source: HTMLElement): Line[] {
   const blocks = blockChildren(source);
-  if (blocks) return blocks.flatMap(lineHtml);
+  if (blocks) {
+    return blocks.flatMap((block) =>
+      lineHtml(block).map((html) => ({ html, look: headingTextLook(block) })),
+    );
+  }
 
   return source.innerHTML
     .split(/<br\s*\/?>/i)
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((html) => ({ html, look: null }));
 }
 
 /** One block's line, without the marker a styled bullet row draws. */
@@ -218,9 +270,21 @@ export function toggleSlideList(
     const lines = readLines(element);
     if (lines.length === 0) return null;
     // A <p> cannot hold a list: parsing the saved slide would close the
-    // paragraph before it and leave the list and its text unstyled.
-    const holder = element.tagName === "P" ? retag(element, "DIV") : element;
-    holder.replaceChildren(buildList(doc, kind, lines));
+    // paragraph before it and leave the list and its text unstyled. A
+    // heading may hold only phrasing content either.
+    const look = headingTextLook(element);
+    const holder =
+      element.tagName === "P" || look ? retag(element, "DIV") : element;
+    const list = buildList(
+      doc,
+      kind,
+      lines.map((line) => line.html),
+    );
+    holder.replaceChildren(list);
+    keepTextLook(holder, look);
+    Array.from(list.children).forEach((item, index) =>
+      keepTextLook(item as HTMLElement, lines[index].look),
+    );
     return holder;
   }
 

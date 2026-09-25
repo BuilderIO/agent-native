@@ -21,6 +21,8 @@ import {
 } from "./bullet-editing";
 import {
   createSlideList,
+  headingTextLook,
+  keepTextLook,
   type SlideListKind,
   toggleSlideList,
 } from "./list-editing";
@@ -1451,8 +1453,12 @@ export function startInPlaceTextSession(
     if (block === el && /^[-*] $/.test(typed)) {
       command(() => {
         const tag = el.tagName;
-        if (tag === "P") retagRoot("DIV");
-        if (convertMarkdownPrefixToBullet(el)) return true;
+        const look = headingTextLook(el);
+        if (tag === "P" || look) retagRoot("DIV");
+        if (convertMarkdownPrefixToBullet(el)) {
+          keepTextLook(el, look);
+          return true;
+        }
         if (el.tagName !== tag) retagRoot(tag);
         return false;
       });
@@ -1493,7 +1499,7 @@ export function startInPlaceTextSession(
     }
   }
 
-  /** Retags the edited element, keeping the caret: a <p> cannot hold a list row. */
+  /** Retags the edited element, keeping the caret: a <p> or heading cannot hold a list row. */
   function retagRoot(tagName: string) {
     const range = selectionRange();
     const caret = range

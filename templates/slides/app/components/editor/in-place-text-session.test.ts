@@ -1491,6 +1491,18 @@ describe("in-place text session: review round 3", () => {
     expect(el.innerHTML).toBe(`A${ZWSP}Bx`);
   });
 
+  it("turns '- ' at the start of a heading into a bullet row in a div", () => {
+    const el = mount('<h2 id="t" style="color: red;">Head</h2>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Head"), 0);
+    type(el, "- ");
+    session.end();
+    const next = document.getElementById("t")!;
+    expect(next.tagName).toBe("DIV");
+    expect(next.textContent).toContain("Head");
+    expect(document.querySelector("h2")).toBeNull();
+  });
+
   it("keeps an author zero-width space next to an autocorrected word", () => {
     const el = mount(`<p id="t">teh${ZWSP}end</p>`);
     session = startInPlaceTextSession(el);
