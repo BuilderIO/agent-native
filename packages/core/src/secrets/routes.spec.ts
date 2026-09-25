@@ -1307,7 +1307,7 @@ describe("secrets routes", () => {
 
       expect(result.map((row) => [row.name, row.managedBy?.route])).toEqual([
         ["BUILDER_PRIVATE_KEY", "integrations/builder"],
-        ["S3_BUCKET", "infrastructure"],
+        ["S3_BUCKET", "infra"],
         ["MY_WEBHOOK", undefined],
       ]);
       expect(result[2]).toMatchObject({ usedFor: [] });

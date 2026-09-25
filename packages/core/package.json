@@ -278,6 +278,8 @@
     "./secrets": "./dist/secrets/index.js",
     "./secrets/crypto": "./dist/secrets/crypto.js",
     "./secrets/actions/preview-secret-removal": "./dist/secrets/actions/preview-secret-removal.js",
+    "./secrets/actions/list-api-keys": "./dist/secrets/actions/list-api-keys.js",
+    "./secrets/actions/delete-api-key": "./dist/secrets/actions/delete-api-key.js",
     "./org": "./dist/org/index.js",
     "./org-team": "./dist/org-team/index.js",
     "./client/org": "./dist/client/org/index.js",

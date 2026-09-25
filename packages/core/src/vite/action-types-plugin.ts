@@ -85,6 +85,14 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/secrets/actions/preview-secret-removal",
   },
   {
+    name: "list-api-keys",
+    specifier: "@agent-native/core/secrets/actions/list-api-keys",
+  },
+  {
+    name: "delete-api-key",
+    specifier: "@agent-native/core/secrets/actions/delete-api-key",
+  },
+  {
     name: "check-provider-key",
     specifier: "@agent-native/core/agent/actions/check-provider-key",
   },

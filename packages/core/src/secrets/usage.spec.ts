@@ -357,7 +357,7 @@ describe("secret usage", () => {
     expect(preview.managedBy).toEqual({
       id: "storage",
       owner: "File uploads and storage",
-      route: "infrastructure",
+      route: "infra",
     });
     expect(preview.effects).toEqual([
       expect.objectContaining({ feature: "File uploads and storage" }),

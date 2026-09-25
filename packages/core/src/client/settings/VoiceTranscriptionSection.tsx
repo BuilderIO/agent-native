@@ -345,7 +345,9 @@ export function VoiceTranscriptionSection({
       null,
       "",
       appMountedPath(
-        buildSettingsRoute(`integrations:secrets:${key}`),
+        buildSettingsRoute("api-keys", undefined, {
+          anchor: `secrets:${key}`,
+        }),
         STANDARD_APP_ROUTES.settings,
       ),
     );

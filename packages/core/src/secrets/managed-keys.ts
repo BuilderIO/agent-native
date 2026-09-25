@@ -21,7 +21,7 @@ export const SECRET_MANAGERS = {
   storage: {
     id: "storage",
     owner: "File uploads and storage",
-    route: "infrastructure",
+    route: "infra",
   },
   channels: { id: "channels", owner: "Channels", route: "channels" },
   meetings: { id: "meetings", owner: "Meetings", route: "app/meetings" },
@@ -29,6 +29,11 @@ export const SECRET_MANAGERS = {
     id: "integrations",
     owner: "Integrations",
     route: "integrations",
+  },
+  automations: {
+    id: "automations",
+    owner: "Automations",
+    route: "automations",
   },
 } as const satisfies Record<string, SecretManagedBy>;
 
@@ -122,6 +127,16 @@ function managedKeyRules(): ManagedKeyRule[] {
           feature: "Meetings",
           effectWhenRemoved:
             "Upcoming meetings stop syncing from that calendar.",
+        },
+      ],
+    },
+    {
+      manager: SECRET_MANAGERS.automations,
+      matches: prefix("automation-webhook:"),
+      usedFor: [
+        {
+          feature: "Automations",
+          effectWhenRemoved: "The automation's webhook stops accepting calls.",
         },
       ],
     },

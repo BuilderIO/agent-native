@@ -182,7 +182,7 @@ function RemoveProviderContent({
 }
 
 /** Localized copy for the effects the preview derives; others are its own English. */
-function effectText(
+export function effectText(
   t: (key: string, options?: Record<string, unknown>) => string,
   effect: SecretRemovalEffect,
 ): string {

@@ -248,6 +248,28 @@ up."), not the mechanism.
 - Before deleting a key or removing a provider, call `preview-secret-removal`
   (or `GET /_agent-native/secrets/:key/usage`) and tell the user the effects.
 
+### Settings › API keys
+
+The page reads the `list-api-keys` action; the agent reads the same thing.
+
+- `keys`: every saved row the resolver can use for the caller. That is their
+  `user` row and pre-organization `solo:<email>` row, and for owners and
+  admins the organization's `org` and `workspace` rows. Each entry has
+  `scope` (`user` | `org`), `storedScope` (the row), a mask, `usedFor`,
+  `provider`, and `canReplace` / `canDelete` / `canTest`. Members never see
+  organization keys.
+- `managed`: keys with a `managedBy` owner, read-only, organization ones
+  included without masks. `addable`: registered keys nobody saved yet.
+- Delete with `delete-api-key { name, scope, storedScope }` after the preview
+  and the user's confirmation. It removes exactly that row, refuses managed
+  and Vault-synced keys, and fails with 404 when nothing was removed. A
+  provider key also takes its endpoint and older names at that row.
+- Values never go through an action. The page saves through
+  `saveApiKeyValue` (the secrets routes below). To add or replace a key, send
+  the user to the page (`open-settings-page`, page `api-keys`; a
+  `#secrets:KEY` anchor opens Add key with that name, or the provider dialog
+  when KEY is a model provider's key nobody saved).
+
 ## Reading a secret from an action
 
 ```ts

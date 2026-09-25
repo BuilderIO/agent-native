@@ -466,7 +466,7 @@ describe("SecretsSection", () => {
               managedBy: {
                 id: "storage",
                 owner: "File uploads and storage",
-                route: "infrastructure",
+                route: "infra",
               },
             },
             {

@@ -777,6 +777,8 @@ export async function mergeCoreSharingActions(
       "preview-secret-removal",
       () => import("../secrets/actions/preview-secret-removal.js"),
     ],
+    ["list-api-keys", () => import("../secrets/actions/list-api-keys.js")],
+    ["delete-api-key", () => import("../secrets/actions/delete-api-key.js")],
     [
       "check-provider-key",
       () => import("../agent/actions/check-provider-key.js"),

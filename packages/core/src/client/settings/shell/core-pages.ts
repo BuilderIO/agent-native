@@ -45,6 +45,40 @@ import {
 const label = (key: string) => `agentChat.settingsShell.page.${key}`;
 const modelRow = (key: string) => `agentChat.settingsModel.${key}`;
 
+// Provider key names are keywords so searching `OPENAI_API_KEY` finds the
+// page; anchors are its group ids.
+const API_KEYS_KEYWORDS = [
+  "api keys secret secrets credential credentials token tokens vault shared organization keys",
+  "environment variables github_token figma_access_token",
+  ...AGENT_PROVIDER_CATALOG.flatMap((option) =>
+    [option.key, option.endpointKey].filter(Boolean),
+  ),
+]
+  .join(" ")
+  .toLowerCase();
+
+const API_KEYS_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
+  {
+    id: "api-keys:add",
+    labelKey: "agentChat.settingsApiKeys.addKey",
+    keywords: "add new key secret token custom",
+    anchor: "your-keys",
+  },
+  {
+    id: "api-keys:yours",
+    labelKey: "agentChat.settingsApiKeys.yourKeys",
+    keywords: "personal keys secrets tokens",
+    anchor: "your-keys",
+  },
+  {
+    id: "api-keys:managed",
+    labelKey: "agentChat.settingsApiKeys.managedKeys",
+    keywords:
+      "managed integrations oauth system tokens builder storage calendar",
+    anchor: "managed-keys",
+  },
+];
+
 // Anchors are the Model page's row and group ids.
 const MODEL_PAGE_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
   {
@@ -263,7 +297,8 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: IconKey,
     component: lazy(() => import("./pages/api-keys.js")),
     legacyTabIds: ["keys", "secrets"],
-    keywords: "api keys secrets credentials tokens vault",
+    keywords: API_KEYS_KEYWORDS,
+    searchEntries: API_KEYS_SEARCH_ENTRIES,
   }),
   defineSettingsPage({
     id: "model",

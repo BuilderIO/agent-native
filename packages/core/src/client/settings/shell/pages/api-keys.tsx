@@ -1,8 +1,8 @@
-import { AgentSettingsContent } from "../../SettingsPanel.js";
+import ApiKeysSettingsPage from "../../api-keys/ApiKeysSettingsPage.js";
 import type { SettingsPageProps } from "../registry.js";
 
-export default function ApiKeysSettingsPage({ bridge }: SettingsPageProps) {
-  const tab = bridge.tab("keys", "secrets");
-  if (tab) return <>{tab.content}</>;
-  return <AgentSettingsContent sections={["secrets"]} />;
+// No bridge fallback: the `keys` tab templates pass comes from core's own
+// `useAgentSettingsTabs` and carries the legacy Secrets section this replaces.
+export default function ApiKeysPage(props: SettingsPageProps) {
+  return <ApiKeysSettingsPage {...props} />;
 }
