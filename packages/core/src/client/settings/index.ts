@@ -31,7 +31,11 @@ export {
   withBuilderConnectTrackingParams,
   type BuilderConnectFlow,
   type BuilderConnectFlowOptions,
+  type BuilderConnectionScope,
   type BuilderConnectStartOptions,
+  type BuilderEffectiveConnection,
+  type BuilderGrantStatus,
+  type BuilderGrantsStatus,
   type BuilderStatus,
   type OpenBuilderConnectPopupOptions,
 } from "./useBuilderStatus.js";

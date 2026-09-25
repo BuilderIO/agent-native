@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
 import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import {
+  isBuilderConnectComplete,
   useBuilderStatus,
   useBuilderConnectFlow,
   withBuilderConnectTrackingParams,
+  type BuilderConnectionScope,
 } from "./useBuilderStatus.js";
 
 vi.mock("../mcp-app-host.js", () => ({
@@ -48,11 +50,13 @@ function BuilderConnectProbe({
   popupUrl,
   provisionAccount = false,
   startProvisionAccount,
+  startScope,
 }: {
   enabled?: boolean;
   popupUrl?: string;
   provisionAccount?: boolean;
   startProvisionAccount?: boolean;
+  startScope?: BuilderConnectionScope;
 }) {
   const flow = useBuilderConnectFlow({
     enabled,
@@ -65,9 +69,11 @@ function BuilderConnectProbe({
         type="button"
         onClick={() =>
           flow.start(
-            startProvisionAccount === undefined
-              ? undefined
-              : { provisionAccount: startProvisionAccount },
+            startScope
+              ? { scope: startScope }
+              : startProvisionAccount === undefined
+                ? undefined
+                : { provisionAccount: startProvisionAccount },
           )
         }
       >
@@ -1407,6 +1413,69 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("Didn't hear back from Builder");
   });
 
+  it("waits for a member's own grant instead of the org connection they already ride", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const memberRidingOrg = {
+      ...connectedBuilderStatus,
+      credentialSource: "org",
+      grants: { org: { connectedAt: 1_000, needsReconnect: false } },
+      effective: "org",
+      canConnect: { org: false, personal: true },
+    };
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse(memberRidingOrg),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe startScope="personal" />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(new URL(popup.location.href).searchParams.get("scope")).toBe(
+      "personal",
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_500);
+    });
+    // Configured through the org grant, but the personal connect is still
+    // running until the member's own grant lands.
+    expect(container.textContent).toContain("configured connecting");
+
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        ...memberRidingOrg,
+        credentialSource: "user",
+        effective: "personal",
+        grants: {
+          ...memberRidingOrg.grants,
+          personal: {
+            connectedAt: 2_000,
+            needsReconnect: false,
+            restricted: false,
+          },
+        },
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_500);
+    });
+    expect(container.textContent).toContain("configured idle");
+  });
+
   it("keeps polling briefly after the popup closes in case status confirmation is slow", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
@@ -2329,5 +2398,83 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("No active connect flow found");
+  });
+});
+
+describe("isBuilderConnectComplete", () => {
+  const org = { connectedAt: 1_000, needsReconnect: false };
+
+  it("finishes an unscoped connect once anything is configured", () => {
+    expect(isBuilderConnectComplete({ configured: true }, null)).toBe(true);
+    expect(isBuilderConnectComplete({ configured: false }, null)).toBe(false);
+  });
+
+  it("finishes a scoped connect only when that grant is newly saved", () => {
+    const target = {
+      scope: "org" as const,
+      hadGrant: true,
+      connectedAtAtStart: 1_000,
+    };
+    expect(
+      isBuilderConnectComplete({ configured: true, grants: { org } }, target),
+    ).toBe(false);
+    expect(
+      isBuilderConnectComplete(
+        { configured: true, grants: { org: { ...org, connectedAt: 3_000 } } },
+        target,
+      ),
+    ).toBe(true);
+  });
+
+  it("finishes a first connect as soon as the grant exists and is usable", () => {
+    const target = {
+      scope: "personal" as const,
+      hadGrant: false,
+      connectedAtAtStart: null,
+    };
+    const personal = { ...org, restricted: false };
+    expect(
+      isBuilderConnectComplete({ configured: true, grants: { org } }, target),
+    ).toBe(false);
+    expect(
+      isBuilderConnectComplete(
+        {
+          configured: true,
+          grants: { personal: { ...personal, needsReconnect: true } },
+        },
+        target,
+      ),
+    ).toBe(false);
+    expect(
+      isBuilderConnectComplete(
+        { configured: true, grants: { personal } },
+        target,
+      ),
+    ).toBe(true);
+  });
+
+  it("finishes a scoped account activation once its personal key pair lands", () => {
+    const target = {
+      scope: "personal" as const,
+      hadGrant: false,
+      connectedAtAtStart: null,
+    };
+    expect(
+      isBuilderConnectComplete(
+        {
+          configured: true,
+          grants: {
+            org,
+            personal: {
+              connectedAt: 5_000,
+              needsReconnect: false,
+              restricted: false,
+              kind: "keys",
+            },
+          },
+        },
+        target,
+      ),
+    ).toBe(true);
   });
 });

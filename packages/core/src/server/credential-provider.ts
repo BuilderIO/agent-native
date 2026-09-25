@@ -1805,6 +1805,65 @@ export async function deleteBuilderCredentials(
   return target;
 }
 
+export interface BuilderKeyConnectionSummary {
+  /** When the stored private key was last written; null when unrecorded. */
+  connectedAt: number | null;
+  /** Stored but unusable: its public key is missing or Builder rejected it. */
+  needsReconnect: boolean;
+}
+
+export interface BuilderKeyConnections {
+  org?: BuilderKeyConnectionSummary;
+  personal?: BuilderKeyConnectionSummary;
+}
+
+async function summarizeBuilderKeyScope(
+  readAppSecrets: typeof import("../secrets/storage.js").readAppSecrets,
+  scope: "user" | "org",
+  scopeId: string,
+): Promise<BuilderKeyConnectionSummary | null> {
+  const secrets = await readAppSecrets({
+    keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+    scope,
+    scopeId,
+  });
+  const privateKey = secrets.get("BUILDER_PRIVATE_KEY");
+  if (!privateKey) return null;
+  const publicKey = secrets.get("BUILDER_PUBLIC_KEY");
+  const usable =
+    Boolean(publicKey) &&
+    !(await getBuilderCredentialAuthFailure({
+      privateKey: privateKey.value,
+      publicKey: publicKey?.value,
+    }));
+  return {
+    connectedAt: privateKey.updatedAt || null,
+    needsReconnect: !usable,
+  };
+}
+
+/**
+ * The Builder key pairs stored as the org's shared connection and as this
+ * user's personal one, each read on its own: unlike the resolvers, a personal
+ * pair never hides the org's. These are the rows `deleteBuilderCredentials`
+ * removes at each scope. Throws when the store cannot be read, so "no keys"
+ * and "could not look" stay different answers.
+ */
+export async function getBuilderKeyConnections(
+  email: string,
+  orgId: string | null,
+): Promise<BuilderKeyConnections> {
+  const { readAppSecrets } = await import("../secrets/storage.js");
+  const [personal, org] = await Promise.all([
+    summarizeBuilderKeyScope(readAppSecrets, "user", email),
+    orgId ? summarizeBuilderKeyScope(readAppSecrets, "org", orgId) : null,
+  ]);
+  const connections: BuilderKeyConnections = {};
+  if (org) connections.org = org;
+  if (personal) connections.personal = personal;
+  return connections;
+}
+
 // ---------------------------------------------------------------------------
 // Generic request-scoped secret resolution
 //

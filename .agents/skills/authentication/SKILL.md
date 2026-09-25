@@ -235,6 +235,13 @@ Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 
 Apps can connect to Builder via the `cli-auth` flow and persist shared browser credentials in `.env`. Agents then use the built-in `get-browser-connection` tool to provision a real browser session via AI Services.
 
+Signed-in users connect Builder.io through OAuth as one of two connections.
+Owners and admins connect the organization's connection, which every member
+uses. Members can add a personal connection that only they use, ahead of the
+organization's; owners and admins get none. Roles are enforced on the server
+at connect start, in the callback, and on disconnect. The `secrets` skill has
+the routes and status fields.
+
 ## Protecting Custom Routes
 
 Actions are auto-protected. Do not create custom `/api/` routes for normal

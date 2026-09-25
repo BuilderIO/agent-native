@@ -88,6 +88,7 @@ import {
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
   getBuilderCredentialAuthFailure,
+  getBuilderKeyConnections,
   gatewayLaneUnavailableMessage,
   getProviderCredentialAuthFailure,
   isBuilderGatewayDeployConfigured,
@@ -732,6 +733,74 @@ describe("deleteBuilderCredentials", () => {
       role: "member",
     });
     expect(target).toEqual({ scope: "user", scopeId: "member@b.com" });
+  });
+});
+
+describe("getBuilderKeyConnections", () => {
+  function storeKeys(
+    rows: Record<string, Record<string, { value: string; updatedAt: number }>>,
+  ) {
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: any) =>
+        rows[`${scope}:${scopeId}`]?.[key] ?? null,
+    );
+  }
+
+  it("reports the org's pair and the caller's own pair separately", async () => {
+    storeKeys({
+      "user:member@b.com": {
+        BUILDER_PRIVATE_KEY: { value: "bpk-personal", updatedAt: 2_000 },
+        BUILDER_PUBLIC_KEY: { value: "pub-personal", updatedAt: 2_000 },
+      },
+      "org:builder_io": {
+        BUILDER_PRIVATE_KEY: { value: "bpk-org", updatedAt: 1_000 },
+        BUILDER_PUBLIC_KEY: { value: "pub-org", updatedAt: 1_000 },
+      },
+    });
+
+    await expect(
+      getBuilderKeyConnections("member@b.com", "builder_io"),
+    ).resolves.toEqual({
+      org: { connectedAt: 1_000, needsReconnect: false },
+      personal: { connectedAt: 2_000, needsReconnect: false },
+    });
+  });
+
+  it("reads no org row without an org and reports nothing when none is stored", async () => {
+    await expect(getBuilderKeyConnections("solo@b.com", null)).resolves.toEqual(
+      {},
+    );
+    expect(mockReadAppSecrets.mock.calls.map(([args]) => args.scope)).toEqual([
+      "user",
+    ]);
+  });
+
+  it("marks a pair missing its public key, or rejected by Builder, as needing reconnect", async () => {
+    storeKeys({
+      "user:member@b.com": {
+        BUILDER_PRIVATE_KEY: { value: "bpk-personal", updatedAt: 2_000 },
+      },
+      "org:builder_io": {
+        BUILDER_PRIVATE_KEY: { value: "bpk-org", updatedAt: 1_000 },
+        BUILDER_PUBLIC_KEY: { value: "pub-org", updatedAt: 1_000 },
+      },
+    });
+    mockGetSetting.mockResolvedValue({ at: Date.now(), message: "rejected" });
+
+    await expect(
+      getBuilderKeyConnections("member@b.com", "builder_io"),
+    ).resolves.toEqual({
+      org: { connectedAt: 1_000, needsReconnect: true },
+      personal: { connectedAt: 2_000, needsReconnect: true },
+    });
+  });
+
+  it("throws when the store cannot be read instead of reporting no keys", async () => {
+    mockReadAppSecrets.mockRejectedValueOnce(new Error("store unavailable"));
+
+    await expect(
+      getBuilderKeyConnections("member@b.com", "builder_io"),
+    ).rejects.toThrow("store unavailable");
   });
 });
 

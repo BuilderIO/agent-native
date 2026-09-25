@@ -182,6 +182,32 @@ registerRequiredSecret({
 The sidebar shows a Connect button instead of a text input; no `app_secrets`
 row is written — status is derived from `hasOAuthTokens("google")`.
 
+### Builder.io: organization and personal connections
+
+Builder.io has two OAuth grants per caller, stored apart in
+`server/builder-oauth.ts`: the organization's (`org` scope, shared with every
+member) and a member's personal one (`user` scope, used only by that member,
+ahead of the org's). Name the one you mean; never let role pick it:
+
+- Connect with `/_agent-native/builder/connect?scope=org|personal`. `org` needs
+  owner/admin, checked at start and again in the callback, and fails rather
+  than landing as a personal grant. `personal` is for members only: owners and
+  admins connect for the organization (`canRoleConnectPersonalBuilder`).
+- Disconnect with `POST /_agent-native/builder/disconnect` and body
+  `{ "scope": "org" | "personal" }`. `org` needs owner/admin; `personal` removes
+  only the caller's grant, so they fall back to the org's.
+- `/_agent-native/connection-status/builder` returns `grants` (`{}` none,
+  `null` unreadable), `effective` (`personal` / `org` / `workspace` / `env` /
+  `null`), and `canConnect`. Each grant has `kind`: `oauth`, or `keys` for a
+  key pair saved by account activation or an older connect at that scope. Client code reads them from `useBuilderConnectFlow`
+  and passes `scope` to `flow.start` and `BuilderConnectionMenu`.
+- "Restrict personal API keys" answers in `isPersonalBuilderGrantAllowed`; a
+  restricted personal grant stays stored, is skipped for requests, and reports
+  `restricted: true`.
+
+A scopeless connect keeps the old rule (owner/admin writes the org grant,
+anyone else a personal one) for older clients only.
+
 ## Registered options
 
 | Field              | Type                                    | Purpose                                                                  |
