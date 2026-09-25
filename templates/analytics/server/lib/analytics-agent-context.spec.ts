@@ -385,6 +385,26 @@ describe("retrieveAnalyticsPromptReferences", () => {
 });
 
 describe("summarizeAnalyticsRun", () => {
+  it("excludes monitor and replay lookups from query outcomes", () => {
+    const events = [
+      "list-monitors",
+      "get-monitor-stats",
+      "list-session-recordings",
+      "get-session-replay-events",
+      "get-session-replay-summary",
+      "get-session-replay-timeline",
+    ].map((tool) => ({ event: { type: "tool_start", tool } }));
+
+    expect(
+      summarizeAnalyticsRun({ preloadedReferenceCount: 0, events }),
+    ).toEqual({
+      preloaded_reference_count: 0,
+      tool_search_calls: 0,
+      catalog_calls: 0,
+      query_calls: 0,
+    });
+  });
+
   it("counts started calls and reads the first query error from its completion event", () => {
     const properties = summarizeAnalyticsRun({
       preloadedReferenceCount: 2,
