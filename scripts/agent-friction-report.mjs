@@ -76,8 +76,8 @@ const SHIPPING_CHURN_RE =
 
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
-    String.raw`^(?!.*\b(?:didn['’]?t|did not|hasn['’]?t|has not|not|never)\b[^.!?\n]{0,100}\b(?:stop\w*|work\w*|continu\w*|ignore|bypass)\b)`,
-    String.raw`.*(?:\bleases?\b[^.!?\n]{0,160}\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*)\b|\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*|ignore|bypass)\b[^.!?\n]{0,160}\bleases?\b)`,
+    String.raw`^(?!.*\bleases?\b[^.!?\n]{0,80}\b(?:isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|doesn['’]?t|don['’]?t|didn['’]?t|hasn['’]?t|haven['’]?t|not|never)\s+(?:really\s+|actually\s+)?(?:block\w*|prevent\w*|stop\w*)\b[^.!?\n]{0,40}\b(?:work\w*|task)\b)`,
+    String.raw`.*(?:\bleases?\b[^.!?\n]{0,160}\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*|(?:didn['’]?t|did not)\s+continu\w+\s+work\w*)\b|\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*|ignore|bypass)\b[^.!?\n]{0,160}\bleases?\b)`,
   ].join(""),
   "i",
 );
@@ -614,6 +614,8 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [false, "The lease failure did not stop this task from working."],
   [false, "The lease is not blocking work."],
   [false, "A file lock prevented the build from running."],
+  [true, "The PR lease was not renewed, and work stopped."],
+  [true, "The lease failure meant the task did not continue working."],
 ];
 
 const STALE_PR_WATCHER_REGEX_CASES = [
