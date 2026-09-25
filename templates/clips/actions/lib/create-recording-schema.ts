@@ -91,8 +91,4 @@ export const createRecordingSchema = z.object({
     .describe(
       "Optional client implementation marker for diagnostics and compatibility decisions.",
     ),
-  recordingPlatform: z
-    .enum(["web", "desktop", "extension", "mobile", "import", "unknown"])
-    .optional()
-    .describe("Client platform creating the recording"),
 });

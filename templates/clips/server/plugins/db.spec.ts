@@ -167,6 +167,29 @@ describe("organization recording visibility default migration", () => {
   });
 });
 
+describe("recording failure code migration", () => {
+  it("preserves known legacy reasons and leaves ambiguous reasons unknown", () => {
+    expect(dbTsSource).toContain("failure_code = CASE");
+    expect(dbTsSource).toContain(
+      "WHEN failure_reason IN (\n              'Recording cancelled by user',\n              'Recording cancelled during countdown',\n              'Upload cancelled'\n            ) THEN 'user_cancelled'",
+    );
+    expect(dbTsSource).toContain(
+      "WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'",
+    );
+    expect(dbTsSource).toContain(
+      "WHEN failure_reason LIKE 'Video storage could not start an upload: S3 CreateMultipartUpload failed%' THEN 'multipart_start_failed'",
+    );
+    expect(dbTsSource).toContain(
+      "WHEN failure_reason LIKE 'Video storage is not connected yet%' THEN 'storage_setup_required'",
+    );
+    expect(dbTsSource).toContain(
+      "WHEN failure_reason LIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'",
+    );
+    expect(dbTsSource).toMatch(/ELSE 'unknown'[\s\S]*WHERE status = 'failed'/);
+    expect(dbTsSource).not.toContain("'Upload aborted by user'");
+  });
+});
+
 /**
  * Belt-and-braces guard for the same bug class: even with the regression
  * guard above, a future column could still ship without a migration if

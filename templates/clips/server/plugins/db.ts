@@ -1257,7 +1257,21 @@ export const migrations = runMigrations(
       sql: `
         ALTER TABLE recordings ADD COLUMN IF NOT EXISTS failure_code TEXT;
         ALTER TABLE recordings ADD COLUMN IF NOT EXISTS recording_platform TEXT;
-        UPDATE recordings SET failure_code = 'unknown', recording_platform = COALESCE(recording_platform, 'unknown') WHERE status = 'failed' AND failure_code IS NULL
+        UPDATE recordings SET
+          failure_code = CASE
+            WHEN failure_reason IN (
+              'Recording cancelled by user',
+              'Recording cancelled during countdown',
+              'Upload cancelled'
+            ) THEN 'user_cancelled'
+            WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'
+            WHEN failure_reason LIKE 'Video storage could not start an upload: S3 CreateMultipartUpload failed%' THEN 'multipart_start_failed'
+            WHEN failure_reason LIKE 'Video storage is not connected yet%' THEN 'storage_setup_required'
+            WHEN failure_reason LIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'
+            ELSE 'unknown'
+          END,
+          recording_platform = COALESCE(recording_platform, 'unknown')
+        WHERE status = 'failed' AND failure_code IS NULL
       `,
     },
   ],
