@@ -372,7 +372,10 @@ describe("cross-screen drag identity provenance", () => {
       }),
     );
     expect(sourcePostMessage).toHaveBeenCalledWith(
-      { type: "agent-native:cancel-active-drag" },
+      {
+        type: "agent-native:cancel-active-drag",
+        pressedAt: expect.any(Number),
+      },
       "*",
     );
   });
