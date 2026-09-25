@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -23,8 +24,10 @@ import {
 import { getObject } from "../server/lib/storage.js";
 import {
   compileVideoPrompt,
+  prepareVideoGenerationProvider,
   RetryableVideoGenerationError,
   startVideoGeneration,
+  type PreparedVideoGenerationProvider,
   type VideoReferenceImage,
 } from "../server/lib/video-generation.js";
 import {
@@ -185,7 +188,10 @@ export default defineAction({
     const runId = nanoid();
     const now = nowIso();
     const ownerEmail = getRequestUserEmail() ?? null;
-    const orgId = getRequestOrgId() ?? null;
+    const orgId =
+      getRequestOrgId() ??
+      (ownerEmail ? await resolveOrgIdForEmail(ownerEmail) : null);
+    const identity = { userEmail: ownerEmail, orgId };
     const referenceAssetIds = sourceImage
       ? [sourceImage.id]
       : referenceImages.map((ref) => ref.id);
@@ -221,7 +227,7 @@ export default defineAction({
     };
     const startingMetadata = stringifyJson({
       ...baseMetadata,
-      providerStatus: "starting",
+      providerStatus: "selecting",
     });
     await db.insert(schema.assetGenerationRuns).values({
       id: runId,
@@ -249,31 +255,87 @@ export default defineAction({
     });
 
     let operation: Awaited<ReturnType<typeof startVideoGeneration>>;
+    let preparedProvider: PreparedVideoGenerationProvider | undefined;
+    let expectedRunStatus: "pending" | "processing" = "pending";
+    let expectedRunMetadata = startingMetadata;
     try {
-      operation = await startVideoGeneration({
-        runId,
-        libraryId: args.libraryId,
-        callerAppId: callerAppId ?? undefined,
-        model: args.model,
-        compiledPrompt,
-        aspectRatio: args.aspectRatio,
-        durationSeconds: args.durationSeconds,
-        resolution: args.resolution,
-        sourceImage,
-        referenceImages,
-        negativePrompt: args.negativePrompt,
-        enhancePrompt: args.enhancePrompt,
-        generateAudio: args.generateAudio,
+      preparedProvider = await prepareVideoGenerationProvider(identity);
+      const providerMetadata = stringifyJson({
+        ...baseMetadata,
+        provider: preparedProvider.provider,
+        providerStatus: "starting",
+        startAttemptedAt: nowIso(),
       });
+      const [startingRun] = await db
+        .update(schema.assetGenerationRuns)
+        .set({ status: "processing", error: null, metadata: providerMetadata })
+        .where(
+          and(
+            eq(schema.assetGenerationRuns.id, runId),
+            eq(schema.assetGenerationRuns.status, "pending"),
+            eq(schema.assetGenerationRuns.metadata, startingMetadata),
+          ),
+        )
+        .returning();
+      if (!startingRun) {
+        const [currentRun] = await db
+          .select()
+          .from(schema.assetGenerationRuns)
+          .where(eq(schema.assetGenerationRuns.id, runId))
+          .limit(1);
+        if (!currentRun) throw new Error("Video generation run disappeared.");
+        return {
+          run: serializeGenerationRun(currentRun),
+          artifactType: "video",
+          ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
+        };
+      }
+      expectedRunStatus = "processing";
+      expectedRunMetadata = providerMetadata;
+
+      operation = await startVideoGeneration(
+        {
+          runId,
+          libraryId: args.libraryId,
+          callerAppId: callerAppId ?? undefined,
+          model: args.model,
+          compiledPrompt,
+          aspectRatio: args.aspectRatio,
+          durationSeconds: args.durationSeconds,
+          resolution: args.resolution,
+          sourceImage,
+          referenceImages,
+          negativePrompt: args.negativePrompt,
+          enhancePrompt: args.enhancePrompt,
+          generateAudio: args.generateAudio,
+        },
+        preparedProvider,
+      );
     } catch (error) {
       if (error instanceof RetryableVideoGenerationError) {
+        const provider = error.provider ?? preparedProvider?.provider;
+        const retryMetadata = provider
+          ? stringifyJson({
+              ...baseMetadata,
+              provider,
+              providerStatus: "retryable",
+              ...(provider === preparedProvider?.provider
+                ? { startAttemptedAt: nowIso() }
+                : {}),
+            })
+          : startingMetadata;
         const [retryingRun] = await db
           .update(schema.assetGenerationRuns)
-          .set({ status: "processing", error: error.message })
+          .set({
+            status: "processing",
+            error: error.message,
+            metadata: retryMetadata,
+          })
           .where(
             and(
               eq(schema.assetGenerationRuns.id, runId),
-              eq(schema.assetGenerationRuns.status, "pending"),
+              eq(schema.assetGenerationRuns.status, expectedRunStatus),
+              eq(schema.assetGenerationRuns.metadata, expectedRunMetadata),
             ),
           )
           .returning();
@@ -296,7 +358,24 @@ export default defineAction({
           ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
         };
       }
-      await failVideoGenerationRun(runId, error);
+      const failed = await failVideoGenerationRun(
+        runId,
+        error,
+        expectedRunMetadata,
+      );
+      if (!failed) {
+        const [currentRun] = await db
+          .select()
+          .from(schema.assetGenerationRuns)
+          .where(eq(schema.assetGenerationRuns.id, runId))
+          .limit(1);
+        if (!currentRun) throw new Error("Video generation run disappeared.");
+        return {
+          run: serializeGenerationRun(currentRun),
+          artifactType: "video",
+          ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
+        };
+      }
       throw error;
     }
     const processingMetadata = {
@@ -308,36 +387,34 @@ export default defineAction({
       providerStatus: "processing",
       startedAt: nowIso(),
     };
-    const run = {
-      id: runId,
-      libraryId: args.libraryId,
-      collectionId: args.collectionId ?? null,
-      presetId: null,
-      sessionId: null,
-      prompt: args.prompt,
-      compiledPrompt,
-      mediaType: "video",
-      model: args.model,
-      aspectRatio: args.aspectRatio,
-      imageSize: args.resolution,
-      durationSeconds: args.durationSeconds,
-      resolution: args.resolution,
-      groundingMode: "off",
-      referenceAssetIds: stringifyJson(referenceAssetIds),
-      status: "processing",
-      error: null,
-      metadata: stringifyJson(processingMetadata),
-      createdAt: now,
-      completedAt: null,
-      source: args.source,
-      callerAppId: callerAppId ?? null,
-      ownerEmail,
-      orgId,
-    };
-    await db
+    const [run] = await db
       .update(schema.assetGenerationRuns)
-      .set({ status: "processing", metadata: run.metadata })
-      .where(eq(schema.assetGenerationRuns.id, runId));
+      .set({
+        status: "processing",
+        error: null,
+        metadata: stringifyJson(processingMetadata),
+      })
+      .where(
+        and(
+          eq(schema.assetGenerationRuns.id, runId),
+          eq(schema.assetGenerationRuns.status, "processing"),
+          eq(schema.assetGenerationRuns.metadata, expectedRunMetadata),
+        ),
+      )
+      .returning();
+    if (!run) {
+      const [currentRun] = await db
+        .select()
+        .from(schema.assetGenerationRuns)
+        .where(eq(schema.assetGenerationRuns.id, runId))
+        .limit(1);
+      if (!currentRun) throw new Error("Video generation run disappeared.");
+      return {
+        run: serializeGenerationRun(currentRun),
+        artifactType: "video",
+        ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
+      };
+    }
 
     track(
       "generation_started",

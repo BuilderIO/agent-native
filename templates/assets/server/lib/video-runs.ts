@@ -12,13 +12,18 @@ import { notifyGenerationRunFinished } from "./generation-run-notifications.js";
 import { nowIso, parseJson, stringifyJson } from "./json.js";
 import { getObject } from "./storage.js";
 import {
+  prepareVideoGenerationProvider,
   pollBuilderVideoGeneration,
   pollGeminiVideoGeneration,
   RetryableVideoGenerationError,
   startVideoGeneration,
+  UnconfirmedVideoGenerationStartError,
 } from "./video-generation.js";
 
 type VideoRunDb = Pick<ReturnType<typeof getDb>, "select" | "update">;
+
+// Builder start can occupy three 45-second attempts; don't recover a fresh marker mid-request.
+const VIDEO_START_RECOVERY_DELAY_MS = 3 * 60 * 1000;
 
 type VideoRunResult =
   | {
@@ -37,6 +42,15 @@ type VideoRunResult =
       asset: typeof schema.assets.$inferSelect;
       completionClaimed: boolean;
     };
+
+function videoStartIsRecent(metadata: Record<string, unknown>): boolean {
+  if (typeof metadata.startAttemptedAt !== "string") return false;
+  const attemptedAt = Date.parse(metadata.startAttemptedAt);
+  return (
+    Number.isFinite(attemptedAt) &&
+    Date.now() - attemptedAt < VIDEO_START_RECOVERY_DELAY_MS
+  );
+}
 
 async function findAssetForRun(
   db: VideoRunDb,
@@ -98,6 +112,27 @@ async function retryVideoGenerationStart(
     throw new Error("Video generation run has invalid saved start settings.");
   }
 
+  const providerStatus = metadata.providerStatus;
+  const savedProvider =
+    metadata.provider === "builder" || metadata.provider === "gemini"
+      ? metadata.provider
+      : undefined;
+  if (providerStatus === "starting" && savedProvider !== "builder") {
+    throw new UnconfirmedVideoGenerationStartError(
+      "A previous video start may have reached its provider, but its operation ID was not saved. It was not retried to avoid a duplicate generation.",
+    );
+  }
+  if (providerStatus === "retryable" && !savedProvider) {
+    throw new Error("Video generation run has invalid retry state.");
+  }
+  if (
+    providerStatus !== "selecting" &&
+    providerStatus !== "starting" &&
+    providerStatus !== "retryable"
+  ) {
+    throw new Error("Video generation run has invalid start state.");
+  }
+
   const referenceAssetIds: unknown = JSON.parse(run.referenceAssetIds);
   if (
     !Array.isArray(referenceAssetIds) ||
@@ -137,22 +172,86 @@ async function retryVideoGenerationStart(
     throw new Error("The saved video source image is unavailable.");
   }
 
-  const operation = await startVideoGeneration({
-    runId: run.id,
-    libraryId: run.libraryId,
-    callerAppId: run.callerAppId ?? undefined,
-    model: run.model as VideoModel,
-    compiledPrompt: run.compiledPrompt,
-    aspectRatio: run.aspectRatio as VideoAspectRatio,
-    durationSeconds: run.durationSeconds as VideoDuration,
-    resolution: (run.resolution ?? run.imageSize) as VideoResolution,
-    sourceImage,
-    referenceImages: sourceImage ? [] : referenceAssets,
-    negativePrompt: settingsUsed.negativePrompt as string | null,
-    enhancePrompt: settingsUsed.enhancePrompt,
-    generateAudio: settingsUsed.generateAudio,
-    identity: { userEmail: run.ownerEmail, orgId: run.orgId },
+  const identity = { userEmail: run.ownerEmail, orgId: run.orgId };
+  const preparedProvider = await prepareVideoGenerationProvider(
+    identity,
+    savedProvider,
+  );
+  const startingMetadata = stringifyJson({
+    ...metadata,
+    provider: preparedProvider.provider,
+    providerStatus: "starting",
+    startAttemptedAt: nowIso(),
   });
+  const [startingRun] = await db
+    .update(schema.assetGenerationRuns)
+    .set({ status: "processing", error: null, metadata: startingMetadata })
+    .where(
+      and(
+        eq(schema.assetGenerationRuns.id, run.id),
+        eq(schema.assetGenerationRuns.status, run.status),
+        eq(schema.assetGenerationRuns.metadata, run.metadata),
+      ),
+    )
+    .returning();
+  if (!startingRun) return readCurrentVideoRunResult(db, run.id);
+
+  let operation: Awaited<ReturnType<typeof startVideoGeneration>>;
+  try {
+    operation = await startVideoGeneration(
+      {
+        runId: run.id,
+        libraryId: run.libraryId,
+        callerAppId: run.callerAppId ?? undefined,
+        model: run.model as VideoModel,
+        compiledPrompt: run.compiledPrompt,
+        aspectRatio: run.aspectRatio as VideoAspectRatio,
+        durationSeconds: run.durationSeconds as VideoDuration,
+        resolution: (run.resolution ?? run.imageSize) as VideoResolution,
+        sourceImage,
+        referenceImages: sourceImage ? [] : referenceAssets,
+        negativePrompt: settingsUsed.negativePrompt as string | null,
+        enhancePrompt: settingsUsed.enhancePrompt,
+        generateAudio: settingsUsed.generateAudio,
+      },
+      preparedProvider,
+    );
+  } catch (error) {
+    if (error instanceof RetryableVideoGenerationError) {
+      const provider = error.provider ?? preparedProvider.provider;
+      const retryMetadata = stringifyJson({
+        ...metadata,
+        provider,
+        providerStatus: "retryable",
+        startAttemptedAt: nowIso(),
+      });
+      const [retryingRun] = await db
+        .update(schema.assetGenerationRuns)
+        .set({
+          status: "processing",
+          error: error.message,
+          metadata: retryMetadata,
+        })
+        .where(
+          and(
+            eq(schema.assetGenerationRuns.id, run.id),
+            eq(schema.assetGenerationRuns.status, "processing"),
+            eq(schema.assetGenerationRuns.metadata, startingMetadata),
+          ),
+        )
+        .returning();
+      return retryingRun
+        ? { status: "processing", run: retryingRun, completionClaimed: false }
+        : readCurrentVideoRunResult(db, run.id);
+    }
+    const failed = await failVideoGenerationRun(
+      run.id,
+      error,
+      startingMetadata,
+    );
+    if (!failed) return readCurrentVideoRunResult(db, run.id);
+    throw error;
+  }
   const nextMetadata = {
     ...metadata,
     ...(operation.provider === "builder"
@@ -172,7 +271,8 @@ async function retryVideoGenerationStart(
     .where(
       and(
         eq(schema.assetGenerationRuns.id, run.id),
-        eq(schema.assetGenerationRuns.status, run.status),
+        eq(schema.assetGenerationRuns.status, "processing"),
+        eq(schema.assetGenerationRuns.metadata, startingMetadata),
       ),
     )
     .returning();
@@ -184,7 +284,8 @@ async function retryVideoGenerationStart(
 export async function failVideoGenerationRun(
   runId: string,
   error: unknown,
-): Promise<void> {
+  expectedMetadata?: string,
+): Promise<boolean> {
   const message =
     error instanceof Error ? error.message : "Video generation failed.";
   const completedAt = nowIso();
@@ -196,10 +297,14 @@ export async function failVideoGenerationRun(
         eq(schema.assetGenerationRuns.id, runId),
         ne(schema.assetGenerationRuns.status, "completed"),
         ne(schema.assetGenerationRuns.status, "failed"),
+        ...(expectedMetadata === undefined
+          ? []
+          : [eq(schema.assetGenerationRuns.metadata, expectedMetadata)]),
       ),
     )
     .returning();
   if (failedRun) await notifyGenerationRunFinished(failedRun, "failed");
+  return Boolean(failedRun);
 }
 
 async function markRunCompletedWithAsset(
@@ -296,21 +401,52 @@ export async function completeVideoGenerationRun(
     typeof metadata.operationName === "string" ? metadata.operationName : null;
   const generationId =
     typeof metadata.generationId === "string" ? metadata.generationId : null;
-  if (metadata.providerStatus === "starting") {
+  if (metadata.providerStatus === "starting" && videoStartIsRecent(metadata)) {
+    return readCurrentVideoRunResult(getDb(), run.id);
+  }
+  if (
+    metadata.providerStatus === "selecting" ||
+    metadata.providerStatus === "starting" ||
+    metadata.providerStatus === "retryable"
+  ) {
     try {
       return await retryVideoGenerationStart(getDb(), run, metadata);
     } catch (error) {
       if (!(error instanceof RetryableVideoGenerationError)) {
-        await failVideoGenerationRun(run.id, error);
+        const failed = await failVideoGenerationRun(
+          run.id,
+          error,
+          run.metadata,
+        );
+        if (!failed) return readCurrentVideoRunResult(getDb(), run.id);
         throw error;
       }
+      const provider =
+        error instanceof RetryableVideoGenerationError
+          ? (error.provider ??
+            (metadata.provider === "builder" || metadata.provider === "gemini"
+              ? metadata.provider
+              : undefined))
+          : undefined;
+      const retryMetadata = provider
+        ? stringifyJson({
+            ...metadata,
+            provider,
+            providerStatus: provider === "gemini" ? "retryable" : "starting",
+          })
+        : stringifyJson(metadata);
       const [retryingRun] = await getDb()
         .update(schema.assetGenerationRuns)
-        .set({ status: "processing", error: error.message })
+        .set({
+          status: "processing",
+          error: error.message,
+          metadata: retryMetadata,
+        })
         .where(
           and(
             eq(schema.assetGenerationRuns.id, run.id),
             eq(schema.assetGenerationRuns.status, run.status),
+            eq(schema.assetGenerationRuns.metadata, run.metadata),
           ),
         )
         .returning();

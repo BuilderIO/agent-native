@@ -1,6 +1,7 @@
 import { readBoundedResponseBytes } from "@agent-native/core/ingestion";
 import {
   BuilderCredentialLookupError,
+  CredentialStoreUnavailableError,
   getBuilderVideoGenerationBaseUrl,
   resolveBuilderGatewayAuth,
 } from "@agent-native/core/server";
@@ -27,9 +28,19 @@ import {
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 export class RetryableVideoGenerationError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly provider?: "builder" | "gemini",
+  ) {
     super(message);
     this.name = "RetryableVideoGenerationError";
+  }
+}
+
+export class UnconfirmedVideoGenerationStartError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnconfirmedVideoGenerationStartError";
   }
 }
 
@@ -125,6 +136,47 @@ export type VideoGenerationOperation =
   | { provider: "gemini"; operationName: string }
   | { provider: "builder"; generationId: string };
 
+type BuilderVideoAuth = NonNullable<
+  Awaited<ReturnType<typeof resolveBuilderGatewayAuth>>
+>;
+
+export type PreparedVideoGenerationProvider =
+  | { provider: "builder"; auth: BuilderVideoAuth }
+  | { provider: "gemini"; apiKey: string };
+
+export async function prepareVideoGenerationProvider(
+  identity?: { userEmail?: string | null; orgId?: string | null },
+  provider?: "builder" | "gemini",
+): Promise<PreparedVideoGenerationProvider> {
+  if (provider !== "gemini") {
+    let auth;
+    try {
+      auth = await resolveBuilderGatewayAuth(identity);
+    } catch (error) {
+      if (error instanceof BuilderCredentialLookupError) {
+        throw new RetryableVideoGenerationError(error.message, provider);
+      }
+      throw error;
+    }
+    if (auth) return { provider: "builder", auth };
+    if (provider === "builder") {
+      throw new RetryableVideoGenerationError(
+        "Builder video generation credentials are temporarily unavailable.",
+        "builder",
+      );
+    }
+  }
+
+  try {
+    return { provider: "gemini", apiKey: await getGeminiApiKey() };
+  } catch (error) {
+    if (error instanceof CredentialStoreUnavailableError) {
+      throw new RetryableVideoGenerationError(error.message, "gemini");
+    }
+    throw error;
+  }
+}
+
 export function compileVideoPrompt(input: {
   libraryTitle: string;
   styleBrief: StyleBrief;
@@ -165,6 +217,7 @@ ${input.prompt}`;
 }
 
 export async function startGeminiVideoGeneration(input: {
+  apiKey: string;
   model: VideoModel;
   compiledPrompt: string;
   aspectRatio: VideoAspectRatio;
@@ -176,7 +229,6 @@ export async function startGeminiVideoGeneration(input: {
   enhancePrompt?: boolean;
   generateAudio?: boolean;
 }): Promise<{ operationName: string }> {
-  const apiKey = await getGeminiApiKey();
   const instance: Record<string, unknown> = { prompt: input.compiledPrompt };
   if (input.sourceImage) {
     instance.image = {
@@ -192,28 +244,38 @@ export async function startGeminiVideoGeneration(input: {
     }));
   }
 
-  const response = await fetch(
-    `${GEMINI_BASE_URL}/models/${input.model}:predictLongRunning`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        instances: [instance],
-        parameters: {
-          aspectRatio: input.aspectRatio,
-          durationSeconds: String(input.durationSeconds),
-          resolution: input.resolution,
-          negativePrompt: input.negativePrompt || undefined,
-          enhancePrompt: input.enhancePrompt ?? true,
-          generateAudio: input.generateAudio ?? true,
+  let response: Response;
+  try {
+    response = await fetch(
+      `${GEMINI_BASE_URL}/models/${input.model}:predictLongRunning`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": input.apiKey,
         },
-      }),
-      signal: AbortSignal.timeout(45_000),
-    },
-  );
+        body: JSON.stringify({
+          instances: [instance],
+          parameters: {
+            aspectRatio: input.aspectRatio,
+            durationSeconds: String(input.durationSeconds),
+            resolution: input.resolution,
+            negativePrompt: input.negativePrompt || undefined,
+            enhancePrompt: input.enhancePrompt ?? true,
+            generateAudio: input.generateAudio ?? true,
+          },
+        }),
+        signal: AbortSignal.timeout(45_000),
+      },
+    );
+  } catch (error) {
+    if (isRetryableTransportError(error)) {
+      throw new UnconfirmedVideoGenerationStartError(
+        "Gemini may have accepted this video request, but its operation could not be confirmed. It was not retried to avoid a duplicate generation.",
+      );
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     // coercion-ok: the response already failed; an unreadable body only costs
@@ -223,49 +285,62 @@ export async function startGeminiVideoGeneration(input: {
       `[assets] video-gen provider error status=${response.status} model=${input.model} bodyShape=${describeProviderPayloadShape(errorBody)} bodyChars=${errorBody.length}`,
     );
     const detail = videoErrorDetailForUser(errorBody, input.model);
-    throw new Error(
-      `Gemini video generation failed (${response.status})${detail ? `: ${detail}` : "."}`,
+    const message = `Gemini video generation failed (${response.status})${detail ? `: ${detail}` : "."}`;
+    if ([425, 429].includes(response.status)) {
+      throw new RetryableVideoGenerationError(message, "gemini");
+    }
+    if (isRetryableStatus(response.status)) {
+      throw new UnconfirmedVideoGenerationStartError(
+        `${message} The request was not retried because Gemini does not provide a confirmed operation ID for this response.`,
+      );
+    }
+    throw new Error(message);
+  }
+  let body: { name?: string };
+  try {
+    body = (await response.json()) as { name?: string };
+  } catch {
+    throw new UnconfirmedVideoGenerationStartError(
+      "Gemini may have accepted this video request, but its operation could not be confirmed. It was not retried to avoid a duplicate generation.",
     );
   }
-  const body = (await response.json()) as { name?: string };
   if (!body.name) {
-    throw new Error("Gemini video generation returned no operation name.");
+    throw new UnconfirmedVideoGenerationStartError(
+      "Gemini may have accepted this video request, but returned no operation ID. It was not retried to avoid a duplicate generation.",
+    );
   }
   return { operationName: body.name };
 }
 
-export async function startVideoGeneration(input: {
-  runId: string;
-  libraryId: string;
-  callerAppId?: string;
-  model: VideoModel;
-  compiledPrompt: string;
-  aspectRatio: VideoAspectRatio;
-  durationSeconds: VideoDuration;
-  resolution: VideoResolution;
-  referenceImages?: VideoReferenceImage[];
-  sourceImage?: VideoReferenceImage | null;
-  negativePrompt?: string | null;
-  enhancePrompt?: boolean;
-  generateAudio?: boolean;
-  identity?: { userEmail?: string | null; orgId?: string | null };
-}): Promise<VideoGenerationOperation> {
-  let auth;
-  try {
-    auth = await resolveBuilderGatewayAuth(input.identity);
-  } catch (error) {
-    if (error instanceof BuilderCredentialLookupError) {
-      throw new RetryableVideoGenerationError(error.message);
-    }
-    throw error;
-  }
-  if (!auth) {
+export async function startVideoGeneration(
+  input: {
+    runId: string;
+    libraryId: string;
+    callerAppId?: string;
+    model: VideoModel;
+    compiledPrompt: string;
+    aspectRatio: VideoAspectRatio;
+    durationSeconds: VideoDuration;
+    resolution: VideoResolution;
+    referenceImages?: VideoReferenceImage[];
+    sourceImage?: VideoReferenceImage | null;
+    negativePrompt?: string | null;
+    enhancePrompt?: boolean;
+    generateAudio?: boolean;
+  },
+  preparedProvider: PreparedVideoGenerationProvider,
+): Promise<VideoGenerationOperation> {
+  if (preparedProvider.provider === "gemini") {
     return {
       provider: "gemini",
-      ...(await startGeminiVideoGeneration(input)),
+      ...(await startGeminiVideoGeneration({
+        ...input,
+        apiKey: preparedProvider.apiKey,
+      })),
     };
   }
 
+  const auth = preparedProvider.auth;
   const baseUrl = getBuilderVideoGenerationBaseUrl().replace(/\/$/, "");
   const headers = {
     Authorization: auth.authorization,
@@ -324,6 +399,7 @@ export async function startVideoGeneration(input: {
       if (attempt === 2) {
         throw new RetryableVideoGenerationError(
           "Builder video generation start could not be confirmed.",
+          "builder",
         );
       }
       continue;
@@ -352,6 +428,7 @@ export async function startVideoGeneration(input: {
   if (!response) {
     throw new RetryableVideoGenerationError(
       "Builder video generation start could not be confirmed.",
+      "builder",
     );
   }
   if (!response.ok) {
@@ -360,7 +437,7 @@ export async function startVideoGeneration(input: {
     const detail = readableProviderErrorDetail(body, 500);
     const message = `Builder video generation failed (${response.status})${detail ? `: ${detail}` : "."}`;
     if ([408, 425, 429].includes(response.status) || response.status >= 500) {
-      throw new RetryableVideoGenerationError(message);
+      throw new RetryableVideoGenerationError(message, "builder");
     }
     throw new Error(message);
   }

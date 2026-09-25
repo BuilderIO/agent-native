@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
       this.name = "BuilderCredentialLookupError";
     }
   },
+  CredentialStoreUnavailableError: class CredentialStoreUnavailableError extends Error {},
   getBuilderVideoGenerationBaseUrl: vi.fn(
     () => "https://builder.test/agent-native/videos/v1",
   ),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server", () => ({
   BuilderCredentialLookupError: mocks.BuilderCredentialLookupError,
+  CredentialStoreUnavailableError: mocks.CredentialStoreUnavailableError,
   getBuilderVideoGenerationBaseUrl: mocks.getBuilderVideoGenerationBaseUrl,
   resolveBuilderGatewayAuth: mocks.resolveBuilderGatewayAuth,
 }));
@@ -26,8 +28,10 @@ vi.mock("./generation.js", () => ({
 
 import {
   pollBuilderVideoGeneration,
+  prepareVideoGenerationProvider,
   RetryableVideoGenerationError,
   startVideoGeneration,
+  UnconfirmedVideoGenerationStartError,
 } from "./video-generation.js";
 
 const validMp4 = new Uint8Array([
@@ -52,6 +56,14 @@ const baseInput = {
     },
   ],
 };
+
+async function startWithResolvedProvider(
+  input = baseInput,
+  provider?: "builder" | "gemini",
+) {
+  const prepared = await prepareVideoGenerationProvider(undefined, provider);
+  return startVideoGeneration(input, prepared);
+}
 
 describe("Builder video generation", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -98,7 +110,7 @@ describe("Builder video generation", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const operation = await startVideoGeneration(baseInput);
+    const operation = await startWithResolvedProvider();
     expect(operation).toEqual({ provider: "builder", generationId: "vid_abc" });
     const startCall = fetchMock.mock.calls[0];
     const startBody = JSON.parse(String(startCall?.[1]?.body)) as Record<
@@ -154,7 +166,7 @@ describe("Builder video generation", () => {
       .mockResolvedValueOnce(Response.json({ id: "vid_recovered" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(startVideoGeneration(baseInput)).resolves.toEqual({
+    await expect(startWithResolvedProvider()).resolves.toEqual({
       provider: "builder",
       generationId: "vid_recovered",
     });
@@ -172,7 +184,7 @@ describe("Builder video generation", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(startVideoGeneration(baseInput)).rejects.toBeInstanceOf(
+    await expect(startWithResolvedProvider()).rejects.toBeInstanceOf(
       RetryableVideoGenerationError,
     );
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -184,7 +196,7 @@ describe("Builder video generation", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(startVideoGeneration(baseInput)).rejects.toBeInstanceOf(
+    await expect(startWithResolvedProvider()).rejects.toBeInstanceOf(
       RetryableVideoGenerationError,
     );
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -284,7 +296,7 @@ describe("Builder video generation", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(startVideoGeneration(baseInput)).resolves.toEqual({
+    await expect(startWithResolvedProvider()).resolves.toEqual({
       provider: "builder",
       generationId: "vid_recovered",
     });
@@ -305,7 +317,7 @@ describe("Builder video generation", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(startVideoGeneration(baseInput)).resolves.toEqual({
+    await expect(startWithResolvedProvider()).resolves.toEqual({
       provider: "gemini",
       operationName: "operations/op-1",
     });
@@ -326,12 +338,52 @@ describe("Builder video generation", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(startVideoGeneration(baseInput)).rejects.toThrow(
+    await expect(startWithResolvedProvider()).rejects.toThrow(
       "Builder video generation failed (403)",
     );
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
       "x-builder-user-id",
     );
     expect(mocks.getGeminiApiKey).not.toHaveBeenCalled();
+  });
+
+  it("does not switch a pinned Builder run to Gemini after its credentials disappear", async () => {
+    mocks.resolveBuilderGatewayAuth.mockResolvedValue(null);
+
+    await expect(
+      prepareVideoGenerationProvider(undefined, "builder"),
+    ).rejects.toMatchObject({ provider: "builder" });
+    expect(mocks.getGeminiApiKey).not.toHaveBeenCalled();
+  });
+
+  it("does not resubmit an ambiguous Gemini start", async () => {
+    mocks.resolveBuilderGatewayAuth.mockResolvedValue(null);
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const prepared = await prepareVideoGenerationProvider();
+
+    await expect(
+      startVideoGeneration(baseInput, prepared),
+    ).rejects.toBeInstanceOf(UnconfirmedVideoGenerationStartError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an explicitly rejected Gemini start recoverable", async () => {
+    mocks.resolveBuilderGatewayAuth.mockResolvedValue(null);
+    const fetchMock = vi.fn(
+      async () => new Response("rate limited", { status: 429 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const prepared = await prepareVideoGenerationProvider();
+
+    await expect(
+      startVideoGeneration(baseInput, prepared),
+    ).rejects.toMatchObject({
+      provider: "gemini",
+      name: "RetryableVideoGenerationError",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });
