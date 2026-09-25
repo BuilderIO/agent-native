@@ -169,6 +169,7 @@ const SAFE_LINK = /^(https?:|mailto:)/i;
 const PASTE_STYLE_PROPERTY =
   /^(color|font(-.+)?|text-decoration(-.+)?|letter-spacing|word-spacing|text-transform|vertical-align)$/;
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
+const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
 const UNDO_LIMIT = 100;
 /** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
 const LEGACY_ROW_INDENT_PX = 24;
@@ -1644,16 +1645,25 @@ export function startInPlaceTextSession(
   function writeSelection(data: DataTransfer, range: Range) {
     const holder = document.createElement("div");
     holder.append(range.cloneContents());
-    for (const text of textNodesIn(holder)) {
-      text.data = text.data.replaceAll(ZERO_WIDTH_SPACE, "");
-    }
+    // The copies come in the order of the text nodes the range touches. Only
+    // the session's placeholders are dropped, never an author's ZWSP.
+    const touched = textNodesIn(el).filter((text) =>
+      range.intersectsNode(text),
+    );
+    const keptZwsp: boolean[] = [];
+    textNodesIn(holder).forEach((copy, index) => {
+      const author = authorZwsp.has(touched[index]);
+      const count = copy.data.split(ZERO_WIDTH_SPACE).length - 1;
+      keptZwsp.push(...Array<boolean>(count).fill(author));
+      if (!author) copy.data = copy.data.replaceAll(ZERO_WIDTH_SPACE, "");
+    });
     const html = normalizeSlideClipboardHtml(holder.innerHTML);
     if (html !== null) data.setData("text/html", html);
+    let zwsp = 0;
     data.setData(
       "text/plain",
-      (window.getSelection()?.toString() ?? "").replaceAll(
-        ZERO_WIDTH_SPACE,
-        "",
+      (window.getSelection()?.toString() ?? "").replace(ALL_ZWSP, (char) =>
+        keptZwsp[zwsp++] ? char : "",
       ),
     );
   }

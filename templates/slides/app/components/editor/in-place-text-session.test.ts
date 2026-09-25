@@ -1313,4 +1313,17 @@ describe("in-place text session: review round 2", () => {
     expect(el.querySelectorAll('[data-slide-object-id="o3"]')).toHaveLength(1);
     expect(el.textContent).toBe("linked text");
   });
+
+  it("copies the author's zero-width spaces but not the session's placeholders", () => {
+    const el = mount(`<p id="t">A${ZWSP}B</p>`);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 3);
+    beforeInput(el, "insertParagraph");
+    expect(el.innerHTML).toBe(`A${ZWSP}B<br>${ZWSP}`);
+    select(el.firstChild!, 0, el, el.childNodes.length);
+    const { clipboardData } = clipboardEvent(el, "copy");
+    expect(clipboardData.getData("text/html")).toContain(`A${ZWSP}B`);
+    expect(clipboardData.getData("text/html").split(ZWSP)).toHaveLength(2);
+    expect(clipboardData.getData("text/plain")).toBe(`A${ZWSP}B`);
+  });
 });
