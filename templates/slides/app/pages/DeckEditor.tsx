@@ -1690,7 +1690,7 @@ export default function DeckEditor() {
       // however the upload ends, one still untaken is stale.
       let registeredPreviewContent: string | null = null;
       if (previewProvenance) {
-        registeredPreviewContent = pendingImagePreviewsRef.current
+        const previewContent = pendingImagePreviewsRef.current
           .filter((preview) => preview.slideId === targetSlideId)
           .reduce(
             (content, preview) => applyOptimisticImagePreview(content, preview),
@@ -1698,9 +1698,10 @@ export default function DeckEditor() {
           );
         registerSlideImageUploadProvenance(
           targetSlideId,
-          registeredPreviewContent,
+          previewContent,
           previewProvenance,
         );
+        registeredPreviewContent = previewContent;
       }
       const clearPreview = () => {
         updatePendingImagePreviews((current) =>
