@@ -171,6 +171,8 @@ export default {
       "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
     labTweaks: "डिज़ाइन ट्वीक",
     labTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
+    mcpAbout:
+      "Design को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Design में काम कर सकता है: डिज़ाइन बनाना और उन्हें संपादित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
   pages: {
     presentEmpty: "प्रस्तुत करने के लिए कोई सामग्री नहीं",
@@ -179,8 +181,6 @@ export default {
     notFoundDescription: "आप जिस पृष्ठ को ढूँढ रहे हैं वह मौजूद नहीं है।",
     notFoundSignIn: "साइन इन करें",
     notFoundBackToDesigns: "डिज़ाइन पर वापस जाएँ",
-    teamCreateOrgDescription:
-      "डिज़ाइन को अपने सहयोगियों के साथ साझा करने के लिए टीम सेट करें।",
   },
   chat: {
     emptyState: "बनाने के लिए design का वर्णन करें",

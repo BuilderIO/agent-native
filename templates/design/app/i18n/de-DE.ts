@@ -174,6 +174,8 @@ export default {
       "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
     labTweaks: "Design-Anpassungen",
     labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
+    mcpAbout:
+      "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
   pages: {
     presentEmpty: "Keine Inhalte zum Präsentieren",
@@ -182,8 +184,6 @@ export default {
     notFoundDescription: "Die gesuchte Seite existiert nicht.",
     notFoundSignIn: "Anmelden",
     notFoundBackToDesigns: "Zurück zu Designs",
-    teamCreateOrgDescription:
-      "Richte ein Team ein, um Designs mit deinen Kollegen zu teilen.",
   },
   chat: {
     emptyState: "Beschreibe ein Design, das erstellt werden soll",

@@ -174,6 +174,8 @@ export default {
       "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
     labTweaks: "Ajustes de design",
     labTweaksDescription: "Experimente ajustes de design com IA.",
+    mcpAbout:
+      "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
   pages: {
     presentEmpty: "Nenhum conteúdo para apresentar",
@@ -182,8 +184,6 @@ export default {
     notFoundDescription: "A página que você procura não existe.",
     notFoundSignIn: "Entrar",
     notFoundBackToDesigns: "Voltar aos designs",
-    teamCreateOrgDescription:
-      "Configure uma equipe para compartilhar designs com seus colegas.",
   },
   chat: {
     emptyState: "Descreva um design para criar",

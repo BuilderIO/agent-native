@@ -177,6 +177,8 @@ export default {
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labTweaks: "デザインの調整",
     labTweaksDescription: "AI によるデザイン調整をお試しください。",
+    mcpAbout:
+      "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
   pages: {
     presentEmpty: "プレゼンするコンテンツがありません",
@@ -185,8 +187,6 @@ export default {
     notFoundDescription: "お探しのページは存在しません。",
     notFoundSignIn: "ログイン",
     notFoundBackToDesigns: "デザインに戻る",
-    teamCreateOrgDescription:
-      "同僚とデザインを共有するためのチームを設定します。",
   },
   chat: {
     emptyState: "作成したいデザインを説明してください",
