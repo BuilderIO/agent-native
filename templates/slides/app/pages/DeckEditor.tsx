@@ -2,7 +2,10 @@ import {
   sendToAgentChat,
   useGuidedQuestionFlow,
 } from "@agent-native/core/client/agent-chat";
-import { trackEvent } from "@agent-native/core/client/analytics";
+import {
+  getAnalyticsSessionId,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
@@ -45,7 +48,10 @@ import {
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
-import SlideRenderer from "@/components/deck/SlideRenderer";
+import SlideRenderer, {
+  getRenderedSlideSource,
+  renderRawSlideHtml,
+} from "@/components/deck/SlideRenderer";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
@@ -143,7 +149,6 @@ import {
   slideBeingFilledInPlace,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
-import { normalizeSlidePadding } from "@/lib/normalize-slide-padding";
 import {
   shouldBlockPendingDeckNavigation,
   usePendingDeckUnloadGuard,
@@ -159,17 +164,21 @@ import {
 import { slideCommentAnchorFromRange } from "@/lib/slide-comment-anchor";
 import {
   applyOptimisticImagePreview,
+  captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
+  discardSlideImageUploadProvenance,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   insertDroppedImageIntoSlideHtml,
   prefetchImage,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
+  registerSlideImageUploadProvenance,
   stripOptimisticImagePreviews,
   updateImageFitInSlideHtml,
   type ImageObjectPosition,
   type OptimisticImagePreview,
+  type SlideImageUploadProvenance,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
@@ -188,7 +197,110 @@ type PendingImagePreviewUpdate =
   | PendingImagePreview[]
   | ((current: PendingImagePreview[]) => PendingImagePreview[]);
 
+function captureImageUploadEdit(
+  slideId: string,
+  sourceContent: string,
+): SlideImageUploadProvenance | null {
+  const canvas = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-main-slide-canvas='true']"),
+  ).find((candidate) =>
+    Array.from(
+      candidate.querySelectorAll<HTMLElement>("[data-slide-canvas]"),
+    ).some(
+      (slideCanvas) =>
+        slideCanvas.getAttribute("data-slide-canvas") === slideId,
+    ),
+  );
+  const root = canvas?.querySelector<HTMLElement>(".slide-content");
+  const source = root ? getRenderedSlideSource(root) : undefined;
+  const scopeId = root?.getAttribute("data-slide-content-scope");
+  if (!root || !scopeId || !source?.nonce.endsWith(`.${slideId}`)) {
+    return null;
+  }
+  const sourceSnapshot = renderRawSlideHtml(sourceContent, {
+    scopeSelector: `[data-slide-content-scope="${scopeId}"]`,
+    stampNonce: source.nonce,
+  });
+  return captureSlideImageUploadProvenance(root, sourceSnapshot.html);
+}
+
 type CommentComposerAnchor = SlideCommentAnchor | Range;
+
+type OutputViewClaim = "claimed" | "already_seen" | "unavailable";
+
+const OUTPUT_VIEW_LOCK_NAME = "agent-native:slides-output-viewed";
+const OUTPUT_VIEW_STORAGE_KEY = "slides:output-viewed";
+const OUTPUT_VIEW_LEGACY_PREFIX = "slides:output-viewed:";
+const OUTPUT_VIEW_LEGACY_CLEANUP_KEY = "slides:output-viewed-cleanup-v1";
+const OUTPUT_VIEW_DECK_LIMIT = 512;
+
+async function claimOutputView(
+  sessionId: string,
+  deckId: string,
+): Promise<OutputViewClaim> {
+  if (typeof window === "undefined" || !navigator.locks) {
+    return "unavailable";
+  }
+
+  try {
+    return await navigator.locks.request(
+      OUTPUT_VIEW_LOCK_NAME,
+      { mode: "exclusive" },
+      () => {
+        try {
+          const storage = window.localStorage;
+          if (storage.getItem(OUTPUT_VIEW_LEGACY_CLEANUP_KEY) !== "1") {
+            const legacyKeys: string[] = [];
+            for (let index = 0; index < storage.length; index += 1) {
+              const key = storage.key(index);
+              if (key?.startsWith(OUTPUT_VIEW_LEGACY_PREFIX)) {
+                legacyKeys.push(key);
+              }
+            }
+            for (const key of legacyKeys) storage.removeItem(key);
+            storage.setItem(OUTPUT_VIEW_LEGACY_CLEANUP_KEY, "1");
+          }
+
+          const stored = storage.getItem(OUTPUT_VIEW_STORAGE_KEY);
+          const marker = stored ? JSON.parse(stored) : null;
+          if (
+            stored &&
+            (!marker ||
+              typeof marker !== "object" ||
+              Array.isArray(marker) ||
+              typeof marker.sessionId !== "string" ||
+              !Array.isArray(marker.deckIds))
+          ) {
+            return "unavailable";
+          }
+
+          const seenDeckIds =
+            marker?.sessionId === sessionId
+              ? marker.deckIds.filter(
+                  (value: unknown): value is string =>
+                    typeof value === "string",
+                )
+              : [];
+          if (seenDeckIds.includes(deckId)) return "already_seen";
+
+          // ponytail: 512 IDs bounds one session; a longer session can re-emit an evicted deck.
+          storage.setItem(
+            OUTPUT_VIEW_STORAGE_KEY,
+            JSON.stringify({
+              sessionId,
+              deckIds: [...seenDeckIds, deckId].slice(-OUTPUT_VIEW_DECK_LIMIT),
+            }),
+          );
+          return "claimed";
+        } catch {
+          return "unavailable";
+        }
+      },
+    );
+  } catch {
+    return "unavailable";
+  }
+}
 
 function isDomRange(value: CommentComposerAnchor | undefined): value is Range {
   return Boolean(
@@ -709,6 +821,27 @@ export default function DeckEditor() {
     typeof generationContext?.generationAttemptId === "string"
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
+  useEffect(() => {
+    if (!id || !deck || slideCount === 0) {
+      return;
+    }
+    const analyticsSessionId = getAnalyticsSessionId();
+    if (!analyticsSessionId) return;
+    void claimOutputView(analyticsSessionId, id).then((claim) => {
+      if (claim !== "claimed") return;
+      trackEvent("output_viewed", {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: id,
+        output_type: "deck",
+        slide_count: slideCount,
+        source: "deck_editor",
+        ...(generationAttemptId
+          ? { generation_attempt_id: generationAttemptId }
+          : {}),
+      });
+    });
+  }, [deck, generationAttemptId, id, slideCount]);
   const generationLifecycleOwnedByEditor =
     generationContext?.generationMode !== "action";
   const [generationAttemptTabId, setGenerationAttemptTabId] = useState<
@@ -1621,9 +1754,21 @@ export default function DeckEditor() {
       file: File,
       position?: SlideImageDropPosition,
     ) => {
-      if (!id || !currentSlideRef.current) return;
-      const targetSlideId = currentSlideRef.current.id;
+      const startingSlide = currentSlideRef.current;
+      if (!id || !startingSlide) return;
+      const targetSlideId = startingSlide.id;
       const previewSrc = URL.createObjectURL(file);
+      const sourceContentAtUploadStart =
+        latestSlideContentRef.current.get(targetSlideId) ??
+        startingSlide.content;
+      const previewProvenance = captureImageUploadEdit(
+        targetSlideId,
+        startingSlide.content,
+      );
+      const uploadProvenance = captureImageUploadEdit(
+        targetSlideId,
+        sourceContentAtUploadStart,
+      );
       const initialPreview: PendingImagePreview = {
         slideId: targetSlideId,
         previewSrc,
@@ -1641,6 +1786,23 @@ export default function DeckEditor() {
         ),
         initialPreview,
       ]);
+      // The preview's render takes this snapshot long before the upload ends;
+      // however the upload ends, one still untaken is stale.
+      let registeredPreviewContent: string | null = null;
+      if (previewProvenance) {
+        const previewContent = pendingImagePreviewsRef.current
+          .filter((preview) => preview.slideId === targetSlideId)
+          .reduce(
+            (content, preview) => applyOptimisticImagePreview(content, preview),
+            startingSlide.content,
+          );
+        registerSlideImageUploadProvenance(
+          targetSlideId,
+          previewContent,
+          previewProvenance,
+        );
+        registeredPreviewContent = previewContent;
+      }
       const clearPreview = () => {
         updatePendingImagePreviews((current) =>
           current.filter((preview) => preview.previewSrc !== previewSrc),
@@ -1700,6 +1862,14 @@ export default function DeckEditor() {
         }
         latestSlideContentRef.current.set(targetSlideId, updatedContent);
         if (updatedContent !== targetContent) {
+          // Only a write renders, so only a write's snapshot is ever taken.
+          if (uploadProvenance) {
+            registerSlideImageUploadProvenance(
+              targetSlideId,
+              updatedContent,
+              uploadProvenance,
+            );
+          }
           updateSlideContent(targetSlide.id, updatedContent);
         }
         trackEvent("media_added", {
@@ -1717,6 +1887,13 @@ export default function DeckEditor() {
               ? error.message
               : t("deckEditor.imageUploadError"),
         });
+      } finally {
+        if (registeredPreviewContent !== null) {
+          discardSlideImageUploadProvenance(
+            targetSlideId,
+            registeredPreviewContent,
+          );
+        }
       }
     },
     [
@@ -3365,10 +3542,15 @@ export default function DeckEditor() {
                   safeUpdates.content,
                 );
               }
-              updateSlide(id, targetSlideId, safeUpdates, options);
-              return typeof safeUpdates.content === "string"
-                ? hashSlideContent(normalizeSlidePadding(safeUpdates.content))
-                : undefined;
+              const storedContent = updateSlide(
+                id,
+                targetSlideId,
+                safeUpdates,
+                options,
+              );
+              return storedContent === undefined
+                ? undefined
+                : hashSlideContent(storedContent);
             }}
             onInlineEditStart={(slideId) => {
               setInlineEditActive(true);

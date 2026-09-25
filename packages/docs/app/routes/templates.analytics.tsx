@@ -2,10 +2,13 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import type { MouseEvent } from "react";
 
-import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
+import {
+  AnalyticsLandingMock,
+  AnalyticsLandingMockStyles,
+} from "../components/template-landing/AnalyticsLandingMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
@@ -49,22 +52,25 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "analytics")!;
 
-// Same no-imagery pattern Slides and Clips used: plain ContentCards, no
-// `image`/`imageLabel`, so the section reads as one system with the
-// key-features grid below it instead of leaving placeholder boxes.
 const USE_CASES = [
   {
     id: "track-product-growth",
+    mode: "growth",
+    textLeft: true,
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
   },
   {
     id: "report-on-business-performance",
+    mode: "report",
+    textLeft: false,
     titleKey: "useCase2Title",
     bodyKey: "useCase2Body",
   },
   {
     id: "investigate-user-issues",
+    mode: "replay",
+    textLeft: true,
     titleKey: "useCase3Title",
     bodyKey: "useCase3Body",
   },
@@ -124,8 +130,9 @@ export default function AnalyticsTemplate() {
 
   return (
     <div className="builder-brand-tokens">
-      {/* Hero — copy and layout updated to match Slides. Existing hero
-          screenshot kept since there's no newer Analytics asset yet. */}
+      <AnalyticsLandingMockStyles />
+      {/* Hero keeps the shared landing-page frame while showing the app's
+          dashboard and contextual agent together. */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
           title={
@@ -166,19 +173,17 @@ export default function AnalyticsTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <BuilderImage
-              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8b8a7e1575ce40028933a4dbd3d12eb5"
-              crossOrigin="anonymous"
-              alt={t("templateLanding.analytics.s001")}
-              loading="lazy"
-              decoding="async"
-              className="h-auto max-h-[640px] w-full object-cover object-top"
+            <AnalyticsLandingMock
+              mode="dashboard"
+              label={t("templateLanding.analytics.s001")}
+              className="h-[420px] sm:h-[620px] lg:h-[800px]"
             />
           }
         />
       </div>
 
-      {/* What can you do with Analytics? — three use-case cards */}
+      {/* Use-case stories pair the existing translated copy with a concrete
+          Analytics surface. */}
       <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
@@ -190,14 +195,58 @@ export default function AnalyticsTemplate() {
         </GridInner>
 
         <GridInner>
-          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
-            {USE_CASES.map((useCase) => (
-              <ContentCard
-                key={useCase.id}
-                title={t(`templateLanding.analytics.${useCase.titleKey}`)}
-                body={t(`templateLanding.analytics.${useCase.bodyKey}`)}
-              />
-            ))}
+          <div className="flex flex-col border-x border-t border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase) => {
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.analytics.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.analytics.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className="order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <AnalyticsLandingMock
+                    mode={useCase.mode}
+                    label={t(`templateLanding.analytics.${useCase.titleKey}`)}
+                    className="h-[290px] min-h-[290px] w-full"
+                    showSidebar={false}
+                    showAgent={useCase.mode === "growth"}
+                  />
+                </div>
+              );
+              return (
+                <div
+                  key={useCase.id}
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.textLeft
+                      ? "lg:grid-cols-[1fr_1.25fr]"
+                      : "lg:grid-cols-[1.25fr_1fr]"
+                  }`}
+                >
+                  {useCase.textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </GridInner>
       </PageSection>

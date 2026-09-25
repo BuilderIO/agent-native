@@ -6,7 +6,7 @@ import { requireObservabilityOrgAdmin } from "./authorization.js";
 
 export default defineAction({
   description:
-    "Load the saved preview and full chat transcript for one human-review run.",
+    "Load a real artifact preview and the full chat thread for one human-review row.",
   schema: z.object({
     runId: z.string().trim().min(1).max(200).describe("Agent review run ID."),
   }),
@@ -23,6 +23,14 @@ export default defineAction({
     });
     if (!result.found)
       fail("That agent output is no longer available.", { statusCode: 404 });
-    return { app: result.app, messages: result.messages };
+    return {
+      runId: result.runId,
+      app: result.app,
+      messages: result.messages,
+      artifacts: result.artifacts,
+      summary: result.summary,
+      ask: result.ask,
+      answer: result.answer,
+    };
   },
 });

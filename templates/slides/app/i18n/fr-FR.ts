@@ -26,6 +26,7 @@ const messages = {
     team: "Équipe",
   },
   settings: {
+    agentObservability: "Observabilité de l’agent",
     title: "Paramètres",
     description: "Préférences de langue et d’espace de travail pour cette app.",
     labs: "Labs",
@@ -720,6 +721,10 @@ const messages = {
       "Si vous quittez ou rechargez maintenant, vous risquez de perdre les modifications qui ne sont pas encore enregistrées. Voulez-vous vraiment quitter ?",
     keepEditing: "Continuer à modifier",
     leaveWithoutSaving: "Quitter sans enregistrer",
+    editorMarkupNotSaved:
+      "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
+    textEditConflictNotSaved:
+      "Votre modification du texte n'a pas été enregistrée, car le même texte a été modifié ailleurs au même moment.",
   },
   designSystemSetup: {
     importedBrand: "Marque importée",

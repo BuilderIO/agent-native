@@ -389,41 +389,6 @@ const dynamicLocalComponentDirs = (() => {
   }
 })();
 
-const cloudflareSsrStubs =
-  process.env.NITRO_PRESET === "cloudflare_pages"
-    ? [
-        "@assistant-ui/react",
-        "@tiptap/core",
-        "@tiptap/extension-blockquote",
-        "@tiptap/extension-code-block-lowlight",
-        "@tiptap/extension-collaboration",
-        "@tiptap/extension-collaboration-caret",
-        "@tiptap/extension-image",
-        "@tiptap/extension-link",
-        "@tiptap/extension-placeholder",
-        "@tiptap/extension-table",
-        "@tiptap/extension-table-cell",
-        "@tiptap/extension-table-header",
-        "@tiptap/extension-table-row",
-        "@tiptap/extension-task-item",
-        "@tiptap/extension-task-list",
-        "@tiptap/pm",
-        "@tiptap/react",
-        "@tiptap/starter-kit",
-        "@xterm/addon-fit",
-        "@xterm/addon-web-links",
-        "@xterm/xterm",
-        "lowlight",
-        "prettier",
-        "react-markdown",
-        "remark-gfm",
-        "remark-mdx",
-        "tiptap-markdown",
-        "yjs",
-        "y-protocols",
-      ]
-    : [];
-
 export default defineConfig({
   plugins: [
     contentLocalComponentsPlugin(),
@@ -434,9 +399,8 @@ export default defineConfig({
         ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
         ...dynamicLocalComponentDirs,
       ],
-      // shiki only runs in AssistantChat's useEffect — keep it out of the
-      // CF Pages Functions bundle (25 MiB limit).
-      ssrStubs: ["shiki", ...cloudflareSsrStubs],
+      // shiki only runs in AssistantChat's useEffect — keep it out of SSR bundles.
+      ssrStubs: ["shiki"],
     }),
   ],
   optimizeDeps: {

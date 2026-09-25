@@ -11919,7 +11919,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           // Use the pre-lift snapshot: during a drag the bridge may temporarily
           // add a translate() transform to the source element, and that
           // editor-only transform must never become destination markup.
-          sourceCloneHtml: phase === "end" ? activeCrossScreenSourceHtml : void 0,
+          // Send it from "start": the host can finalize from its own window
+          // mouseup, in which case this iframe never sees the release and no
+          // "end" is posted.
+          sourceCloneHtml: phase === "start" || phase === "end" ? activeCrossScreenSourceHtml : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"

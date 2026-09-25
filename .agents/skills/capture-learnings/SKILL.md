@@ -36,6 +36,11 @@ Memories are stored as **resources** in the SQL database, not as files on disk.
 
 ## When to Capture
 
+At the natural stopping point of a meaningful multi-turn task, review the
+conversation for durable preferences, corrections, decisions, conventions, or
+project context that would improve a future thread. Save only new, supported
+facts; completed task details and temporary debugging notes stay in the thread.
+
 ### Team and organization knowledge (`LEARNINGS.md`, shared scope)
 - Canonical destinations and workflows (for example, which Content database receives a type of Slack request)
 - Required intake fields, ownership, prioritization conventions, metric definitions, and approved terminology

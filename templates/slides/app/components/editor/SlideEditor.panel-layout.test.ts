@@ -133,10 +133,14 @@ describe("slide context toolbar", () => {
     );
   });
 
-  it("cancels native image dragging on the editable canvas", () => {
-    expect(editorSource).toContain(
-      "onDragStart={(event) => event.preventDefault()}",
+  it("cancels native image dragging on the editable canvas, but not text being edited", () => {
+    expect(editorSource).toContain("onDragStart={handleSlideDragStart}");
+    const start = editorSource.indexOf("const handleSlideDragStart");
+    const handler = editorSource.slice(start, start + 500);
+    expect(handler).toContain(
+      "textSessionRef.current?.text.element.contains(event.target)",
     );
+    expect(handler).toContain("event.preventDefault()");
   });
 
   it("keeps the comment target mounted for Excalidraw slides", () => {

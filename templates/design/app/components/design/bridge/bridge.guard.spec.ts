@@ -12244,6 +12244,67 @@ it(
   },
 );
 
+// A live cross-screen move can be finalized by the host's own window mouseup,
+// so the source iframe never posts "end". The pre-lift outerHTML must already
+// be on "start", or the host has no insert payload and refuses the move.
+it(
+  "editor chrome bridge posts the pre-lift source outerHTML on the cross-screen-drag start phase",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #target { position: absolute; left: 100px; top: 100px; width: 120px; height: 80px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="target" data-agent-native-node-id="target"></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.postMessage = ((message: unknown) => {
+          (window as any).__bridgeMessages.push(message);
+        }) as typeof window.postMessage;
+      });
+
+      await page.mouse.click(160, 140);
+      const preLiftHtml = await page.evaluate(
+        () => document.querySelector("#target")!.outerHTML,
+      );
+      await page.mouse.move(160, 140);
+      await page.mouse.down();
+      await page.mouse.move(200, 180, { steps: 4 });
+
+      const start = await page.evaluate(() => {
+        const starts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (m) =>
+            m.type === "agent-native:cross-screen-drag" && m.phase === "start",
+        );
+        return starts[starts.length - 1];
+      });
+      expect(start?.sourceCloneHtml).toBe(preLiftHtml);
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Selection overlay tracks CSS transitions/animations ─────────────────────
 //
 // ResizeObserver (the existing overlay-sync mechanism) only fires on

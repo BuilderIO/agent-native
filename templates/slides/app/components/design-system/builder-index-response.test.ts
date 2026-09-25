@@ -59,14 +59,56 @@ describe("readBuilderIndexResponse", () => {
     );
   });
 
+  it("does not expose HTML error pages returned by the upload service", async () => {
+    await expect(
+      readBuilderIndexResponse(
+        new Response(
+          "<!DOCTYPE html><html><body>502: Bad gateway Cloudflare Ray ID: abc123</body></html>",
+          {
+            status: 502,
+            headers: { "Content-Type": "text/html; charset=UTF-8" },
+          },
+        ),
+      ),
+    ).rejects.toThrow("Upload failed (502)");
+  });
+
+  it("does not expose HTML error pages wrapped in JSON", async () => {
+    await expect(
+      readBuilderIndexResponse(
+        new Response(
+          JSON.stringify({
+            error:
+              "<!DOCTYPE html><html><body>502: Bad gateway Cloudflare Ray ID: abc123</body></html>",
+          }),
+          {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      ),
+    ).rejects.toThrow("Upload failed (502)");
+  });
+
+  it("matches HTML media types without case sensitivity", async () => {
+    await expect(
+      readBuilderIndexResponse(
+        new Response("Gateway diagnostics", {
+          status: 502,
+          headers: { "Content-Type": "Text/HTML; charset=UTF-8" },
+        }),
+      ),
+    ).rejects.toThrow("Upload failed (502)");
+  });
+
   it("summarizes other non-JSON upload failures", async () => {
     await expect(
       readBuilderIndexResponse(
-        new Response("<html>Not Found</html>", {
+        new Response("Not Found", {
           status: 404,
           headers: { "Content-Type": "text/html" },
         }),
       ),
-    ).rejects.toThrow("Upload failed (404): Not Found");
+    ).rejects.toThrow("Upload failed (404)");
   });
 });

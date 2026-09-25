@@ -720,6 +720,10 @@ export async function mergeCoreSharingActions(
       () => import("../feature-flags/actions/get-feature-flags.js"),
     ],
     [
+      "get-launchdarkly-flags",
+      () => import("../launchdarkly/actions/get-launchdarkly-flags.js"),
+    ],
+    [
       "get-hosted-harness-config",
       () => import("../hosted-harness/actions/get-hosted-harness-config.js"),
     ],

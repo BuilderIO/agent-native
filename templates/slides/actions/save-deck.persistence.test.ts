@@ -137,6 +137,49 @@ describe("save-deck design-system relation persistence", () => {
     expect(state.updatedFields?.designSystemId).toBe("brand-1");
   });
 
+  it("refuses a full replacement that stores rendered editor markup", async () => {
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-1",
+          deck: {
+            title: "Existing",
+            slides: [
+              {
+                id: "slide-1",
+                content:
+                  '<p data-builder-id="b-1" contenteditable="false">old</p>',
+              },
+            ],
+          },
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(state.updatedFields).toBeUndefined();
+  });
+
+  it("refuses to create a deck whose slides carry rendered editor markup", async () => {
+    state.access = undefined;
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-new",
+          deck: {
+            title: "New deck",
+            slides: [
+              {
+                id: "slide-1",
+                content: '<p data-src-i="slide-r1:0">New</p>',
+              },
+            ],
+          },
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+  });
+
   it("skips a full replacement when only updatedAt differs", async () => {
     const result = await saveDeckAction.run(
       {

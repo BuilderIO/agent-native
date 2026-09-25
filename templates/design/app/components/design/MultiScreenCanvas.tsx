@@ -4097,12 +4097,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             styleSnapshotCaptureFailed,
           };
           const lastBoardPoint = crossScreenLastBoardPointRef.current;
+          const releasedAt = eventEpochMilliseconds(ev.timeStamp);
           finalizeCrossScreenDrop(
             sourceScreenId,
             candidate,
             payload,
             lastBoardPoint,
-            eventEpochMilliseconds(ev.timeStamp),
+            releasedAt,
+          );
+          // This release never reached the source iframe, so its gesture is
+          // still armed: the element stays lifted and follows the next hover.
+          // End it there; the "cancel" it posts back trails this end, so the
+          // cancel handler treats it as cleanup and keeps this drop alive.
+          // Stamped with the release so a gesture begun after it survives.
+          sourcePreviewIframe.contentWindow?.postMessage(
+            { type: "agent-native:cancel-active-drag", pressedAt: releasedAt },
+            "*",
           );
         };
         const handleParentWindowBlur = () => {

@@ -1438,7 +1438,11 @@ function DesignEditor() {
     return {
       list: {
         action: "list-design-versions",
-        args: { designId, limit: 100 },
+        args: (threadId) => ({
+          designId,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"
@@ -4881,9 +4885,9 @@ function DesignEditor() {
     [cancelIdentityMigration, queueFileContentSave],
   );
 
-  const flushPendingFileContentSavesForBackground = useCallback(() => {
+  const flushPendingFileContentSavesForBackground = useCallback(async () => {
     if (!canEditDesignRef.current) return;
-    flushFileContentSavesOnBackground(
+    const flushed = flushFileContentSavesOnBackground(
       pendingFileSavesRef.current,
       latestFileSaveForUnloadRef.current,
       Object.values(fileSaveTimersRef.current),
@@ -4892,6 +4896,8 @@ function DesignEditor() {
     );
     fileSaveTimersRef.current = {};
     pendingFileSavesRef.current = {};
+    await flushed;
+    await Promise.all(Object.values(fileSaveChainsRef.current));
   }, [saveFileContent]);
 
   const sendFileContentSaveKeepalive = useCallback(
@@ -6497,7 +6503,9 @@ function DesignEditor() {
 
   useEffect(() => {
     const handleBackground = () => {
-      flushPendingFileContentSavesForBackground();
+      void flushPendingFileContentSavesForBackground().catch(
+        warnChangesWillRetry,
+      );
       flushPendingTweakSave();
       flushPendingFrameGeometrySave();
     };
@@ -6519,9 +6527,17 @@ function DesignEditor() {
         handleForeground();
       }
     };
+    const handleChatHistoryFlush = (event: Event) => {
+      const pendingFlushes = (event as CustomEvent<Promise<void>[]>).detail;
+      pendingFlushes.push(flushPendingFileContentSavesForBackground());
+    };
 
     window.addEventListener("agent-native:app-background", handleBackground);
     window.addEventListener("agent-native:app-foreground", handleForeground);
+    window.addEventListener(
+      "agent-native:design-flush-pending-saves",
+      handleChatHistoryFlush,
+    );
     window.addEventListener("message", handleLifecycleMessage);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
@@ -6532,6 +6548,10 @@ function DesignEditor() {
       window.removeEventListener(
         "agent-native:app-foreground",
         handleForeground,
+      );
+      window.removeEventListener(
+        "agent-native:design-flush-pending-saves",
+        handleChatHistoryFlush,
       );
       window.removeEventListener("message", handleLifecycleMessage);
       document.removeEventListener("visibilitychange", handleVisibilityChange);

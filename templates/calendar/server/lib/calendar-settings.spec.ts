@@ -32,17 +32,16 @@ beforeEach(() => {
   getRequestTimezoneMock.mockReturnValue("Pacific/Auckland");
   putSettingMock.mockResolvedValue(undefined);
   putUserSettingMock.mockResolvedValue(undefined);
-  // By default simulate no concurrent write racing ahead - the updater
-  // sees the same "nothing saved yet" state readCalendarSettings already
-  // observed.
+  // The default updater reads the same stored row a database-backed atomic
+  // write would begin from. Individual tests override it for races.
   mutateUserSettingMock.mockImplementation(
     async (
-      _email: string,
-      _key: string,
+      email: string,
+      key: string,
       updater: (
         current: Record<string, unknown> | null,
       ) => Record<string, unknown> | Promise<Record<string, unknown>>,
-    ) => updater(null),
+    ) => updater(await getUserSettingMock(email, key)),
   );
 });
 
@@ -132,7 +131,7 @@ describe("readPublicCalendarSettings", () => {
 });
 
 describe("saveCalendarSettings", () => {
-  it("merges a patch over the stored settings and writes both keys", async () => {
+  it("merges a patch atomically and omits private rule state from public settings", async () => {
     getUserSettingMock.mockResolvedValue({
       timezone: "Europe/Warsaw",
       bookingPageTitle: "Book",
@@ -145,12 +144,56 @@ describe("saveCalendarSettings", () => {
       bookingPageTitle: "Book",
       weekStart: "monday",
     });
-    expect(putUserSettingMock).toHaveBeenCalledWith(
+    expect(mutateUserSettingMock).toHaveBeenCalledWith(
       EMAIL,
       "calendar-settings",
-      saved,
+      expect.any(Function),
     );
-    expect(putSettingMock).toHaveBeenCalledWith("calendar-settings", saved);
+    expect(putUserSettingMock).not.toHaveBeenCalled();
+    expect(putSettingMock).toHaveBeenCalledWith(
+      "calendar-settings",
+      expect.not.objectContaining({
+        eventRules: expect.anything(),
+        hiddenEventKeys: expect.anything(),
+        eventRuleActivity: expect.anything(),
+      }),
+    );
+    expect(saved.weekStart).toBe("monday");
+  });
+
+  it("preserves activity written concurrently with a settings update", async () => {
+    const activity = {
+      id: "activity-1",
+      eventId: "event-1",
+      accountEmail: EMAIL,
+      title: "Planning",
+      action: "accepted",
+      occurredAt: "2026-09-25T12:00:00.000Z",
+    };
+    const current = {
+      timezone: "Europe/Warsaw",
+      eventRuleActivity: [activity],
+      hiddenEventKeys: ["google:owner@example.com:primary:event-2"],
+      __calendarEventRuleUndoClaims: {
+        "activity-1": { token: "undo-token", expiresAt: Date.now() + 60_000 },
+      },
+    };
+    let persisted: Record<string, unknown> | undefined;
+    mutateUserSettingMock.mockImplementationOnce(
+      async (_email, _key, update) => {
+        persisted = update(current);
+        return persisted;
+      },
+    );
+
+    const saved = await saveCalendarSettings(EMAIL, { weekStart: "monday" });
+
+    expect(saved.eventRuleActivity).toEqual([activity]);
+    expect(saved.hiddenEventKeys).toEqual(current.hiddenEventKeys);
+    expect(persisted?.__calendarEventRuleUndoClaims).toEqual(
+      current.__calendarEventRuleUndoClaims,
+    );
+    expect(saved).not.toHaveProperty("__calendarEventRuleUndoClaims");
   });
 
   // Saving an unrelated field must not quietly move an account to the fixed

@@ -6,6 +6,7 @@ import {
   getRequestUserEmail,
   isJevEnabled,
 } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import {
@@ -47,7 +48,6 @@ function emailFingerprint(
       to: email.to,
       subject: email.subject,
       snippet: email.snippet,
-      labelIds: email.labelIds,
     }),
   );
 }
@@ -81,16 +81,22 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) fail("Unauthenticated", { errorCode: "unauthenticated" });
     const jevCredentials = await getJevContextCredentials(ownerEmail);
-    if (!(await isJevEnabled(jevCredentials))) {
+    const [jevEnabled, rules, cache, storedFeedback] = await Promise.all([
+      isJevEnabled(jevCredentials),
+      listAutomationRules(ownerEmail),
+      getAiPriorityCache(ownerEmail),
+      getUserSetting(ownerEmail, "ai-priority-feedback"),
+    ]);
+    if (!jevEnabled) {
       fail("Jev is not enabled for this account.", {
         errorCode: "jev_not_enabled",
         statusCode: 403,
       });
     }
 
-    const rules = importantRules(await listAutomationRules(ownerEmail));
-    const instruction = rules.length
-      ? rules.map((rule) => rule.condition.trim()).join("\n")
+    const priorityRules = importantRules(rules);
+    const instruction = priorityRules.length
+      ? priorityRules.map((rule) => rule.condition.trim()).join("\n")
       : AI_PRIORITY_DEFAULT_INSTRUCTION;
     const modelSettings = {
       engine: TYPESAFE_AUTOMATION_ENGINE,
@@ -99,8 +105,8 @@ export default defineAction({
     const instructionKey = hash(
       JSON.stringify({
         model: modelSettings,
-        rules: rules.length
-          ? rules.map(
+        rules: priorityRules.length
+          ? priorityRules.map(
               (rule) => `${rule.id}:${rule.updatedAt}:${rule.condition}`,
             )
           : [instruction],
@@ -119,13 +125,47 @@ export default defineAction({
           b.id.localeCompare(a.id),
       )
       .slice(0, AI_PRIORITY_MAX_EMAILS);
-    const cache = await getAiPriorityCache(ownerEmail);
     const fingerprints = eligibleEmails.map((email) => ({
       id: email.id,
       accountEmail: email.accountEmail,
       fingerprint: emailFingerprint(email),
     }));
     const scores = getCachedPriorityScores(cache, fingerprints, instructionKey);
+    const feedbackValue =
+      storedFeedback &&
+      typeof storedFeedback === "object" &&
+      "entries" in storedFeedback
+        ? storedFeedback.entries
+        : (storedFeedback ?? []);
+    const feedback = z
+      .array(
+        z.object({
+          emailId: z.string(),
+          accountEmail: z.string().email().optional(),
+          decision: z.enum(["important", "not-important"]),
+          createdAt: z.number().int(),
+        }),
+      )
+      .max(500)
+      .safeParse(feedbackValue);
+    if (!feedback.success) {
+      throw new Error("Stored importance feedback is unreadable.");
+    }
+    const eligibleKeys = new Set(
+      fingerprints.map((email) =>
+        aiPriorityEmailKey(email.accountEmail, email.id),
+      ),
+    );
+    for (const item of feedback.data) {
+      const key = aiPriorityEmailKey(item.accountEmail, item.emailId);
+      if (eligibleKeys.has(key)) {
+        scores.set(key, {
+          emailId: item.emailId,
+          ...(item.accountEmail ? { accountEmail: item.accountEmail } : {}),
+          score: item.decision === "important" ? 1 : 0,
+        });
+      }
+    }
     const pending = eligibleEmails.filter(
       (email) => !scores.has(aiPriorityEmailKey(email.accountEmail, email.id)),
     );
