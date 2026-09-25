@@ -62,7 +62,7 @@ export default defineAction({
       },
     );
 
-    if (cleanupHandles.length) {
+    if (!enabled) {
       await deleteVisualEditSnapshotBlobs(cleanupHandles);
     }
 

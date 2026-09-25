@@ -177,6 +177,18 @@ describe("visual-edit collaboration preference", () => {
     expect(mocks.deleteBlobs).toHaveBeenCalledWith(["snapshot-blob", null]);
   });
 
+  it("retries queued blob cleanup when collaboration is disabled without current snapshots", async () => {
+    await expect(
+      updateCollaborationAction.run(
+        { designId: "design-one", enabled: false },
+        { caller: "frontend" },
+      ),
+    ).resolves.toEqual({ designId: "design-one", enabled: false });
+
+    expect(mocks.queueCleanup).toHaveBeenCalledWith(mocks.tx, []);
+    expect(mocks.deleteBlobs).toHaveBeenCalledWith([]);
+  });
+
   it("does not let a signed-in viewer's visual-edit capability grant editor access", async () => {
     mocks.getRequestUserEmail.mockReturnValue("viewer@example.test");
     mocks.currentAccess.mockReturnValue({
