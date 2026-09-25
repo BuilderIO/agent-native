@@ -1310,12 +1310,10 @@ export default createAgentChatPlugin({
     ownerEmail,
     requestContext,
     contextPrefetchDeadlineAt,
-    internalContinuation,
     dispatchToBackground,
   }) => {
     if (
       !ownerEmail ||
-      internalContinuation ||
       dispatchToBackground ||
       !looksLikeAnalyticsDataRequest(requestContext)
     ) {

@@ -1192,12 +1192,7 @@ export async function preloadJevContextForPrompt(options: {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
   const personalApiKey = options.personalApiKey?.trim();
-  if (
-    !request ||
-    options.maxChars === 0 ||
-    options.internalContinuation ||
-    options.dispatchToBackground
-  ) {
+  if (!request || options.maxChars === 0 || options.dispatchToBackground) {
     return "";
   }
 

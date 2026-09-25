@@ -128,56 +128,61 @@ import {
 describe("Analytics prompt-reference preparation", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it.each(["internalContinuation", "dispatchToBackground"] as const)(
-    "skips catalog and embedding retrieval for %s",
-    async (flag) => {
-      const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
-        details: Record<string, unknown>,
-      ) => Promise<unknown>;
-
-      await prepareRequest({
-        ownerEmail: "owner@example.test",
-        requestContext: "Current request: count active users",
-        contextPrefetchDeadlineAt: Date.now() + 1_300,
-        dispatchToBackground: false,
-        [flag]: true,
-      });
-
-      expect(retrieveAnalyticsPromptReferences).not.toHaveBeenCalled();
-    },
-  );
-
-  it("retrieves Analytics references in the durable worker request", async () => {
-    const candidate = {
-      id: "analytics-reference-1",
-      description: "Active users definition",
-      metadata: { kind: "analytics-reference" },
-      name: "Active users",
-      scope: "analytics-catalog",
-      content: "Metric: active users.",
-    };
-    vi.mocked(retrieveAnalyticsPromptReferences).mockResolvedValue({
-      jevPromptCandidates: [candidate],
-      jevFallbackCandidateIds: [candidate.id],
-    });
+  it("skips catalog and embedding retrieval before background dispatch", async () => {
     const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
       details: Record<string, unknown>,
     ) => Promise<unknown>;
 
-    const result = await prepareRequest({
+    await prepareRequest({
       ownerEmail: "owner@example.test",
       requestContext: "Current request: count active users",
       contextPrefetchDeadlineAt: Date.now() + 1_300,
-      dispatchToBackground: false,
-      isBackgroundWorker: true,
+      dispatchToBackground: true,
     });
 
-    expect(retrieveAnalyticsPromptReferences).toHaveBeenCalledOnce();
-    expect(result).toEqual({
-      jevPromptCandidates: [candidate],
-      jevFallbackCandidateIds: [candidate.id],
-    });
+    expect(retrieveAnalyticsPromptReferences).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["durable worker", { isBackgroundWorker: true }],
+    [
+      "server continuation",
+      { isBackgroundWorker: true, internalContinuation: true },
+    ],
+  ] as const)(
+    "retrieves Analytics references in a %s request",
+    async (_, requestOptions) => {
+      const candidate = {
+        id: "analytics-reference-1",
+        description: "Active users definition",
+        metadata: { kind: "analytics-reference" },
+        name: "Active users",
+        scope: "analytics-catalog",
+        content: "Metric: active users.",
+      };
+      vi.mocked(retrieveAnalyticsPromptReferences).mockResolvedValue({
+        jevPromptCandidates: [candidate],
+        jevFallbackCandidateIds: [candidate.id],
+      });
+      const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
+        details: Record<string, unknown>,
+      ) => Promise<unknown>;
+
+      const result = await prepareRequest({
+        ownerEmail: "owner@example.test",
+        requestContext: "Current request: count active users",
+        contextPrefetchDeadlineAt: Date.now() + 1_300,
+        dispatchToBackground: false,
+        ...requestOptions,
+      });
+
+      expect(retrieveAnalyticsPromptReferences).toHaveBeenCalledOnce();
+      expect(result).toEqual({
+        jevPromptCandidates: [candidate],
+        jevFallbackCandidateIds: [candidate.id],
+      });
+    },
+  );
 
   it("uses the bounded recent-user request and shared deadline for retrieval", async () => {
     const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
@@ -219,6 +224,7 @@ describe("Analytics prompt-reference preparation", () => {
 
   it("reports preloaded references in the worker completion event", async () => {
     const context = {
+      isBackgroundWorker: true,
       analyticsJevPrefetch: { preloadedReferenceCount: 2 },
     };
     getRequestRunContext.mockReturnValue(context);

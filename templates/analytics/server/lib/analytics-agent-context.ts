@@ -19,7 +19,6 @@ const FALLBACK_CANDIDATE_LIMIT = 2;
 const MAX_REFERENCE_CONTENT_CHARS = 4_000;
 const MAX_EMBEDDING_CACHE_ENTRIES = 256;
 const MAX_EMBEDDING_SUMMARY_CHARS = 400;
-const MIN_JEV_REFERENCE_SIMILARITY = 0.35;
 
 export interface AnalyticsPromptCandidate {
   id: string;

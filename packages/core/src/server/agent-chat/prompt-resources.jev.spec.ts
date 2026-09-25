@@ -378,51 +378,56 @@ describe("preloadJevContextForPrompt", () => {
     ]);
   });
 
-  it.each(["internalContinuation", "dispatchToBackground"] as const)(
-    "skips Jev and memory retrieval for %s",
-    async (flag) => {
-      await expect(
-        preloadJevContextForPrompt({
-          request: "How do we query Analytics data?",
-          apiKey: "jev-test-key",
-          owner: "user@example.test",
-          appId: "analytics",
-          [flag]: true,
-        }),
-      ).resolves.toBe("");
+  it("skips Jev and memory retrieval before background dispatch", async () => {
+    await expect(
+      preloadJevContextForPrompt({
+        request: "How do we query Analytics data?",
+        apiKey: "jev-test-key",
+        owner: "user@example.test",
+        appId: "analytics",
+        dispatchToBackground: true,
+      }),
+    ).resolves.toBe("");
 
-      expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
-      expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+    expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["worker", { dispatchToBackground: false }],
+    ["internal continuation", { internalContinuation: true }],
+  ] as const)(
+    "injects Analytics references and records their count in a %s prompt",
+    async (_mode, requestOptions) => {
+      const requestRunContext: Record<string, unknown> = {
+        isBackgroundWorker: true,
+      };
+      mocks.requestRunContext.mockReturnValue(requestRunContext);
+      mocks.getRuntimeSkills.mockReturnValue([]);
+
+      const result = await preloadJevContextForPrompt({
+        request: "How many active users last month?",
+        appId: "analytics",
+        ...requestOptions,
+        candidates: [
+          {
+            id: "analytics-reference-1",
+            description: "Approved active users definition.",
+            metadata: { kind: "analytics-reference" },
+            name: "Active users",
+            scope: "analytics-catalog",
+            content: "Metric: active users.",
+          },
+        ],
+        fallbackCandidateIds: ["analytics-reference-1"],
+      });
+
+      expect(result).toContain("Metric: active users.");
+      expect(requestRunContext.analyticsJevPrefetch).toEqual({
+        preloadedReferenceCount: 1,
+      });
     },
   );
-
-  it("injects Analytics references and records their count in a worker prompt", async () => {
-    const requestRunContext: Record<string, unknown> = {};
-    mocks.requestRunContext.mockReturnValue(requestRunContext);
-    mocks.getRuntimeSkills.mockReturnValue([]);
-
-    const result = await preloadJevContextForPrompt({
-      request: "How many active users last month?",
-      appId: "analytics",
-      dispatchToBackground: false,
-      candidates: [
-        {
-          id: "analytics-reference-1",
-          description: "Approved active users definition.",
-          metadata: { kind: "analytics-reference" },
-          name: "Active users",
-          scope: "analytics-catalog",
-          content: "Metric: active users.",
-        },
-      ],
-      fallbackCandidateIds: ["analytics-reference-1"],
-    });
-
-    expect(result).toContain("Metric: active users.");
-    expect(requestRunContext.analyticsJevPrefetch).toEqual({
-      preloadedReferenceCount: 1,
-    });
-  });
 
   it("uses lexical reference fallbacks when Jev outlives the shared budget", async () => {
     mocks.getRuntimeSkills.mockReturnValue([]);
