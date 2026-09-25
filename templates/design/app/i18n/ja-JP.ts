@@ -1654,6 +1654,14 @@ export default {
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
   homeContext: {
+    websiteReference: "ウェブサイトを添付",
+    websiteUrlLabel: "ウェブサイトのURL",
+    websiteUrl: "ウェブサイトのURLを貼り付け",
+    figmaUrlLabel: "Figmaリンク",
+    invalidFigmaUrl:
+      "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
+    tooMany: "参照は20件まで選択できます。",
+    invalidWebsiteUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
     createSystem: "デザインシステムを作成",
     noSystems:
       "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",

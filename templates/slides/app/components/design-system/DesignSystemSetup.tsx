@@ -54,6 +54,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { cn } from "@/lib/utils";
 
 import {
@@ -169,7 +170,14 @@ function isDesignMdFile(file: UploadedFile) {
   return name === "design.md" || name === "design.mdx";
 }
 
-export function DesignSystemSetup({
+export function DesignSystemSetup(props: DesignSystemSetupProps) {
+  const enabled = useDesignSystemWorkflows();
+  return enabled || props.editingId ? (
+    <DesignSystemSetupContent {...props} />
+  ) : null;
+}
+
+function DesignSystemSetupContent({
   open,
   onClose,
   onComplete,

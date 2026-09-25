@@ -1653,6 +1653,13 @@ export default {
       "O elemento original não foi mais encontrado na tela de design.",
   },
   homeContext: {
+    websiteReference: "Anexar site",
+    websiteUrlLabel: "URL do site",
+    websiteUrl: "Cole a URL de um site",
+    figmaUrlLabel: "Link do Figma",
+    invalidFigmaUrl: "Insira uma URL válida de quadro ou arquivo do figma.com.",
+    tooMany: "Escolha até 20 referências.",
+    invalidWebsiteUrl: "Insira uma URL HTTP ou HTTPS válida.",
     createSystem: "Criar um sistema de design",
     noSystems:
       "Você ainda não tem um sistema de design. Crie um a partir de um site, arquivos ou Figma.",

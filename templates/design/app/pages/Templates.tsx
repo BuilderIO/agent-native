@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { writePendingGeneration } from "@/lib/pending-generation";
@@ -86,9 +87,11 @@ export default function Templates() {
   const [selected, setSelected] = useState<DesignTemplateSummary | null>(null);
   const [promptOpen, setPromptOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
+  const systemsEnabled = useDesignSystemWorkflows();
+  const [chosenDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+  const selectedDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
   const [deleteTemplate, setDeleteTemplate] =
     useState<DesignTemplateSummary | null>(null);
   const anchorElRef = useRef<HTMLElement | null>(null);
@@ -108,7 +111,7 @@ export default function Templates() {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems();
+  } = useDesignSystems(systemsEnabled);
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -131,6 +134,7 @@ export default function Templates() {
   const userTemplates = filtered.filter((template) => !template.isBuiltIn);
 
   const resolveDefaultDesignSystemId = (): string | null => {
+    if (!systemsEnabled) return null;
     if (
       defaultSystem &&
       isDesignSystemUsableForGeneration(defaultSystem.data)

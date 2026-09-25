@@ -1616,6 +1616,13 @@ export default {
     staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
   },
   homeContext: {
+    websiteReference: "إرفاق موقع ويب",
+    websiteUrlLabel: "عنوان URL لموقع الويب",
+    websiteUrl: "الصق عنوان URL لموقع ويب",
+    figmaUrlLabel: "رابط Figma",
+    invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
+    tooMany: "اختر ما يصل إلى 20 مرجعًا.",
+    invalidWebsiteUrl: "أدخل عنوان URL صالحًا ببروتوكول HTTP أو HTTPS.",
     createSystem: "إنشاء نظام تصميم",
     noSystems:
       "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",

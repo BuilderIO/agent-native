@@ -1685,6 +1685,13 @@ export default {
     layoutLabel: "畫面版面已可儲存",
   },
   homeContext: {
+    websiteReference: "附加網站",
+    websiteUrlLabel: "網站 URL",
+    websiteUrl: "貼上網站 URL",
+    figmaUrlLabel: "Figma 連結",
+    invalidFigmaUrl: "請輸入有效的 figma.com 畫框或檔案 URL。",
+    tooMany: "最多選擇 20 個參考。",
+    invalidWebsiteUrl: "請輸入有效的 HTTP 或 HTTPS URL。",
     createSystem: "建立設計系統",
     noSystems: "你還沒有設計系統。可以從網站、檔案或 Figma 建立。",
     searchSystems: "搜尋設計系統…",

@@ -275,8 +275,13 @@ const contextMenuItems: ComposerContextMenuItem[] = [
       scopeKey: accessScope,
       refreshKey: sourceVersion,
       load: loadAuthorizedReferences,
-      onSelect: stageReference,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
       link: {
+        label: labels.referenceUrl,
         placeholder: labels.referenceLink,
         submitLabel: labels.findReferences,
         validate: validateReferenceLink,
@@ -285,6 +290,33 @@ const contextMenuItems: ComposerContextMenuItem[] = [
   },
 ];
 ```
+
+`presentation`의 기본값은 `"submenu"`입니다. `{ type: "dialog", mode: "multiple", onAttach }`를 지정하면 일반 메뉴 항목이 공유 대화상자를 열고 항목 레이블이 제목이 됩니다. `link.label`은 URL 입력란의 레이블입니다. 계속 버튼은 결과를 불러오기 전에 자격 증명이 없는 HTTP(S) URL을 검증합니다. 비어 있거나 잘못된 입력으로는 공급자를 호출하지 않습니다. `link.validate()`로 공급자별 규칙을 적용할 수 있습니다. 대화상자 버튼은 `link.submitLabel` 대신 공유 번역 레이블을 사용합니다.
+
+`presentation.onAttach(items, request)`는 새로 선택한 항목을 동결된 단일 배치로 받습니다. 이 모드에서는 `onSelect`를 지정할 수 없습니다. 검색하거나 페이지를 이동해도 선택이 유지됩니다. `selectedIds`는 선택된 비활성 상태로 표시되며 배치에서 제외됩니다. ID는 서로 다른 소스 파일을 구분해야 합니다. `false`를 반환하면 대화상자가 열린 상태로 유지됩니다. 거부되면 재시도 가능한 오류가 표시됩니다. 취소하거나 `scopeKey`가 변경되면 진행 중인 작업을 중단하고 늦은 응답을 무시합니다. 다시 열면 URL이 초기화됩니다. 호스트는 비동기 콜백의 변경을 확정하기 전에 `request.signal`을 확인해야 합니다. `footerAction`과 `clearSelection`은 하위 메뉴 컨트롤로 유지됩니다.
+
+`{ type: "dialog", mode: "url" }`은 결과 목록을 불러오지 않고 바로 첨부합니다. `onSelect(item, request)`는 `{ id: url, title: url, url }`과 `request.url`을 받습니다.
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`@agent-native/core/server`의 `readComposerWebsiteSource(url, extractCallback)`는 호스트의 기존 SSRF 방어 추출기로 웹사이트 참조를 만듭니다. `@agent-native/core/shared`의 `composerSourceRequestSchema`는 `source: "website"`에 대해 `operation: "read"`와 자격 증명이 없는 최대 2,048자의 HTTP(S) `url`만 허용합니다. 헬퍼는 안정적인 URL 해시 ID와 최대 20,000자의 컨텍스트를 포함한 `{ id, title, url, context }`를 반환합니다. 추출 상태, 경고, 렌더링 출처와 `[truncated]` 표시는 컨텍스트 텍스트에 남습니다. 부분 추출도 명시적으로 표시됩니다. 추출 실패나 사용 가능한 `designMd` 누락 시 타입이 지정된 실패를 던집니다. 권한 확인은 여전히 호스트의 [액션](/docs/actions-overview)이 담당합니다.
 
 선택기 항목에는 `render`나 항목 수준의 `onSelect`를 함께 정의하지 않습니다. 카테고리는 `children`을 사용합니다. 루트와 각 카테고리의 헤더에는 검색 입력이 유지됩니다. 카테고리에 번역된 `searchPlaceholder`를 지정할 수 있으며, 생략하면 공유 컨텍스트 검색 자리표시자를 사용합니다. 소스 목록의 검색 입력에는 `picker.searchPlaceholder`를 사용합니다. 등록은 소스 접근 권한을 부여하지 않습니다. 공유 선택기는 새 요청으로 대체된 로드 응답을 무시합니다.
 

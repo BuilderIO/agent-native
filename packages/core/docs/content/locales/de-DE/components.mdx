@@ -282,8 +282,13 @@ const contextMenuItems: ComposerContextMenuItem[] = [
       scopeKey: accessScope,
       refreshKey: sourceVersion,
       load: loadAuthorizedReferences,
-      onSelect: stageReference,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
       link: {
+        label: labels.referenceUrl,
         placeholder: labels.referenceLink,
         submitLabel: labels.findReferences,
         validate: validateReferenceLink,
@@ -292,6 +297,33 @@ const contextMenuItems: ComposerContextMenuItem[] = [
   },
 ];
 ```
+
+`presentation` verwendet standardmäßig `"submenu"`. Mit `{ type: "dialog", mode: "multiple", onAttach }` öffnet ein normaler Menüeintrag einen gemeinsamen Dialog mit der Eintragsbezeichnung als Titel. `link.label` beschriftet das URL-Feld. Weiter prüft vor dem Laden eine HTTP(S)-URL ohne Zugangsdaten. Leere oder ungültige Eingaben rufen den Anbieter nicht auf. `link.validate()` kann anbieterspezifische Regeln prüfen. Dialogschaltflächen nutzen gemeinsame übersetzte Bezeichnungen statt `link.submitLabel`.
+
+`presentation.onAttach(items, request)` erhält einmalig einen eingefrorenen Stapel neu ausgewählter Elemente. Dieser Modus schließt `onSelect` aus. Die Auswahl bleibt bei Suche und Seitenwechsel erhalten. `selectedIds` sind markiert, deaktiviert und vom Stapel ausgeschlossen. IDs müssen verschiedene Quelldateien unterscheiden. `false` hält den Dialog offen. Eine Ablehnung zeigt einen Fehler mit Wiederholungsmöglichkeit. Abbrechen oder ein geänderter `scopeKey` bricht ausstehende Arbeit ab und ignoriert verspätete Ergebnisse. Beim erneuten Öffnen wird die URL zurückgesetzt. Hosts müssen `request.signal` beachten, bevor asynchrone Rückrufe Änderungen übernehmen. `footerAction` und `clearSelection` bleiben Untermenü-Steuerelemente.
+
+`{ type: "dialog", mode: "url" }` bietet direkt Anhängen, ohne Ergebnisliste zu laden. `onSelect(item, request)` erhält `{ id: url, title: url, url }` und `request.url`:
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`readComposerWebsiteSource(url, extractCallback)` aus `@agent-native/core/server` erstellt Website-Referenzen über den vorhandenen SSRF-sicheren Extraktor des Hosts. `composerSourceRequestSchema` aus `@agent-native/core/shared` akzeptiert `source: "website"` nur mit `operation: "read"` und einer HTTP(S)-`url` ohne Zugangsdaten mit höchstens 2.048 Zeichen. Die Funktion liefert `{ id, title, url, context }` mit einer stabilen URL-Hash-ID und höchstens 20.000 Kontextzeichen. Extraktionsstatus, Warnungen, Rendering-Herkunft und mögliche `[truncated]`-Markierungen bleiben im Kontexttext. Eine teilweise Extraktion bleibt ausdrücklich erkennbar. Fehlgeschlagene Extraktion oder fehlendes nutzbares `designMd` löst einen typisierten Fehler aus. Die Autorisierung bleibt Aufgabe der [Action](/docs/actions-overview) des Hosts.
 
 Auswahleinträge definieren nicht zusätzlich `render` oder ein `onSelect` auf Eintragsebene. Kategorien verwenden `children`. Die Wurzel und jede Kategorie behalten ein Suchfeld im Kopfbereich. Kategorien können einen lokalisierten `searchPlaceholder` angeben; andernfalls verwenden sie den gemeinsamen Platzhalter für die Kontextsuche. `picker.searchPlaceholder` beschriftet das Suchfeld der Quellenliste. Die Registrierung gewährt keinen Quellenzugriff. Die gemeinsame Auswahl ignoriert Antworten überholter Ladeanfragen.
 

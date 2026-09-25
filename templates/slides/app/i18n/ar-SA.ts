@@ -813,6 +813,11 @@ const messages = {
     },
     importDeck: "استيراد عرض",
     context: {
+      websiteReference: "إرفاق موقع ويب",
+      websiteUrlLabel: "عنوان URL لموقع الويب",
+      websiteUrl: "الصق عنوان URL لموقع ويب",
+      figmaUrlLabel: "رابط Figma",
+      invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
       createSystem: "إنشاء نظام تصميم",
       noSystems:
         "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",

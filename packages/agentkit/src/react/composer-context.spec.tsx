@@ -69,6 +69,42 @@ function transport() {
 }
 
 describe("AgentKit composer context submission", () => {
+  it("passes a multiple dialog descriptor without requiring a single-item callback", async () => {
+    const runtime = transport();
+    client = new AgentKitClient({ transport: runtime });
+    const onAttach = vi.fn().mockResolvedValue(false);
+    const contextMenuItems: ComposerContextMenuItem[] = [
+      {
+        id: "frames",
+        label: "Attach frames",
+        picker: {
+          presentation: { type: "dialog", mode: "multiple", onAttach },
+          scopeKey: "account",
+          refreshKey: 2,
+          searchPlaceholder: "Search frames",
+          link: {
+            label: "Source URL",
+            placeholder: "https://example.com",
+            submitLabel: "Continue",
+          },
+          load: vi.fn().mockResolvedValue({ items: [] }),
+        },
+      },
+    ];
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer contextMenuItems={contextMenuItems} />
+        </AgentKitProvider>,
+      ),
+    );
+    expect(capture.props?.contextMenuItems).toBe(contextMenuItems);
+    expect(
+      capture.props?.contextMenuItems?.[0].picker?.onSelect,
+    ).toBeUndefined();
+    expect(runtime.startRun).not.toHaveBeenCalled();
+    expect(runtime.queueMessage).not.toHaveBeenCalled();
+  });
   it("forwards declarative picker and host attachment policy without starting a run", async () => {
     const runtime = transport();
     client = new AgentKitClient({ transport: runtime });

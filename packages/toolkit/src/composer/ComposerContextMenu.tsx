@@ -25,6 +25,7 @@ import {
   ComposerContextPicker,
   type ComposerContextPickerConfig,
 } from "./ComposerContextPicker.js";
+import { ComposerContextPickerDialog } from "./ComposerContextPickerDialog.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 
 export {
@@ -84,6 +85,10 @@ interface ComposerContextPage {
   id: string;
   origin: string[];
   onDismiss?: () => void;
+}
+interface ComposerContextDialogSession {
+  id: string;
+  scopeKey?: string;
 }
 
 function findAction(
@@ -247,6 +252,24 @@ export function ComposerContextMenu({
   itemsRef.current = items;
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pendingDialog = useRef<ComposerContextDialogSession | null>(null);
+  const [dialog, setDialog] = useState<ComposerContextDialogSession | null>(
+    null,
+  );
+  const dialogRef = useRef(dialog);
+  dialogRef.current = dialog;
+  const dialogAction = dialog ? findAction(items, dialog.id) : undefined;
+  const dialogAvailable =
+    dialogAction?.picker &&
+    typeof dialogAction.picker.presentation === "object" &&
+    dialogAction.picker.scopeKey === dialog?.scopeKey;
+  useEffect(() => {
+    if (dialog && !dialogAvailable) {
+      dialogRef.current = null;
+      setDialog(null);
+    }
+  }, [dialog, dialogAvailable]);
   const restoreFocusOnClose = useRef(true);
   const label = t("agentChat.composer.addContext", {
     defaultValue: "Add context",
@@ -326,6 +349,24 @@ export function ComposerContextMenu({
   ): ReactNode => (
     <DropdownMenuGroup>
       {entries.map((entry) => {
+        if (entry.picker && typeof entry.picker.presentation === "object") {
+          return (
+            <DropdownMenuItem
+              key={entry.id}
+              disabled={entry.disabled}
+              onSelect={() => {
+                pendingDialog.current = {
+                  id: entry.id,
+                  scopeKey: entry.picker?.scopeKey,
+                };
+                changeOpen(false);
+              }}
+            >
+              {entry.icon}
+              {entry.label}
+            </DropdownMenuItem>
+          );
+        }
         const branch = [...origin, entry.id];
         const expanded = branch.every((id, index) => path[index] === id);
         if (entry.children || entry.picker || entry.render) {
@@ -453,6 +494,7 @@ export function ComposerContextMenu({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <Button
+                ref={triggerRef}
                 type="button"
                 variant="ghost"
                 size="icon"
@@ -471,6 +513,11 @@ export function ComposerContextMenu({
           className="w-64"
           data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
+            if (pendingDialog.current) {
+              event.preventDefault();
+              setDialog(pendingDialog.current);
+              pendingDialog.current = null;
+            }
             if (!restoreFocusOnClose.current) event.preventDefault();
             restoreFocusOnClose.current = true;
           }}
@@ -530,6 +577,29 @@ export function ComposerContextMenu({
           </ContextMenuPanel>
         </DropdownMenuContent>
       </DropdownMenu>
+      {dialog &&
+        dialogAvailable &&
+        dialogAction?.picker &&
+        typeof dialogAction.picker.presentation === "object" && (
+          <ComposerContextPickerDialog
+            key={JSON.stringify([dialog.id, dialogAction.picker.scopeKey])}
+            title={dialogAction.label}
+            config={dialogAction.picker}
+            onClose={() => {
+              if (dialogRef.current !== dialog) return;
+              dialogRef.current = null;
+              setDialog(null);
+              try {
+                dialogAction.onDismiss?.();
+              } catch (cause) {
+                reportError(cause);
+              }
+            }}
+            onRestoreFocus={() => {
+              if (!dialogRef.current) triggerRef.current?.focus();
+            }}
+          />
+        )}
       {error && (
         <span role="alert" className="text-xs text-destructive">
           {error}

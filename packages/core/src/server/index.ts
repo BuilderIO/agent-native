@@ -1,4 +1,8 @@
 export {
+  readComposerWebsiteSource,
+  type ComposerWebsiteExtraction,
+} from "./composer-website-source.js";
+export {
   defineAppConfig,
   getAppConfig,
   resetAppConfigForTests,

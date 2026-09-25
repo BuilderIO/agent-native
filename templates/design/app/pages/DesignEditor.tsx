@@ -480,6 +480,7 @@ import {
 } from "@/components/visual-editor/DrawOverlay";
 import { NodeRewriteProposal as NodeRewriteProposalPanel } from "@/components/visual-editor/NodeRewriteProposal";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import {
@@ -4975,11 +4976,12 @@ function DesignEditor() {
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
+  const systemsEnabled = useDesignSystemWorkflows();
   const {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems(isSignedIn && showPrompt);
+  } = useDesignSystems(isSignedIn && showPrompt && systemsEnabled);
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -5056,6 +5058,7 @@ function DesignEditor() {
   );
   const resolvePromptDesignSystemId = useCallback(() => {
     if (design?.designSystemId) return design.designSystemId;
+    if (!systemsEnabled) return null;
     if (
       defaultSystem &&
       isDesignSystemUsableForGeneration(defaultSystem.data)
@@ -5067,10 +5070,11 @@ function DesignEditor() {
         isDesignSystemUsableForGeneration(system.data),
       )?.id ?? null
     );
-  }, [defaultSystem, design?.designSystemId, designSystems]);
+  }, [defaultSystem, design?.designSystemId, designSystems, systemsEnabled]);
 
-  const selectedPromptDesignSystemId =
-    promptDesignSystemId === undefined
+  const selectedPromptDesignSystemId = !systemsEnabled
+    ? (design?.designSystemId ?? null)
+    : promptDesignSystemId === undefined
       ? designSystemsLoading
         ? undefined
         : resolvePromptDesignSystemId()

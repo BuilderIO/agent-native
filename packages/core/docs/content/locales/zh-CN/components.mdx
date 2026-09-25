@@ -275,8 +275,13 @@ const contextMenuItems: ComposerContextMenuItem[] = [
       scopeKey: accessScope,
       refreshKey: sourceVersion,
       load: loadAuthorizedReferences,
-      onSelect: stageReference,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
       link: {
+        label: labels.referenceUrl,
         placeholder: labels.referenceLink,
         submitLabel: labels.findReferences,
         validate: validateReferenceLink,
@@ -285,6 +290,33 @@ const contextMenuItems: ComposerContextMenuItem[] = [
   },
 ];
 ```
+
+`presentation` 默认为 `"submenu"`。设置 `{ type: "dialog", mode: "multiple", onAttach }` 后，普通菜单项会打开共享对话框，并以菜单项标签为标题。`link.label` 是网址输入框的标签。“继续”会先验证不含凭据的 HTTP(S) 网址，再加载结果。空白或无效输入不会调用提供商。`link.validate()` 可应用提供商专属规则。对话框按钮使用共享的本地化标签，而非 `link.submitLabel`。
+
+`presentation.onAttach(items, request)` 一次接收一批已冻结的新勾选项。此模式不允许 `onSelect`。搜索和翻页时保留选择。`selectedIds` 对应项显示为已勾选且禁用，不会加入批次。ID 必须区分不同的源文件。返回 `false` 会保持对话框打开。拒绝时显示可重试的错误。取消或更改 `scopeKey` 会中止待处理工作，并忽略迟到的结果。重新打开时会重置网址。异步回调提交更改前，宿主必须检查 `request.signal`。`footerAction` 和 `clearSelection` 仍仅用于子菜单。
+
+`{ type: "dialog", mode: "url" }` 直接执行附加，不加载结果列表。`onSelect(item, request)` 接收 `{ id: url, title: url, url }` 和 `request.url`：
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`@agent-native/core/server` 的 `readComposerWebsiteSource(url, extractCallback)` 使用宿主现有的 SSRF 安全提取器创建网站引用。`@agent-native/core/shared` 的 `composerSourceRequestSchema` 仅在 `operation: "read"` 且 `url` 为不含凭据、长度不超过 2,048 个字符的 HTTP(S) 网址时接受 `source: "website"`。辅助函数返回 `{ id, title, url, context }`，其中 ID 是稳定的网址哈希，context 最多为 20,000 个字符。提取状态、警告、渲染来源及任何 `[truncated]` 标记都保留在上下文文本中。部分提取结果会明确标注。提取失败或缺少可用的 `designMd` 会抛出类型明确的失败。授权仍由宿主的[操作](/docs/actions-overview)负责。
 
 选择器条目不能同时定义 `render` 或条目级 `onSelect`。分类使用 `children`。根菜单和每个分类都保留顶部搜索框。分类可提供本地化的 `searchPlaceholder`；未提供时使用共享的上下文搜索占位文本。源列表的搜索框使用 `picker.searchPlaceholder`。注册不授予源访问权限。共享选择器会忽略已被新请求替代的加载响应。
 

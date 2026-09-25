@@ -8,7 +8,7 @@ import type { AgentChatContextItem } from "@agent-native/toolkit/composer";
 import { z } from "zod";
 
 export const composerSourceSchema = z.object({
-  source: z.enum(["slides", "design", "figma"]),
+  source: z.enum(["slides", "design", "figma", "website"]),
   id: z.string().min(1),
   title: z.string().min(1),
   url: z.string().optional(),
@@ -83,7 +83,9 @@ export async function readSlidesComposerContext(
           {
             source: source.source,
             operation: "read",
-            id: source.id,
+            ...(source.source === "website"
+              ? { url: source.url }
+              : { id: source.id }),
             ...(source.figmaUrl ? { figmaUrl: source.figmaUrl } : {}),
             ...(source.nodeId ? { nodeId: source.nodeId } : {}),
           },

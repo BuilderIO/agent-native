@@ -13,6 +13,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type PromptPopover from "@/components/editor/PromptDialog";
 
+const systemFlag = vi.hoisted(() => ({ enabled: true, query: vi.fn() }));
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => systemFlag.enabled,
+}));
+
 const {
   useDecks,
   reloadDecks,
@@ -98,7 +103,10 @@ vi.mock("@/hooks/use-agent-generating", () => ({
   clearStartedGenerationAttempt: vi.fn(),
 }));
 vi.mock("@/hooks/use-design-systems", () => ({
-  useDesignSystems: () => ({ designSystems: [], refetch: refetchSystems }),
+  useDesignSystems: (enabled: boolean) => (
+    systemFlag.query(enabled),
+    { designSystems: [], refetch: refetchSystems }
+  ),
 }));
 vi.mock("@/hooks/use-workspace-defaults", () => ({
   useWorkspaceDefaults: () => ({ refetch: vi.fn() }),
@@ -195,6 +203,7 @@ function renderHome(overrides: Record<string, unknown> = {}, state?: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  systemFlag.enabled = true;
   createDeck.mockReset();
   signedIn.value = true;
   agentEngine.missing = false;
@@ -217,6 +226,18 @@ afterEach(() => {
 });
 
 describe("Slides prompt-led home", () => {
+  it("does not query or apply a system default or open new setup while disabled", async () => {
+    systemFlag.enabled = false;
+    renderHome();
+    expect(systemFlag.query).toHaveBeenLastCalledWith(false);
+    expect(contextOptions.mock.lastCall![0].defaultDesignSystemId).toBeNull();
+    await act(async () =>
+      contextOptions.mock.lastCall![0].onCreateDesignSystem(),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Existing system setup" }),
+    ).toBeNull();
+  });
   it("opens the existing creator only on selection, keeps the composer mounted on cancel, and refetches on completion", async () => {
     renderHome();
     const composer = await screen.findByRole("textbox", {

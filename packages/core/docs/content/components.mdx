@@ -297,8 +297,13 @@ const contextMenuItems: ComposerContextMenuItem[] = [
       scopeKey: accessScope,
       refreshKey: sourceVersion,
       load: loadAuthorizedReferences,
-      onSelect: stageReference,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
       link: {
+        label: labels.referenceUrl,
         placeholder: labels.referenceLink,
         submitLabel: labels.findReferences,
         validate: validateReferenceLink,
@@ -307,6 +312,33 @@ const contextMenuItems: ComposerContextMenuItem[] = [
   },
 ];
 ```
+
+`presentation` defaults to `"submenu"`. With `{ type: "dialog", mode: "multiple", onAttach }`, an ordinary menu item opens a shared dialog titled by the entry label. `link.label` labels its URL input. Continue validates an HTTP(S) URL without credentials before loading results. Blank or invalid submission never calls the provider. `link.validate()` can enforce provider-specific rules. Dialog buttons use shared localized labels, not `link.submitLabel`.
+
+`presentation.onAttach(items, request)` receives one frozen batch of newly checked items. This mode excludes `onSelect`. Choices survive search and pagination, and `selectedIds` are checked, disabled, and omitted from the batch. IDs must distinguish different source files. Returning `false` preserves the dialog. A rejection displays a retryable error. Cancellation or a `scopeKey` change aborts pending work and ignores late completion. Reopening starts with a fresh URL. Hosts must honor `request.signal` before asynchronous callbacks commit changes. `footerAction` and `clearSelection` remain submenu controls.
+
+`{ type: "dialog", mode: "url" }` uses Attach directly, without a results loader. Its `onSelect(item, request)` receives `{ id: url, title: url, url }` and `request.url`:
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`readComposerWebsiteSource(url, extractCallback)` from `@agent-native/core/server` builds website references through the host's existing SSRF-safe extractor. `composerSourceRequestSchema` from `@agent-native/core/shared` accepts `source: "website"` only with `operation: "read"` and a credential-free HTTP(S) `url` of at most 2,048 characters. The helper returns `{ id, title, url, context }` with a stable URL-hash ID and at most 20,000 context characters. Extraction status, warnings, rendering provenance, and any `[truncated]` marker remain in the context text. Partial extraction stays explicit. Failed extraction or missing usable `designMd` throws a typed failure. Authorization still belongs in the host's [action](/docs/actions-overview).
 
 Picker entries do not also define `render` or entry-level `onSelect`. Categories use `children`. The root and every category keep a searchable header. Categories can supply a localized `searchPlaceholder`; without it they use the shared context-search placeholder. `picker.searchPlaceholder` labels the source list's search input. Registration does not grant source access. The shared picker ignores superseded load responses.
 

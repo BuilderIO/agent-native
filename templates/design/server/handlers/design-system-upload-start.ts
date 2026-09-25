@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import {
   FeatureNotConfiguredError,
   getSession,
@@ -5,6 +6,8 @@ import {
   startBuilderDesignSystemUpload,
 } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
+
+import { assertDesignSystemWorkflowsEnabled } from "../lib/design-system-workflows.js";
 
 const MAX_FIG_BYTES = 512 * 1024 * 1024;
 
@@ -67,10 +70,17 @@ export const designSystemUploadStart = defineEventHandler(async (event) => {
   try {
     const uploads = await runWithRequestContext(
       { userEmail: session.email, orgId: session.orgId },
-      () => startBuilderDesignSystemUpload(attachments),
+      async () => {
+        await assertDesignSystemWorkflowsEnabled();
+        return startBuilderDesignSystemUpload(attachments);
+      },
     );
     return { uploads };
   } catch (err) {
+    if (isActionContractError(err)) {
+      setResponseStatus(event, err.statusCode);
+      return { error: err.message, errorCode: err.errorCode };
+    }
     if (err instanceof FeatureNotConfiguredError) {
       setResponseStatus(event, 412);
       return {

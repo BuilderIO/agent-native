@@ -277,8 +277,13 @@ const contextMenuItems: ComposerContextMenuItem[] = [
       scopeKey: accessScope,
       refreshKey: sourceVersion,
       load: loadAuthorizedReferences,
-      onSelect: stageReference,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
       link: {
+        label: labels.referenceUrl,
         placeholder: labels.referenceLink,
         submitLabel: labels.findReferences,
         validate: validateReferenceLink,
@@ -287,6 +292,33 @@ const contextMenuItems: ComposerContextMenuItem[] = [
   },
 ];
 ```
+
+`presentation` का डिफ़ॉल्ट `"submenu"` है। `{ type: "dialog", mode: "multiple", onAttach }` के साथ सामान्य मेनू आइटम साझा डायलॉग खोलता है, जिसका शीर्षक आइटम के लेबल से आता है। `link.label` URL फ़ील्ड का लेबल देता है। जारी रखें बटन परिणाम लोड करने से पहले बिना क्रेडेंशियल वाला HTTP(S) URL जाँचता है। खाली या अमान्य इनपुट पर प्रदाता को कभी कॉल नहीं किया जाता। `link.validate()` प्रदाता के विशेष नियम लागू कर सकता है। डायलॉग बटन `link.submitLabel` के बजाय साझा अनुवादित लेबल इस्तेमाल करते हैं।
+
+`presentation.onAttach(items, request)` को नए चुने गए आइटम का एक फ़्रीज़ किया गया बैच मिलता है। इस मोड में `onSelect` नहीं होता। खोज और पेज बदलने पर चयन बना रहता है। `selectedIds` चिह्नित और अक्षम होते हैं तथा बैच में शामिल नहीं होते। ID को अलग-अलग स्रोत फ़ाइलों की पहचान करनी चाहिए। `false` लौटाने से डायलॉग खुला रहता है। अस्वीकृति पर दोबारा कोशिश करने योग्य त्रुटि दिखती है। रद्द करने या `scopeKey` बदलने पर लंबित काम रुकता है और देर से आए परिणाम अनदेखे होते हैं। दोबारा खोलने पर URL रीसेट होता है। असिंक्रोनस कॉलबैक के बदलाव लागू करने से पहले होस्ट को `request.signal` का सम्मान करना चाहिए। `footerAction` और `clearSelection` सबमेनू के नियंत्रण बने रहते हैं।
+
+`{ type: "dialog", mode: "url" }` परिणाम सूची लोड किए बिना सीधे अटैच करने देता है। `onSelect(item, request)` को `{ id: url, title: url, url }` और `request.url` मिलते हैं:
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`@agent-native/core/server` का `readComposerWebsiteSource(url, extractCallback)` होस्ट के मौजूदा SSRF-सुरक्षित एक्सट्रैक्टर से वेबसाइट संदर्भ बनाता है। `@agent-native/core/shared` का `composerSourceRequestSchema`, `source: "website"` को केवल `operation: "read"` और अधिकतम 2,048 अक्षरों वाले बिना क्रेडेंशियल के HTTP(S) `url` के साथ स्वीकार करता है। हेल्पर स्थिर URL-हैश ID और अधिकतम 20,000 संदर्भ अक्षरों के साथ `{ id, title, url, context }` लौटाता है। निष्कर्षण स्थिति, चेतावनियाँ, रेंडरिंग का स्रोत और कोई भी `[truncated]` चिह्न संदर्भ पाठ में बने रहते हैं। आंशिक निष्कर्षण स्पष्ट रहता है। असफल निष्कर्षण या उपयोगी `designMd` न होने पर टाइप की गई विफलता मिलती है। अनुमति की जाँच होस्ट की [एक्शन](/docs/actions-overview) की ज़िम्मेदारी रहती है।
 
 पिकर एंट्री में साथ-साथ `render` या एंट्री-स्तरीय `onSelect` परिभाषित नहीं होता। श्रेणियाँ `children` का उपयोग करती हैं। मुख्य मेनू और हर श्रेणी के हेडर में खोज फ़ील्ड बनी रहती है। श्रेणियाँ स्थानीयकृत `searchPlaceholder` दे सकती हैं; इसके बिना साझा संदर्भ खोज प्लेसहोल्डर इस्तेमाल होता है। स्रोत सूची के खोज इनपुट का पाठ `picker.searchPlaceholder` देता है। रजिस्ट्रेशन स्रोत तक पहुँच नहीं देता। साझा पिकर नए अनुरोधों से बदले जा चुके लोड उत्तरों को अनदेखा करता है।
 

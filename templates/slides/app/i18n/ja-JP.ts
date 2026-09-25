@@ -801,6 +801,12 @@ const messages = {
     },
     importDeck: "デッキをインポート",
     context: {
+      websiteReference: "ウェブサイトを添付",
+      websiteUrlLabel: "ウェブサイトのURL",
+      websiteUrl: "ウェブサイトのURLを貼り付け",
+      figmaUrlLabel: "Figmaリンク",
+      invalidFigmaUrl:
+        "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
       createSystem: "デザインシステムを作成",
       noSystems:
         "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",

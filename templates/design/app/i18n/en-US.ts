@@ -1641,6 +1641,13 @@ export default {
     staleAnchorDetail: "Original element no longer found on the canvas.",
   },
   homeContext: {
+    websiteReference: "Attach website",
+    websiteUrlLabel: "Website URL",
+    websiteUrl: "Paste a website URL",
+    figmaUrlLabel: "Figma link",
+    invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
+    tooMany: "Choose up to 20 references.",
+    invalidWebsiteUrl: "Enter a valid HTTP or HTTPS URL.",
     createSystem: "Create a design system",
     noSystems:
       "You don’t have a design system yet. Create one from website, files, or Figma.",

@@ -789,6 +789,11 @@ const messages = {
     },
     importDeck: "प्रस्तुति आयात करें",
     context: {
+      websiteReference: "वेबसाइट जोड़ें",
+      websiteUrlLabel: "वेबसाइट URL",
+      websiteUrl: "वेबसाइट का URL पेस्ट करें",
+      figmaUrlLabel: "Figma लिंक",
+      invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
       createSystem: "डिज़ाइन सिस्टम बनाएँ",
       noSystems:
         "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",

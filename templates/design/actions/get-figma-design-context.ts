@@ -70,11 +70,16 @@ const schemaInput = z
   });
 
 function summarizeStructure(document: FigmaFileDepthNode) {
+  function framesInSections(nodes: FigmaFileDepthNode[]): FigmaFileDepthNode[] {
+    return nodes.flatMap((node) =>
+      node.type === "SECTION" ? framesInSections(node.children ?? []) : [node],
+    );
+  }
   return (document.children ?? []).map((page) => ({
     id: page.id,
     name: page.name,
     type: page.type,
-    frames: (page.children ?? []).map((frame) => ({
+    frames: framesInSections(page.children ?? []).map((frame) => ({
       id: frame.id,
       name: frame.name,
       type: frame.type,
@@ -111,7 +116,7 @@ export default defineAction({
         mode: "overview" as const,
         pages,
         guidance:
-          "No nodeId was given, so this lists the file's pages and top-level frames only (mirrors the official Figma MCP's get_metadata with no node id). Call get-figma-design-context again with one of these frame ids (or a node-id link) for a full structural summary and screenshot of that frame.",
+          "No nodeId was given, so this lists the file's pages and top-level frames, including frames within sections present in the depth-3 overview (get_metadata). Deeper section contents may not be included. Call get-figma-design-context again with a frame id or node-id link for its structural summary and screenshot.",
       };
     }
 

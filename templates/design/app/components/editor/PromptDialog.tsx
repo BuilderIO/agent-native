@@ -37,6 +37,7 @@ import {
   type PromptDesignSystemOption,
   type PromptTemplateOption,
 } from "@/components/editor/design-start-pickers";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 
 export type {
   PromptDesignSystemOption,
@@ -352,6 +353,7 @@ export default function PromptPopover({
   scopeDraftsToOrg = true,
 }: PromptPopoverProps) {
   const t = useT();
+  const systemsEnabled = useDesignSystemWorkflows();
   const attachmentLimitMessage = t("promptDialog.attachmentsTooLarge", {
     max: MAX_UPLOAD_MB,
   });
@@ -857,7 +859,9 @@ export default function PromptPopover({
       </div>
       {!inline &&
         !showStartChoice &&
-        (onTemplateChange || onDesignSystemChange || onCreateDesignSystem) && (
+        (onTemplateChange ||
+          (systemsEnabled &&
+            (onDesignSystemChange || onCreateDesignSystem))) && (
           <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
             {onTemplateChange ? (
               <>
@@ -872,7 +876,8 @@ export default function PromptPopover({
                 <span aria-hidden="true" className="size-9" />
               </>
             ) : null}
-            {onDesignSystemChange || onCreateDesignSystem ? (
+            {systemsEnabled &&
+            (onDesignSystemChange || onCreateDesignSystem) ? (
               <>
                 <DesignSystemPickerControl
                   designSystems={designSystems}

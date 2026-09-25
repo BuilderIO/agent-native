@@ -1,6 +1,9 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "網址",
+  "composer.contextInvalidUrl": "請輸入有效的 HTTP 或 HTTPS 網址。",
+  "composer.contextAttach": "附加",
   "composer.menu.search": "搜尋…",
   "composer.contextPrevious": "上一頁",
   "composer.contextNext": "下一頁",

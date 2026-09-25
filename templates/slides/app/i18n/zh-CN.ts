@@ -775,6 +775,11 @@ const messages = {
     },
     importDeck: "导入演示文稿",
     context: {
+      websiteReference: "附加网站",
+      websiteUrlLabel: "网站 URL",
+      websiteUrl: "粘贴网站 URL",
+      figmaUrlLabel: "Figma 链接",
+      invalidFigmaUrl: "请输入有效的 figma.com 画框或文件 URL。",
       createSystem: "创建设计系统",
       noSystems: "你还没有设计系统。可以从网站、文件或 Figma 创建。",
       searchSystems: "搜索设计系统…",

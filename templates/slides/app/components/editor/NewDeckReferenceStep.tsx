@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Deck } from "@/context/DeckContext";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
@@ -133,9 +134,11 @@ export function NewDeckReferenceStep({
   promptSummary,
 }: NewDeckReferenceStepProps) {
   const t = useT();
-  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
+  const systemsEnabled = useDesignSystemWorkflows();
+  const [chosenDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
   >(resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId));
+  const selectedDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(defaultReferenceDeckId);
@@ -338,45 +341,47 @@ export function NewDeckReferenceStep({
             </p>
           )}
           <div className="mt-10 space-y-6">
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {designSystemLabel}
-                </span>
-                {designSystems.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowDesignSystemSetup(true)}
-                    className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
-                  >
-                    {t("home.addDesignSystem")}
-                  </button>
-                )}
-              </div>
-              <Select
-                value={selectedDesignSystemId ?? "none"}
-                onValueChange={(value) => {
-                  designSystemAutoRef.current = false;
-                  setSelectedDesignSystemId(value === "none" ? null : value);
-                  setSelectedSource(null);
-                }}
-              >
-                <SelectTrigger
-                  className="w-full"
-                  disabled={designSystems.length === 0 || busy}
+            {systemsEnabled && (
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {designSystemLabel}
+                  </span>
+                  {designSystems.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowDesignSystemSetup(true)}
+                      className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
+                    >
+                      {t("home.addDesignSystem")}
+                    </button>
+                  )}
+                </div>
+                <Select
+                  value={selectedDesignSystemId ?? "none"}
+                  onValueChange={(value) => {
+                    designSystemAutoRef.current = false;
+                    setSelectedDesignSystemId(value === "none" ? null : value);
+                    setSelectedSource(null);
+                  }}
                 >
-                  <SelectValue placeholder={designSystemLabel} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t("home.none")}</SelectItem>
-                  {designSystems.map((designSystem) => (
-                    <SelectItem key={designSystem.id} value={designSystem.id}>
-                      {designSystem.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                  <SelectTrigger
+                    className="w-full"
+                    disabled={designSystems.length === 0 || busy}
+                  >
+                    <SelectValue placeholder={designSystemLabel} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{t("home.none")}</SelectItem>
+                    {designSystems.map((designSystem) => (
+                      <SelectItem key={designSystem.id} value={designSystem.id}>
+                        {designSystem.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="grid gap-2">
               <span className="text-xs font-medium text-muted-foreground">

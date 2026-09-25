@@ -791,6 +791,11 @@ const messages = {
     },
     importDeck: "덱 가져오기",
     context: {
+      websiteReference: "웹사이트 첨부",
+      websiteUrlLabel: "웹사이트 URL",
+      websiteUrl: "웹사이트 URL 붙여넣기",
+      figmaUrlLabel: "Figma 링크",
+      invalidFigmaUrl: "유효한 figma.com 프레임 또는 파일 URL을 입력하세요.",
       createSystem: "디자인 시스템 만들기",
       noSystems:
         "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",

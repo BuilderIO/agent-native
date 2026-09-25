@@ -11,6 +11,8 @@ import {
   type AgentChatContextItem,
   type ComposerContextMenuItem,
   type ComposerContextPickerConfig,
+  type ComposerContextPickerItem,
+  type ComposerContextPickerRequest,
 } from "@agent-native/toolkit/composer";
 import {
   IconComponents,
@@ -18,7 +20,7 @@ import {
   IconOmega,
   IconTextRecognition,
 } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import {
   composerSourceKey,
   formatSlidesComposerContext,
@@ -35,6 +38,10 @@ import {
   type ComposerSource,
   type SlidesComposerContext,
 } from "@/lib/composer-context";
+
+function figmaPickerId(reference: ComposerSource) {
+  return `${encodeURIComponent(composerSourceKey(reference))}:${encodeURIComponent(reference.id)}`;
+}
 
 export function useSlidesComposerContext({
   defaultDesignSystemId,
@@ -54,6 +61,7 @@ export function useSlidesComposerContext({
   onCreateDesignSystem: () => void;
 }) {
   const t = useT();
+  const systemsEnabled = useDesignSystemWorkflows();
   const { session } = useSession();
   const identity = `${session?.email ?? "guest"}:${session?.orgId ?? "personal"}`;
   const refreshKey = useChangeVersions([
@@ -65,10 +73,17 @@ export function useSlidesComposerContext({
   const storageKey = `slides-home-context:${identity}`;
   const defaultDeckId = defaultReferenceDeck?.id;
   const defaultDeckTitle = defaultReferenceDeck?.title;
-  const [selection, setSelection] = useState<SlidesComposerContext>({
+  const [storedSelection, setSelection] = useState<SlidesComposerContext>({
     designSystemId: null,
     references: [],
   });
+  const selection = useMemo(
+    () =>
+      systemsEnabled
+        ? storedSelection
+        : { ...storedSelection, designSystemId: null },
+    [systemsEnabled, storedSelection],
+  );
   const [items, setItems] = useState<AgentChatContextItem[]>([]);
   const [error, setError] = useState<string>();
   const [inspectedKey, setInspectedKey] = useState<string>();
@@ -92,7 +107,7 @@ export function useSlidesComposerContext({
         stored
           ? slidesComposerContextSchema.parse(JSON.parse(stored))
           : {
-              designSystemId: defaultDesignSystemId,
+              designSystemId: systemsEnabled ? defaultDesignSystemId : null,
               references:
                 defaultDeckId && defaultDeckTitle !== undefined
                   ? [
@@ -109,7 +124,14 @@ export function useSlidesComposerContext({
       setSelection({ designSystemId: null, references: [] });
       setError(actionErrorMessage(cause) ?? t("home.context.loadFailed"));
     }
-  }, [storageKey, defaultDesignSystemId, defaultDeckId, defaultDeckTitle, t]);
+  }, [
+    storageKey,
+    defaultDesignSystemId,
+    defaultDeckId,
+    defaultDeckTitle,
+    t,
+    systemsEnabled,
+  ]);
 
   useEffect(() => {
     const currentVersion = ++version.current;
@@ -149,15 +171,34 @@ export function useSlidesComposerContext({
       return false;
     }
     edited.current = true;
-    setSelection(next);
+    const persisted = systemsEnabled
+      ? next
+      : { ...next, designSystemId: storedSelection.designSystemId };
+    selectionRef.current = next;
+    setSelection(persisted);
     setError(undefined);
     try {
-      localStorage.setItem(storageKey, JSON.stringify(next));
+      localStorage.setItem(storageKey, JSON.stringify(persisted));
     } catch {
       setError(t("home.context.saveFailed"));
       return false;
     }
     return true;
+  };
+  const attachBatch = (references: readonly ComposerSource[]) => {
+    if (activeIdentity.current !== identity)
+      throw new Error(t("home.context.loadFailed"));
+    const current = selectionRef.current;
+    const combined = new Map(
+      current.references.map((reference) => [
+        composerSourceKey(reference),
+        reference,
+      ]),
+    );
+    for (const reference of references)
+      combined.set(composerSourceKey(reference), reference);
+    if (combined.size > 20) throw new Error(t("home.context.tooMany"));
+    return save({ ...current, references: [...combined.values()] });
   };
   const remove = (key: string) => {
     if (key === "context-state") {
@@ -174,102 +215,120 @@ export function useSlidesComposerContext({
     });
   };
   const referencePicker = (
-    source: ComposerSource["source"],
-  ): ComposerContextPickerConfig => ({
-    scopeKey: identity,
-    refreshKey,
-    searchPlaceholder: t(
-      source === "figma"
-        ? "home.context.searchFrames"
-        : source === "slides"
-          ? "home.context.searchPresentations"
-          : "home.context.searchDesigns",
-    ),
-    emptyMessage: t("home.context.empty"),
-    selectedIds: selection.references
-      .filter((reference) => reference.source === source)
-      .map((reference) =>
+    source: Exclude<ComposerSource["source"], "website">,
+  ): ComposerContextPickerConfig => {
+    const toReference = (
+      item: ComposerContextPickerItem,
+      request: ComposerContextPickerRequest,
+    ): ComposerSource => {
+      const id =
         source === "figma"
-          ? `${encodeURIComponent(reference.figmaUrl ?? reference.url ?? "")}:${encodeURIComponent(reference.id)}`
-          : reference.id,
-      ),
-    ...(source === "figma"
-      ? {
-          link: {
-            placeholder: t("home.context.figmaUrl"),
-            submitLabel: t("home.context.browse"),
-          },
-        }
-      : {}),
-    load: async ({ search, page, cursor, url, signal }) => {
-      try {
-        const result = composerSourceListSchema.safeParse(
-          await callAction(
-            "read-composer-source",
-            {
-              source,
-              operation: "list",
-              search,
-              page,
-              cursor,
-              ...(source === "figma" ? { figmaUrl: url } : {}),
-            },
-            { method: "GET", signal },
-          ),
-        );
-        if (
-          !result.success ||
-          (source === "slides" &&
-            result.data.hasMore &&
-            !result.data.nextCursor)
-        )
-          throw new Error(t("home.context.loadFailed"));
-        return {
-          ...result.data,
-          items: result.data.items.map((item) => ({
-            ...item,
-            id:
-              source === "figma"
-                ? `${encodeURIComponent(item.url ?? url ?? "")}:${encodeURIComponent(item.id)}`
-                : item.id,
-          })),
-        };
-      } catch (error) {
-        throw new Error(
-          actionErrorMessage(error) ?? t("home.context.loadFailed"),
-        );
-      }
-    },
-    onSelect: (item, request) => {
-      const reference: ComposerSource = {
+          ? decodeURIComponent(item.id.slice(item.id.lastIndexOf(":") + 1))
+          : item.id;
+      return {
         source,
-        id:
-          source === "figma"
-            ? decodeURIComponent(item.id.slice(item.id.lastIndexOf(":") + 1))
-            : item.id,
+        id,
         title: item.title,
         ...(item.url ? { url: item.url } : {}),
         ...(source === "figma"
-          ? {
-              figmaUrl: item.url ?? request.url,
-              nodeId: decodeURIComponent(
-                item.id.slice(item.id.lastIndexOf(":") + 1),
-              ),
-            }
+          ? { figmaUrl: item.url ?? request.url, nodeId: id }
           : {}),
       };
-      return save({
-        ...selection,
-        references: [
-          ...selection.references.filter(
-            (value) =>
-              composerSourceKey(value) !== composerSourceKey(reference),
-          ),
-          reference,
-        ],
-      });
-    },
-  });
+    };
+    return {
+      scopeKey: identity,
+      refreshKey,
+      searchPlaceholder: t(
+        source === "figma"
+          ? "home.context.searchFrames"
+          : source === "slides"
+            ? "home.context.searchPresentations"
+            : "home.context.searchDesigns",
+      ),
+      emptyMessage: t("home.context.empty"),
+      selectedIds: selection.references
+        .filter((reference) => reference.source === source)
+        .map((reference) =>
+          source === "figma" ? figmaPickerId(reference) : reference.id,
+        ),
+      ...(source === "figma"
+        ? {
+            link: {
+              label: t("home.context.figmaUrlLabel"),
+              placeholder: t("home.context.figmaUrl"),
+              submitLabel: t("home.context.browse"),
+              validate: (url: string) => {
+                const parsed = new URL(url);
+                return url.trim().length <= 2048 &&
+                  /(^|\.)figma\.com$/i.test(parsed.hostname) &&
+                  /\/(design|file|proto)\/[A-Za-z0-9_-]{8,}/.test(
+                    parsed.pathname,
+                  )
+                  ? undefined
+                  : t("home.context.invalidFigmaUrl");
+              },
+            },
+            presentation: {
+              type: "dialog" as const,
+              mode: "multiple" as const,
+              onAttach: (
+                items: readonly ComposerContextPickerItem[],
+                request: ComposerContextPickerRequest,
+              ) => attachBatch(items.map((item) => toReference(item, request))),
+            },
+          }
+        : {
+            onSelect: (
+              item: ComposerContextPickerItem,
+              request: ComposerContextPickerRequest,
+            ) => attachBatch([toReference(item, request)]),
+          }),
+      load: async ({ search, page, cursor, url, signal }) => {
+        try {
+          const result = composerSourceListSchema.safeParse(
+            await callAction(
+              "read-composer-source",
+              {
+                source,
+                operation: "list",
+                search,
+                page,
+                cursor,
+                ...(source === "figma" ? { figmaUrl: url } : {}),
+              },
+              { method: "GET", signal },
+            ),
+          );
+          if (
+            !result.success ||
+            (source === "slides" &&
+              result.data.hasMore &&
+              !result.data.nextCursor)
+          )
+            throw new Error(t("home.context.loadFailed"));
+          return {
+            ...result.data,
+            items: result.data.items.map((item) => ({
+              ...item,
+              ...(source === "figma" ? { url: item.url ?? url } : {}),
+              id:
+                source === "figma"
+                  ? figmaPickerId({
+                      ...item,
+                      source: "figma",
+                      figmaUrl: item.url ?? url,
+                    })
+                  : item.id,
+            })),
+          };
+        } catch (error) {
+          throw new Error(
+            actionErrorMessage(error) ?? t("home.context.loadFailed"),
+          );
+        }
+      },
+    };
+  };
   const contextItems = error
     ? [
         ...items,
@@ -289,40 +348,46 @@ export function useSlidesComposerContext({
       searchPlaceholder: t("home.context.menu.searchDesign"),
       icon: <IconTextRecognition size={16} />,
       children: [
-        {
-          id: "system",
-          label: t("home.context.menu.system"),
-          icon: <IconOmega size={16} />,
-          picker: {
-            scopeKey: identity,
-            searchPlaceholder: t("home.context.searchSystems"),
-            selectedIds: selection.designSystemId
-              ? [selection.designSystemId]
-              : [],
-            items: systems,
-            loading: systemsLoading,
-            error: systemsError
-              ? (actionErrorMessage(systemsError) ??
-                t("home.context.loadFailed"))
-              : undefined,
-            onRetry: retrySystems,
-            emptyMessage: systems.length
-              ? t("home.context.empty")
-              : t("home.context.noSystems"),
-            footerAction: {
-              label: t("home.context.createSystem"),
-              icon: <IconOmega size={16} />,
-              onSelect: onCreateDesignSystem,
-            },
-            clearSelection: selection.designSystemId
-              ? {
-                  label: t("home.none"),
-                  onSelect: () => save({ ...selection, designSystemId: null }),
-                }
-              : undefined,
-            onSelect: (item) => save({ ...selection, designSystemId: item.id }),
-          },
-        },
+        ...(systemsEnabled
+          ? [
+              {
+                id: "system",
+                label: t("home.context.menu.system"),
+                icon: <IconOmega size={16} />,
+                picker: {
+                  scopeKey: identity,
+                  searchPlaceholder: t("home.context.searchSystems"),
+                  selectedIds: selection.designSystemId
+                    ? [selection.designSystemId]
+                    : [],
+                  items: systems,
+                  loading: systemsLoading,
+                  error: systemsError
+                    ? (actionErrorMessage(systemsError) ??
+                      t("home.context.loadFailed"))
+                    : undefined,
+                  onRetry: retrySystems,
+                  emptyMessage: systems.length
+                    ? t("home.context.empty")
+                    : t("home.context.noSystems"),
+                  footerAction: {
+                    label: t("home.context.createSystem"),
+                    icon: <IconOmega size={16} />,
+                    onSelect: onCreateDesignSystem,
+                  },
+                  clearSelection: selection.designSystemId
+                    ? {
+                        label: t("home.none"),
+                        onSelect: () =>
+                          save({ ...selection, designSystemId: null }),
+                      }
+                    : undefined,
+                  onSelect: (item) =>
+                    save({ ...selection, designSystemId: item.id }),
+                },
+              } satisfies ComposerContextMenuItem,
+            ]
+          : []),
         {
           id: "figma",
           label: t("home.context.menu.figma"),
@@ -330,16 +395,29 @@ export function useSlidesComposerContext({
           picker: referencePicker("figma"),
         },
         {
-          id: "design",
-          label: t("home.context.menu.design"),
+          id: "website",
+          label: t("home.context.websiteReference"),
           icon: <IconLink size={16} />,
-          picker: referencePicker("design"),
-        },
-        {
-          id: "slides",
-          label: t("home.context.menu.deck"),
-          icon: <IconLink size={16} />,
-          picker: referencePicker("slides"),
+          picker: {
+            scopeKey: identity,
+            searchPlaceholder: t("home.context.websiteUrl"),
+            presentation: { type: "dialog", mode: "url" },
+            link: {
+              label: t("home.context.websiteUrlLabel"),
+              placeholder: t("home.context.websiteUrl"),
+              submitLabel: t("home.context.websiteReference"),
+              validate: (url) =>
+                url.trim().length <= 2048 &&
+                !new URL(url).username &&
+                !new URL(url).password
+                  ? undefined
+                  : t("home.quickStart.invalidUrl"),
+            },
+            onSelect: (item) =>
+              attachBatch([
+                { ...item, source: "website", url: item.url ?? item.id },
+              ]),
+          },
         },
       ],
     },
@@ -350,7 +428,7 @@ export function useSlidesComposerContext({
       contextItems,
       contextMenuItems,
       onRemoveContextItem: remove,
-      onRetryContextItem: () => setSelection({ ...selection }),
+      onRetryContextItem: () => setSelection((current) => ({ ...current })),
       onInspectContextItem: setInspectedKey,
     },
     beforeSend: async (submitted?: readonly AgentChatContextItem[]) => {

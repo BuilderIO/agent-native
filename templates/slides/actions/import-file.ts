@@ -21,6 +21,7 @@ import {
   uploadPptxSlideImages,
 } from "../server/handlers/import/pptx-assets.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import {
   buildSourceImportMetadata,
@@ -163,6 +164,7 @@ export default defineAction({
     }
 
     if (detectedFormat === "fig") {
+      await assertDesignSystemWorkflowsEnabled();
       if (importIntoDeck) {
         throw new Error(
           "Figma .fig imports start Builder design-system indexing, not slide replacements. Re-run without importIntoDeck.",

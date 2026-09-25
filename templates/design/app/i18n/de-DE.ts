@@ -1676,6 +1676,14 @@ export default {
       "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
   },
   homeContext: {
+    websiteReference: "Website anhängen",
+    websiteUrlLabel: "Website-URL",
+    websiteUrl: "Website-URL einfügen",
+    figmaUrlLabel: "Figma-Link",
+    invalidFigmaUrl:
+      "Gib eine gültige Frame- oder Datei-URL von figma.com ein.",
+    tooMany: "Wähle bis zu 20 Referenzen.",
+    invalidWebsiteUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",
     createSystem: "Designsystem erstellen",
     noSystems:
       "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",

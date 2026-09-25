@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => true,
+}));
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

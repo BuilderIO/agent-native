@@ -1670,6 +1670,14 @@ export default {
     staleAnchorDetail: "L’élément d’origine est introuvable sur le canevas.",
   },
   homeContext: {
+    websiteReference: "Joindre un site web",
+    websiteUrlLabel: "URL du site web",
+    websiteUrl: "Collez l’URL d’un site web",
+    figmaUrlLabel: "Lien Figma",
+    invalidFigmaUrl:
+      "Saisissez une URL valide de cadre ou de fichier figma.com.",
+    tooMany: "Choisissez jusqu’à 20 références.",
+    invalidWebsiteUrl: "Saisissez une URL HTTP ou HTTPS valide.",
     createSystem: "Créer un système de design",
     noSystems:
       "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",

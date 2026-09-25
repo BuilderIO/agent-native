@@ -1,4 +1,7 @@
 const messages = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl": "Enter a valid HTTP or HTTPS URL.",
+  "composer.contextAttach": "Attach",
   "composer.menu.search": "Search…",
   "composer.contextPrevious": "Previous",
   "composer.contextNext": "Next",

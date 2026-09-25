@@ -279,8 +279,13 @@ const contextMenuItems: ComposerContextMenuItem[] = [
       scopeKey: accessScope,
       refreshKey: sourceVersion,
       load: loadAuthorizedReferences,
-      onSelect: stageReference,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
       link: {
+        label: labels.referenceUrl,
         placeholder: labels.referenceLink,
         submitLabel: labels.findReferences,
         validate: validateReferenceLink,
@@ -289,6 +294,33 @@ const contextMenuItems: ComposerContextMenuItem[] = [
   },
 ];
 ```
+
+`presentation` の既定値は `"submenu"` です。`{ type: "dialog", mode: "multiple", onAttach }` を指定すると、通常のメニュー項目から共有ダイアログが開き、項目のラベルがタイトルになります。`link.label` は URL 入力欄のラベルです。「続行」は結果を読み込む前に、認証情報を含まない HTTP(S) URL を検証します。空欄や無効な入力ではプロバイダーを呼び出しません。`link.validate()` でプロバイダー固有の規則を適用できます。ダイアログのボタンは `link.submitLabel` ではなく、共有の翻訳済みラベルを使います。
+
+`presentation.onAttach(items, request)` は、新しくチェックした項目を凍結した単一のバッチとして受け取ります。このモードでは `onSelect` を指定できません。検索やページ移動でも選択は維持されます。`selectedIds` はチェック済みで無効になり、バッチから除外されます。ID は異なるソースファイルを区別する必要があります。`false` を返すとダイアログは開いたままになります。拒否時には再試行可能なエラーが表示されます。キャンセルや `scopeKey` の変更は処理を中止し、遅れて返る結果を無視します。再度開くと URL はリセットされます。ホストは非同期コールバックの変更を確定する前に `request.signal` を確認する必要があります。`footerAction` と `clearSelection` は引き続きサブメニュー用の操作です。
+
+`{ type: "dialog", mode: "url" }` は結果一覧を読み込まず、直接「添付」を実行します。`onSelect(item, request)` は `{ id: url, title: url, url }` と `request.url` を受け取ります。
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`@agent-native/core/server` の `readComposerWebsiteSource(url, extractCallback)` は、ホスト既存の SSRF 対策済み抽出処理からウェブサイト参照を作ります。`@agent-native/core/shared` の `composerSourceRequestSchema` は、`source: "website"` に対して `operation: "read"` と、認証情報を含まない最大 2,048 文字の HTTP(S) `url` のみを受け付けます。ヘルパーは安定した URL ハッシュ ID と最大 20,000 文字のコンテキストを含む `{ id, title, url, context }` を返します。抽出ステータス、警告、レンダリングの来歴、`[truncated]` マーカーはコンテキスト内に保持されます。部分的な抽出も明示されます。抽出に失敗した場合や利用可能な `designMd` がない場合は、型付きの失敗を送出します。認可は引き続きホストの[アクション](/docs/actions-overview)が担当します。
 
 ピッカー項目には `render` や項目レベルの `onSelect` を併記しません。カテゴリは `children` を使います。ルートと各カテゴリはヘッダーに検索欄を備えます。カテゴリに翻訳済みの `searchPlaceholder` を指定できます。省略した場合は共有のコンテキスト検索プレースホルダーを使います。ソース一覧の検索欄には `picker.searchPlaceholder` を使います。登録はソースへのアクセス権を付与しません。共有ピッカーは新しい要求で置き換えられた読み込み応答を無視します。
 

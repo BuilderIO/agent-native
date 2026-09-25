@@ -1655,6 +1655,14 @@ export default {
     staleAnchorDetail: "Ya no se encuentra el elemento original en el lienzo.",
   },
   homeContext: {
+    websiteReference: "Adjuntar sitio web",
+    websiteUrlLabel: "URL del sitio web",
+    websiteUrl: "Pega la URL de un sitio web",
+    figmaUrlLabel: "Enlace de Figma",
+    invalidFigmaUrl:
+      "Introduce una URL válida de un marco o archivo de figma.com.",
+    tooMany: "Elige hasta 20 referencias.",
+    invalidWebsiteUrl: "Introduce una URL HTTP o HTTPS válida.",
     createSystem: "Crear un sistema de diseño",
     noSystems:
       "Aún no tienes un sistema de diseño. Crea uno a partir de un sitio web, archivos o Figma.",

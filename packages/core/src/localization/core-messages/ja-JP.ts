@@ -1,6 +1,10 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl":
+    "有効な HTTP または HTTPS の URL を入力してください。",
+  "composer.contextAttach": "添付",
   "composer.menu.search": "検索…",
   "composer.contextPrevious": "前へ",
   "composer.contextNext": "次へ",

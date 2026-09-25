@@ -94,6 +94,7 @@ import {
   clearStartedGenerationAttempt,
   useAgentGenerating,
 } from "@/hooks/use-agent-generating";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
@@ -392,13 +393,14 @@ export default function Index() {
     reloadDecks,
     catchUpStaleDeckList,
   } = useDecks();
+  const systemsEnabled = useDesignSystemWorkflows();
   const {
     designSystems,
     defaultSystem,
     refetch: refetchDesignSystems,
     error: designSystemsError,
     isLoading: designSystemsLoading,
-  } = useDesignSystems();
+  } = useDesignSystems(systemsEnabled);
   const {
     referenceDeck: workspaceReferenceDeck,
     designSystem: workspaceDesignSystem,
@@ -465,9 +467,10 @@ export default function Index() {
   const [referenceImporting, setReferenceImporting] = useState(false);
   const initialPromptConsumedRef = useRef(false);
   const [signInPromptHadFiles, setSignInPromptHadFiles] = useState(false);
-  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
+  const [chosenDesignSystemId, setSelectedDesignSystemId] = useState<
     string | null
   >(null);
+  const selectedDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
   >(null);
@@ -504,10 +507,11 @@ export default function Index() {
         reference.kind === "deck" &&
         decks.some((deck) => deck.id === reference.id),
     )?.id ?? null;
-  const initialDesignSystemId =
-    lastUsedDesignSystemId ??
-    effectiveDefaultDesignSystemId ??
-    workspaceDesignSystemId;
+  const initialDesignSystemId = systemsEnabled
+    ? (lastUsedDesignSystemId ??
+      effectiveDefaultDesignSystemId ??
+      workspaceDesignSystemId)
+    : null;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
   const composerContext = useSlidesComposerContext({
     defaultDesignSystemId: initialDesignSystemId,
@@ -2276,7 +2280,7 @@ export default function Index() {
         promptSummary={pendingDeck?.prompt}
       />
 
-      {showDesignSystemSetup && (
+      {systemsEnabled && showDesignSystemSetup && (
         <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
           <Suspense fallback={<Skeleton className="h-8 w-48" />}>
             <LazyDesignSystemSetup

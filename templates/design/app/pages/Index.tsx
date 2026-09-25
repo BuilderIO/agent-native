@@ -94,6 +94,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
@@ -157,10 +158,12 @@ export default function Index() {
   const quickStartRef = useRef(false);
   const submissionErrorRef = useRef(false);
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  const systemsEnabled = useDesignSystemWorkflows();
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
-  const [newDesignSystemId, setNewDesignSystemId] = useState<
+  const [chosenDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+  const newDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
   // "Design" (default, inline prototype) vs "Full app" (Builder Fusion
   // cloud container). Only reachable behind the full-app-building flag — the
@@ -234,7 +237,7 @@ export default function Index() {
     isLoading: designSystemsLoading,
     error: designSystemsError,
     refetch: refetchDesignSystems,
-  } = useDesignSystems();
+  } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
   const builderConnect = useBuilderConnectFlow({
     enabled: agentEngine.missing,
@@ -324,6 +327,7 @@ export default function Index() {
   }, [designsData, page, totalPages]);
 
   const resolveDefaultDesignSystemId = useCallback(() => {
+    if (!systemsEnabled) return null;
     if (
       defaultSystem &&
       isDesignSystemUsableForGeneration(defaultSystem.data)
@@ -335,7 +339,7 @@ export default function Index() {
         isDesignSystemUsableForGeneration(system.data),
       )?.id ?? null
     );
-  }, [defaultSystem, designSystems]);
+  }, [defaultSystem, designSystems, systemsEnabled]);
 
   const syncSelectedTemplate = useCallback(
     (templateId: string | null) => {

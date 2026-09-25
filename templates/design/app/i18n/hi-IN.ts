@@ -1625,6 +1625,13 @@ export default {
     staleAnchorDetail: "मूल एलिमेंट अब कैनवास पर नहीं मिला।",
   },
   homeContext: {
+    websiteReference: "वेबसाइट जोड़ें",
+    websiteUrlLabel: "वेबसाइट URL",
+    websiteUrl: "वेबसाइट का URL पेस्ट करें",
+    figmaUrlLabel: "Figma लिंक",
+    invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
+    tooMany: "अधिकतम 20 संदर्भ चुनें।",
+    invalidWebsiteUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
     createSystem: "डिज़ाइन सिस्टम बनाएँ",
     noSystems:
       "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",

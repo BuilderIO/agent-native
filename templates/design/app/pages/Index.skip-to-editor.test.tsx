@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Index from "./Index";
 
 const mocks = vi.hoisted(() => ({
+  systemsEnabled: true,
+  systemsQuery: vi.fn(),
   createDesign: vi.fn(),
   createFromTemplate: vi.fn(),
   generateTitle: vi.fn(),
@@ -70,6 +72,9 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrgMembers: () => ({ data: undefined }),
 }));
 
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => mocks.systemsEnabled,
+}));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: async () => ({ agentContext: "Frozen selected system" }),
   actionErrorMessage: (error: unknown) =>
@@ -215,35 +220,38 @@ vi.mock("@/components/editor/PromptDialog", () => ({
 }));
 
 vi.mock("@/hooks/use-design-systems", () => ({
-  useDesignSystems: () => ({
-    designSystems: [
-      {
+  useDesignSystems: (enabled: boolean) => (
+    mocks.systemsQuery(enabled),
+    {
+      designSystems: [
+        {
+          id: "default-system",
+          title: "Default system",
+          isDefault: true,
+          data: "{}",
+        },
+        {
+          id: "linked-system",
+          title: "Linked system",
+          isDefault: false,
+          data: "{}",
+        },
+        {
+          id: "override-system",
+          title: "Override system",
+          isDefault: false,
+          data: "{}",
+        },
+      ],
+      defaultSystem: {
         id: "default-system",
         title: "Default system",
         isDefault: true,
         data: "{}",
       },
-      {
-        id: "linked-system",
-        title: "Linked system",
-        isDefault: false,
-        data: "{}",
-      },
-      {
-        id: "override-system",
-        title: "Override system",
-        isDefault: false,
-        data: "{}",
-      },
-    ],
-    defaultSystem: {
-      id: "default-system",
-      title: "Default system",
-      isDefault: true,
-      data: "{}",
-    },
-    isLoading: false,
-  }),
+      isLoading: false,
+    }
+  ),
 }));
 
 vi.mock("@/lib/agent-chat", () => ({
@@ -280,6 +288,7 @@ beforeEach(async () => {
   mocks.promptProps = null;
   mocks.headerActions = null;
   mocks.fullAppBuilding = false;
+  mocks.systemsEnabled = true;
   mocks.ownCount = 0;
   mocks.ownStatus = "success";
   mocks.templatesError = false;
@@ -302,6 +311,24 @@ afterEach(async () => {
   headerContainer = null;
   container.remove();
   document.body.replaceChildren();
+});
+
+it("does not query or apply a default system when workflows are disabled", async () => {
+  mocks.createDesign.mockResolvedValue(undefined);
+  mocks.systemsEnabled = false;
+  mocks.systemsQuery.mockClear();
+  await act(async () => root.render(<Index />));
+  expect(mocks.systemsQuery).toHaveBeenLastCalledWith(false);
+  expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+  expect(
+    mocks.promptProps?.contextMenuItems[0].children.map(
+      (item: { id: string }) => item.id,
+    ),
+  ).toEqual(["figma-reference", "website-reference"]);
+  await act(async () => mocks.promptProps?.onSubmit("New design", [], {}));
+  expect(mocks.createDesign).toHaveBeenCalledWith(
+    expect.objectContaining({ designSystemId: null }),
+  );
 });
 
 describe("Index skip to editor", () => {

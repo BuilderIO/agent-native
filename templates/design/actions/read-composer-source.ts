@@ -1,19 +1,21 @@
 import { readPeerComposerSource } from "@agent-native/core/a2a";
 import { defineAction, fail } from "@agent-native/core/action";
+import { readComposerWebsiteSource } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   composerSourceRequestSchema,
   composerSourceResultSchema,
 } from "@agent-native/core/shared";
 
-import { parseFigmaFileKey } from "../shared/figma-url.js";
+import { parseFigmaFileKey, parseFigmaNodeId } from "../shared/figma-url.js";
 import getDesignSnapshot from "./get-design-snapshot.js";
 import getFigmaContext from "./get-figma-design-context.js";
+import importFromUrl from "./import-from-url.js";
 import listDesigns from "./list-designs.js";
 
 export default defineAction({
   description:
-    "List or read Design, Slides, or Figma prompt references. Returns paginated titles or bounded visual/layout context; never imports screens or creates a design system. Figma requires a connected account in Design.",
+    "List or read Design, Slides, Figma, or public website prompt references. Website reads use a URL and return bounded extraction context. Never imports screens or creates a design system. Figma requires a connected account in Design.",
   schema: composerSourceRequestSchema,
   http: { method: "GET" },
   readOnly: true,
@@ -25,6 +27,17 @@ export default defineAction({
         statusCode: 401,
         errorCode: "unauthorized",
       });
+    }
+    if (args.source === "website") {
+      if (args.operation !== "read" || !args.url) {
+        fail("A website read requires a URL.", {
+          errorCode: "composer_website_url_invalid",
+          statusCode: 400,
+        });
+      }
+      return readComposerWebsiteSource(args.url, async (url) =>
+        importFromUrl.run({ url }, ctx),
+      );
     }
     if (args.source === "slides") {
       if (ctx?.caller === "a2a") {
@@ -41,12 +54,15 @@ export default defineAction({
           errorCode: "figma_url_invalid",
         });
       }
+      const linkedNodeId = parseFigmaNodeId(args.figmaUrl);
       const result = await getFigmaContext.run(
         {
           fileKey,
           ...(args.operation === "read"
             ? { figmaUrl: args.figmaUrl, nodeId: args.nodeId ?? args.id }
-            : {}),
+            : linkedNodeId
+              ? { nodeId: linkedNodeId }
+              : {}),
           depth: 3,
           maxNodes: 60,
           includeScreenshot: args.operation === "read",
@@ -89,6 +105,30 @@ export default defineAction({
         });
       }
       const url = `https://www.figma.com/design/${fileKey}?node-id=${encodeURIComponent(result.nodeId)}`;
+      if (args.operation === "list") {
+        if (
+          !["FRAME", "COMPONENT", "COMPONENT_SET"].includes(result.summary.type)
+        ) {
+          fail(
+            "This link is not a Figma frame or component. Use a file link to browse frames.",
+            {
+              errorCode: "composer_figma_not_frame",
+              statusCode: 400,
+            },
+          );
+        }
+        const title = result.summary.name.slice(0, 2000);
+        const matches =
+          !args.search ||
+          title.toLowerCase().includes(args.search.toLowerCase());
+        return composerSourceResultSchema.parse({
+          items:
+            matches && args.page === 1
+              ? [{ id: result.nodeId, title, url }]
+              : [],
+          hasMore: false,
+        });
+      }
       const serialized = JSON.stringify(result.summary);
       return composerSourceResultSchema.parse({
         id: result.nodeId,

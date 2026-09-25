@@ -275,8 +275,13 @@ const contextMenuItems: ComposerContextMenuItem[] = [
       scopeKey: accessScope,
       refreshKey: sourceVersion,
       load: loadAuthorizedReferences,
-      onSelect: stageReference,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
       link: {
+        label: labels.referenceUrl,
         placeholder: labels.referenceLink,
         submitLabel: labels.findReferences,
         validate: validateReferenceLink,
@@ -285,6 +290,33 @@ const contextMenuItems: ComposerContextMenuItem[] = [
   },
 ];
 ```
+
+`presentation` 預設為 `"submenu"`。設定 `{ type: "dialog", mode: "multiple", onAttach }` 後，一般選單項目會開啟共用對話框，並以項目標籤為標題。`link.label` 是網址輸入欄的標籤。「繼續」會先驗證不含憑證的 HTTP(S) 網址，再載入結果。空白或無效輸入不會呼叫供應商。`link.validate()` 可套用供應商專屬規則。對話框按鈕使用共用的在地化標籤，而非 `link.submitLabel`。
+
+`presentation.onAttach(items, request)` 一次接收一批已凍結的新勾選項目。此模式不允許 `onSelect`。搜尋和換頁時保留選擇。`selectedIds` 對應項目顯示為已勾選且停用，不會加入批次。ID 必須區分不同的來源檔案。傳回 `false` 會保持對話框開啟。拒絕時顯示可重試的錯誤。取消或變更 `scopeKey` 會中止待處理工作，並忽略延遲回傳的結果。重新開啟時會重設網址。非同步回呼提交變更前，主應用程式必須檢查 `request.signal`。`footerAction` 和 `clearSelection` 仍僅用於子選單。
+
+`{ type: "dialog", mode: "url" }` 直接執行附加，不載入結果清單。`onSelect(item, request)` 接收 `{ id: url, title: url, url }` 和 `request.url`：
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`@agent-native/core/server` 的 `readComposerWebsiteSource(url, extractCallback)` 使用主應用程式現有、防護 SSRF 的擷取器建立網站參照。`@agent-native/core/shared` 的 `composerSourceRequestSchema` 僅在 `operation: "read"` 且 `url` 是不含憑證、長度不超過 2,048 個字元的 HTTP(S) 網址時接受 `source: "website"`。輔助函式傳回 `{ id, title, url, context }`，其中 ID 是穩定的網址雜湊，context 最多為 20,000 個字元。擷取狀態、警告、轉譯來源及任何 `[truncated]` 標記都保留在上下文文字中。部分擷取結果會明確標示。擷取失敗或缺少可用的 `designMd` 會擲出具型別的失敗。授權仍由主應用程式的[動作](/docs/actions-overview)負責。
 
 選擇器項目不能同時定義 `render` 或項目層級的 `onSelect`。分類使用 `children`。根選單與每個分類都保留頂部搜尋欄。分類可提供本地化的 `searchPlaceholder`；未提供時使用共用的內容脈絡搜尋預留文字。來源清單的搜尋欄使用 `picker.searchPlaceholder`。註冊不授予來源存取權限。共用選擇器會忽略已被新請求取代的載入回應。
 

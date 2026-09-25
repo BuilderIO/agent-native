@@ -280,8 +280,13 @@ const contextMenuItems: ComposerContextMenuItem[] = [
       scopeKey: accessScope,
       refreshKey: sourceVersion,
       load: loadAuthorizedReferences,
-      onSelect: stageReference,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
       link: {
+        label: labels.referenceUrl,
         placeholder: labels.referenceLink,
         submitLabel: labels.findReferences,
         validate: validateReferenceLink,
@@ -290,6 +295,33 @@ const contextMenuItems: ComposerContextMenuItem[] = [
   },
 ];
 ```
+
+القيمة الافتراضية لـ `presentation` هي `"submenu"`. مع `{ type: "dialog", mode: "multiple", onAttach }`، يفتح عنصر قائمة عادي حوارًا مشتركًا بعنوان العنصر. يحدد `link.label` تسمية حقل URL. يتحقق زر المتابعة من عنوان HTTP(S) بلا بيانات اعتماد قبل تحميل النتائج. لا يستدعي الإدخال الفارغ أو غير الصالح المزوّد. يمكن لـ `link.validate()` فرض قواعد خاصة بالمزوّد. تستخدم أزرار الحوار تسميات مشتركة مترجمة، وليس `link.submitLabel`.
+
+تستقبل `presentation.onAttach(items, request)` دفعة مجمّدة واحدة من العناصر المحددة حديثًا. لا يسمح هذا الوضع بـ `onSelect`. تُحفظ الاختيارات أثناء البحث والتنقل بين الصفحات، وتظهر عناصر `selectedIds` محددة ومعطّلة وتُستبعد من الدفعة. يجب أن تميّز المعرّفات بين ملفات المصادر المختلفة. يبقي إرجاع `false` الحوار مفتوحًا. يعرض الرفض خطأً مع إمكانية إعادة المحاولة. يؤدي الإلغاء أو تغيير `scopeKey` إلى إلغاء العمل المعلّق وتجاهل النتائج المتأخرة. تبدأ إعادة الفتح بعنوان URL جديد. يجب على المضيف مراعاة `request.signal` قبل تثبيت تغييرات الاستدعاءات غير المتزامنة. يبقى `footerAction` و`clearSelection` ضمن عناصر تحكم القائمة الفرعية.
+
+يستخدم `{ type: "dialog", mode: "url" }` الإرفاق مباشرةً دون تحميل قائمة نتائج. تستقبل `onSelect(item, request)` القيمة `{ id: url, title: url, url }` و`request.url`:
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+تبني `readComposerWebsiteSource(url, extractCallback)` من `@agent-native/core/server` مراجع المواقع عبر مستخرج المضيف الحالي المحمي من SSRF. تقبل `composerSourceRequestSchema` من `@agent-native/core/shared` القيمة `source: "website"` فقط مع `operation: "read"` وعنوان `url` ببروتوكول HTTP(S) بلا بيانات اعتماد، بطول أقصاه 2,048 محرفًا. تعيد الدالة `{ id, title, url, context }` بمعرّف ثابت مشتق من تجزئة العنوان وسياق لا يتجاوز 20,000 محرف. تبقى حالة الاستخراج والتحذيرات وبيانات التصيير وأي علامة `[truncated]` ضمن نص السياق. يظل الاستخراج الجزئي واضحًا. يؤدي فشل الاستخراج أو غياب `designMd` صالح للاستخدام إلى خطأ ذي نوع محدد. يبقى التفويض مسؤولية [إجراء](/docs/actions-overview) المضيف.
 
 لا تعرّف عناصر المنتقي أيضًا `render` أو `onSelect` على مستوى العنصر. تستخدم الفئات `children`. تحتفظ القائمة الرئيسية وكل فئة بحقل بحث في رأسها. يمكن للفئات توفير `searchPlaceholder` مترجم؛ وإلا تستخدم النص المشترك للبحث في السياق. يحدد `picker.searchPlaceholder` نص حقل البحث في قائمة المصادر. لا يمنح التسجيل وصولًا إلى المصدر. يتجاهل المنتقي المشترك استجابات التحميل التي حلّت محلها طلبات أحدث.
 

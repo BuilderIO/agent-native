@@ -282,8 +282,13 @@ const contextMenuItems: ComposerContextMenuItem[] = [
       scopeKey: accessScope,
       refreshKey: sourceVersion,
       load: loadAuthorizedReferences,
-      onSelect: stageReference,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
       link: {
+        label: labels.referenceUrl,
         placeholder: labels.referenceLink,
         submitLabel: labels.findReferences,
         validate: validateReferenceLink,
@@ -292,6 +297,33 @@ const contextMenuItems: ComposerContextMenuItem[] = [
   },
 ];
 ```
+
+`presentation` vaut `"submenu"` par défaut. Avec `{ type: "dialog", mode: "multiple", onAttach }`, une entrée de menu ordinaire ouvre un dialogue partagé dont le titre reprend son libellé. `link.label` nomme le champ URL. Continuer valide une URL HTTP(S) sans identifiants avant de charger les résultats. Une saisie vide ou invalide n’appelle jamais le fournisseur. `link.validate()` peut appliquer des règles propres au fournisseur. Les boutons du dialogue utilisent les libellés partagés traduits, pas `link.submitLabel`.
+
+`presentation.onAttach(items, request)` reçoit un seul lot figé des éléments nouvellement cochés. Ce mode exclut `onSelect`. Les choix sont conservés pendant la recherche et la pagination. Les `selectedIds` sont cochés, désactivés et exclus du lot. Les identifiants doivent distinguer les différents fichiers sources. Renvoyer `false` garde le dialogue ouvert. Un rejet affiche une erreur permettant de réessayer. L’annulation ou un changement de `scopeKey` interrompt le travail en cours et ignore les réponses tardives. La réouverture réinitialise l’URL. Les hôtes doivent respecter `request.signal` avant de valider les changements des callbacks asynchrones. `footerAction` et `clearSelection` restent des contrôles de sous-menu.
+
+`{ type: "dialog", mode: "url" }` propose directement Joindre, sans charger de liste de résultats. `onSelect(item, request)` reçoit `{ id: url, title: url, url }` et `request.url` :
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`readComposerWebsiteSource(url, extractCallback)` de `@agent-native/core/server` crée les références de sites web via l’extracteur existant de l’hôte, protégé contre les SSRF. `composerSourceRequestSchema` de `@agent-native/core/shared` accepte `source: "website"` uniquement avec `operation: "read"` et une `url` HTTP(S) sans identifiants de 2 048 caractères maximum. La fonction renvoie `{ id, title, url, context }` avec un identifiant stable issu du hachage de l’URL et au plus 20 000 caractères de contexte. L’état d’extraction, les avertissements, la provenance du rendu et tout marqueur `[truncated]` restent dans le texte du contexte. Une extraction partielle reste explicite. Une extraction échouée ou l’absence de `designMd` exploitable produit un échec typé. L’autorisation relève toujours de l’[action](/docs/actions-overview) de l’hôte.
 
 Les entrées de sélection ne définissent pas aussi `render` ou `onSelect` au niveau de l’entrée. Les catégories utilisent `children`. La racine et chaque catégorie conservent un champ de recherche en en-tête. Les catégories peuvent fournir un `searchPlaceholder` traduit ; sinon elles utilisent le texte partagé de recherche de contexte. `picker.searchPlaceholder` décrit le champ de recherche de la liste des sources. La déclaration n’accorde aucun accès aux sources. Le sélecteur partagé ignore les réponses de chargement remplacées par des requêtes plus récentes.
 

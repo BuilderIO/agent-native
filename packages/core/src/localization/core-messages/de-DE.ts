@@ -1,6 +1,9 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL-Adresse",
+  "composer.contextInvalidUrl": "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+  "composer.contextAttach": "Anhängen",
   "composer.menu.search": "Suchen…",
   "composer.contextPrevious": "Zurück",
   "composer.contextNext": "Weiter",

@@ -1,5 +1,6 @@
 import { readPeerComposerSource } from "@agent-native/core/a2a";
 import { defineAction, fail } from "@agent-native/core/action";
+import { readComposerWebsiteSource } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   composerSourceRequestSchema,
@@ -7,11 +8,12 @@ import {
 } from "@agent-native/core/shared";
 
 import getDeckReferenceContext from "./get-deck-reference-context.js";
+import importFromUrl from "./import-from-url.js";
 import listDecks from "./list-decks.js";
 
 export default defineAction({
   description:
-    "List or read Slides, Design, or Figma prompt references. Returns paginated titles or bounded visual/layout context; never imports slides or creates a design system. Design and Figma references use the connected Design app.",
+    "List or read Slides, Design, Figma, or public website prompt references. Website reads use a URL and return bounded extraction context. Never imports slides or creates a design system. Design and Figma references use the connected Design app.",
   schema: composerSourceRequestSchema,
   http: { method: "GET" },
   readOnly: true,
@@ -23,6 +25,17 @@ export default defineAction({
         statusCode: 401,
         errorCode: "unauthorized",
       });
+    }
+    if (args.source === "website") {
+      if (args.operation !== "read" || !args.url) {
+        fail("A website read requires a URL.", {
+          errorCode: "composer_website_url_invalid",
+          statusCode: 400,
+        });
+      }
+      return readComposerWebsiteSource(args.url, async (url) =>
+        importFromUrl.run({ url }, ctx),
+      );
     }
     if (args.source !== "slides") {
       if (ctx?.caller === "a2a") {

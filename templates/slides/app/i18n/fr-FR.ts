@@ -822,6 +822,12 @@ const messages = {
     },
     importDeck: "Importer une présentation",
     context: {
+      websiteReference: "Joindre un site web",
+      websiteUrlLabel: "URL du site web",
+      websiteUrl: "Collez l’URL d’un site web",
+      figmaUrlLabel: "Lien Figma",
+      invalidFigmaUrl:
+        "Saisissez une URL valide de cadre ou de fichier figma.com.",
       createSystem: "Créer un système de design",
       noSystems:
         "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",

@@ -1632,6 +1632,13 @@ export default {
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
   homeContext: {
+    websiteReference: "웹사이트 첨부",
+    websiteUrlLabel: "웹사이트 URL",
+    websiteUrl: "웹사이트 URL 붙여넣기",
+    figmaUrlLabel: "Figma 링크",
+    invalidFigmaUrl: "유효한 figma.com 프레임 또는 파일 URL을 입력하세요.",
+    tooMany: "참조는 최대 20개까지 선택하세요.",
+    invalidWebsiteUrl: "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
     createSystem: "디자인 시스템 만들기",
     noSystems:
       "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",

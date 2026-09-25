@@ -1,11 +1,4 @@
 import { IconArrowLeft, IconCheck } from "@tabler/icons-react";
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-  type ReactElement,
-} from "react";
 
 import { Button } from "../ui/button.js";
 import {
@@ -14,103 +7,19 @@ import {
   DropdownMenuSeparator,
 } from "../ui/dropdown-menu.js";
 import { Skeleton } from "../ui/skeleton.js";
-import { formatAttachmentError } from "./attachment-accept.js";
 import { ComposerContextMenuSearch } from "./ComposerContextMenuSearch.js";
-import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
-
-export interface ComposerContextPickerItem {
-  id: string;
-  title: string;
-  disabled?: boolean;
-  url?: string;
-}
-export interface ComposerContextPickerRequest {
-  search: string;
-  page: number;
-  cursor?: string;
-  url?: string;
-  signal: AbortSignal;
-}
-export interface ComposerContextPickerResult {
-  items: readonly ComposerContextPickerItem[];
-  hasMore?: boolean;
-  nextCursor?: string;
-}
-export type ComposerContextPickerSelection =
-  | void
-  | boolean
-  | Promise<void | boolean>;
-export type ComposerContextPickerFooterAction = {
-  label: string;
-  icon?: ReactNode;
-  disabled?: boolean;
-} & (
-  | { onSelect: () => ComposerContextPickerSelection; renderLink?: never }
-  | { renderLink: (children: ReactNode) => ReactElement; onSelect?: never }
-);
-export type ComposerContextPickerConfig = {
-  footerAction?: ComposerContextPickerFooterAction;
-  searchPlaceholder: string;
-  selectedIds?: readonly string[];
-  scopeKey?: string;
-  refreshKey?: string | number;
-  onSelect: (
-    item: ComposerContextPickerItem,
-    request: ComposerContextPickerRequest,
-  ) => ComposerContextPickerSelection;
-  link?: {
-    placeholder: string;
-    submitLabel: string;
-    validate?: (url: string) => string | undefined;
-  };
-  clearSelection?: {
-    label: string;
-    onSelect: () => ComposerContextPickerSelection;
-  };
-  emptyMessage?: string;
-} & (
-  | {
-      items?: readonly ComposerContextPickerItem[];
-      loading?: boolean;
-      error?: string;
-      onRetry?: () => unknown;
-      load?: never;
-    }
-  | {
-      load: (
-        request: ComposerContextPickerRequest,
-      ) => Promise<ComposerContextPickerResult>;
-      items?: never;
-      loading?: never;
-      error?: never;
-      onRetry?: never;
-    }
-);
-
-type PickerLocation = Omit<ComposerContextPickerRequest, "signal">;
-type LoadState = {
-  key: string;
-  status: "loading" | "ready" | "error";
-  result?: ComposerContextPickerResult;
-  error?: string;
-};
-
-function validResult(result: ComposerContextPickerResult): boolean {
-  return Boolean(
-    result &&
-    Array.isArray(result.items) &&
-    result.items.every(
-      (item) =>
-        item &&
-        typeof item.id === "string" &&
-        typeof item.title === "string" &&
-        (item.disabled === undefined || typeof item.disabled === "boolean") &&
-        (item.url === undefined || typeof item.url === "string"),
-    ) &&
-    (result.hasMore === undefined || typeof result.hasMore === "boolean") &&
-    (result.nextCursor === undefined || typeof result.nextCursor === "string"),
-  );
-}
+import {
+  useComposerContextPicker,
+  type ComposerContextPickerConfig,
+} from "./useComposerContextPicker.js";
+export type {
+  ComposerContextPickerConfig,
+  ComposerContextPickerItem,
+  ComposerContextPickerRequest,
+  ComposerContextPickerResult,
+  ComposerContextPickerSelection,
+  ComposerContextPickerFooterAction,
+} from "./useComposerContextPicker.js";
 
 export function ComposerContextPicker({
   config,
@@ -119,223 +28,27 @@ export function ComposerContextPicker({
   config: ComposerContextPickerConfig;
   onClose: () => void;
 }) {
-  const t = useComposerRuntimeAdapters().translate!;
-  const configRef = useRef(config);
-  configRef.current = config;
-  const translateRef = useRef(t);
-  translateRef.current = t;
-  const [stage, setStage] = useState<"link" | "results">(
-    config.link ? "link" : "results",
-  );
-  const [link, setLink] = useState("");
-  const [location, setLocation] = useState<PickerLocation>({
-    search: "",
-    page: 1,
-  });
-  const cursors = useRef<Array<string | undefined>>([undefined]);
-  const [revision, setRevision] = useState(0);
-  const [loaded, setLoaded] = useState<LoadState>({
-    key: "",
-    status: "loading",
-  });
-  const [actionError, setActionError] = useState<{
-    message: string;
-    retry?: () => void;
-  }>();
-  const [selecting, setSelecting] = useState(false);
-  const epoch = useRef(0);
-  const pendingSelection = useRef<AbortController | null>(null);
-  const remote = Boolean(config.load);
-  const key = JSON.stringify([location, config.refreshKey]);
-  const keyRef = useRef(key);
-  keyRef.current = key;
-
-  const invalidateSelection = () => {
-    epoch.current++;
-    pendingSelection.current?.abort();
-    pendingSelection.current = null;
-    setSelecting(false);
-    setActionError(undefined);
-  };
-  useEffect(
-    () => () => {
-      epoch.current++;
-      pendingSelection.current?.abort();
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (!remote || stage !== "results") return;
-    const abort = new AbortController();
-    const loader = configRef.current.load!;
-    const request = { ...location, signal: abort.signal };
-    setLoaded((previous) => ({
-      key,
-      status: "loading",
-      result: previous.result,
-    }));
-    void Promise.resolve()
-      .then(() => {
-        if (abort.signal.aborted) return;
-        return loader(request);
-      })
-      .then((result) => {
-        if (abort.signal.aborted || keyRef.current !== key) return;
-        if (!result || !validResult(result))
-          throw new Error(
-            translateRef.current("agentChat.composer.contextLoadFailed", {
-              defaultValue: "Could not load context.",
-            }),
-          );
-        setLoaded({ key, status: "ready", result });
-      })
-      .catch((cause: unknown) => {
-        if (abort.signal.aborted || keyRef.current !== key) return;
-        setLoaded({
-          key,
-          status: "error",
-          error: formatAttachmentError(
-            cause,
-            translateRef.current("agentChat.composer.contextLoadFailed", {
-              defaultValue: "Could not load context.",
-            }),
-          ),
-        });
-      });
-    return () => abort.abort();
-  }, [key, location, remote, stage, revision]);
-
-  const move = (next: PickerLocation) => {
-    invalidateSelection();
-    setLocation(next);
-  };
-  const back = () => {
-    invalidateSelection();
-    if (stage === "results" && config.link) {
-      setStage("link");
-      setLocation({ search: "", page: 1 });
-      cursors.current = [undefined];
-    }
-  };
-  const select = async (item?: ComposerContextPickerItem | "footer") => {
-    if (pendingSelection.current) return;
-    const abort = new AbortController();
-    const generation = ++epoch.current;
-    pendingSelection.current = abort;
-    setSelecting(true);
-    setActionError(undefined);
-    try {
-      const result =
-        item === "footer"
-          ? await configRef.current.footerAction?.onSelect?.()
-          : item
-            ? await configRef.current.onSelect(item, {
-                ...location,
-                signal: abort.signal,
-              })
-            : await configRef.current.clearSelection?.onSelect();
-      if (abort.signal.aborted || epoch.current !== generation) return;
-      if (result !== false) onClose();
-    } catch (cause) {
-      if (abort.signal.aborted || epoch.current !== generation) return;
-      setActionError({
-        message: formatAttachmentError(
-          cause,
-          t("agentChat.composer.contextActionFailed", {
-            defaultValue: "Could not add context.",
-          }),
-        ),
-        retry: () => {
-          void select(item);
-        },
-      });
-    } finally {
-      if (epoch.current === generation) {
-        pendingSelection.current = null;
-        setSelecting(false);
-      }
-    }
-  };
-  const retryLoad = async () => {
-    setActionError(undefined);
-    if (remote) {
-      setRevision((value) => value + 1);
-      return;
-    }
-    const generation = epoch.current;
-    try {
-      await configRef.current.onRetry?.();
-    } catch (cause) {
-      if (epoch.current !== generation) return;
-      setActionError({
-        message: formatAttachmentError(
-          cause,
-          t("agentChat.composer.contextLoadFailed", {
-            defaultValue: "Could not load context.",
-          }),
-        ),
-        retry: () => {
-          void retryLoad();
-        },
-      });
-    }
-  };
-  const submitLink = () => {
-    const value = link.trim();
-    let message: string | undefined;
-    try {
-      message = value
-        ? config.link?.validate?.(value)
-        : t("agentChat.composer.contextLinkRequired", {
-            defaultValue: "Enter a link.",
-          });
-    } catch (cause) {
-      message = formatAttachmentError(
-        cause,
-        t("agentChat.composer.contextLoadFailed", {
-          defaultValue: "Could not load context.",
-        }),
-      );
-    }
-    if (message) {
-      setActionError({ message });
-      return;
-    }
-    move({ search: "", page: 1, url: value });
-    cursors.current = [undefined];
-    setStage("results");
-  };
-
-  const loading = remote
-    ? loaded.key !== key || loaded.status === "loading"
-    : config.loading === true;
-  const error =
-    actionError?.message ??
-    (remote
-      ? loaded.key === key && loaded.status === "error"
-        ? loaded.error
-        : undefined
-      : config.error);
-  const result = remote ? loaded.result : undefined;
-  const terms = location.search
-    .trim()
-    .toLocaleLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
-  const items = remote
-    ? (result?.items ?? [])
-    : (config.items ?? []).filter((item) =>
-        terms.every((term) => item.title.toLocaleLowerCase().includes(term)),
-      );
-  const hasMore = result?.hasMore ?? Boolean(result?.nextCursor);
-  const retry =
-    actionError?.retry ??
-    (remote || config.onRetry
-      ? () => {
-          void retryLoad();
-        }
-      : undefined);
+  const {
+    t,
+    stage,
+    link,
+    setLink,
+    location,
+    cursors,
+    move,
+    back,
+    select,
+    submitLink,
+    loading,
+    error,
+    items,
+    hasMore,
+    retry,
+    selecting,
+    actionError,
+    setActionError,
+    result,
+  } = useComposerContextPicker({ config, onClose });
   const check = (selected: boolean) => (
     <span className="ms-auto size-4 shrink-0" aria-hidden="true">
       {selected ? <IconCheck className="size-4" /> : null}

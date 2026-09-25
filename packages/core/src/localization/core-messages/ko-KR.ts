@@ -1,6 +1,9 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl": "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
+  "composer.contextAttach": "첨부",
   "composer.menu.search": "검색…",
   "composer.contextPrevious": "이전",
   "composer.contextNext": "다음",

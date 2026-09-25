@@ -796,6 +796,11 @@ const messages = {
     },
     importDeck: "Import Deck",
     context: {
+      websiteReference: "Attach website",
+      websiteUrlLabel: "Website URL",
+      websiteUrl: "Paste a website URL",
+      figmaUrlLabel: "Figma link",
+      invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
       createSystem: "Create a design system",
       noSystems:
         "You don’t have a design system yet. Create one from website, files, or Figma.",

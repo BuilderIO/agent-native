@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockWebsite = vi.hoisted(() => vi.fn());
+vi.mock(
+  "@agent-native/core/server",
+  () => import("../../../packages/core/src/server/composer-website-source.js"),
+);
+vi.mock("./import-from-url.js", () => ({ default: { run: mockWebsite } }));
+
 const mocks = vi.hoisted(() => ({
   user: vi.fn(),
   peer: vi.fn(),
@@ -26,6 +33,43 @@ vi.mock("./get-figma-design-context.js", () => ({
 }));
 
 import action from "./read-composer-source.js";
+
+describe("local website references", () => {
+  it("reads partial website context locally without peer discovery", async () => {
+    mockWebsite.mockResolvedValue({
+      status: "partial",
+      designMd: "# Website",
+      warnings: ["Static extraction only."],
+    });
+    const result = await action.run({
+      source: "website",
+      operation: "read",
+      url: "https://example.com",
+      page: 1,
+    });
+    expect(result).toMatchObject({
+      url: "https://example.com/",
+      context: expect.stringContaining("Extraction status: partial"),
+    });
+    expect(mocks.peer).not.toHaveBeenCalled();
+  });
+  it("fails when the extractor returns failed instead of throwing", async () => {
+    mockWebsite.mockResolvedValue({
+      status: "failed",
+      error: "private extraction diagnostics",
+    });
+    await expect(
+      action.run({
+        source: "website",
+        operation: "read",
+        url: "https://example.com",
+        page: 1,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "composer_website_extraction_failed",
+    });
+  });
+});
 
 const input = {
   source: "design",
@@ -147,12 +191,63 @@ describe("Design composer references", () => {
     const result = await action.run({
       source: "figma",
       operation: "list",
-      figmaUrl: "https://www.figma.com/design/exampleFile/App?node-id=1-0",
+      figmaUrl: "https://www.figma.com/design/exampleFile/App",
       page: 2,
     });
     expect("items" in result && result.items).toHaveLength(2);
     expect("hasMore" in result && result.hasMore).toBe(false);
     expect(mocks.figma.mock.calls[0][0]).not.toHaveProperty("figmaUrl");
+  });
+
+  it.each(["FRAME", "COMPONENT", "COMPONENT_SET"])(
+    "resolves a linked deeply nested %s without a full file overview",
+    async (type) => {
+      mocks.figma.mockResolvedValue({
+        mode: "node",
+        nodeId: "99:101",
+        summary: { name: "Nested frame", type },
+      });
+      const result = await action.run({
+        source: "figma",
+        operation: "list",
+        figmaUrl: "https://www.figma.com/design/exampleFile/App?node-id=99-101",
+        page: 1,
+      });
+      expect(result).toMatchObject({
+        items: [{ id: "99:101", title: "Nested frame" }],
+        hasMore: false,
+      });
+      expect(mocks.figma).toHaveBeenCalledOnce();
+      expect(mocks.figma).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileKey: "exampleFile",
+          nodeId: "99:101",
+          includeScreenshot: false,
+          depth: 3,
+          maxNodes: 60,
+        }),
+        undefined,
+      );
+    },
+  );
+
+  it("rejects a linked non-frame with a typed actionable failure", async () => {
+    mocks.figma.mockResolvedValue({
+      mode: "node",
+      nodeId: "1:4",
+      summary: { name: "Text", type: "TEXT" },
+    });
+    await expect(
+      action.run({
+        source: "figma",
+        operation: "list",
+        figmaUrl: "https://www.figma.com/design/exampleFile/App?node-id=1-4",
+        page: 1,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "composer_figma_not_frame",
+      message: expect.stringContaining("Use a file link"),
+    });
   });
 
   it("reads the selected frame without importing screens or systems", async () => {
