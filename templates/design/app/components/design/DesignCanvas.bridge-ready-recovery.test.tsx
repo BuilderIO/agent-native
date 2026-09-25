@@ -275,6 +275,63 @@ describe("DesignCanvas one-shot bridge queue", () => {
       transactionId: "move-2",
       selector: "",
     });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      ).not.toBeNull(),
+    );
+    const rollbackIframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const rollbackWindow = rollbackIframe.contentWindow as Window;
+    rollbackWindow.postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+    posted.length = 0;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: rollbackWindow,
+        }),
+      );
+    });
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "runtime-structure-rollback-insert",
+      ),
+    ).toHaveLength(1);
+    posted.length = 0;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: bridgeUrl,
+          source: rollbackWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: rollbackWindow,
+        }),
+      );
+    });
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "runtime-structure-rollback-insert",
+      ),
+    ).toHaveLength(1);
     await act(async () => root.render(null));
     expect(onRuntimeStructureRollbackResult).toHaveBeenCalledExactlyOnceWith({
       requestId: "move-2:rollback",

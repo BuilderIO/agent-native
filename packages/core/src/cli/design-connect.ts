@@ -1749,6 +1749,65 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
 const MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH = 64 * 1024;
 const MAX_LIVE_EDIT_PENDING_BYTES =
   MAX_LIVE_EDIT_PENDING_PROMPT_LENGTH + 8 * 1024;
+const MAX_LIVE_EDIT_PENDING_DESIGNS = 32;
+const LIVE_EDIT_PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+
+type LiveEditPendingEntry = {
+  revision: number;
+  pending: Record<string, unknown> | null;
+  updatedAt: number;
+};
+
+function pruneLiveEditPendingEntries(
+  entries: Map<string, LiveEditPendingEntry>,
+  now: number,
+) {
+  for (const [designId, entry] of entries) {
+    if (now - entry.updatedAt >= LIVE_EDIT_PENDING_TTL_MS) {
+      entries.delete(designId);
+    }
+  }
+}
+
+function sameLiveEditPendingPayload(
+  current: Record<string, unknown> | null,
+  next: Record<string, unknown> | null,
+): boolean {
+  if (current === null || next === null) return current === next;
+  return (
+    current.designId === next.designId &&
+    current.pendingEditCount === next.pendingEditCount &&
+    current.status === next.status &&
+    current.prompt === next.prompt
+  );
+}
+
+function storeLiveEditPendingEntry(
+  entries: Map<string, LiveEditPendingEntry>,
+  designId: string,
+  revision: number,
+  pending: Record<string, unknown> | null,
+  now: number,
+): "stored" | "stale" | "conflict" {
+  pruneLiveEditPendingEntries(entries, now);
+  const existing = entries.get(designId);
+  if (existing && revision < existing.revision) return "stale";
+  if (existing && revision === existing.revision) {
+    if (!sameLiveEditPendingPayload(existing.pending, pending))
+      return "conflict";
+    entries.delete(designId);
+    entries.set(designId, { ...existing, updatedAt: now });
+    return "stored";
+  }
+  entries.delete(designId);
+  entries.set(designId, { revision, pending, updatedAt: now });
+  while (entries.size > MAX_LIVE_EDIT_PENDING_DESIGNS) {
+    const oldest = entries.keys().next().value;
+    if (typeof oldest !== "string") break;
+    entries.delete(oldest);
+  }
+  return "stored";
+}
 
 class LiveEditPendingRequestTooLargeError extends Error {}
 
@@ -2633,7 +2692,7 @@ export async function startDesignConnectBridge(
     }),
   );
   let liveEditBridgeScript = "";
-  const pendingVisualEditPayloads = new Map<string, Record<string, unknown>>();
+  const pendingVisualEditPayloads = new Map<string, LiveEditPendingEntry>();
   // One bridge process serves every URL-backed screen in an overview. The
   // editor script carries screen-specific state (notably screenId), so a
   // single global slot lets parallel iframe registrations overwrite each
@@ -2895,9 +2954,10 @@ export async function startDesignConnectBridge(
             });
             return;
           }
+          pruneLiveEditPendingEntries(pendingVisualEditPayloads, Date.now());
           sendJson(res, 200, {
             ok: true,
-            pending: pendingVisualEditPayloads.get(designId) ?? null,
+            pending: pendingVisualEditPayloads.get(designId)?.pending ?? null,
           });
           return;
         }
@@ -2953,8 +3013,41 @@ export async function startDesignConnectBridge(
               });
               return;
             }
+            const revision = body.revision;
+            const now = Date.now();
+            pruneLiveEditPendingEntries(pendingVisualEditPayloads, now);
+            const existing = pendingVisualEditPayloads.get(pendingDesignId);
             if (pending === null) {
-              pendingVisualEditPayloads.delete(pendingDesignId);
+              if (
+                typeof revision !== "number" ||
+                !Number.isSafeInteger(revision) ||
+                revision < 1
+              ) {
+                sendJson(res, 400, {
+                  ok: false,
+                  error:
+                    "pending publication requires a positive safe revision",
+                });
+                return;
+              }
+              const stored = storeLiveEditPendingEntry(
+                pendingVisualEditPayloads,
+                pendingDesignId,
+                revision,
+                null,
+                now,
+              );
+              if (stored !== "stored") {
+                sendJson(res, 409, {
+                  ok: false,
+                  error:
+                    stored === "stale"
+                      ? "stale pending publication revision"
+                      : "conflicting pending publication revision",
+                  revision: existing?.revision,
+                });
+                return;
+              }
               sendJson(res, 200, { ok: true, pending: null });
               return;
             }
@@ -2988,6 +3081,24 @@ export async function startDesignConnectBridge(
               });
               return;
             }
+            if (body.designId !== pendingDesignId) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "pending designId must match its envelope",
+              });
+              return;
+            }
+            if (
+              typeof revision !== "number" ||
+              !Number.isSafeInteger(revision) ||
+              revision < 1
+            ) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "pending publication requires a positive safe revision",
+              });
+              return;
+            }
             const publishedPending = {
               designId: candidate.designId,
               pendingEditCount: candidate.pendingEditCount,
@@ -2995,7 +3106,24 @@ export async function startDesignConnectBridge(
               prompt: candidate.prompt,
               updatedAt: new Date().toISOString(),
             };
-            pendingVisualEditPayloads.set(candidate.designId, publishedPending);
+            const stored = storeLiveEditPendingEntry(
+              pendingVisualEditPayloads,
+              candidate.designId,
+              revision,
+              publishedPending,
+              now,
+            );
+            if (stored !== "stored") {
+              sendJson(res, 409, {
+                ok: false,
+                error:
+                  stored === "stale"
+                    ? "stale pending publication revision"
+                    : "conflicting pending publication revision",
+                revision: existing?.revision,
+              });
+              return;
+            }
             sendJson(res, 200, { ok: true, pending: publishedPending });
           } catch (error) {
             sendJson(

@@ -674,6 +674,8 @@ import { runCreatePrimitive } from "./design-editor/commands/create-primitive";
 import { runCreateScreenFrame } from "./design-editor/commands/create-screen-frame";
 import { runCrossScreenElementDrop } from "./design-editor/commands/cross-screen-element-drop";
 import {
+  crossScreenRollbackDisposition,
+  scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
 } from "./design-editor/commands/cross-screen-insert-timeout";
@@ -17388,6 +17390,32 @@ function DesignEditor() {
       t,
     ],
   );
+  useEffect(() => {
+    const deleteRequest = runtimeStructureDeleteRequest;
+    if (
+      runtimeStructureRollbackRequest?.transactionId &&
+      runtimeStructureRollbackRequest.transactionId ===
+        deleteRequest?.transactionId
+    ) {
+      return;
+    }
+    return scheduleCrossScreenDeleteTimeout(
+      deleteRequest,
+      boardFileId ?? null,
+      (request) =>
+        handleRuntimeStructureDeleteRejected({
+          screenId: request.screenId,
+          requestId: request.requestId,
+          transactionId: request.transactionId,
+          reason: "source-delete-timeout",
+        }),
+    );
+  }, [
+    boardFileId,
+    handleRuntimeStructureDeleteRejected,
+    runtimeStructureDeleteRequest,
+    runtimeStructureRollbackRequest,
+  ]);
   const handleRuntimeStructureRollbackResult = useCallback(
     (details: {
       requestId: string;
@@ -17398,8 +17426,46 @@ function DesignEditor() {
       if (runtimeStructureRollbackRequest?.requestId !== details.requestId) {
         return;
       }
-      const transactionId = runtimeStructureRollbackRequest?.transactionId;
-      if (transactionId) {
+      const rollbackRequest = runtimeStructureRollbackRequest;
+      const transactionId = rollbackRequest.transactionId;
+      const hasPendingInsert = Boolean(
+        transactionId &&
+        (pendingLiveNonStyleEditsRef.current.some(
+          (edit) =>
+            edit.kind === "structure" &&
+            pendingLiveStructureEditsFromEdit(edit).some(
+              (member) =>
+                member.transactionId === transactionId &&
+                Boolean(member.insertedHtml),
+            ),
+        ) ||
+          pendingLiveNonStyleUndoStackRef.current.some(
+            (entry) =>
+              entry.kind === "structure" &&
+              pendingLiveStructureEditsFromUndoEntry(entry).some(
+                (member) =>
+                  member.transactionId === transactionId &&
+                  Boolean(member.insertedHtml),
+              ),
+          )),
+      );
+      const destinationScreenExists =
+        rollbackRequest.screenId === boardFileId ||
+        overviewScreens.some(
+          (screen) => screen.id === rollbackRequest.screenId,
+        );
+      const disposition = crossScreenRollbackDisposition({
+        applied: details.applied,
+        destinationHasPendingInsert: hasPendingInsert,
+        destinationScreenExists,
+      });
+      if (disposition === "retain-recovery") {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
+      if (transactionId && disposition === "discard") {
         discardPendingLiveStructureTransaction(transactionId);
       }
       if (
@@ -17426,6 +17492,10 @@ function DesignEditor() {
       runtimeStructurePendingTransactionRef,
       setRuntimeStructureDeleteRequest,
       setRuntimeStructureRollbackRequest,
+      boardFileId,
+      overviewScreens,
+      pendingLiveNonStyleEditsRef,
+      pendingLiveNonStyleUndoStackRef,
       t,
     ],
   );

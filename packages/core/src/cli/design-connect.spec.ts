@@ -666,6 +666,8 @@ describe("design connect bridge endpoints", () => {
           await postJson(
             `${base}/live-edit-pending`,
             {
+              designId: "design-1",
+              revision: 1,
               pending: {
                 designId: "design-1",
                 pendingEditCount: 2,
@@ -681,6 +683,8 @@ describe("design connect bridge endpoints", () => {
       const queryTokenWrite = await postJson(
         `${base}/live-edit-pending?previewToken=${encodeURIComponent(bridge.previewToken)}`,
         {
+          designId: "design-1",
+          revision: 2,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -694,6 +698,8 @@ describe("design connect bridge endpoints", () => {
       const disallowedOriginWrite = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 3,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -708,6 +714,8 @@ describe("design connect bridge endpoints", () => {
       const opaqueOriginWrite = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 4,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -722,6 +730,8 @@ describe("design connect bridge endpoints", () => {
       const crossSiteNoOriginWrite = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 5,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -760,9 +770,27 @@ describe("design connect bridge endpoints", () => {
       expect(unwrapped.status).toBe(400);
       expect(unwrapped.body.error).toBe("pending must be an object or null");
 
+      const missingRevision = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Missing revision.",
+          },
+        },
+        auth,
+      );
+      expect(missingRevision.status).toBe(400);
+      expect(missingRevision.body.error).toMatch(/positive safe revision/);
+
       const published = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 10,
           pending: {
             designId: "design-1",
             pendingEditCount: 2,
@@ -783,6 +811,8 @@ describe("design connect bridge endpoints", () => {
       const secondPublished = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-2",
+          revision: 3,
           pending: {
             designId: "design-2",
             pendingEditCount: 1,
@@ -812,6 +842,56 @@ describe("design connect bridge endpoints", () => {
         prompt: "Apply design two's visual edits.",
       });
 
+      const staleUpdate = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 9,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "An older prompt must not replace the latest one.",
+          },
+        },
+        auth,
+      );
+      expect(staleUpdate.status).toBe(409);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body.pending,
+      ).toMatchObject({ prompt: "Apply the two pending visual edits." });
+      const exactRevisionRetry = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 10,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 2,
+            status: "ready",
+            prompt: "Apply the two pending visual edits.",
+          },
+        },
+        auth,
+      );
+      expect(exactRevisionRetry.status).toBe(200);
+      const conflictingRevisionRetry = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 10,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 2,
+            status: "ready",
+            prompt: "Conflicting content at the same revision.",
+          },
+        },
+        auth,
+      );
+      expect(conflictingRevisionRetry.status).toBe(409);
+
       await expect(
         runDesign([
           "pending",
@@ -830,6 +910,8 @@ describe("design connect bridge endpoints", () => {
       const oversized = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 11,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -843,10 +925,29 @@ describe("design connect bridge endpoints", () => {
 
       const cleared = await postJson(
         `${base}/live-edit-pending`,
-        { designId: "design-1", pending: null },
+        { designId: "design-1", revision: 11, pending: null },
         auth,
       );
       expect(cleared.status).toBe(200);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body,
+      ).toEqual({ ok: true, pending: null });
+      const staleAfterClear = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 10,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "An old prompt must not resurrect after clear.",
+          },
+        },
+        auth,
+      );
+      expect(staleAfterClear.status).toBe(409);
       expect(
         (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
           .body,
@@ -855,6 +956,47 @@ describe("design connect bridge endpoints", () => {
         (await getJson(`${base}/live-edit-pending?designId=design-2`, auth))
           .body.pending,
       ).toMatchObject({ designId: "design-2" });
+
+      for (let index = 0; index <= 32; index += 1) {
+        const designId = `design-cap-${index}`;
+        const registeredForCap = await postJson(
+          `${base}/live-edit-bridge`,
+          {
+            script: "agent-native:editor-chrome-ready",
+            bridgeKey: `screen-cap-${index}`,
+            designId,
+          },
+          auth,
+        );
+        expect(registeredForCap.status).toBe(200);
+        const storedForCap = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId,
+            revision: 1,
+            pending: {
+              designId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: `Apply edits for ${designId}.`,
+            },
+          },
+          auth,
+        );
+        expect(storedForCap.status).toBe(200);
+      }
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-cap-0`, auth))
+          .body.pending,
+      ).toBeNull();
+      expect(
+        (
+          await getJson(
+            `${base}/live-edit-pending?designId=design-cap-32`,
+            auth,
+          )
+        ).body.pending,
+      ).toMatchObject({ designId: "design-cap-32" });
     } finally {
       log.mockRestore();
       error.mockRestore();

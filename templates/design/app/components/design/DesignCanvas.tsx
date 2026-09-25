@@ -6492,6 +6492,10 @@ export function DesignCanvas({
   const lastRuntimeStructureRollbackRequestIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!runtimeStructureRollbackRequest) return;
+    if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
+      lastRuntimeStructureRollbackRequestIdRef.current = null;
+      return;
+    }
     if (
       lastRuntimeStructureRollbackRequestIdRef.current ===
       runtimeStructureRollbackRequest.requestId
@@ -6507,7 +6511,12 @@ export function DesignCanvas({
       requestId: runtimeStructureRollbackRequest.requestId,
       transactionId: runtimeStructureRollbackRequest.transactionId,
     });
-  }, [postOneShotBridgeMessage, runtimeStructureRollbackRequest]);
+  }, [
+    iframeDocumentIdentity,
+    postOneShotBridgeMessage,
+    readyIframeDocumentIdentity,
+    runtimeStructureRollbackRequest,
+  ]);
 
   const lastRuntimeLayerRenameRequestIdRef = useRef<number | null>(null);
   useEffect(() => {

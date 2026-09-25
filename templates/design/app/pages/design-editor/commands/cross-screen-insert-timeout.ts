@@ -1,4 +1,5 @@
 import type {
+  RuntimeStructureDeleteRequest,
   RuntimeStructureInsertRequest,
   RuntimeStructureRollbackRequest,
 } from "@/components/design/types";
@@ -21,6 +22,27 @@ export function scheduleCrossScreenInsertTimeout(
   return () => window.clearTimeout(timeout);
 }
 
+export function scheduleCrossScreenDeleteTimeout(
+  request: (RuntimeStructureDeleteRequest & { screenId: string }) | null,
+  boardFileId: string | null,
+  onTimeout: (
+    request: RuntimeStructureDeleteRequest & { screenId: string },
+  ) => void,
+): () => void {
+  if (
+    !request?.transactionId ||
+    request.waitForInsertTransaction !== false ||
+    request.screenId === boardFileId
+  ) {
+    return () => {};
+  }
+  const timeout = window.setTimeout(
+    () => onTimeout(request),
+    CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
+  );
+  return () => window.clearTimeout(timeout);
+}
+
 export function scheduleCrossScreenRollbackTimeout(
   request: RuntimeStructureRollbackRequest | null,
   onTimeout: (request: RuntimeStructureRollbackRequest) => void,
@@ -31,4 +53,18 @@ export function scheduleCrossScreenRollbackTimeout(
     CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
   );
   return () => window.clearTimeout(timeout);
+}
+
+export function crossScreenRollbackDisposition({
+  applied,
+  destinationHasPendingInsert,
+  destinationScreenExists,
+}: {
+  applied: boolean;
+  destinationHasPendingInsert: boolean;
+  destinationScreenExists: boolean;
+}): "discard" | "preserve-insert" | "retain-recovery" {
+  if (applied || !destinationScreenExists) return "discard";
+  if (destinationHasPendingInsert) return "preserve-insert";
+  return "retain-recovery";
 }

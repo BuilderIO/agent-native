@@ -248,4 +248,44 @@ describe("a batched edit from a non-active screen", () => {
     );
     expect(commitRelativeStyleDeltaToSelectedLayers).not.toHaveBeenCalled();
   });
+
+  it("routes a text-range style batch to the owning live screen", () => {
+    const selectedScreenStyleChange = vi.fn();
+    const selectedElement = elementInfo();
+    selectedElement.sourceLayerIdentity = {
+      screenId: "library",
+      nodeId: "library-text",
+    };
+
+    runStylesChange(
+      {
+        commitInteractionStateStyles: vi.fn(() => false),
+        commitRelativeStyleDeltaToSelectedLayers: vi.fn(() => false),
+        commitStylesToSelectedLayers: vi.fn(() => false),
+        commitCapturedStyleTargets: () => {},
+        commitVisualStyles: vi.fn(),
+        handleClearBreakpointOverride: vi.fn(() => false),
+        previewInteractionStateStyles: vi.fn(),
+        selectedCanvasSelectorCandidates: [],
+        selectedElement,
+        selectedScreenStyleChange,
+        selectedLayerTargetsRef: { current: [] },
+        textEditingState: {
+          active: true,
+          selector: ROW_SELECTOR,
+          hasRange: true,
+        },
+      },
+      { color: "rgb(255, 0, 0)", fontSize: "20px" },
+      { phase: "commit" },
+    );
+
+    expect(selectedScreenStyleChange).toHaveBeenCalledWith(
+      "library",
+      ROW_SELECTOR,
+      { color: "rgb(255, 0, 0)", fontSize: "20px" },
+      selectedElement,
+      { phase: "commit" },
+    );
+  });
 });
