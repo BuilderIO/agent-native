@@ -779,6 +779,13 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    firstPresentationTitle: "첫 프레젠테이션을 만들어 보세요",
+    importDeck: "프레젠테이션 가져오기",
+    deckFilter: "프레젠테이션 필터",
+    suggestion1: "최신 업계 동향에 대한 프레젠테이션 만들기",
+    suggestion2: "회의 메모를 프레젠테이션으로 바꾸기",
+    suggestion3: "PDF의 핵심 내용 요약하기",
+    suggestion4: "회사 웹사이트로 프레젠테이션 만들기",
     loadFailed: "콘텐츠를 불러올 수 없습니다",
     loadFailedDescription:
       "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",

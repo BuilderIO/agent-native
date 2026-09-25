@@ -43,7 +43,9 @@ describe("selected library actions layout", () => {
     expect(layoutSource).not.toContain("navigation.newFolder");
     expect(layoutSource).not.toContain("createSpaceDialog.newSpace");
     expect(layoutSource).not.toContain("<ImportMenu");
-    expect(libraryRouteSource).toContain("<LibraryPrimaryActions />");
+    expect(libraryRouteSource).toContain("<LibraryPrimaryActions landing />");
+    expect(libraryRouteSource).toContain('title={t("navigation.brand")}');
+    expect(libraryRouteSource).toContain("landing");
     expect(libraryRouteSource).toContain(
       'import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";',
     );
@@ -54,7 +56,10 @@ describe("selected library actions layout", () => {
     expect(gridSource).toContain('import { FolderCard } from "./folder-card"');
     expect(gridSource).toContain("visibleFolders");
     expect(gridSource).toContain("const isEmptyState =");
-    expect(gridSource).toContain("!isEmptyState && extraActions");
+    expect(gridSource).toContain("(!isEmptyState || landing) && extraActions");
+    expect(gridSource).toContain("function LibraryLandingTabs");
+    expect(gridSource).toContain('t("clipsLanding.recent")');
+    expect(gridSource).toContain('t("empty.library.cta")');
     expect(gridSource).toContain("!isEmptyState && (\n              <SortMenu");
     expect(gridSource).toContain("organizationId: currentOrganizationId");
     expect(folderRouteSource).toContain("useOrganizations()");
@@ -210,7 +215,7 @@ describe("selected library actions layout", () => {
   it("keeps library search before the primary recording action", () => {
     const gridSource = readSource("./library-grid.tsx");
     const searchIndex = gridSource.indexOf("<SearchBar");
-    const actionIndex = gridSource.indexOf("!isEmptyState && extraActions");
+    const actionIndex = gridSource.indexOf("&& extraActions");
 
     expect(searchIndex).toBeGreaterThan(-1);
     expect(actionIndex).toBeGreaterThan(searchIndex);

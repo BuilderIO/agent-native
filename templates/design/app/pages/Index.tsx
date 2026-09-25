@@ -31,16 +31,29 @@ import {
   IconCopy,
   IconX,
   IconPencil,
+  IconBrandFigma,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 import { useNavigate, Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
-import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import {
+  DesignSystemPickerControl,
+  designSystemPickerOptions,
+} from "@/components/editor/design-start-pickers";
+import { CreationModeToggle } from "@/components/editor/PromptDialog";
 import PromptPopover, {
   preloadPromptComposer,
 } from "@/components/editor/PromptDialog";
@@ -69,6 +82,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -88,6 +102,12 @@ import {
   clearPendingGeneration,
   writePendingGeneration,
 } from "@/lib/pending-generation";
+
+const LazyPromptComposer = lazy(() =>
+  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
+    default: PromptComposer,
+  })),
+);
 
 type ProjectType = "prototype" | "other";
 interface Design {
@@ -125,6 +145,9 @@ export default function Index() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [heroPrompt, setHeroPrompt] = useState("");
+  const [heroPromptRevision, setHeroPromptRevision] = useState(0);
   const [designFilter, setDesignFilter] = useState<DesignFilter>(
     () => readStoredDesignFilter() ?? "mine",
   );
@@ -165,7 +188,7 @@ export default function Index() {
     () => ({
       page,
       pageSize: DESIGN_PAGE_SIZE,
-      createdBy: designFilter === "mine" ? "me" : "all",
+      createdBy: designFilter === "mine" ? "me" : "shared",
       search: normalizedSearch || undefined,
       includePreview: "true",
     }),
@@ -202,7 +225,7 @@ export default function Index() {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems(showNewPrompt);
+  } = useDesignSystems(true);
 
   /**
    * The picker showed a column of near-identical names ("Builder indexed
@@ -271,7 +294,7 @@ export default function Index() {
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
 
-  const showAuthors = designFilter === "all";
+  const showAuthors = designFilter === "shared";
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
   const allVisibleSelected =
@@ -325,19 +348,20 @@ export default function Index() {
   );
 
   useEffect(() => {
-    if (
-      !showNewPrompt ||
-      newDesignSystemId !== undefined ||
-      designSystemsLoading
-    )
-      return;
+    if (newDesignSystemId !== undefined || designSystemsLoading) return;
     setNewDesignSystemId(resolveDefaultDesignSystemId());
-  }, [
-    designSystemsLoading,
-    newDesignSystemId,
-    resolveDefaultDesignSystemId,
-    showNewPrompt,
-  ]);
+  }, [designSystemsLoading, newDesignSystemId, resolveDefaultDesignSystemId]);
+
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
 
   const handleTemplateChange = useCallback(
     (templateId: string | null) => {
@@ -412,7 +436,7 @@ export default function Index() {
   }, []);
 
   const handleDesignFilterChange = useCallback((next: string) => {
-    if (next !== "all" && next !== "mine") return;
+    if (next !== "shared" && next !== "mine") return;
     const nextFilter: DesignFilter = next;
     setDesignFilter(nextFilter);
     writeStoredDesignFilter(nextFilter);
@@ -447,40 +471,42 @@ export default function Index() {
       const linkedDesignSystemId = designSystemId ?? null;
 
       // Optimistic update
-      queryClient.setQueryData(
-        ["action", "list-designs", listDesignsParams],
-        (old: any) => {
-          if (!old) return old;
-          const newDesign: Design = {
-            id,
-            title: finalTitle,
-            projectType,
-            designSystemId: linkedDesignSystemId,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-          const matchesSearch =
-            !normalizedSearch ||
-            finalTitle.toLowerCase().includes(normalizedSearch.toLowerCase());
-          if (!matchesSearch) return old;
+      if (designFilter === "mine") {
+        queryClient.setQueryData(
+          ["action", "list-designs", listDesignsParams],
+          (old: any) => {
+            if (!old) return old;
+            const newDesign: Design = {
+              id,
+              title: finalTitle,
+              projectType,
+              designSystemId: linkedDesignSystemId,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+            const matchesSearch =
+              !normalizedSearch ||
+              finalTitle.toLowerCase().includes(normalizedSearch.toLowerCase());
+            if (!matchesSearch) return old;
 
-          const totalCount = (old.totalCount ?? old.count ?? 0) + 1;
-          const pageSize = old.pageSize ?? DESIGN_PAGE_SIZE;
-          const totalPages = Math.max(Math.ceil(totalCount / pageSize), 1);
-          const nextDesigns =
-            page === 1
-              ? [newDesign, ...(old.designs ?? [])].slice(0, pageSize)
-              : (old.designs ?? []);
-          return {
-            ...old,
-            count: totalCount,
-            totalCount,
-            totalPages,
-            hasMore: page < totalPages,
-            designs: nextDesigns,
-          };
-        },
-      );
+            const totalCount = (old.totalCount ?? old.count ?? 0) + 1;
+            const pageSize = old.pageSize ?? DESIGN_PAGE_SIZE;
+            const totalPages = Math.max(Math.ceil(totalCount / pageSize), 1);
+            const nextDesigns =
+              page === 1
+                ? [newDesign, ...(old.designs ?? [])].slice(0, pageSize)
+                : (old.designs ?? []);
+            return {
+              ...old,
+              count: totalCount,
+              totalCount,
+              totalPages,
+              hasMore: page < totalPages,
+              designs: nextDesigns,
+            };
+          },
+        );
+      }
 
       const ready = createMutation
         .mutateAsync({
@@ -505,7 +531,14 @@ export default function Index() {
       void ready.catch(() => {});
       return { id, title: finalTitle, ready };
     },
-    [listDesignsParams, normalizedSearch, page, queryClient, createMutation],
+    [
+      designFilter,
+      listDesignsParams,
+      normalizedSearch,
+      page,
+      queryClient,
+      createMutation,
+    ],
   );
 
   // Mirrors the chat-title flow: the placeholder (derivePromptTitle) shows
@@ -734,42 +767,45 @@ export default function Index() {
     ],
   );
 
-  const startBlankDesign = useCallback(async () => {
-    if (skipToEditorPendingRef.current) return;
-    skipToEditorPendingRef.current = true;
-    setNewDesignHandoffPending(true);
+  const startBlankDesign = useCallback(
+    async (panel?: "import") => {
+      if (skipToEditorPendingRef.current) return;
+      skipToEditorPendingRef.current = true;
+      setNewDesignHandoffPending(true);
 
-    const designSystemId =
-      newDesignSystemId === undefined
-        ? designSystemsLoading
-          ? undefined
-          : resolveDefaultDesignSystemId()
-        : newDesignSystemId;
-    const { id, ready } = createDesign(
-      t("home.untitledDesign"),
-      designSystemId,
-    );
+      const designSystemId =
+        newDesignSystemId === undefined
+          ? designSystemsLoading
+            ? undefined
+            : resolveDefaultDesignSystemId()
+          : newDesignSystemId;
+      const { id, ready } = createDesign(
+        t("home.untitledDesign"),
+        designSystemId,
+      );
 
-    try {
-      // Unlike prompt-backed creation, an empty shell has no pending-generation
-      // marker to keep the editor polling across its route remount. Wait for the
-      // row to persist so the first get-design read cannot briefly return 404.
-      await ready;
-      void navigate(`/design/${id}`);
-    } catch (error) {
-      skipToEditorPendingRef.current = false;
-      setNewDesignHandoffPending(false);
-      toast.error(t("home.failedToCreateDesign"));
-      throw error;
-    }
-  }, [
-    createDesign,
-    navigate,
-    newDesignSystemId,
-    designSystemsLoading,
-    resolveDefaultDesignSystemId,
-    t,
-  ]);
+      try {
+        // Unlike prompt-backed creation, an empty shell has no pending-generation
+        // marker to keep the editor polling across its route remount. Wait for the
+        // row to persist so the first get-design read cannot briefly return 404.
+        await ready;
+        void navigate(`/design/${id}${panel ? `?panel=${panel}` : ""}`);
+      } catch (error) {
+        skipToEditorPendingRef.current = false;
+        setNewDesignHandoffPending(false);
+        toast.error(t("home.failedToCreateDesign"));
+        throw error;
+      }
+    },
+    [
+      createDesign,
+      navigate,
+      newDesignSystemId,
+      designSystemsLoading,
+      resolveDefaultDesignSystemId,
+      t,
+    ],
+  );
 
   const handleSkipToEditor = useCallback(async () => {
     if (selectedTemplate && newDesignMode === "design") {
@@ -779,6 +815,10 @@ export default function Index() {
     await startBlankDesign();
     return false;
   }, [handleSubmitPrompt, newDesignMode, selectedTemplate, startBlankDesign]);
+
+  const openImportDesign = useCallback(() => {
+    void startBlankDesign("import");
+  }, [startBlankDesign]);
 
   const openNewDesign = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
@@ -953,54 +993,36 @@ export default function Index() {
   useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
-    <div className="flex flex-wrap items-center gap-3">
-      <ToggleGroup
-        type="single"
-        value={designFilter}
-        onValueChange={handleDesignFilterChange}
-        aria-label={t("home.designFilter")}
-        className="w-fit rounded-lg border border-border bg-card p-0.5"
-        size="sm"
-      >
-        <ToggleGroupItem
-          value="mine"
-          aria-label={t("home.showMineDesigns")}
-          className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-        >
-          {t("home.mine")}
-        </ToggleGroupItem>
-        <ToggleGroupItem
-          value="all"
-          aria-label={t("home.showAllDesigns")}
-          className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-        >
-          {t("home.all")}
-        </ToggleGroupItem>
-      </ToggleGroup>
-      <div className="relative">
-        <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
+    <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
+      <div className="relative w-[min(32vw,30rem)] min-w-40">
+        <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
         <Input
+          ref={searchInputRef}
           value={search}
           onChange={(e) => handleSearchChange(e.target.value)}
           placeholder={t("home.searchPlaceholder")}
           aria-label={t("home.searchPlaceholder")}
-          className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
+          aria-keyshortcuts="Meta+K Control+K"
+          className="h-9 w-full border-border bg-background ps-8 pe-12 text-sm text-foreground/90 placeholder:text-muted-foreground/70"
         />
+        <kbd className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          ⌘K
+        </kbd>
       </div>
       <Button
         size="sm"
-        onClick={openNewDesign}
+        onClick={openImportDesign}
         disabled={newDesignHandoffPending}
-        className="cursor-pointer"
+        className="shrink-0 cursor-pointer"
       >
         {newDesignHandoffPending ? (
           <Spinner className="w-3.5 h-3.5" />
         ) : (
-          <IconPlus className="w-3.5 h-3.5" />
+          <IconBrandFigma className="size-4" />
         )}
         {newDesignHandoffPending
           ? t("home.openingDesign")
-          : t("home.newDesign")}
+          : t("home.importDesign")}
       </Button>
     </div>,
   );
@@ -1008,7 +1030,70 @@ export default function Index() {
   return (
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
-      <main className="px-4 sm:px-6 py-6 sm:py-10">
+      <main className="px-4 sm:px-6 py-4 sm:py-6">
+        <section className="flex min-h-[68vh] flex-col items-center justify-center gap-4 py-10 text-center">
+          <h2 className="text-2xl font-medium tracking-tight text-foreground">
+            {designsData?.totalCount === 0
+              ? t("home.createFirstDesign")
+              : t("home.newDesign")}
+          </h2>
+          <div className="w-full max-w-3xl text-start">
+            <Suspense
+              fallback={
+                <div className="space-y-3 rounded-lg border border-border p-4">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              }
+            >
+              <LazyPromptComposer
+                ariaLabel={t("home.describeBuild")}
+                placeholder={t("home.describeBuild")}
+                disabled={newDesignHandoffPending}
+                attachmentsEnabled={false}
+                draftScope="design:home:create"
+                initialText={heroPrompt}
+                initialTextKey={heroPromptRevision}
+                onSubmit={(prompt) => handleSubmitPrompt(prompt, [], {})}
+                modeControl={
+                  fullAppBuildingEnabled ? (
+                    <CreationModeToggle
+                      mode={newDesignMode}
+                      onChange={setNewDesignMode}
+                      disabled={newDesignHandoffPending}
+                    />
+                  ) : undefined
+                }
+                toolbarSlot={
+                  <DesignSystemPickerControl
+                    designSystems={designSystemOptions}
+                    loading={designSystemsLoading}
+                    selectedId={newDesignSystemId ?? null}
+                    onChange={handleNewDesignSystemChange}
+                  />
+                }
+              />
+            </Suspense>
+          </div>
+          <div className="flex max-w-3xl flex-wrap justify-center gap-2">
+            {STARTER_PROMPTS.map((item) => (
+              <Button
+                key={item.labelKey}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={newDesignHandoffPending}
+                onClick={() => {
+                  setHeroPrompt(item.prompt);
+                  setHeroPromptRevision((revision) => revision + 1);
+                }}
+                className="h-auto whitespace-normal rounded-md px-3 py-1.5 text-xs"
+              >
+                {t(item.labelKey)}
+              </Button>
+            ))}
+          </div>
+        </section>
         {isLoading ? (
           <LoadingSkeleton />
         ) : isError ? (
@@ -1016,290 +1101,291 @@ export default function Index() {
             onRetry={() => void refetch()}
             retrying={isFetching}
           />
-        ) : designs.length === 0 ? (
-          normalizedSearch ? (
-            <SearchEmptyState />
-          ) : (
-            <EmptyState
-              onCreateDesign={openNewDesign}
-              onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
-            />
-          )
         ) : (
-          <>
-            {isSelectingDesigns ? (
-              <div className="-mt-4 mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
-                <div className="text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">
-                    {t("home.selected", { count: selectedDesignCount })}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={toggleVisibleSelection}
-                        aria-label={
-                          allVisibleSelected
-                            ? t("home.clearVisibleSelection")
-                            : t("home.selectVisibleDesigns")
-                        }
-                        className="h-8 w-8 cursor-pointer"
-                      >
-                        <IconChecks className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {allVisibleSelected
-                        ? t("home.clearVisibleSelection")
-                        : t("home.selectVisibleDesigns")}
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={clearSelection}
-                        aria-label={t("home.clearSelection")}
-                        className="h-8 w-8 cursor-pointer"
-                      >
-                        <IconX className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t("home.clearSelection")}</TooltipContent>
-                  </Tooltip>
-                  {creativeContextEnabled ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setContextDesigns(
-                          designs.filter((design) =>
-                            selectedDesignIds.has(design.id),
-                          ),
-                        )
-                      }
-                      className="cursor-pointer"
-                    >
-                      <IconPlus className="w-3.5 h-3.5" />
-                      {t("creativeContext.addToContext" /* i18n-key-ignore */)}
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setBulkDeleteOpen(true)}
-                    className="cursor-pointer"
-                  >
-                    <IconTrash className="w-3.5 h-3.5" />
-                    {t("home.delete")}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-            {/* Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {/* New design card */}
-              <button
-                onClick={openNewDesign}
-                disabled={newDesignHandoffPending}
-                className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
+          <section className="space-y-4">
+            <ToggleGroup
+              type="single"
+              value={designFilter}
+              onValueChange={handleDesignFilterChange}
+              aria-label={t("home.designFilter")}
+              className="w-fit rounded-lg border border-border bg-card p-0.5"
+              size="sm"
+            >
+              <ToggleGroupItem
+                value="mine"
+                aria-label={t("home.recent")}
+                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
               >
-                <div className="aspect-video flex items-center justify-center bg-muted/30">
-                  <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
-                    {newDesignHandoffPending ? (
-                      <Spinner className="w-6 h-6 text-muted-foreground/70" />
-                    ) : (
-                      <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
-                    )}
-                  </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                    {t("home.newDesign")}
-                  </h3>
-                  <div className="text-xs text-muted-foreground/70 mt-1">
-                    {t("home.createDesignProject")}
-                  </div>
-                </div>
-              </button>
-
-              {/* Design cards */}
-              {designs.map((design) => {
-                const isSelected = selectedDesignIds.has(design.id);
-                const cardContent = (
-                  <>
-                    <DesignThumbnail html={design.previewHtml ?? null} />
-                    <div className="p-4">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
-                          {design.title}
-                        </h3>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
-                        <span className="shrink-0">
-                          {formatDate(design.updatedAt || design.createdAt)}
-                        </span>
-                        {showAuthors && design.ownerEmail ? (
-                          <>
-                            <span aria-hidden>·</span>
-                            <DesignAuthorByline
-                              email={design.ownerEmail}
-                              name={design.ownerName}
-                            />
-                          </>
-                        ) : null}
-                      </div>
+                {t("home.recent")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="shared"
+                aria-label={t("home.sharedWithMe")}
+                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
+              >
+                {t("home.sharedWithMe")}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            {designs.length === 0 ? (
+              normalizedSearch ? (
+                <SearchEmptyState />
+              ) : null
+            ) : (
+              <>
+                {isSelectingDesigns ? (
+                  <div className="-mt-4 mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
+                    <div className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        {t("home.selected", { count: selectedDesignCount })}
+                      </span>
                     </div>
-                  </>
-                );
-
-                return (
-                  <div
-                    key={design.id}
-                    aria-selected={isSelected}
-                    className={`group relative rounded-xl border bg-card overflow-hidden ${
-                      isSelected
-                        ? "border-[#609FF8]/70 ring-2 ring-[#609FF8]/40"
-                        : "border-border"
-                    }`}
-                  >
-                    <Link to={`/design/${design.id}`} className="block">
-                      {cardContent}
-                    </Link>
-                    <div
-                      className={`absolute start-2 top-2 z-10 transition-opacity ${
-                        isSelected || isSelectingDesigns
-                          ? "pointer-events-auto opacity-100"
-                          : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
-                      }`}
-                    >
+                    <div className="flex items-center gap-1">
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={() =>
-                              toggleDesignSelection(design.id)
-                            }
-                            onClick={(event) => event.stopPropagation()}
-                            aria-label={t("home.selectDesign", {
-                              title: design.title,
-                            })}
-                            className="h-5 w-5 border-white/70 bg-black/65 text-white shadow-sm data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {t("home.selectDesign", { title: design.title })}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    {/* Three-dot menu */}
-                    <div className="absolute top-2 end-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label={t("home.actionsForDesign", {
-                              title: design.title,
-                            })}
-                            // A scrim over the user's thumbnail, which is
-                            // their content: a theme-following chip vanishes
-                            // on a thumbnail that happens to match it.
-                            // guard:allow-raw-color — scrim over user content
-                            className="h-7 w-7 bg-black/60 hover:bg-black/75 cursor-pointer"
+                            onClick={toggleVisibleSelection}
+                            aria-label={
+                              allVisibleSelected
+                                ? t("home.clearVisibleSelection")
+                                : t("home.selectVisibleDesigns")
+                            }
+                            className="h-8 w-8 cursor-pointer"
                           >
-                            {/* guard:allow-raw-color — scrim over user content */}
-                            <IconDots className="w-3.5 h-3.5 text-white" />
+                            <IconChecks className="w-4 h-4" />
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() =>
-                              setTimeout(() => startRename(design))
-                            }
-                            className="cursor-pointer"
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {allVisibleSelected
+                            ? t("home.clearVisibleSelection")
+                            : t("home.selectVisibleDesigns")}
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={clearSelection}
+                            aria-label={t("home.clearSelection")}
+                            className="h-8 w-8 cursor-pointer"
                           >
-                            <IconPencil className="w-3.5 h-3.5 me-2" />
-                            {t("home.rename")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDuplicate(design.id)}
-                            className="cursor-pointer"
-                          >
-                            <IconCopy className="w-3.5 h-3.5 me-2" />
-                            {t("home.duplicate")}
-                          </DropdownMenuItem>
-                          {creativeContextEnabled ? (
-                            <DropdownMenuItem
-                              onSelect={(event) => {
-                                event.preventDefault();
-                                setContextDesigns([design]);
-                              }}
-                              className="cursor-pointer"
-                            >
-                              <IconPlus className="w-3.5 h-3.5 me-2" />
-                              {t(
-                                "creativeContext.addToContext" /* i18n-key-ignore */,
-                              )}
-                            </DropdownMenuItem>
-                          ) : null}
-                          <DropdownMenuItem
-                            onClick={() =>
-                              setTimeout(() => setDeleteId(design.id))
-                            }
-                            className="text-red-400 focus:text-red-400 cursor-pointer"
-                          >
-                            <IconTrash className="w-3.5 h-3.5 me-2" />
-                            {t("home.delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <IconX className="w-4 h-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("home.clearSelection")}
+                        </TooltipContent>
+                      </Tooltip>
+                      {creativeContextEnabled ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setContextDesigns(
+                              designs.filter((design) =>
+                                selectedDesignIds.has(design.id),
+                              ),
+                            )
+                          }
+                          className="cursor-pointer"
+                        >
+                          <IconPlus className="w-3.5 h-3.5" />
+                          {t(
+                            "creativeContext.addToContext" /* i18n-key-ignore */,
+                          )}
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setBulkDeleteOpen(true)}
+                        className="cursor-pointer"
+                      >
+                        <IconTrash className="w-3.5 h-3.5" />
+                        {t("home.delete")}
+                      </Button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-            {totalPages > 1 ? (
-              <nav
-                aria-label={t("home.paginationPage", {
-                  page,
-                  totalPages,
-                })}
-                className="mt-6 flex items-center justify-between gap-3 border-t border-border px-1 pt-3"
-              >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange(page - 1)}
-                  disabled={page <= 1 || isFetching}
-                  className="cursor-pointer"
-                >
-                  <IconChevronLeft className="size-3.5" />
-                  {t("home.paginationPrevious")}
-                </Button>
-                <span
-                  aria-live="polite"
-                  className="text-xs text-muted-foreground"
-                >
-                  {t("home.paginationPage", { page, totalPages })}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange(page + 1)}
-                  disabled={page >= totalPages || isFetching}
-                  className="cursor-pointer"
-                >
-                  {t("home.paginationNext")}
-                  <IconChevronRight className="size-3.5" />
-                </Button>
-              </nav>
-            ) : null}
-          </>
+                ) : null}
+                {/* Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {/* Design cards */}
+                  {designs.map((design) => {
+                    const isSelected = selectedDesignIds.has(design.id);
+                    const cardContent = (
+                      <>
+                        <DesignThumbnail html={design.previewHtml ?? null} />
+                        <div className="p-4">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
+                              {design.title}
+                            </h3>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
+                            <span className="shrink-0">
+                              {formatDate(design.updatedAt || design.createdAt)}
+                            </span>
+                            {showAuthors && design.ownerEmail ? (
+                              <>
+                                <span aria-hidden>·</span>
+                                <DesignAuthorByline
+                                  email={design.ownerEmail}
+                                  name={design.ownerName}
+                                />
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      </>
+                    );
+
+                    return (
+                      <div
+                        key={design.id}
+                        aria-selected={isSelected}
+                        className={`group relative rounded-xl border bg-card overflow-hidden ${
+                          isSelected
+                            ? "border-primary ring-2 ring-primary/30"
+                            : "border-border"
+                        }`}
+                      >
+                        <Link to={`/design/${design.id}`} className="block">
+                          {cardContent}
+                        </Link>
+                        <div
+                          className={`absolute start-2 top-2 z-10 transition-opacity ${
+                            isSelected || isSelectingDesigns
+                              ? "pointer-events-auto opacity-100"
+                              : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                          }`}
+                        >
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() =>
+                                  toggleDesignSelection(design.id)
+                                }
+                                onClick={(event) => event.stopPropagation()}
+                                aria-label={t("home.selectDesign", {
+                                  title: design.title,
+                                })}
+                                className="h-5 w-5 border-white/70 bg-black/65 text-white shadow-sm data-[state=checked]:border-primary data-[state=checked]:bg-primary" /* guard:allow-raw-color — contrast overlay on user thumbnails */
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t("home.selectDesign", { title: design.title })}
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        {/* Three-dot menu */}
+                        <div className="absolute top-2 end-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={t("home.actionsForDesign", {
+                                  title: design.title,
+                                })}
+                                // A scrim over the user's thumbnail, which is
+                                // their content: a theme-following chip vanishes
+                                // on a thumbnail that happens to match it.
+                                // guard:allow-raw-color — scrim over user content
+                                className="h-7 w-7 bg-black/60 hover:bg-black/75 cursor-pointer"
+                              >
+                                {/* guard:allow-raw-color — scrim over user content */}
+                                <IconDots className="w-3.5 h-3.5 text-white" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  setTimeout(() => startRename(design))
+                                }
+                                className="cursor-pointer"
+                              >
+                                <IconPencil className="w-3.5 h-3.5 me-2" />
+                                {t("home.rename")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleDuplicate(design.id)}
+                                className="cursor-pointer"
+                              >
+                                <IconCopy className="w-3.5 h-3.5 me-2" />
+                                {t("home.duplicate")}
+                              </DropdownMenuItem>
+                              {creativeContextEnabled ? (
+                                <DropdownMenuItem
+                                  onSelect={(event) => {
+                                    event.preventDefault();
+                                    setContextDesigns([design]);
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  <IconPlus className="w-3.5 h-3.5 me-2" />
+                                  {t(
+                                    "creativeContext.addToContext" /* i18n-key-ignore */,
+                                  )}
+                                </DropdownMenuItem>
+                              ) : null}
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  setTimeout(() => setDeleteId(design.id))
+                                }
+                                className="text-destructive focus:text-destructive cursor-pointer"
+                              >
+                                <IconTrash className="w-3.5 h-3.5 me-2" />
+                                {t("home.delete")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {totalPages > 1 ? (
+                  <nav
+                    aria-label={t("home.paginationPage", {
+                      page,
+                      totalPages,
+                    })}
+                    className="mt-6 flex items-center justify-between gap-3 border-t border-border px-1 pt-3"
+                  >
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(page - 1)}
+                      disabled={page <= 1 || isFetching}
+                      className="cursor-pointer"
+                    >
+                      <IconChevronLeft className="size-3.5" />
+                      {t("home.paginationPrevious")}
+                    </Button>
+                    <span
+                      aria-live="polite"
+                      className="text-xs text-muted-foreground"
+                    >
+                      {t("home.paginationPage", { page, totalPages })}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(page + 1)}
+                      disabled={page >= totalPages || isFetching}
+                      className="cursor-pointer"
+                    >
+                      {t("home.paginationNext")}
+                      <IconChevronRight className="size-3.5" />
+                    </Button>
+                  </nav>
+                ) : null}
+              </>
+            )}
+          </section>
         )}
       </main>
 
@@ -1563,47 +1649,6 @@ const STARTER_PROMPTS: { labelKey: string; prompt: string }[] = [
       "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
   },
 ];
-
-function EmptyState({
-  onCreateDesign,
-  onStarterPrompt,
-}: {
-  onCreateDesign: (e: React.MouseEvent<HTMLElement>) => void;
-  onStarterPrompt: (prompt: string) => void;
-}) {
-  const t = useT();
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-      <h2 className="text-xl font-semibold text-foreground mb-2">
-        {t("home.createFirstDesign")}
-      </h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
-        {t("home.pickStartingPoint")}
-      </p>
-      <div className="flex flex-wrap items-center justify-center gap-2 max-w-md mb-6">
-        {STARTER_PROMPTS.map((s) => (
-          <button
-            key={s.labelKey}
-            type="button"
-            onClick={() => onStarterPrompt(s.prompt)}
-            className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground/80 hover:border-foreground/30 hover:text-foreground/95 transition-colors"
-          >
-            {t(s.labelKey)}
-          </button>
-        ))}
-      </div>
-      <Button
-        onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
-          onCreateDesign(e as React.MouseEvent<HTMLElement>)
-        }
-        className="cursor-pointer dark:bg-white dark:text-black dark:hover:bg-white/90"
-      >
-        <IconPlus className="w-4 h-4" />
-        {t("home.newDesign")}
-      </Button>
-    </div>
-  );
-}
 
 function SearchEmptyState() {
   const t = useT();

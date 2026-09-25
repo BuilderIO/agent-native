@@ -788,6 +788,13 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    firstPresentationTitle: "最初のプレゼンテーションを作成しましょう",
+    importDeck: "プレゼンテーションをインポート",
+    deckFilter: "プレゼンテーションを絞り込む",
+    suggestion1: "最新の業界動向についてプレゼンテーションを作成",
+    suggestion2: "会議メモをプレゼンテーションにまとめる",
+    suggestion3: "PDFを要点にまとめる",
+    suggestion4: "自社のウェブサイトからプレゼンテーションを作成",
     loadFailed: "コンテンツを読み込めませんでした",
     loadFailedDescription:
       "保存済みのコンテンツはそのままです。接続を確認して再試行してください。",

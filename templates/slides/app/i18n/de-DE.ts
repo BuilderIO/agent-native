@@ -803,6 +803,13 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    firstPresentationTitle: "Erstellen wir deine erste Präsentation",
+    importDeck: "Präsentation importieren",
+    deckFilter: "Präsentationen filtern",
+    suggestion1: "Erstelle eine Präsentation zu den neuesten Branchentrends",
+    suggestion2: "Verwandle Besprechungsnotizen in eine Präsentation",
+    suggestion3: "Fasse ein PDF in den wichtigsten Erkenntnissen zusammen",
+    suggestion4: "Erstelle eine Präsentation von meiner Unternehmenswebsite",
     loadFailed: "Inhalte konnten nicht geladen werden",
     loadFailedDescription:
       "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",

@@ -764,6 +764,13 @@ const messages = {
     chooseAnotherFile: "选择其他文件",
   },
   home: {
+    firstPresentationTitle: "创建你的第一份演示文稿",
+    importDeck: "导入演示文稿",
+    deckFilter: "筛选演示文稿",
+    suggestion1: "创建一份关于最新行业趋势的演示文稿",
+    suggestion2: "将会议记录整理成演示文稿",
+    suggestion3: "总结 PDF 中的要点",
+    suggestion4: "根据公司网站生成演示文稿",
     loadFailed: "无法加载内容",
     loadFailedDescription: "您保存的内容仍然可用。请检查连接并重试。",
     retry: "重试",

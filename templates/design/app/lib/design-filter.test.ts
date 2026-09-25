@@ -15,6 +15,9 @@ describe("design filter preference", () => {
     expect(readStoredDesignFilter(storage)).toBe("mine");
     expect(storage.getItem).toHaveBeenCalledWith(DESIGN_FILTER_STORAGE_KEY);
 
+    storage.getItem.mockReturnValue("all");
+    expect(readStoredDesignFilter(storage)).toBe("shared");
+
     storage.getItem.mockReturnValue("invalid");
     expect(readStoredDesignFilter(storage)).toBeUndefined();
   });
@@ -22,10 +25,10 @@ describe("design filter preference", () => {
   it("writes the selected filter", () => {
     const storage = { setItem: vi.fn() };
 
-    expect(writeStoredDesignFilter("all", storage)).toBe(true);
+    expect(writeStoredDesignFilter("shared", storage)).toBe(true);
     expect(storage.setItem).toHaveBeenCalledWith(
       DESIGN_FILTER_STORAGE_KEY,
-      "all",
+      "shared",
     );
   });
 

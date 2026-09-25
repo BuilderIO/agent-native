@@ -801,6 +801,13 @@ const messages = {
     chooseAnotherFile: "Escolher outro arquivo",
   },
   home: {
+    firstPresentationTitle: "Vamos criar sua primeira apresentação",
+    importDeck: "Importar apresentação",
+    deckFilter: "Filtrar apresentações",
+    suggestion1: "Crie uma apresentação sobre as últimas tendências do setor",
+    suggestion2: "Transforme anotações de reunião em uma apresentação",
+    suggestion3: "Resuma um PDF com os principais pontos",
+    suggestion4: "Crie uma apresentação com o site da minha empresa",
     loadFailed: "Não foi possível carregar seu conteúdo",
     loadFailedDescription:
       "Seu conteúdo salvo continua disponível. Verifique a conexão e tente novamente.",

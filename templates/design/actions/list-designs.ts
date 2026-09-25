@@ -48,7 +48,7 @@ export default defineAction({
         "Set to true only for a lightweight UI picker; it returns the first bounded picker page and hasMore when more exist.",
       ),
     createdBy: z
-      .enum(["all", "me"])
+      .enum(["all", "me", "shared"])
       .optional()
       .describe("Set to 'me' to list only designs created by the current user"),
     search: z
@@ -80,7 +80,10 @@ export default defineAction({
       ? DESIGN_LIST_MAX_PAGE_SIZE
       : (args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE);
     const ownerEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
-    if (args.createdBy === "me" && !ownerEmail) {
+    if (
+      (args.createdBy === "me" || args.createdBy === "shared") &&
+      !ownerEmail
+    ) {
       return {
         count: 0,
         totalCount: 0,
@@ -98,6 +101,9 @@ export default defineAction({
       accessFilter(schema.designs, schema.designShares),
       args.createdBy === "me"
         ? sql`lower(trim(${schema.designs.ownerEmail})) = ${ownerEmail}`
+        : undefined,
+      args.createdBy === "shared"
+        ? sql`lower(trim(${schema.designs.ownerEmail})) <> ${ownerEmail}`
         : undefined,
       search
         ? sql`lower(${schema.designs.title}) LIKE ${`%${escapeLike(search)}%`} ESCAPE '\\'`

@@ -1617,7 +1617,10 @@ export default {
   },
   home: {
     pageTitle: "Designs",
-    searchPlaceholder: "تصاميم البحث...",
+    searchPlaceholder: "البحث عن التصميمات",
+    recent: "الأخيرة",
+    sharedWithMe: "تمت مشاركته معي",
+    importDesign: "استيراد تصميم",
     newDesign: "جديد Design",
     newDesignLower: "تصميم جديد",
     createDesignProject: "إنشاء مشروع تصميم",

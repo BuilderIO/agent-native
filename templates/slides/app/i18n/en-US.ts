@@ -784,6 +784,13 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    firstPresentationTitle: "Let's create your first presentation",
+    importDeck: "Import Deck",
+    deckFilter: "Filter decks",
+    suggestion1: "Create a presentation on the latest industry trends",
+    suggestion2: "Turn meeting notes into a presentation",
+    suggestion3: "Summarize a PDF into key takeaways",
+    suggestion4: "Generate a deck from my company website",
     loadFailed: "Couldn't load your content",
     loadFailedDescription:
       "Your saved content is still available. Check the connection and try again.",

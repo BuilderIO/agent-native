@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 
 import { LibraryGrid } from "@/components/library/library-grid";
+import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -14,7 +15,9 @@ export default function SharedWithMeRoute() {
     <LibraryGrid
       view="shared"
       emptyKind="shared"
-      title={t("navigation.sharedWithMe")}
+      title={t("navigation.brand")}
+      landing
+      extraActions={<LibraryPrimaryActions landing />}
     />
   );
 }

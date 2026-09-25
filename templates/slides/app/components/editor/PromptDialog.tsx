@@ -135,6 +135,8 @@ interface PromptPopoverProps {
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
+  inline?: boolean;
+  toolbarSlot?: React.ReactNode;
   /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
   initialText?: string;
@@ -168,6 +170,8 @@ export default function PromptPopover({
   loading = false,
   anchorRef,
   centered = false,
+  inline = false,
+  toolbarSlot,
   draftScope,
   initialText,
   initialTextKey,
@@ -218,7 +222,7 @@ export default function PromptPopover({
 
   // Position the popover after render so we can measure its actual size
   useEffect(() => {
-    if (!open || !panelRef.current) return;
+    if (!open || inline || !panelRef.current) return;
     const panel = panelRef.current;
     const MARGIN = 12;
 
@@ -528,27 +532,33 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className="fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        style={{ top: 0, left: 0, visibility: "visible" }}
+        className={
+          inline
+            ? "w-full rounded-lg border border-border bg-card shadow-sm"
+            : "fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
+        }
+        role={inline ? undefined : "dialog"}
+        aria-modal={inline ? undefined : "true"}
+        aria-label={inline ? undefined : title}
+        style={inline ? undefined : { top: 0, left: 0, visibility: "visible" }}
       >
-        <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
-          <span className="text-sm font-medium text-foreground">{title}</span>
-          {onSkip && !importMode && !submitting && (
-            <button
-              type="button"
-              onClick={() => {
-                onSkip();
-                onOpenChange(false);
-              }}
-              className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {skipLabel}
-            </button>
-          )}
-        </div>
+        {!inline && (
+          <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+            <span className="text-sm font-medium text-foreground">{title}</span>
+            {onSkip && !importMode && !submitting && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSkip();
+                  onOpenChange(false);
+                }}
+                className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {skipLabel}
+              </button>
+            )}
+          </div>
+        )}
 
         {importEnabled && (
           <input
@@ -589,7 +599,7 @@ export default function PromptPopover({
           >
             <div className="px-2.5 pb-2.5">
               <PromptComposer
-                autoFocus
+                autoFocus={!inline}
                 attachmentsEnabled
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
@@ -598,6 +608,7 @@ export default function PromptPopover({
                 }
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
+                toolbarSlot={toolbarSlot}
                 onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}
@@ -779,5 +790,5 @@ export default function PromptPopover({
     </>
   );
 
-  return createPortal(popover, document.body);
+  return inline ? popover : createPortal(popover, document.body);
 }

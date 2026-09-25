@@ -759,6 +759,13 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
+    firstPresentationTitle: "建立你的第一份簡報",
+    importDeck: "匯入簡報",
+    deckFilter: "篩選簡報",
+    suggestion1: "建立一份關於最新產業趨勢的簡報",
+    suggestion2: "將會議筆記整理成簡報",
+    suggestion3: "摘要 PDF 的重點",
+    suggestion4: "根據公司網站建立簡報",
     loadFailed: "無法載入內容",
     loadFailedDescription: "您儲存的內容仍然可用。請檢查連線並重試。",
     retry: "重試",

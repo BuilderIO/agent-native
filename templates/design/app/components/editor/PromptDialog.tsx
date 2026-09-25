@@ -1346,7 +1346,7 @@ function PromptAttachmentMenu({
  * flag-enabled by the Design page — when
  * absent the popover renders with no mode control at all.
  */
-function CreationModeToggle({
+export function CreationModeToggle({
   mode,
   onChange,
   disabled,

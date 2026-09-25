@@ -121,8 +121,11 @@ function filteredDesignRows(predicate: unknown): DesignRow[] {
         typeof value === "string" && value.includes("@"),
     );
     if (owner) {
-      rows = rows.filter(
-        (row) => row.ownerEmail.trim().toLowerCase() === owner,
+      const notOwner = JSON.stringify(predicate).includes("<>");
+      rows = rows.filter((row) =>
+        notOwner
+          ? row.ownerEmail.trim().toLowerCase() !== owner
+          : row.ownerEmail.trim().toLowerCase() === owner,
       );
     }
   }
@@ -319,6 +322,21 @@ describe("list-designs", () => {
     );
     expect(JSON.stringify(mocks.designWhereCalls[0])).toContain(
       "owner@example.com",
+    );
+  });
+
+  it("lists only accessible designs shared by other owners", async () => {
+    mocks.designRows = [
+      design("mine", "Mine", "Owner@Example.com"),
+      design("shared", "Shared", "teammate@example.com"),
+    ];
+
+    const result = await action.run({ createdBy: "shared", pageSize: 10 });
+
+    expect(result.designs.map((item) => item.id)).toEqual(["shared"]);
+    expect(mocks.accessFilter).toHaveBeenCalledWith(
+      mocks.schema.designs,
+      mocks.schema.designShares,
     );
   });
 

@@ -801,6 +801,13 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    firstPresentationTitle: "لننشئ عرضك التقديمي الأول",
+    importDeck: "استيراد عرض تقديمي",
+    deckFilter: "تصفية العروض التقديمية",
+    suggestion1: "أنشئ عرضًا عن أحدث اتجاهات المجال",
+    suggestion2: "حوّل ملاحظات الاجتماع إلى عرض تقديمي",
+    suggestion3: "لخّص أهم النقاط في ملف PDF",
+    suggestion4: "أنشئ عرضًا تقديميًا من موقع شركتي",
     loadFailed: "تعذر تحميل المحتوى",
     loadFailedDescription:
       "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",

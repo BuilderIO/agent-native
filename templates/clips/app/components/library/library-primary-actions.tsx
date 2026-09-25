@@ -10,17 +10,32 @@ import {
 } from "./library-action-hrefs";
 import { PageHeaderActionGroup, PageHeaderPrimaryAction } from "./page-header";
 
-type LibraryPrimaryActionsProps = LibraryActionScope;
+type LibraryPrimaryActionsProps = LibraryActionScope & { landing?: boolean };
 
 export function LibraryPrimaryActions({
   folderId,
   spaceId,
+  landing = false,
 }: LibraryPrimaryActionsProps) {
   const t = useT();
   const { recordHref, uploadHref, importLoomHref } = buildLibraryActionHrefs({
     folderId,
     spaceId,
   });
+
+  if (landing) {
+    return (
+      <ImportMenu
+        uploadHref={uploadHref}
+        importLoomHref={importLoomHref}
+        spaceId={spaceId}
+        folderId={folderId}
+        recordHref={recordHref}
+        size="sm"
+        variant="default"
+      />
+    );
+  }
 
   return (
     <PageHeaderActionGroup>

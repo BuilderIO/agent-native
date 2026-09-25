@@ -21,9 +21,9 @@ import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
-  IconPlus,
   IconRefresh,
   IconSearch,
+  IconUpload,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import {
@@ -40,11 +40,9 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
-import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import { DeferredPopoverFallback } from "@/components/editor/DeferredPopoverFallback";
 import {
-  NewDeckReferenceStep,
   type ImportedReference,
   type NewDeckReferenceSelection,
   type NewDeckReferenceSource,
@@ -65,7 +63,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   describeDeckPersistenceFailure,
   type Deck,
@@ -147,18 +153,6 @@ const RETRY_REASONING_EFFORTS = new Set([
   "max",
 ]);
 
-/** Router-state payload for recovering the new-deck prompt after a failed
- *  generation kickoff forces a navigate away from and back to this route. */
-/**
- * A reference deck built from an upload, paired with the source file it came
- * from. Kept together so a retry skips re-reading that file only while the
- * same reference deck is still selected.
- */
-interface ImportedReferenceSource {
-  deckId: string;
-  filePath: string;
-}
-
 interface DeckGenerationRetryState {
   retryPrompt?: string;
   retryFiles?: UploadedFile[];
@@ -167,6 +161,11 @@ interface DeckGenerationRetryState {
   retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
   modelSelection?: DeckModelSelection;
+}
+
+interface ImportedReferenceSource {
+  deckId: string;
+  filePath: string;
 }
 
 type StoredModelSelectionResult =
@@ -432,6 +431,7 @@ export default function Index() {
     string | null
   >(null);
   const [deckSearch, setDeckSearch] = useState("");
+  const importDeckInputRef = useRef<HTMLInputElement>(null);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
   // True while the picker still reflects an auto-applied default rather than
   // an explicit user choice. `useWorkspaceDefaults()`/`useDesignSystems()`
@@ -478,6 +478,20 @@ export default function Index() {
   const createdByParam = searchParams.get("createdBy");
   const deckFilter = resolveDeckFilter(createdByParam, storedDeckFilter);
   const normalizedDeckSearch = deckSearch.trim().toLowerCase();
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        Array.from(
+          document.querySelectorAll<HTMLInputElement>("[data-deck-search]"),
+        )
+          .find((input) => input.getClientRects().length > 0)
+          ?.focus();
+      }
+    };
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
   const visibleDecks = useMemo(
     () =>
       sortDecksByRecency(
@@ -694,13 +708,13 @@ export default function Index() {
   // `selectedDesignSystemId` is already set) lets that later value win as
   // long as the user hasn't explicitly chosen something.
   useEffect(() => {
-    if (!showNewDeckPrompt || !designSystemAutoRef.current) return;
+    if (!designSystemAutoRef.current) return;
     if (initialDesignSystemId) {
       setSelectedDesignSystemId(initialDesignSystemId);
     } else {
       setSelectedDesignSystemId(null);
     }
-  }, [initialDesignSystemId, designSystems.length, showNewDeckPrompt]);
+  }, [initialDesignSystemId, designSystems.length]);
 
   // Same as above for the reference-deck picker: the local last-used reference
   // can still be loading when the dialog opens, so re-apply it once it
@@ -1281,51 +1295,32 @@ export default function Index() {
       options?: PromptComposerSubmitOptions,
     ) => {
       pendingDeckAttachmentActionsRef.current = attachments;
-      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-      const retryContext =
+      const additionalContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
-      const retryReferenceFilePaths =
-        newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : [];
-      setPendingDeck({
+      const modelSelection = options
+        ? {
+            model: options.model,
+            engine: options.engine,
+            effort: options.effort,
+          }
+        : newDeckRetryModelSelection;
+      void runPendingDeckGeneration(
         prompt,
         files,
-        referenceFilePaths: retryReferenceFilePaths,
-        importedReference:
-          retryReferenceFilePaths.length > 0
-            ? newDeckRetryImportedReference
-            : undefined,
-        context: retryContext,
-        attachments: [
-          ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
-          ...attachments.attachments,
-        ],
-        modelSelection: options
-          ? {
-              model: options.model,
-              engine: options.engine,
-              effort: options.effort,
-            }
-          : newDeckRetryModelSelection,
-      });
-      setNewDeckRetryPrompt(undefined);
-      setNewDeckRetryReferenceFilePaths([]);
-      setNewDeckRetryImportedReference(undefined);
-      setNewDeckRetryContext(undefined);
-      setNewDeckRetryAttachments([]);
-      setNewDeckRetryModelSelection(undefined);
-      setShowNewDeckReferenceStep(true);
+        { designSystemId: selectedDesignSystemId },
+        additionalContext,
+        attachments.attachments,
+        modelSelection,
+      );
       return "retain" as const;
     },
     [
-      newDeckRetryFiles,
-      newDeckRetryAttachments,
-      newDeckRetryReferenceFilePaths,
-      newDeckRetryImportedReference,
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
-      setNewDeckPromptOpen,
+      runPendingDeckGeneration,
+      selectedDesignSystemId,
     ],
   );
 
@@ -1867,6 +1862,17 @@ export default function Index() {
     void applyWorkspaceDefaultDeck(deck);
   }, [workspaceDefaultCandidate, applyWorkspaceDefaultDeck]);
 
+  const handleDesignSystemChange = useCallback(
+    (value: string) => {
+      designSystemAutoRef.current = false;
+      const id = value === "none" ? null : value;
+      setSelectedDesignSystemId(id);
+      if (id) rememberReference({ id, kind: "design-system" });
+      else forgetReference("design-system");
+    },
+    [forgetReference, rememberReference],
+  );
+
   // Navigating on the action's response raced the deck list: the editor reads
   // the copy out of `useDecks()`, which had not seen the new row yet, so the
   // route rendered "Deck unavailable". Insert the optimistic copy locally
@@ -1898,28 +1904,23 @@ export default function Index() {
 
   useSetPageTitle(t("home.decksTitle"));
 
-  // Keep the deck controls in the same compact header row as the primary
-  // create action. The mobile fallback below mirrors them because Header is
-  // intentionally desktop-only.
+  // The shared app header owns search and import; creation stays in the hero.
   useSetHeaderActions(
     useMemo(
       () => (
         <>
           <DeckSearchInput value={deckSearch} onChange={setDeckSearch} />
-          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           <Button
-            onClick={openNewDeck}
-            onPointerEnter={preloadPromptPopover}
-            onFocus={preloadPromptPopover}
+            onClick={() => importDeckInputRef.current?.click()}
             size="sm"
             className="cursor-pointer"
           >
-            <IconPlus className="w-3.5 h-3.5" />
-            {t("home.newDeck")}
+            <IconUpload className="size-3.5" aria-hidden="true" />
+            {t("home.importDeck")}
           </Button>
         </>
       ),
-      [deckFilter, deckSearch, openNewDeck, setDeckFilter, t],
+      [deckSearch, handleDirectImport, t],
     ),
   );
 
@@ -1942,25 +1943,37 @@ export default function Index() {
 
   return (
     <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-0 sm:px-6 sm:pb-10">
+      <input
+        ref={importDeckInputRef}
+        type="file"
+        accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        className="sr-only"
+        aria-label={t("home.importDeck")}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          if (file) {
+            void handleDirectImport({
+              kind: file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "pptx",
+              files: [file],
+            });
+          }
+          event.currentTarget.value = "";
+        }}
+      />
       {viewState === "loading" ? (
-        <>
-          <div className="mb-4 flex items-center justify-end">
-            <div className="skeleton-shimmer h-3 w-16 rounded bg-muted" />
-          </div>
-          <div className="deck-grid-container">
-            <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="overflow-hidden rounded-xl bg-card">
-                  <div className="skeleton-shimmer aspect-video bg-muted/50" />
-                  <div className="space-y-2 p-4">
-                    <div className="skeleton-shimmer h-4 w-3/4 rounded bg-muted" />
-                    <div className="skeleton-shimmer h-3 w-1/2 rounded bg-muted" />
-                  </div>
+        <div className="deck-grid-container pt-8">
+          <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="overflow-hidden rounded-xl bg-card">
+                <div className="skeleton-shimmer aspect-video bg-muted/50" />
+                <div className="space-y-2 p-4">
+                  <div className="skeleton-shimmer h-4 w-3/4 rounded bg-muted" />
+                  <div className="skeleton-shimmer h-3 w-1/2 rounded bg-muted" />
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
-        </>
+        </div>
       ) : viewState === "error" ? (
         <div className="flex min-h-[360px] items-center justify-center">
           <div className="flex max-w-sm flex-col items-center gap-3 text-center">
@@ -1981,8 +1994,6 @@ export default function Index() {
             </Button>
           </div>
         </div>
-      ) : viewState === "empty" ? (
-        <EmptyState onCreateDeck={openNewDeck} />
       ) : (
         <>
           <div className="mb-4 flex items-center gap-2 md:hidden">
@@ -1991,51 +2002,150 @@ export default function Index() {
               onChange={setDeckSearch}
               className="flex-1"
             />
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => importDeckInputRef.current?.click()}
+            >
+              <IconUpload className="size-3.5" aria-hidden="true" />
+              {t("home.importDeck")}
+            </Button>
           </div>
-          <div className="deck-grid-container">
-            <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {/* New deck card */}
-              <button
-                onClick={openNewDeck}
-                onPointerEnter={preloadPromptPopover}
-                onFocus={preloadPromptPopover}
-                className="group relative cursor-pointer overflow-hidden rounded-xl border border-transparent bg-card text-start transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
+          <section className="mx-auto flex min-h-[min(72vh,680px)] max-w-4xl flex-col items-center justify-center gap-4 py-10 text-center">
+            <h1 className="text-2xl font-medium tracking-tight text-foreground">
+              {decks.length === 0
+                ? t("home.firstPresentationTitle")
+                : t("home.createDeckOrVisual")}
+            </h1>
+            <LazyChunkErrorBoundary
+              fallback={
+                <div className="h-36 w-full max-w-[700px] rounded-lg border border-border bg-card" />
+              }
+            >
+              <Suspense
+                fallback={
+                  <div className="h-36 w-full max-w-[700px] rounded-lg border border-border bg-card" />
+                }
               >
-                <div className="flex aspect-video items-center justify-center bg-muted/30">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/50 group-hover:bg-accent">
-                    <IconPlus className="h-6 w-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
-                  </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="text-sm font-medium text-muted-foreground group-hover:text-foreground/70">
-                    {t("home.newDeck")}
-                  </h3>
-                </div>
-              </button>
-
-              {visibleDecks.map((deck) => (
-                <DeckCard
-                  key={deck.id}
-                  deck={deck}
-                  onDelete={(id) => setDeckToDelete(id)}
-                  onRename={handleRename}
-                  onDuplicate={handleDuplicate}
-                  onToggleStar={handleToggleStar}
-                  isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
-                  canSetWorkspaceDefault={canManageWorkspaceDefaults}
-                  onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
+                <LazyPromptPopover
+                  open
+                  inline
+                  onOpenChange={() => {}}
+                  title={t("home.newDeckPromptTitle")}
+                  placeholder={t("home.newDeckPlaceholder")}
+                  onSubmit={handlePromptSubmit}
+                  onImport={handleDirectImport}
+                  importFromLabel={t("home.importFrom")}
+                  importingLabel={t("editorToolbar.importing")}
+                  onBeforeUpload={(
+                    prompt,
+                    files,
+                    context,
+                    attachments,
+                    options,
+                  ) => {
+                    if (session) return true;
+                    preservePromptForSignIn(prompt, {
+                      context,
+                      attachments,
+                      hadFiles: files.length > 0,
+                      modelSelection: options
+                        ? {
+                            model: options.model,
+                            engine: options.engine,
+                            effort: options.effort,
+                          }
+                        : undefined,
+                    });
+                    return false;
+                  }}
+                  loading={generating}
+                  draftScope={NEW_DECK_DRAFT_SCOPE}
+                  initialText={newDeckInitialPrompt?.text}
+                  initialTextKey={newDeckInitialPrompt?.key}
+                  initialModelSelection={newDeckRetryModelSelection}
+                  onRetainedAttachmentsAbandoned={
+                    handlePendingDeckAttachmentsAbandoned
+                  }
+                  toolbarSlot={
+                    <DesignSystemComposerControl
+                      value={selectedDesignSystemId ?? "none"}
+                      designSystems={designSystems}
+                      onChange={handleDesignSystemChange}
+                    />
+                  }
                 />
-              ))}
-              {visibleDecks.length === 0 && (
-                <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                  {normalizedDeckSearch
-                    ? t("home.noDecksMatchSearch")
-                    : t("home.noMineDecks")}
-                </div>
-              )}
+              </Suspense>
+            </LazyChunkErrorBoundary>
+            <div className="flex max-w-[700px] flex-wrap justify-center gap-2">
+              {[1, 2, 3, 4].map((number) => {
+                const key = `home.suggestion${number}` as const;
+                const prompt = t(key);
+                return (
+                  <Button
+                    key={key}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-auto rounded-full px-3 py-1.5 text-xs font-normal"
+                    onClick={() =>
+                      setNewDeckInitialPrompt({ text: prompt, key: Date.now() })
+                    }
+                  >
+                    {prompt}
+                  </Button>
+                );
+              })}
             </div>
+          </section>
+          <div className="mb-4 flex justify-start">
+            <ToggleGroup
+              type="single"
+              value={deckFilter}
+              onValueChange={(value) => value && setDeckFilter(value)}
+              aria-label={t("home.deckFilter")}
+              className="rounded-full bg-muted p-1"
+            >
+              <ToggleGroupItem
+                value="mine"
+                className="rounded-full px-3 text-xs"
+              >
+                {t("home.mine")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="all"
+                className="rounded-full px-3 text-xs"
+              >
+                {t("home.all")}
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
+          {viewState === "decks" && (
+            <div className="deck-grid-container">
+              <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {visibleDecks.map((deck) => (
+                  <DeckCard
+                    key={deck.id}
+                    deck={deck}
+                    onDelete={(id) => setDeckToDelete(id)}
+                    onRename={handleRename}
+                    onDuplicate={handleDuplicate}
+                    onToggleStar={handleToggleStar}
+                    isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
+                    canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                    onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
+                  />
+                ))}
+                {visibleDecks.length === 0 && (
+                  <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                    {normalizedDeckSearch
+                      ? t("home.noDecksMatchSearch")
+                      : t("home.noMineDecks")}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -2116,7 +2226,7 @@ export default function Index() {
               onOpenChange={setNewDeckPromptOpen}
               title={t("home.newDeckPromptTitle")}
               placeholder={t("home.newDeckPlaceholder")}
-              onSkip={handlePromptSkip}
+              onSkip={handleCreateDeckBlank}
               skipLabel={t("home.skipPrompt")}
               onSubmit={handlePromptSubmit}
               onImport={handleDirectImport}
@@ -2157,43 +2267,6 @@ export default function Index() {
           </Suspense>
         </LazyChunkErrorBoundary>
       )}
-
-      <NewDeckReferenceStep
-        open={showNewDeckReferenceStep}
-        onOpenChange={(open) => {
-          if (!open && !pendingDeckGenerationRef.current) {
-            const pending = pendingDeck;
-            settlePendingDeckAttachments("discard");
-            setShowNewDeckReferenceStep(false);
-            setPendingDeck(null);
-            if (pending) {
-              setNewDeckInitialPrompt({
-                text: pending.prompt,
-                key: Date.now(),
-              });
-              setShowNewDeckPrompt(true);
-            }
-          }
-        }}
-        designSystems={designSystems}
-        decks={decks}
-        defaultDesignSystemId={initialDesignSystemId}
-        defaultReferenceDeckId={initialReferenceDeckId}
-        onDesignSystemsChanged={() => void refetchDesignSystems()}
-        onSelect={handleReferenceSelect}
-        onImport={handleReferenceImport}
-        onImportSource={handleReferenceSourceImport}
-        onSkip={handleReferenceSkip}
-        importing={referenceImporting}
-        title={t("home.newDeckPromptTitle")}
-        designSystemLabel={t("home.designSystem")}
-        referenceDeckLabel={t("home.referenceDeck")}
-        chooseDeckLabel={t("home.referenceDeckPlaceholder")}
-        importingLabel={t("editorToolbar.importing")}
-        skipLabel={t("home.referenceDeckNone")}
-        searchDecksLabel={t("root.searchDecks")}
-        promptSummary={pendingDeck?.prompt}
-      />
 
       {/* Sign-in required to create a deck. Shown when an unauthenticated
           user submits a prompt - the typed prompt is preserved in
@@ -2240,6 +2313,7 @@ function DeckSearchInput({
     >
       <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
       <Input
+        data-deck-search
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -2247,31 +2321,51 @@ function DeckSearchInput({
         aria-label={t("root.searchDecks")}
         className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
       />
+      <kbd className="hidden shrink-0 rounded border border-border bg-muted px-1 text-[10px] font-normal text-muted-foreground sm:inline-block">
+        ⌘K
+      </kbd>
     </label>
   );
 }
 
-function EmptyState({
-  onCreateDeck,
+function DesignSystemComposerControl({
+  value,
+  designSystems,
+  onChange,
 }: {
-  onCreateDeck: (e: React.MouseEvent<HTMLElement>) => void;
+  value: string;
+  designSystems: ReturnType<typeof useDesignSystems>["designSystems"];
+  onChange: (value: string) => void;
 }) {
   const t = useT();
+  const selected = designSystems.find((system) => system.id === value);
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-5 text-center">
-      <h2 className="text-xl font-semibold text-foreground">
-        {t("home.emptyTitle")}
-      </h2>
-      <Button
-        onPointerEnter={preloadPromptPopover}
-        onFocus={preloadPromptPopover}
-        onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
-          onCreateDeck(e as React.MouseEvent<HTMLElement>)
-        }
-      >
-        <IconPlus className="size-4" />
-        {t("home.createFirstDeck")}
-      </Button>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 max-w-48 justify-start px-2 text-xs"
+          aria-label={`${t("home.designSystem")}: ${selected?.title ?? t("home.none")}`}
+        >
+          <span className="truncate">
+            {selected?.title ?? t("home.designSystem")}
+          </span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+        <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
+          <DropdownMenuRadioItem value="none">
+            {t("home.none")}
+          </DropdownMenuRadioItem>
+          {designSystems.map((system) => (
+            <DropdownMenuRadioItem key={system.id} value={system.id}>
+              {system.title}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

@@ -12,6 +12,7 @@ import {
   IconFolderPlus,
   IconLink,
   IconUpload,
+  IconVideoPlus,
 } from "@tabler/icons-react";
 import {
   type DragEvent,
@@ -22,7 +23,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link } from "react-router";
+import { Link, NavLink } from "react-router";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
@@ -69,6 +70,47 @@ import { RecordingCard } from "./recording-card";
 import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
 
+function LibraryLandingTabs({
+  activeView,
+}: {
+  activeView: "library" | "shared";
+}) {
+  const t = useT();
+
+  return (
+    <nav
+      aria-label={t("navigation.library")}
+      className="mx-auto mb-5 flex w-fit items-center gap-1 rounded-lg bg-muted p-1"
+    >
+      <NavLink
+        to="/library"
+        end
+        aria-current={activeView === "library" ? "page" : undefined}
+        className={cn(
+          "rounded-md px-3 py-1.5 text-sm transition-colors",
+          activeView === "library"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        {t("clipsLanding.recent")}
+      </NavLink>
+      <NavLink
+        to="/shared"
+        aria-current={activeView === "shared" ? "page" : undefined}
+        className={cn(
+          "rounded-md px-3 py-1.5 text-sm transition-colors",
+          activeView === "shared"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        {t("navigation.sharedWithMe")}
+      </NavLink>
+    </nav>
+  );
+}
+
 interface LibraryGridProps {
   view: "library" | "shared" | "space" | "archive" | "trash" | "all";
   folderId?: string | null;
@@ -76,6 +118,7 @@ interface LibraryGridProps {
   /** What empty-state illustration to render. Defaults from `view`. */
   emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
+  landing?: boolean;
   breadcrumbItems?: readonly PageBreadcrumbItem[];
   tagFilter?: string | null;
   onClearTag?: () => void;
@@ -192,6 +235,7 @@ export function LibraryGrid({
   spaceId = null,
   emptyKind,
   title,
+  landing = false,
   breadcrumbItems,
   tagFilter,
   onClearTag,
@@ -223,7 +267,7 @@ export function LibraryGrid({
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
   const pageBreadcrumbItems =
     breadcrumbItems ?? (title ? [{ label: title }] : []);
-  const { uploadHref, importLoomHref } = buildLibraryActionHrefs({
+  const { recordHref, uploadHref, importLoomHref } = buildLibraryActionHrefs({
     folderId,
     spaceId,
   });
@@ -604,14 +648,14 @@ export function LibraryGrid({
               <PageBreadcrumb items={pageBreadcrumbItems} />
             ) : null}
           </div>
-          {!isEmptyState && (
+          {(!isEmptyState || landing) && (
             <SearchBar
               side="bottom"
               className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
             />
           )}
           <div className="ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
-            {!isEmptyState && extraActions}
+            {(!isEmptyState || landing) && extraActions}
             {!isEmptyState && (
               <SortMenu value={sort} onChange={handleSortChange} />
             )}
@@ -684,16 +728,47 @@ export function LibraryGrid({
                     {t("libraryGrid.retry")}
                   </Button>
                 </div>
+              ) : landing &&
+                view === "library" &&
+                recordings.length === 0 &&
+                visibleFolders.length === 0 &&
+                uploads.length === 0 ? (
+                <>
+                  <section className="flex flex-1 flex-col items-center justify-center gap-5 py-12 text-center">
+                    <h2 className="text-xl font-medium tracking-tight text-foreground">
+                      {t("empty.library.title")}
+                    </h2>
+                    <Button asChild size="sm">
+                      <Link to={recordHref}>
+                        <IconVideoPlus />
+                        {t("empty.library.cta")}
+                      </Link>
+                    </Button>
+                  </section>
+                  <LibraryLandingTabs activeView="library" />
+                </>
               ) : recordings.length === 0 &&
                 visibleFolders.length === 0 &&
                 uploads.length === 0 ? (
-                <EmptyState
-                  kind={resolvedEmptyKind}
-                  spaceId={spaceId}
-                  folderId={folderId}
-                />
+                <>
+                  {landing ? (
+                    <LibraryLandingTabs
+                      activeView={view === "shared" ? "shared" : "library"}
+                    />
+                  ) : null}
+                  <EmptyState
+                    kind={resolvedEmptyKind}
+                    spaceId={spaceId}
+                    folderId={folderId}
+                  />
+                </>
               ) : (
                 <div className="flex flex-col gap-8">
+                  {landing ? (
+                    <LibraryLandingTabs
+                      activeView={view === "shared" ? "shared" : "library"}
+                    />
+                  ) : null}
                   {visibleFolders.length > 0 && (
                     <section aria-labelledby="library-folders-heading">
                       <h2
