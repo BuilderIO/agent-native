@@ -5,7 +5,7 @@ description: "用一条命令把代理本机工作区中的每个应用发布到
 
 # 工作区部署
 
-如果你的项目是一个包含多个应用的[工作区](/docs/multi-app-workspace),你可以把其中的每个应用都部署到同一个源,而不必为每个应用分别管理部署。本页涵盖托管式的一条命令方案,以及一个自托管的 Docker Compose 替代方案。选择数据库、预设和平台的步骤请先参见 [Deployment](/docs/deployment)。
+如果你的项目是一个包含多个应用的[工作区](/docs/multi-app-workspace),你可以把其中的每个应用都部署到同一个源,而不必为每个应用分别管理部署。多应用工作区可以在 `/` 处显示一个目录页面。否则,根路径会重定向到第一个应用。本页涵盖托管式的一条命令方案,以及一个自托管的 Docker Compose 替代方案。选择数据库、预设和平台的步骤请先参见 [Deployment](/docs/deployment)。
 
 ## 一个源,多个应用 {#workspace-deploy}
 
@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-在底层,每个应用都使用自己的**基础路径**构建,这是一个像 `/mail` 这样的 URL 前缀,通过 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 设置,然后为目标 Nitro 预设打包。Cloudflare Pages 通过一个生成的**调度 worker** 进行路由,这是位于 `dist/_worker.js` 的一个小脚本,它读取传入的路径并把请求转发给匹配的应用。Netlify 为每个应用使用一个函数,外加生成的重定向规则。Vercel 使用 Build Output API 编写一个工作区级别的 `.vercel/output`。
+在底层,每个应用都使用自己的**基础路径**构建,这是一个像 `/mail` 这样的 URL 前缀,通过 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 设置,然后为目标 Nitro 预设打包。Cloudflare Pages 通过一个生成的**调度 worker** 进行路由,这是位于 `dist/_worker.js` 的一个小脚本,它读取传入的路径并把请求转发给匹配的应用。Netlify 为每个应用使用一个函数,外加生成的重定向规则,并将应用数据请求路由到匹配的处理程序。Vercel 使用 Build Output API 编写一个工作区级别的 `.vercel/output`,并将应用数据请求路由到匹配的处理程序。
 
 </Callout>
 

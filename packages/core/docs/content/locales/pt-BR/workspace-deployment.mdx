@@ -5,7 +5,7 @@ description: "Envie cada app de um espaço de trabalho nativo do agente para uma
 
 # Implantação de Espaço de Trabalho
 
-Se o seu projeto for um [espaço de trabalho](/docs/multi-app-workspace) com mais de um app, você pode implantar todos os apps em uma única origem em vez de gerenciar implantações separadas por app. Esta página cobre o caminho gerenciado de um único comando e uma alternativa auto-hospedada com Docker Compose. Veja [Implantação](/docs/deployment) para escolher um banco de dados, um preset e uma plataforma primeiro.
+Se o seu projeto for um [espaço de trabalho](/docs/multi-app-workspace) com mais de um app, você pode implantar todos os apps em uma única origem em vez de gerenciar implantações separadas por app. Espaços de trabalho com múltiplos apps podem exibir uma página de diretório em `/`. Caso contrário, a raiz redireciona para o primeiro app. Esta página cobre o caminho gerenciado de um único comando e uma alternativa auto-hospedada com Docker Compose. Veja [Implantação](/docs/deployment) para escolher um banco de dados, um preset e uma plataforma primeiro.
 
 ## Uma Origem, Muitos Apps {#workspace-deploy}
 
@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-Por baixo dos panos, cada app é construído com seu próprio **caminho base**, um prefixo de URL como `/mail` definido via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, e então empacotado para o preset do Nitro alvo. O Cloudflare Pages roteia através de um **worker de despacho** gerado, um pequeno script em `dist/_worker.js` que lê o caminho recebido e encaminha a requisição para o app correspondente. O Netlify usa uma função por app mais redirecionamentos gerados. O Vercel grava um `.vercel/output` de nível de espaço de trabalho usando a Build Output API.
+Por baixo dos panos, cada app é construído com seu próprio **caminho base**, um prefixo de URL como `/mail` definido via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, e então empacotado para o preset do Nitro alvo. O Cloudflare Pages roteia através de um **worker de despacho** gerado, um pequeno script em `dist/_worker.js` que lê o caminho recebido e encaminha a requisição para o app correspondente. O Netlify usa uma função por app mais redirecionamentos gerados, e roteia requisições de dados do app para o handler correspondente. O Vercel grava um `.vercel/output` de nível de espaço de trabalho usando a Build Output API e roteia requisições de dados do app para o handler correspondente.
 
 </Callout>
 

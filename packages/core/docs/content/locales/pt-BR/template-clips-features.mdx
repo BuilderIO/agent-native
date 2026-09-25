@@ -19,7 +19,7 @@ Sua Biblioteca mostra primeiro as pastas, depois as gravações, como uma grade 
 Três formas de adicionar um clipe à sua biblioteca, todas a partir do botão **Gravar** e do menu **Importar** ao lado dele. Clicar com o botão direito em um espaço vazio na Biblioteca oferece as mesmas três opções, além de **Nova pasta**.
 
 - **Gravar.** O gravador de tela integrado do Clipes, com sobreposição de webcam, captura de áudio e controles de pausa/corte.
-- **Enviar um arquivo de vídeo.** Adicione um vídeo já existente diretamente do seu computador, sem necessidade de gravação.
+- **Enviar um arquivo de vídeo.** Adicione um vídeo já existente diretamente do seu computador, ou solte-o na grade da Biblioteca ou dos Espaços. Não é necessário gravar.
 - **Importar Loom.** Traga um vídeo público do Loom sem regravá-lo. Ao lado de **Gravar**, abra **Importar**, escolha **Importar Loom** e depois cole uma URL de compartilhamento ou incorporação do Loom. O Clipes salva uma cópia na sua biblioteca e importa a transcrição pública quando o Loom a fornece.
 
 ### Gerencie um clipe
@@ -86,11 +86,13 @@ Arquivar e mover para a lixeira escondem um clipe da Biblioteca principal sem ex
 
 ### Visualizar clipes {#shared-view-clips}
 
-Essa visualização lista toda gravação que alguém compartilhou diretamente com você ou com sua organização, por nome ou por uma configuração de visibilidade em toda a organização. Um link público que alguém por acaso tenha não conta para essa lista. Você pode assistir e comentar aqui, mas não há menu de três pontos: gerenciar um clipe (mover, arquivar, compartilhar mais adiante) ainda é decisão do proprietário.
+Essa visualização lista toda gravação que alguém compartilhou diretamente com você ou com sua organização, por nome ou por uma configuração de visibilidade em toda a organização. Um link público que alguém por acaso tenha não conta para essa lista.
+
+Você pode assistir e navegar pelos clipes compartilhados, e recolher a barra lateral para dar mais espaço ao vídeo. Você pode comentar aqui, mas não há menu de três pontos: gerenciar um clipe (mover, arquivar, compartilhar mais adiante) ainda é decisão do proprietário.
 
 ### Comente em clipes
 
-Adicione um comentário no ponto exato do vídeo que você está assistindo, não apenas na gravação como um todo. Os comentários se organizam em respostas encadeadas, suportam negrito, itálico, código inline e links (títulos são reduzidos a texto simples), e podem mencionar um colega de equipe com @ para notificá-lo.
+Adicione um comentário no ponto exato do vídeo que você está assistindo, não apenas na gravação como um todo. Os comentários se organizam em respostas encadeadas, suportam negrito, itálico, código inline e links (títulos são reduzidos a texto simples), e podem mencionar um colega de equipe com @ para notificá-lo. Os campos de comentário crescem conforme você digita, e o feed se expande para mostrar comentários mais longos.
 
 ## Espaços
 
@@ -148,7 +150,7 @@ Ela só observa a aba que você está gravando ativamente, e apenas enquanto a g
 
 ## Transcrição e metadados de IA {#transcription-and-ai-metadata}
 
-A transcrição tenta primeiro a opção mais rápida e gratuita, e só recorre a uma paga quando é necessário:
+A transcrição tenta primeiro a opção mais rápida e gratuita, e só recorre a uma paga quando é necessário. O histórico de ditado mostra prévias de transcrição que se expandem para transcrições completas e ações alinhadas:
 
 | Ordem | Provedor                            | Observações                                                                                                                                                                                       |
 | ----- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -156,7 +158,7 @@ A transcrição tenta primeiro a opção mais rápida e gratuita, e só recorre 
 | 2     | Gerenciado pela Builder.io (Gemini) | Alternativa na nuvem quando o texto nativo está faltando. Nenhuma chave extra é necessária depois que o Builder está conectado. O plano gratuito da Builder.io inclui créditos de IA gerenciados. |
 | 3     | Groq (`whisper-large-v3-turbo`)     | Alternativa opcional se você preferir usar sua própria chave.                                                                                                                                     |
 
-Depois que uma transcrição fica pronta, o agente preenche automaticamente um título, um resumo e marcadores de capítulo, e os mantém atualizados enquanto você edita. Você também pode pedir diretamente:
+Depois que uma transcrição fica pronta, o agente preenche automaticamente um título, um resumo e marcadores de capítulo, e os mantém atualizados enquanto você edita. Durante a reprodução, a transcrição acompanha a posição atual. Você também pode pedir diretamente:
 
 - "Regenere o título e o resumo."
 - "Adicione capítulos. Esse é longo."
@@ -169,7 +171,7 @@ A transcrição de backup, a limpeza de transcrição e os títulos e resumos de
 
 ## Edição não destrutiva {#non-destructive-editing}
 
-Corte, divida, remova silêncios ou palavras de preenchimento, ou combine clipes, tudo sem nunca tocar no arquivo original. Cada edição é aplicada como uma instrução em camadas sobre sua gravação original, pode ser desfeita, e nada é gravado permanentemente em um novo arquivo até que você exporte.
+Use a linha do tempo para cortar e dividir clipes, remover silêncios ou palavras de preenchimento, combinar clipes e adicionar redações. Arraste os limites de corte para ajustá-los, e use desfazer ou refazer para revisar as edições. As mudanças permanecem em camadas sobre a gravação original. Nada é gravado permanentemente em um novo arquivo até que você exporte.
 
 <Video
   src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"
