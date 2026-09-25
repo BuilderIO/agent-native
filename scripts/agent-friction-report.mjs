@@ -76,7 +76,8 @@ const SHIPPING_CHURN_RE =
 
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
-    String.raw`\bleases?\b[^.!?;\n]{0,60}\b(?:blocked|stopped|prevented)\b[^.!?;\n]{0,35}\b(?:work|task|session|thread|agent)\b`,
+    String.raw`\bleases?\b[^.!?;\n]{0,60}\b(?:blocked|stopped)\b[^.!?;\n]{0,35}\b(?:work|task|session|thread|agent)\b`,
+    String.raw`\bleases?\b[^.!?;\n]{0,60}\bprevented\b[^.!?;\n]{0,35}\b(?:work|task|session|thread|agent)\b[^.!?;\n]{0,35}\bfrom\s+(?:continuing|working)\b`,
     String.raw`\b(?:work|task|session|thread|agent)\b[^.!?;\n]{0,35}\b(?:stopped(?:\s+working)?|was blocked|got blocked|couldn['’]?t continue|could not continue|was unable to continue|didn['’]?t continue|did not continue)\b[^.!?;\n]{0,35}\b(?:because(?:\s+of)?|due to|after)\b[^.!?;\n]{0,55}\bleases?\b`,
     String.raw`\bleases?\b[^.!?;\n]{0,50}\b(?:fail(?:ed|ure)?|expired|was(?:n['’]?t| not) renewed|couldn['’]?t renew|could not renew|couldn['’]?t get|could not get)\b[^.!?;\n]{0,30}\b(?:so|therefore|then|meant|caused)\b[^.!?;\n]{0,30}\b(?:work|task|session|thread|agent)\b[^.!?;\n]{0,25}\b(?:stopped|couldn['’]?t continue|could not continue|didn['’]?t continue|did not continue|was unable to continue)\b(?![^.!?;\n]{0,60}\b(?:because|due to|since)\b)`,
     String.raw`\b(?:codex|agents?|sessions?|threads?)\b[^.!?;\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?;\n]{0,50}\bleases?\b[^.!?;\n]{0,40}\b(?:so|then|and then|therefore)\b[^.!?;\n]{0,30}\b(?:just\s+)?stop\w*\b`,
@@ -638,6 +639,7 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [false, "No work was stopped by the lease."],
   [false, "Don't ignore the lease; continue working."],
   [false, "The lease prevents duplicate watchers so work can continue."],
+  [false, "The lease prevented duplicate watchers so work could continue."],
   [false, "Work was not blocked by the lease."],
   [true, "Work could not continue after the lease expired."],
   [true, "The lease failure meant the task could not continue."],
