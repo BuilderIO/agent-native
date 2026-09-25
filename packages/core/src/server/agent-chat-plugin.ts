@@ -485,6 +485,31 @@ export async function runPostAgentTurnAutosave(
   }
 }
 
+export async function runPostAgentRunComplete(
+  callback: AgentChatPluginOptions["onAgentRunComplete"] | undefined,
+  scope: AgentChatScope | null | undefined,
+  run: ActiveRun,
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback(scope, run);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: run.runId,
+      tags: {
+        source: "agent-chat",
+        failureClass: "post-agent-run-observer",
+      },
+      extra: {
+        runId: run.runId,
+        threadId: run.threadId,
+      },
+    });
+    console.error("[agent-chat] post-agent-run observer failed:", error);
+  }
+}
+
 export async function runPreAgentTurnAutosave(
   callback: AgentChatPluginOptions["onAgentTurnStart"] | undefined,
   scope: AgentChatScope | null | undefined,
@@ -3300,6 +3325,11 @@ export function createAgentChatPlugin(
         // a serverless invocation exits.
         await runPostAgentTurnAutosave(
           options?.onAgentTurnComplete,
+          chatScope,
+          run,
+        );
+        await runPostAgentRunComplete(
+          options?.onAgentRunComplete,
           chatScope,
           run,
         );
