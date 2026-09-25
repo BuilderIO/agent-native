@@ -6,12 +6,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./AgentSidebarPanel.js", () => ({
-  AgentSidebarPanel: () => <div data-agent-sidebar-panel-loaded="true" />,
-}));
-const hostedHarnessMock = vi.hoisted(() => ({
+const mockHostedHarness = vi.hoisted(() => ({
   configured: false,
   enabled: false,
+}));
+
+vi.mock("./AgentSidebarPanel.js", () => ({
+  AgentSidebarPanel: () => <div data-agent-sidebar-panel-loaded="true" />,
 }));
 vi.mock("./agent-chat.js", () => ({}));
 vi.mock("./mcp-app-host.js", () => ({}));
@@ -32,7 +33,9 @@ vi.mock("./app-chat-sidebar.js", () => ({
   usePerAppChatState: () => ({ hosted: false, open: false }),
 }));
 vi.mock("./app-config.js", () => ({
-  injectedAgentNativeConfig: () => ({ harness: hostedHarnessMock.configured }),
+  injectedAgentNativeConfig: () => ({
+    harness: mockHostedHarness.configured ? {} : undefined,
+  }),
 }));
 vi.mock("./builder-frame.js", () => ({
   shouldParentFrameOwnAgentPanel: () => false,
@@ -59,14 +62,10 @@ vi.mock("./onboarding/use-preview-mode.js", () => ({
   useOnboardingPreviewMode: () => false,
 }));
 vi.mock("./use-action.js", () => ({
-  useActionQuery: (
-    _action: string,
-    _input: undefined,
-    options?: { enabled?: boolean },
-  ) => ({
+  useActionQuery: (action: string) => ({
     data:
-      options?.enabled && hostedHarnessMock.enabled
-        ? { enabled: true, runtimes: ["codex"] }
+      action === "get-hosted-harness-config" && mockHostedHarness.enabled
+        ? { enabled: true, runtimes: [] }
         : undefined,
   }),
 }));
@@ -81,14 +80,22 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
-function renderSidebar(defaultOpen: boolean) {
+function renderSidebar(
+  defaultOpen: boolean,
+  position?: "left" | "right",
+  disableChatShortcut = false,
+) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   flushSync(() => {
     root?.render(
       <MemoryRouter>
-        <AgentSidebar defaultOpen={defaultOpen}>
+        <AgentSidebar
+          defaultOpen={defaultOpen}
+          disableChatShortcut={disableChatShortcut}
+          position={position}
+        >
           <div data-testid="app-content">App content</div>
         </AgentSidebar>
       </MemoryRouter>,
@@ -104,8 +111,8 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  hostedHarnessMock.configured = false;
-  hostedHarnessMock.enabled = false;
+  mockHostedHarness.configured = false;
+  mockHostedHarness.enabled = false;
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     clear: () => values.clear(),
@@ -116,6 +123,42 @@ beforeEach(() => {
 });
 
 describe("AgentSidebar lazy panel boundary", () => {
+  it("defaults hosted-harness chat to the right and respects a closed preference", async () => {
+    mockHostedHarness.configured = true;
+    mockHostedHarness.enabled = true;
+    renderSidebar(false);
+
+    await act(async () => {});
+
+    expect(
+      container?.querySelector("[data-agent-sidebar-position='right']"),
+    ).toBeTruthy();
+    expect(
+      container?.querySelector("[data-agent-sidebar-main-position='right']"),
+    ).toBeTruthy();
+    expect(
+      container?.querySelector("[data-agent-sidebar-main-state='closed']"),
+    ).toBeTruthy();
+    expect(
+      container
+        ?.querySelector(".agent-sidebar-shell")
+        ?.getAttribute("data-agent-native-hosted-harness-ui"),
+    ).toBe("desktop");
+  });
+
+  it("respects a saved closed state when hosted harness would otherwise open", async () => {
+    mockHostedHarness.configured = true;
+    mockHostedHarness.enabled = true;
+    localStorage.setItem("agent-native-sidebar-open", "false");
+    renderSidebar(true);
+
+    await act(async () => {});
+
+    expect(
+      container?.querySelector("[data-agent-sidebar-main-state='closed']"),
+    ).toBeTruthy();
+  });
+
   it("defers URL synchronization until the panel is mounted", () => {
     renderSidebar(false);
 
@@ -147,28 +190,6 @@ describe("AgentSidebar lazy panel boundary", () => {
     ).toBeTruthy();
   });
 
-  it("keeps hosted-harness chat on the configured right side", () => {
-    hostedHarnessMock.configured = true;
-    hostedHarnessMock.enabled = true;
-    renderSidebar(false);
-
-    expect(
-      container
-        ?.querySelector(".agent-sidebar-shell")
-        ?.getAttribute("data-agent-sidebar-position"),
-    ).toBe("right");
-    expect(
-      container
-        ?.querySelector(".agent-sidebar-shell")
-        ?.getAttribute("data-agent-native-hosted-harness-ui"),
-    ).toBe("desktop");
-    expect(
-      container
-        ?.querySelector(".agent-sidebar-panel")
-        ?.getAttribute("data-agent-sidebar-position"),
-    ).toBe("right");
-  });
-
   it("opens from the global shortcut while the panel body is still loading", async () => {
     renderSidebar(false);
     await act(async () => {});
@@ -196,6 +217,31 @@ describe("AgentSidebar lazy panel boundary", () => {
 
     expect(
       container?.querySelector("[data-agent-sidebar-panel-loaded='true']"),
+    ).toBeTruthy();
+  });
+
+  it("leaves Cmd+I available to the app when the chat shortcut is disabled", async () => {
+    renderSidebar(false, undefined, true);
+    await act(async () => {});
+
+    const onOpen = vi.fn();
+    window.addEventListener("agent-panel:open", onOpen);
+    const event = new KeyboardEvent("keydown", {
+      key: "i",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    await act(async () => {
+      document.dispatchEvent(event);
+    });
+
+    window.removeEventListener("agent-panel:open", onOpen);
+    expect(event.defaultPrevented).toBe(false);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(
+      container?.querySelector("[data-agent-sidebar-main-state='closed']"),
     ).toBeTruthy();
   });
 });

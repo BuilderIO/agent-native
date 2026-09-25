@@ -566,11 +566,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "إعادة إنشاء الرد",
   "message.restoreFailed": "فشلت الاستعادة ({{status}}).",
   "message.restoreQuestion": "هل تريد الاستعادة إلى هنا؟",
+  "message.revertQuestion":
+    "هل تريد الرجوع إلى هذه النقطة؟ ستفقد التغييرات التي أُجريت بعدها.",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
   "message.threadNotFound":
     "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
   "message.revertHere": "الرجوع إلى هنا",
+  "message.revertToBeginning": "الرجوع إلى البداية",
   "message.sentAt": "أُرسلت في {{time}}",
   "contextMeter.ariaLabel":
     "السياق {{percent}}%، {{totalTokens}}{{breakdown}}. افتح تحليل السياق.",

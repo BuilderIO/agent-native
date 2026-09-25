@@ -54,6 +54,33 @@ export type UploadMode = "streaming" | "buffered";
 /** Keeps function payloads below the server's 4 MiB chunk cap. */
 export const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
 
+export type UploadResponseFailureStage = "chunk_upload" | "reset_chunks";
+
+export function classifyUploadResponseError(input: {
+  contentType: string | null;
+  body: string;
+  status: number;
+  stage: UploadResponseFailureStage;
+}): {
+  isHtml: boolean;
+  responseText: string | null;
+  status: number;
+  failureCode: "upload_failed" | "chunk_html_error";
+  failureStage: UploadResponseFailureStage;
+} {
+  const isHtml =
+    /^\s*text\/html(?:\s*;|$)/i.test(input.contentType ?? "") ||
+    /(?:<!doctype\s+html\b|<html\b)/i.test(input.body);
+
+  return {
+    isHtml,
+    responseText: isHtml ? null : input.body,
+    status: input.status,
+    failureCode: isHtml ? "chunk_html_error" : "upload_failed",
+    failureStage: input.stage,
+  };
+}
+
 /**
  * Resumable providers advance a single byte offset, so their chunks must be
  * sent in strict index order. Buffered uploads can retain bounded parallelism.

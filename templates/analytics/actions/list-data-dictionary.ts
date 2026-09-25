@@ -3,7 +3,10 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server";
-import { getAllSettings, listOrgSettings } from "@agent-native/core/settings";
+import {
+  listOrgSettings,
+  listSettingsByPrefix,
+} from "@agent-native/core/settings";
 import { z } from "zod";
 
 const KEY_PREFIX = "data-dict-";
@@ -46,15 +49,10 @@ export default defineAction({
       for (const value of Object.values(orgEntries)) collect(value);
     }
 
-    // User-scoped entries — iterate once, filter by exact user prefix.
-    // See list-analyses.ts for the rationale (substring matches leak across
-    // users).
+    // Scope the read in SQL so other users' settings never enter this action.
     const userPrefix = `u:${email}:${KEY_PREFIX}`;
-    const all = await getAllSettings();
-    for (const [fullKey, value] of Object.entries(all)) {
-      if (!fullKey.startsWith(userPrefix)) continue;
-      collect(value);
-    }
+    const userEntries = await listSettingsByPrefix(userPrefix);
+    for (const { value } of userEntries) collect(value);
 
     const q = (args.search ?? "").trim().toLowerCase();
     const dept = (args.department ?? "").trim().toLowerCase();

@@ -26,6 +26,7 @@ const messages = {
     team: "Team",
   },
   settings: {
+    agentObservability: "Agent Observability",
     title: "Settings",
     description: "Language and workspace preferences for this app.",
     labs: "Labs",
@@ -701,6 +702,8 @@ const messages = {
     leaveWithoutSaving: "Exit without saving",
     editorMarkupNotSaved:
       "This edit wasn't saved because it would have added editor markup to the slide.",
+    textEditConflictNotSaved:
+      "Your text edit wasn't saved because the same text was changed elsewhere at the same time.",
   },
   designSystemSetup: {
     importedBrand: "Imported brand",

@@ -9,6 +9,7 @@ export default defineAction({
     "metadata only, not the stored file contents.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
+    threadId: z.string().min(1).optional(),
     limit: z.coerce
       .number()
       .int()
@@ -19,5 +20,6 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ designId, limit }) => listDesignVersions(designId, limit),
+  run: async ({ designId, limit, threadId }) =>
+    listDesignVersions(designId, limit, threadId),
 });

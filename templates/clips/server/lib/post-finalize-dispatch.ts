@@ -52,6 +52,8 @@ export async function dispatchPostFinalizeJob(args: {
   kind: PostFinalizeJobKind;
   delayMs?: number;
   retryAttempt?: number;
+  uploadAttemptId?: string | null;
+  uploadGenerationId?: string | null;
   regenerate?: boolean;
   requireAccepted?: boolean;
 }): Promise<void> {

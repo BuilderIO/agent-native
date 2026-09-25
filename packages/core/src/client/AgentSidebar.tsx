@@ -320,6 +320,8 @@ export interface AgentSidebarProps {
   position?: "left" | "right";
   /** Whether the sidebar starts open. Default: false */
   defaultOpen?: boolean;
+  /** Disable the Cmd+I / Ctrl+I shortcut that opens chat. */
+  disableChatShortcut?: boolean;
   /** Whether to render the panel's header collapse button. Default: true. */
   showCollapseButton?: boolean;
   /** Animate the mobile overlay in a sheet-style slide transition. Default: true */
@@ -435,8 +437,9 @@ export function AgentSidebar({
   threadFooterSlot,
   defaultSidebarWidth,
   sidebarWidth,
-  position = "right",
-  defaultOpen = false,
+  position,
+  defaultOpen,
+  disableChatShortcut = false,
   showCollapseButton = true,
   animateMobile = true,
   animateDesktop = true,
@@ -521,7 +524,8 @@ export function AgentSidebar({
         onAgentChange?.(agent);
       }
     : onAgentChange;
-  const effectiveDefaultOpen = hostedHarnessUi || defaultOpen;
+  const effectivePosition = position ?? "right";
+  const effectiveDefaultOpen = defaultOpen ?? hostedHarnessUi;
   const effectiveShowTabBar = hostedHarnessUi || showTabBar;
   const effectiveAnimateDesktop = hostedHarnessUi ? false : animateDesktop;
   const sidebarOpenStorageKey = openStorageKey ?? storageKey;
@@ -642,10 +646,6 @@ export function AgentSidebar({
     hostedHarnessRuntime,
     hostedHarnessStorageKey,
   ]);
-
-  useEffect(() => {
-    if (hostedHarnessUi) setOpenPersisted(true);
-  }, [hostedHarnessUi, setOpenPersisted]);
 
   const applyUrlOpenOverride = useCallback(() => {
     const override = consumeAgentSidebarUrlOpenOverride(sidebarOpenStorageKey);
@@ -987,8 +987,8 @@ export function AgentSidebar({
     return () => window.removeEventListener("message", handleMessage);
   }, [setOpenPersisted]);
 
-  // Cmd+\ / Ctrl+\ toggles the agent sidebar globally. Cmd+I / Ctrl+I focuses
-  // chat and attaches selected page text as one-shot context for the next turn.
+  // Cmd+\ / Ctrl+\ toggles globally; Cmd+I / Ctrl+I can focus chat and attach
+  // selected page text as one-shot context for the next turn.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -1003,7 +1003,7 @@ export function AgentSidebar({
         );
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+      if (!disableChatShortcut && (e.metaKey || e.ctrlKey) && e.key === "i") {
         if (!shouldHandleAgentPanelChatShortcut(e.target)) return;
         e.preventDefault();
         let selectionText = "";
@@ -1038,7 +1038,7 @@ export function AgentSidebar({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [disableChatShortcut]);
 
   // Hide sidebar during presentation mode
   useEffect(() => {
@@ -1126,7 +1126,7 @@ export function AgentSidebar({
   const handleResizeStart = useCallback(() => setIsResizing(true), []);
   const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
-  const isLeft = position === "left";
+  const isLeft = effectivePosition === "left";
   const wideDrawerEnabled = isWideDrawer && !isMobile;
   const mobileAnimationEnabled = !presentationMode && isMobile && animateMobile;
   const desktopAnimationEnabled =
@@ -1251,7 +1251,7 @@ export function AgentSidebar({
     <>
       {showResizeHandle && !isLeft && (
         <ResizeHandle
-          position={position}
+          position={effectivePosition}
           onDrag={handleDrag}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
@@ -1272,7 +1272,7 @@ export function AgentSidebar({
                 : undefined
         }
         data-agent-sidebar-layout={panelLayout}
-        data-agent-sidebar-position={position}
+        data-agent-sidebar-position={effectivePosition}
         data-agent-native-hosted-harness-ui={
           hostedHarnessUi ? "desktop" : undefined
         }
@@ -1356,7 +1356,7 @@ export function AgentSidebar({
       </div>
       {showResizeHandle && isLeft && (
         <ResizeHandle
-          position={position}
+          position={effectivePosition}
           onDrag={handleDrag}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
@@ -1384,7 +1384,7 @@ export function AgentSidebar({
       )}
       <div
         className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
-        data-agent-sidebar-position={position}
+        data-agent-sidebar-position={effectivePosition}
         data-agent-native-hosted-harness-ui={
           hostedHarnessUi ? "desktop" : undefined
         }
@@ -1423,7 +1423,7 @@ export function AgentSidebar({
         {isLeft && !presentationMode ? drawerPlaceholder : null}
         <div
           className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
-          data-agent-sidebar-main-position={position}
+          data-agent-sidebar-main-position={effectivePosition}
           data-agent-sidebar-main-state={
             !isMobile && !presentationMode && panelOpen ? "open" : "closed"
           }
