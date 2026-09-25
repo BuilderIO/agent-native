@@ -83,6 +83,7 @@ const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
     String.raw`\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,80}\b(?:didn['’]?t|did not|couldn['’]?t|could not|was unable to)\s+continu\w*[^.!?\n]{0,100}\bleases?\b`,
     String.raw`\bleases?\b[^.!?\n]{0,100}\bprevented\b[^.!?\n]{0,40}\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,40}\bfrom\s+(?:continuing|working)\b`,
     String.raw`\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,80}\bprevented\b[^.!?\n]{0,40}\bfrom\s+(?:continuing|working)\b[^.!?\n]{0,100}\bleases?\b`,
+    String.raw`\b(?:codex|agents?|sessions?|threads?)\b[^.!?\n]{0,120}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,80}\bleases?\b[^.!?\n]{0,80}\b(?:would|will|then)\s+(?:just\s+)?stop\w*\b`,
     String.raw`\b(?:told|asked|reminded)\b[^.!?\n]{0,80}\b(?:threads?|sessions?|agents?)\b[^.!?\n]{0,80}\b(?:finish(?:ing)?\s+shipping|ignore|bypass)\b[^.!?\n]{0,60}\bleases?\b`,
     String.raw`\bleases?\b[^.!?\n]{0,80}\b(?:shouldn['’]?t|should not|wouldn['’]?t|would not|couldn['’]?t|could not)\s+block\w*\b[^.!?\n]{0,40}\b(?:work|task)\b[^.!?\n]{0,40}\bbut\s+it\s+did\b`,
   ].join("|"),
@@ -638,6 +639,14 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [false, "Work was not blocked by the lease."],
   [true, "Work could not continue after the lease expired."],
   [true, "The lease failure meant the task could not continue."],
+  [
+    true,
+    "Codex sessions couldn't get leases or lease renewal so would just stop.",
+  ],
+  [
+    false,
+    "Codex sessions couldn't get a lease but kept working in the foreground.",
+  ],
 ];
 
 const STALE_PR_WATCHER_REGEX_CASES = [
