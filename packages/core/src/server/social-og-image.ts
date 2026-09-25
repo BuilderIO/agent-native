@@ -413,10 +413,16 @@ function resolveAgentNativeOgImageBrand(
     return {
       appName,
       mode,
-      presentation: resolveAgentNativeOgImagePresentation(appName, {
-        requestHost,
-        requestPath,
-      }),
+      // Catalog copy can also resolve from env app names on a custom host;
+      // only mirror the sign-in page when the app config or host is trusted,
+      // matching the share-card metadata the sign-in page emits.
+      presentation:
+        configuredFirstParty || trustedFirstPartyHost
+          ? resolveAgentNativeOgImagePresentation(appName, {
+              requestHost,
+              requestPath,
+            })
+          : undefined,
     };
   }
 

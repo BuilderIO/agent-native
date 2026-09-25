@@ -149,6 +149,32 @@ describe("social OG image", () => {
     expect(svg).not.toContain("100% free and open source");
   });
 
+  it("does not mirror sign-in copy resolved only from env on a custom host", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEMPLATE", "mail");
+    vi.stubEnv("npm_package_name", "");
+    const app = createApp();
+    app.use("/_agent-native/og-image.png", createAgentNativeOgImageHandler());
+
+    const custom = await app.request(
+      "https://inbox.example.com/_agent-native/og-image.png",
+      { headers: { host: "inbox.example.com" } },
+    );
+    const trusted = await app.request(
+      "https://mail.agent-native.com/_agent-native/og-image.png",
+      { headers: { host: "mail.agent-native.com" } },
+    );
+
+    expect(custom.status).toBe(200);
+    expect(trusted.status).toBe(200);
+    // Different layouts render different PNG bytes; same-layout renders are
+    // byte-identical, so equal bytes would mean the custom host got the
+    // sign-in card.
+    expect(Buffer.from(await custom.arrayBuffer())).not.toEqual(
+      Buffer.from(await trusted.arrayBuffer()),
+    );
+    expect(renderAgentNativeOgImageSvg()).not.toContain("Read it. Write it.");
+  });
+
   it("keeps the title layout for explicit titles and custom apps", () => {
     const presentation = {
       appLabel: "Mail",
