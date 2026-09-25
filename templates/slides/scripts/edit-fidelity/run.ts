@@ -368,7 +368,21 @@ async function settle(page: Page) {
       style.textContent = css;
       document.head.appendChild(style);
     }
-    await document.fonts.ready;
+    // The renderer injects a webfont stylesheet per slide font, and a face
+    // starts loading only once text using it lays out, so `fonts.ready` can
+    // resolve before the slide's font was even requested (display=swap then
+    // paints the fallback). Bounded: an offline stylesheet never loads.
+    const frame = () =>
+      new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    for (let i = 0; i < 20; i++) {
+      await document.fonts.ready;
+      await frame();
+      const sheetPending = Array.from(
+        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+      ).some((link) => !link.sheet);
+      if (!sheetPending && document.fonts.status === "loaded") break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     // Only the main canvas: sidebar thumbnails are lazy and may never load.
     // A broken image fires "error", never "load"; both views see the same one.
     const pending = Array.from(

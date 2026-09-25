@@ -303,6 +303,26 @@ export function installInPageHelpers(chromeSelector: string) {
     return best;
   }
 
+  /**
+   * The element's box grown to its content: text that overflows a fixed-size
+   * box (a freeform object) paints outside the box but is still the edit.
+   */
+  function paintedRect(el: Element): DOMRect {
+    const box = el.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const content = range.getBoundingClientRect();
+    if (!content.width && !content.height) return box;
+    const left = Math.min(box.left, content.left);
+    const top = Math.min(box.top, content.top);
+    return new DOMRect(
+      left,
+      top,
+      Math.max(box.right, content.right) - left,
+      Math.max(box.bottom, content.bottom) - top,
+    );
+  }
+
   function listTargets(canvasSel: string): TextTarget[] {
     const root = document.querySelector(canvasSel);
     if (!root) throw new Error(`canvas not found: ${canvasSel}`);
@@ -493,9 +513,7 @@ export function installInPageHelpers(chromeSelector: string) {
       records,
       inventory,
       text: norm((root as HTMLElement).innerText),
-      editedRect: editedBox
-        ? rectOf(editedBox.getBoundingClientRect(), origin)
-        : null,
+      editedRect: editedBox ? rectOf(paintedRect(editedBox), origin) : null,
     };
   }
 
