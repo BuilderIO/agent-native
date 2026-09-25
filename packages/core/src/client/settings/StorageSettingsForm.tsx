@@ -90,6 +90,20 @@ const PROVIDERS: ReadonlyArray<{
   },
 ];
 
+/**
+ * A storage provider's brand name and icon, for surfaces that name the saved
+ * provider. `name` is null for "Other S3-compatible", which is translated.
+ */
+export function fileStorageProviderPreset(id: FileStorageProviderId): {
+  name: string | null;
+  icon: typeof IconServer;
+} {
+  const preset =
+    PROVIDERS.find((entry) => entry.id === id) ??
+    PROVIDERS.find((entry) => entry.id === "other")!;
+  return { name: preset.name, icon: preset.icon };
+}
+
 type FormValues = Record<FileStorageField, string>;
 
 const EMPTY_VALUES: FormValues = {

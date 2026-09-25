@@ -1449,6 +1449,126 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "إضافة ملف",
   "settingsResources.files.upload": "رفع ملف",
   "settingsResources.files.create": "إنشاء ملف",
+  "settingsInfra.setup": "الإعداد",
+  "settingsInfra.services": "الخدمات",
+  "settingsInfra.environment": "البيئة",
+  "settingsInfra.builderConnected":
+    "متصل. رصيد حسابك يشغّل كل خدمة عليها علامة Builder.io.",
+  "settingsInfra.builderNotConnected":
+    "غير متصل. أعدّ كل خدمة بنفسك، أو صِل Builder.io لاستخدام رصيد حسابك.",
+  "settingsInfra.builderUnknown": "تعذّر التحقق من اتصال Builder.io.",
+  "settingsInfra.manage": "إدارة",
+  "settingsInfra.connect": "توصيل",
+  "settingsInfra.connecting": "جارٍ التوصيل…",
+  "settingsInfra.setUp": "إعداد",
+  "settingsInfra.view": "عرض",
+  "settingsInfra.retry": "إعادة المحاولة",
+  "settingsInfra.close": "إغلاق",
+  "settingsInfra.cancel": "إلغاء",
+  "settingsInfra.save": "حفظ",
+  "settingsInfra.required": "مطلوب",
+  "settingsInfra.recommended": "موصى به",
+  "settingsInfra.optional": "اختياري",
+  "settingsInfra.needsBuilder": "يتطلب Builder.io",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "غير معدّ",
+  "settingsInfra.notAvailable": "غير متاح",
+  "settingsInfra.loadFailed": "تعذّر تحميل هذا.",
+  "settingsInfra.aiModel": "نموذج الذكاء الاصطناعي",
+  "settingsInfra.useEveryApp": "كل تطبيق",
+  "settingsInfra.storageBucket": "{{provider}}، الحاوية {{bucket}}",
+  "settingsInfra.useUploads": "الرفع في كل تطبيق",
+  "settingsInfra.storageTitle": "تخزين الملفات",
+  "settingsInfra.storageIntro":
+    "تذهب الملفات المرفوعة الجديدة إلى حاويتك. تبقى الملفات الحالية في مكانها.",
+  "settingsInfra.voice": "الإدخال الصوتي",
+  "settingsInfra.images": "إنشاء الصور",
+  "settingsInfra.embeddings": "التضمينات",
+  "settingsInfra.useVoice": "الإملاء في كل تطبيق",
+  "settingsInfra.useImages": "Slides وDesign",
+  "settingsInfra.useEmbeddings": "البحث في Brain",
+  "settingsInfra.whyVoice": "يحوّل الكلام إلى نص. الكتابة تعمل دائمًا بدونه.",
+  "settingsInfra.whyImages": "ينشئ صورًا للشرائح والتصاميم.",
+  "settingsInfra.whyEmbeddings":
+    "يحسّن البحث الدلالي. البحث بالكلمات المفتاحية يعمل بدونه.",
+  "settingsInfra.designSystem": "ذكاء نظام التصميم",
+  "settingsInfra.whyDesignSystem":
+    "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",
+  "settingsInfra.whyBackground": "يُجري تغييرات في الكود من بيئة الإنتاج.",
+  "settingsInfra.whyBrowser": "يتيح للوكيل استخدام متصفح في بيئة الإنتاج.",
+  "settingsInfra.provider": "المزوّد",
+  "settingsInfra.keyOrg": "يستخدم مفتاح {{provider}} الخاص بالمؤسسة.",
+  "settingsInfra.manageKey": "إدارة المفتاح",
+  "settingsInfra.keyPersonal":
+    "مفتاح {{provider}} الخاص بك شخصي. تحتاج الخدمات إلى مفتاح للمؤسسة.",
+  "settingsInfra.keyNone":
+    "تستخدم الخدمات مفاتيح المؤسسة، ولا يوجد مفتاح {{provider}} بعد.",
+  "settingsInfra.keyUnavailable":
+    "تعذّر التحقق من مفتاح {{provider}} الخاص بالمؤسسة.",
+  "settingsInfra.useBuilder": "استخدام Builder.io",
+  "settingsInfra.addNamed": "إضافة {{provider}}",
+  "settingsInfra.serviceSaved": "تستخدم {{service}} الآن {{provider}}.",
+  "settingsInfra.serviceSaveFailed": "تعذّر تغيير {{service}}.",
+  "settingsInfra.reindex":
+    "أعد فهرسة Brain ليشمل البحث الدلالي العناصر الحالية.",
+  "settingsInfra.variables": "المتغيرات المطلوبة",
+  "settingsInfra.databaseHosted":
+    "{{name}}، معدّة على الاستضافة. تشترك فيها كل التطبيقات.",
+  "settingsInfra.databaseHostedSingle": "{{name}}، معدّة على الاستضافة.",
+  "settingsInfra.databaseLocal":
+    "{{name}} على هذا الكمبيوتر. اضبط DATABASE_URL على الاستضافة قبل النشر.",
+  "settingsInfra.databaseMissing":
+    "غير مضبوطة. اضبط DATABASE_URL على الاستضافة.",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}. تنشر مساحة العمل كل تطبيق على عنوانه الخاص.",
+  "settingsInfra.hostingSingle": "{{host}}، على {{address}}.",
+  "settingsInfra.hostingPlain": "{{host}}.",
+  "settingsInfra.hostOwnServer": "خادمك الخاص",
+  "settingsInfra.hostThisComputer": "هذا الكمبيوتر",
+  "settingsInfra.variablesSet": "{{keys}} مضبوطة على الاستضافة.",
+  "settingsInfra.variablesMissing": "اضبط {{keys}} على الاستضافة.",
+  "settingsInfra.dbConnected": "متصلة",
+  "settingsInfra.dbLocal": "على هذا الكمبيوتر",
+  "settingsInfra.notSet": "غير مضبوط",
+  "settingsInfra.set": "مضبوط",
+  "settingsInfra.dbIntro":
+    "يقرأ كل تطبيق قاعدة البيانات قبل أن يبدأ، لذا تُضبط مرة واحدة على الاستضافة. للانتقال إلى قاعدة بيانات أخرى:",
+  "settingsInfra.dbStep1":
+    "أنشئ قاعدة بيانات Postgres في Neon أو Supabase أو أي استضافة Postgres.",
+  "settingsInfra.dbStep2":
+    "اضبط {{key}} على سلسلة الاتصال الخاصة بها في بيئة الاستضافة.",
+  "settingsInfra.dbStep3": "أعد النشر. تعمل عمليات الترحيل أثناء النشر.",
+  "settingsInfra.dbOwn":
+    "لمنح تطبيق واحد قاعدة بيانات خاصة به، اضبط متغيره الخاص، مثل {{key}}.",
+  "settingsInfra.hostIntroWorkspace":
+    "تنشر مساحة العمل كل تطبيق، كلٌّ على عنوانه الخاص. للاستضافة على Vercel أو Cloudflare أو خادمك الخاص:",
+  "settingsInfra.hostIntro":
+    "للاستضافة على Vercel أو Cloudflare أو خادمك الخاص:",
+  "settingsInfra.hostStep1":
+    "اختر الهدف باستخدام {{key}}، مثل vercel أو cloudflare_module أو node.",
+  "settingsInfra.hostStep2":
+    "امنح الاستضافة الجديدة البيئة نفسها، بما في ذلك {{keys}}.",
+  "settingsInfra.hostStep3":
+    "انشر. في مساحة العمل، يبني هذا كل تطبيق ويطبع أمر النشر:",
+  "settingsInfra.envIntro":
+    "يقرأ كل تطبيق هذه القيم قبل أن يبدأ. اضبطها مرة واحدة على الاستضافة، ثم أعد النشر.",
+  "settingsInfra.varDatabaseUrl": "سلسلة اتصال Postgres الخاصة بك.",
+  "settingsInfra.varA2a":
+    "يتيح لتطبيقات مساحة العمل هذه استدعاء بعضها. في مساحة العمل، يوقّع أيضًا جلسات تسجيل الدخول عندما لا يكون BETTER_AUTH_SECRET مضبوطًا.",
+  "settingsInfra.varBetterAuth":
+    "يوقّع جلسات تسجيل الدخول. استخدم 32 حرفًا عشوائيًا على الأقل.",
+  "settingsInfra.varAppUrl":
+    "مطلوب فقط عندما لا تستطيع الاستضافة إبلاغ التطبيق بعنوان URL العام.",
+  "settingsInfra.varEncryption":
+    "يشفّر المفاتيح المحفوظة في الإعدادات. بدونه، تشتق مساحة العمل مفتاحًا من A2A_SECRET.",
+  "settingsInfra.varEncryptionSingle":
+    "يشفّر المفاتيح المحفوظة في الإعدادات. بدونه، يشتق التطبيق مفتاحًا من BETTER_AUTH_SECRET.",
+  "settingsInfra.varWeak": "قصير جدًا. استخدم 32 حرفًا عشوائيًا على الأقل.",
+  "settingsInfra.varWeakLabel": "قصير جدًا",
+  "settingsInfra.generateSecret": "لإنشاء قيمة سرية:",
+  "settingsInfra.copy": "نسخ",
+  "settingsInfra.copied": "تم النسخ",
+  "settingsInfra.copyFailed": "تعذّر النسخ.",
   "settingsModel.addEndpoint": "إضافة عنوان URL لنقطة النهاية",
   "settingsModel.addNamed": "إضافة {{provider}}",
   "settingsModel.addProvider": "إضافة مزوّد",

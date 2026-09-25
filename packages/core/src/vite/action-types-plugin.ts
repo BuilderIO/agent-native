@@ -155,6 +155,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/agent/actions/manage-service-providers",
   },
   {
+    name: "get-infrastructure-status",
+    specifier: "@agent-native/core/agent/actions/get-infrastructure-status",
+  },
+  {
     name: "list-workspace-user-groups",
     specifier:
       "@agent-native/core/workspace-connections/actions/list-workspace-user-groups",

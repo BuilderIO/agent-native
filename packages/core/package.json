@@ -266,6 +266,7 @@
     "./agent/actions/manage-provider-key-policy": "./dist/agent/actions/manage-provider-key-policy.js",
     "./agent/actions/manage-builder-connection": "./dist/agent/actions/manage-builder-connection.js",
     "./agent/actions/manage-service-providers": "./dist/agent/actions/manage-service-providers.js",
+    "./agent/actions/get-infrastructure-status": "./dist/agent/actions/get-infrastructure-status.js",
     "./agent/actions/get-provider-models": "./dist/agent/actions/get-provider-models.js",
     "./agent/actions/manage-provider-models": "./dist/agent/actions/manage-provider-models.js",
     "./agent/actions/list-model-providers": "./dist/agent/actions/list-model-providers.js",

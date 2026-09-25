@@ -1418,6 +1418,130 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "파일 추가",
   "settingsResources.files.upload": "파일 업로드",
   "settingsResources.files.create": "파일 만들기",
+  "settingsInfra.setup": "설정",
+  "settingsInfra.services": "서비스",
+  "settingsInfra.environment": "환경",
+  "settingsInfra.builderConnected":
+    "연결됨. Builder.io로 표시된 모든 서비스는 계정 크레딧으로 작동합니다.",
+  "settingsInfra.builderNotConnected":
+    "연결되지 않음. 각 서비스를 직접 설정하거나 Builder.io를 연결해 계정 크레딧을 사용하세요.",
+  "settingsInfra.builderUnknown": "Builder.io 연결을 확인할 수 없습니다.",
+  "settingsInfra.manage": "관리",
+  "settingsInfra.connect": "연결",
+  "settingsInfra.connecting": "연결 중…",
+  "settingsInfra.setUp": "설정",
+  "settingsInfra.view": "보기",
+  "settingsInfra.retry": "다시 시도",
+  "settingsInfra.close": "닫기",
+  "settingsInfra.cancel": "취소",
+  "settingsInfra.save": "저장",
+  "settingsInfra.required": "필수",
+  "settingsInfra.recommended": "권장",
+  "settingsInfra.optional": "선택",
+  "settingsInfra.needsBuilder": "Builder.io 필요",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "설정되지 않음",
+  "settingsInfra.notAvailable": "사용할 수 없음",
+  "settingsInfra.loadFailed": "불러올 수 없습니다.",
+  "settingsInfra.aiModel": "AI 모델",
+  "settingsInfra.useEveryApp": "모든 앱",
+  "settingsInfra.storageBucket": "{{provider}}, 버킷 {{bucket}}",
+  "settingsInfra.useUploads": "모든 앱의 업로드",
+  "settingsInfra.storageTitle": "파일 저장소",
+  "settingsInfra.storageIntro":
+    "새 업로드는 버킷에 저장됩니다. 기존 파일은 그대로 유지됩니다.",
+  "settingsInfra.voice": "음성 입력",
+  "settingsInfra.images": "이미지 생성",
+  "settingsInfra.embeddings": "임베딩",
+  "settingsInfra.useVoice": "모든 앱의 받아쓰기",
+  "settingsInfra.useImages": "Slides 및 Design",
+  "settingsInfra.useEmbeddings": "Brain 검색",
+  "settingsInfra.whyVoice":
+    "음성을 텍스트로 바꿉니다. 입력은 이것 없이도 항상 작동합니다.",
+  "settingsInfra.whyImages": "슬라이드와 디자인용 이미지를 생성합니다.",
+  "settingsInfra.whyEmbeddings":
+    "의미 기반 검색을 개선합니다. 키워드 검색은 이것 없이도 작동합니다.",
+  "settingsInfra.designSystem": "디자인 시스템 인텔리전스",
+  "settingsInfra.whyDesignSystem":
+    "생성된 슬라이드와 디자인을 브랜드에 맞게 유지합니다.",
+  "settingsInfra.whyBackground": "프로덕션에서 코드를 변경합니다.",
+  "settingsInfra.whyBrowser":
+    "에이전트가 프로덕션에서 브라우저를 사용할 수 있게 합니다.",
+  "settingsInfra.provider": "제공업체",
+  "settingsInfra.keyOrg": "조직의 {{provider}} 키를 사용합니다.",
+  "settingsInfra.manageKey": "키 관리",
+  "settingsInfra.keyPersonal":
+    "{{provider}} 키는 개인 키입니다. 서비스에는 조직 키가 필요합니다.",
+  "settingsInfra.keyNone":
+    "서비스는 조직 키를 사용하며, 아직 {{provider}} 키가 없습니다.",
+  "settingsInfra.keyUnavailable":
+    "조직의 {{provider}} 키를 확인할 수 없습니다.",
+  "settingsInfra.useBuilder": "Builder.io 사용",
+  "settingsInfra.addNamed": "{{provider}} 추가",
+  "settingsInfra.serviceSaved":
+    "{{service}}에서 이제 {{provider}}를 사용합니다.",
+  "settingsInfra.serviceSaveFailed": "{{service}}을(를) 변경할 수 없습니다.",
+  "settingsInfra.reindex":
+    "기존 항목이 의미 기반 검색에 포함되도록 Brain을 다시 인덱싱하세요.",
+  "settingsInfra.variables": "필수 변수",
+  "settingsInfra.databaseHosted":
+    "{{name}}, 호스트에서 설정됨. 모든 앱이 공유합니다.",
+  "settingsInfra.databaseHostedSingle": "{{name}}, 호스트에서 설정됨.",
+  "settingsInfra.databaseLocal":
+    "이 컴퓨터의 {{name}}. 배포하기 전에 호스트에서 DATABASE_URL을 설정하세요.",
+  "settingsInfra.databaseMissing":
+    "설정되지 않음. 호스트에서 DATABASE_URL을 설정하세요.",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}. 워크스페이스가 각 앱을 고유한 주소에 배포합니다.",
+  "settingsInfra.hostingSingle": "{{host}}, {{address}}.",
+  "settingsInfra.hostingPlain": "{{host}}.",
+  "settingsInfra.hostOwnServer": "자체 서버",
+  "settingsInfra.hostThisComputer": "이 컴퓨터",
+  "settingsInfra.variablesSet": "{{keys}}이(가) 호스트에 설정되어 있습니다.",
+  "settingsInfra.variablesMissing": "호스트에서 {{keys}}을(를) 설정하세요.",
+  "settingsInfra.dbConnected": "연결됨",
+  "settingsInfra.dbLocal": "이 컴퓨터",
+  "settingsInfra.notSet": "설정되지 않음",
+  "settingsInfra.set": "설정됨",
+  "settingsInfra.dbIntro":
+    "모든 앱은 시작하기 전에 데이터베이스를 읽으므로 호스트에서 한 번만 설정합니다. 다른 데이터베이스로 옮기려면:",
+  "settingsInfra.dbStep1":
+    "Neon, Supabase 또는 다른 Postgres 호스트에서 Postgres 데이터베이스를 만드세요.",
+  "settingsInfra.dbStep2":
+    "호스트 환경에서 {{key}}을(를) 해당 연결 문자열로 설정하세요.",
+  "settingsInfra.dbStep3":
+    "다시 배포하세요. 마이그레이션은 배포 중에 실행됩니다.",
+  "settingsInfra.dbOwn":
+    "앱 하나에 별도 데이터베이스를 주려면 {{key}} 같은 해당 앱 전용 변수를 설정하세요.",
+  "settingsInfra.hostIntroWorkspace":
+    "워크스페이스가 각 앱을 고유한 주소에 배포합니다. Vercel, Cloudflare 또는 자체 서버에서 호스팅하려면:",
+  "settingsInfra.hostIntro":
+    "Vercel, Cloudflare 또는 자체 서버에서 호스팅하려면:",
+  "settingsInfra.hostStep1":
+    "{{key}}(으)로 대상을 선택하세요. 예: vercel, cloudflare_module, node.",
+  "settingsInfra.hostStep2":
+    "새 호스트에 {{keys}}을(를) 포함한 같은 환경을 설정하세요.",
+  "settingsInfra.hostStep3":
+    "배포하세요. 워크스페이스에서는 모든 앱을 빌드하고 게시 명령을 출력합니다:",
+  "settingsInfra.envIntro":
+    "모든 앱은 시작하기 전에 이 값을 읽습니다. 호스트에서 한 번 설정한 뒤 다시 배포하세요.",
+  "settingsInfra.varDatabaseUrl": "Postgres 연결 문자열입니다.",
+  "settingsInfra.varA2a":
+    "이 워크스페이스의 앱이 서로 호출할 수 있게 합니다. 워크스페이스에서는 BETTER_AUTH_SECRET이 설정되지 않았을 때 로그인 세션에도 서명합니다.",
+  "settingsInfra.varBetterAuth":
+    "로그인 세션에 서명합니다. 임의의 문자 32자 이상을 사용하세요.",
+  "settingsInfra.varAppUrl":
+    "호스트가 앱에 공개 URL을 알려 줄 수 없을 때만 필요합니다.",
+  "settingsInfra.varEncryption":
+    "설정에 저장된 키를 암호화합니다. 없으면 워크스페이스가 A2A_SECRET에서 키를 파생합니다.",
+  "settingsInfra.varEncryptionSingle":
+    "설정에 저장된 키를 암호화합니다. 없으면 앱이 BETTER_AUTH_SECRET에서 키를 파생합니다.",
+  "settingsInfra.varWeak": "너무 짧습니다. 임의의 문자 32자 이상을 사용하세요.",
+  "settingsInfra.varWeakLabel": "너무 짧음",
+  "settingsInfra.generateSecret": "시크릿을 생성하려면:",
+  "settingsInfra.copy": "복사",
+  "settingsInfra.copied": "복사됨",
+  "settingsInfra.copyFailed": "복사할 수 없습니다.",
   "settingsModel.addEndpoint": "엔드포인트 URL 추가",
   "settingsModel.addNamed": "{{provider}} 추가",
   "settingsModel.addProvider": "공급자 추가",

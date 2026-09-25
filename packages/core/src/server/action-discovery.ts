@@ -685,6 +685,10 @@ export async function mergeCoreSharingActions(
       () => import("../agent/actions/manage-service-providers.js"),
     ],
     [
+      "get-infrastructure-status",
+      () => import("../agent/actions/get-infrastructure-status.js"),
+    ],
+    [
       "list-workspace-user-groups",
       () =>
         import("../workspace-connections/actions/list-workspace-user-groups.js"),

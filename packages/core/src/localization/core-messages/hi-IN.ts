@@ -1407,6 +1407,125 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "फ़ाइल जोड़ें",
   "settingsResources.files.upload": "फ़ाइल अपलोड करें",
   "settingsResources.files.create": "फ़ाइल बनाएं",
+  "settingsInfra.setup": "सेटअप",
+  "settingsInfra.services": "सेवाएँ",
+  "settingsInfra.environment": "एनवायरनमेंट",
+  "settingsInfra.builderConnected":
+    "कनेक्ट है। Builder.io वाली हर सेवा आपके खाते के क्रेडिट से चलती है।",
+  "settingsInfra.builderNotConnected":
+    "कनेक्ट नहीं है। हर सेवा खुद सेट अप करें, या अपने खाते के क्रेडिट इस्तेमाल करने के लिए Builder.io कनेक्ट करें।",
+  "settingsInfra.builderUnknown": "Builder.io कनेक्शन जाँचा नहीं जा सका।",
+  "settingsInfra.manage": "प्रबंधित करें",
+  "settingsInfra.connect": "कनेक्ट करें",
+  "settingsInfra.connecting": "कनेक्ट हो रहा है…",
+  "settingsInfra.setUp": "सेट अप करें",
+  "settingsInfra.view": "देखें",
+  "settingsInfra.retry": "फिर कोशिश करें",
+  "settingsInfra.close": "बंद करें",
+  "settingsInfra.cancel": "रद्द करें",
+  "settingsInfra.save": "सहेजें",
+  "settingsInfra.required": "ज़रूरी",
+  "settingsInfra.recommended": "सुझाया गया",
+  "settingsInfra.optional": "वैकल्पिक",
+  "settingsInfra.needsBuilder": "Builder.io ज़रूरी है",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "सेट अप नहीं है",
+  "settingsInfra.notAvailable": "उपलब्ध नहीं",
+  "settingsInfra.loadFailed": "यह लोड नहीं हो सका।",
+  "settingsInfra.aiModel": "AI मॉडल",
+  "settingsInfra.useEveryApp": "हर ऐप",
+  "settingsInfra.storageBucket": "{{provider}}, बकेट {{bucket}}",
+  "settingsInfra.useUploads": "हर ऐप में अपलोड",
+  "settingsInfra.storageTitle": "फ़ाइल स्टोरेज",
+  "settingsInfra.storageIntro":
+    "नए अपलोड आपके बकेट में जाते हैं। मौजूदा फ़ाइलें जहाँ हैं वहीं रहती हैं।",
+  "settingsInfra.voice": "वॉइस इनपुट",
+  "settingsInfra.images": "इमेज जनरेशन",
+  "settingsInfra.embeddings": "एम्बेडिंग",
+  "settingsInfra.useVoice": "हर ऐप में डिक्टेशन",
+  "settingsInfra.useImages": "Slides और Design",
+  "settingsInfra.useEmbeddings": "Brain में खोज",
+  "settingsInfra.whyVoice":
+    "बोली को टेक्स्ट में बदलता है। इसके बिना भी टाइप करना हमेशा काम करता है।",
+  "settingsInfra.whyImages": "स्लाइड और डिज़ाइन के लिए इमेज बनाता है।",
+  "settingsInfra.whyEmbeddings":
+    "सिमेंटिक खोज को बेहतर बनाता है। कीवर्ड खोज इसके बिना भी काम करती है।",
+  "settingsInfra.designSystem": "डिज़ाइन सिस्टम इंटेलिजेंस",
+  "settingsInfra.whyDesignSystem":
+    "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
+  "settingsInfra.whyBackground": "प्रोडक्शन से कोड में बदलाव करता है।",
+  "settingsInfra.whyBrowser": "एजेंट को प्रोडक्शन में ब्राउज़र इस्तेमाल करने देता है।",
+  "settingsInfra.provider": "प्रदाता",
+  "settingsInfra.keyOrg": "संगठन की {{provider}} कुंजी इस्तेमाल करता है।",
+  "settingsInfra.manageKey": "कुंजी प्रबंधित करें",
+  "settingsInfra.keyPersonal":
+    "आपकी {{provider}} कुंजी निजी है। सेवाओं को संगठन की कुंजी चाहिए।",
+  "settingsInfra.keyNone":
+    "सेवाएँ संगठन की कुंजियाँ इस्तेमाल करती हैं, और अभी {{provider}} कुंजी नहीं है।",
+  "settingsInfra.keyUnavailable": "संगठन की {{provider}} कुंजी जाँची नहीं जा सकी।",
+  "settingsInfra.useBuilder": "Builder.io इस्तेमाल करें",
+  "settingsInfra.addNamed": "{{provider}} जोड़ें",
+  "settingsInfra.serviceSaved": "{{service}} अब {{provider}} इस्तेमाल करता है।",
+  "settingsInfra.serviceSaveFailed": "{{service}} बदला नहीं जा सका।",
+  "settingsInfra.reindex":
+    "Brain को फिर से इंडेक्स करें ताकि सिमेंटिक खोज में मौजूदा आइटम भी आएँ।",
+  "settingsInfra.variables": "ज़रूरी वेरिएबल",
+  "settingsInfra.databaseHosted":
+    "{{name}}, आपके होस्ट पर सेट। हर ऐप इसे साझा करता है।",
+  "settingsInfra.databaseHostedSingle": "{{name}}, आपके होस्ट पर सेट।",
+  "settingsInfra.databaseLocal":
+    "इस कंप्यूटर पर {{name}}। डिप्लॉय करने से पहले अपने होस्ट पर DATABASE_URL सेट करें।",
+  "settingsInfra.databaseMissing": "सेट नहीं है। अपने होस्ट पर DATABASE_URL सेट करें।",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}। वर्कस्पेस हर ऐप को उसके अपने पते पर डिप्लॉय करता है।",
+  "settingsInfra.hostingSingle": "{{host}}, {{address}} पर।",
+  "settingsInfra.hostingPlain": "{{host}}।",
+  "settingsInfra.hostOwnServer": "आपका अपना सर्वर",
+  "settingsInfra.hostThisComputer": "यह कंप्यूटर",
+  "settingsInfra.variablesSet": "{{keys}} आपके होस्ट पर सेट हैं।",
+  "settingsInfra.variablesMissing": "अपने होस्ट पर {{keys}} सेट करें।",
+  "settingsInfra.dbConnected": "कनेक्ट है",
+  "settingsInfra.dbLocal": "इस कंप्यूटर पर",
+  "settingsInfra.notSet": "सेट नहीं है",
+  "settingsInfra.set": "सेट है",
+  "settingsInfra.dbIntro":
+    "हर ऐप शुरू होने से पहले डेटाबेस पढ़ता है, इसलिए इसे आपके होस्ट पर एक बार सेट किया जाता है। किसी दूसरे डेटाबेस पर जाने के लिए:",
+  "settingsInfra.dbStep1":
+    "Neon, Supabase या किसी भी Postgres होस्ट में Postgres डेटाबेस बनाएँ।",
+  "settingsInfra.dbStep2":
+    "अपने होस्ट के एनवायरनमेंट में {{key}} को उसकी कनेक्शन स्ट्रिंग पर सेट करें।",
+  "settingsInfra.dbStep3": "फिर से डिप्लॉय करें। माइग्रेशन डिप्लॉय के दौरान चलते हैं।",
+  "settingsInfra.dbOwn":
+    "किसी एक ऐप को उसका अपना डेटाबेस देने के लिए, उसका अपना वेरिएबल सेट करें, जैसे {{key}}।",
+  "settingsInfra.hostIntroWorkspace":
+    "वर्कस्पेस हर ऐप को डिप्लॉय करता है, हर एक अपने पते पर। Vercel, Cloudflare या अपने सर्वर पर होस्ट करने के लिए:",
+  "settingsInfra.hostIntro":
+    "Vercel, Cloudflare या अपने सर्वर पर होस्ट करने के लिए:",
+  "settingsInfra.hostStep1":
+    "{{key}} से लक्ष्य चुनें, जैसे vercel, cloudflare_module या node।",
+  "settingsInfra.hostStep2":
+    "नए होस्ट को वही एनवायरनमेंट दें, जिसमें {{keys}} शामिल हों।",
+  "settingsInfra.hostStep3":
+    "डिप्लॉय करें। वर्कस्पेस में यह हर ऐप बिल्ड करता है और पब्लिश कमांड दिखाता है:",
+  "settingsInfra.envIntro":
+    "हर ऐप शुरू होने से पहले इन्हें पढ़ता है। इन्हें अपने होस्ट पर एक बार सेट करें, फिर दोबारा डिप्लॉय करें।",
+  "settingsInfra.varDatabaseUrl": "आपकी Postgres कनेक्शन स्ट्रिंग।",
+  "settingsInfra.varA2a":
+    "इस वर्कस्पेस के ऐप्स को एक-दूसरे को कॉल करने देता है। वर्कस्पेस में, BETTER_AUTH_SECRET सेट न होने पर यह साइन-इन सेशन पर भी हस्ताक्षर करता है।",
+  "settingsInfra.varBetterAuth":
+    "साइन-इन सेशन पर हस्ताक्षर करता है। कम से कम 32 रैंडम अक्षर इस्तेमाल करें।",
+  "settingsInfra.varAppUrl":
+    "सिर्फ़ तब ज़रूरी है जब होस्ट ऐप को उसका सार्वजनिक URL नहीं बता सकता।",
+  "settingsInfra.varEncryption":
+    "सेटिंग में सहेजी गई कुंजियों को एन्क्रिप्ट करता है। इसके बिना, वर्कस्पेस A2A_SECRET से एक कुंजी बनाता है।",
+  "settingsInfra.varEncryptionSingle":
+    "सेटिंग में सहेजी गई कुंजियों को एन्क्रिप्ट करता है। इसके बिना, ऐप BETTER_AUTH_SECRET से एक कुंजी बनाता है।",
+  "settingsInfra.varWeak": "बहुत छोटा है। कम से कम 32 रैंडम अक्षर इस्तेमाल करें।",
+  "settingsInfra.varWeakLabel": "बहुत छोटा",
+  "settingsInfra.generateSecret": "सीक्रेट बनाने के लिए:",
+  "settingsInfra.copy": "कॉपी करें",
+  "settingsInfra.copied": "कॉपी हो गया",
+  "settingsInfra.copyFailed": "कॉपी नहीं हो सका।",
   "settingsModel.addEndpoint": "एंडपॉइंट URL जोड़ें",
   "settingsModel.addNamed": "{{provider}} जोड़ें",
   "settingsModel.addProvider": "प्रदाता जोड़ें",

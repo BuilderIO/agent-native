@@ -1428,6 +1428,126 @@ const messages = {
   "settingsResources.files.add": "Add file",
   "settingsResources.files.upload": "Upload file",
   "settingsResources.files.create": "Create file",
+  "settingsInfra.setup": "Setup",
+  "settingsInfra.services": "Services",
+  "settingsInfra.environment": "Environment",
+  "settingsInfra.builderConnected":
+    "Connected. Your account credits power every service marked Builder.io.",
+  "settingsInfra.builderNotConnected":
+    "Not connected. Set up each service yourself, or connect Builder.io to use your account credits.",
+  "settingsInfra.builderUnknown": "Couldn't check the Builder.io connection.",
+  "settingsInfra.manage": "Manage",
+  "settingsInfra.connect": "Connect",
+  "settingsInfra.connecting": "Connecting…",
+  "settingsInfra.setUp": "Set up",
+  "settingsInfra.view": "View",
+  "settingsInfra.retry": "Retry",
+  "settingsInfra.close": "Close",
+  "settingsInfra.cancel": "Cancel",
+  "settingsInfra.save": "Save",
+  "settingsInfra.required": "Required",
+  "settingsInfra.recommended": "Recommended",
+  "settingsInfra.optional": "Optional",
+  "settingsInfra.needsBuilder": "Needs Builder.io",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "Not set up",
+  "settingsInfra.notAvailable": "Not available",
+  "settingsInfra.loadFailed": "Couldn't load this.",
+  "settingsInfra.aiModel": "AI model",
+  "settingsInfra.useEveryApp": "Every app",
+  "settingsInfra.storageBucket": "{{provider}}, bucket {{bucket}}",
+  "settingsInfra.useUploads": "Uploads in every app",
+  "settingsInfra.storageTitle": "File storage",
+  "settingsInfra.storageIntro":
+    "New uploads go to your bucket. Existing files stay where they are.",
+  "settingsInfra.voice": "Voice input",
+  "settingsInfra.images": "Image generation",
+  "settingsInfra.embeddings": "Embeddings",
+  "settingsInfra.useVoice": "Dictation in every app",
+  "settingsInfra.useImages": "Slides and Design",
+  "settingsInfra.useEmbeddings": "Search in Brain",
+  "settingsInfra.whyVoice":
+    "Turns speech into text. Typing always works without it.",
+  "settingsInfra.whyImages": "Generates images for slides and designs.",
+  "settingsInfra.whyEmbeddings":
+    "Improves semantic search. Keyword search still works without it.",
+  "settingsInfra.designSystem": "Design system intelligence",
+  "settingsInfra.whyDesignSystem":
+    "Keeps generated slides and designs on brand.",
+  "settingsInfra.whyBackground": "Makes code changes from production.",
+  "settingsInfra.whyBrowser": "Lets the agent use a browser in production.",
+  "settingsInfra.provider": "Provider",
+  "settingsInfra.keyOrg": "Uses the organization {{provider}} key.",
+  "settingsInfra.manageKey": "Manage key",
+  "settingsInfra.keyPersonal":
+    "Your {{provider}} key is personal. Services need an organization key.",
+  "settingsInfra.keyNone":
+    "Services use organization keys, and there's no {{provider}} key yet.",
+  "settingsInfra.keyUnavailable":
+    "Couldn't check the organization {{provider}} key.",
+  "settingsInfra.useBuilder": "Use Builder.io",
+  "settingsInfra.addNamed": "Add {{provider}}",
+  "settingsInfra.serviceSaved": "{{service}} now uses {{provider}}.",
+  "settingsInfra.serviceSaveFailed": "Couldn't change {{service}}.",
+  "settingsInfra.reindex":
+    "Re-index Brain so semantic search covers existing items.",
+  "settingsInfra.variables": "Required variables",
+  "settingsInfra.databaseHosted":
+    "{{name}}, set on your host. Every app shares it.",
+  "settingsInfra.databaseHostedSingle": "{{name}}, set on your host.",
+  "settingsInfra.databaseLocal":
+    "{{name}} on this computer. Set DATABASE_URL on your host before you deploy.",
+  "settingsInfra.databaseMissing": "Not set. Set DATABASE_URL on your host.",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}. The workspace deploys every app to its own address.",
+  "settingsInfra.hostingSingle": "{{host}}, at {{address}}.",
+  "settingsInfra.hostingPlain": "{{host}}.",
+  "settingsInfra.hostOwnServer": "Your own server",
+  "settingsInfra.hostThisComputer": "This computer",
+  "settingsInfra.variablesSet": "{{keys}} are set on your host.",
+  "settingsInfra.variablesMissing": "Set {{keys}} on your host.",
+  "settingsInfra.dbConnected": "Connected",
+  "settingsInfra.dbLocal": "On this computer",
+  "settingsInfra.notSet": "Not set",
+  "settingsInfra.set": "Set",
+  "settingsInfra.dbIntro":
+    "Every app reads the database before it starts, so it's set once on your host. To move to another database:",
+  "settingsInfra.dbStep1":
+    "Create a Postgres database in Neon, Supabase, or any Postgres host.",
+  "settingsInfra.dbStep2":
+    "Set {{key}} to its connection string in your host's environment.",
+  "settingsInfra.dbStep3": "Redeploy. Migrations run during the deploy.",
+  "settingsInfra.dbOwn":
+    "To give one app its own database, set its own variable, like {{key}}.",
+  "settingsInfra.hostIntroWorkspace":
+    "The workspace deploys every app, each at its own address. To host on Vercel, Cloudflare, or your own server:",
+  "settingsInfra.hostIntro":
+    "To host on Vercel, Cloudflare, or your own server:",
+  "settingsInfra.hostStep1":
+    "Choose the target with {{key}}, like vercel, cloudflare_module, or node.",
+  "settingsInfra.hostStep2":
+    "Give the new host the same environment, including {{keys}}.",
+  "settingsInfra.hostStep3":
+    "Deploy. For a workspace, this builds every app and prints the publish command:",
+  "settingsInfra.envIntro":
+    "Every app reads these before it starts. Set them once on your host, then redeploy.",
+  "settingsInfra.varDatabaseUrl": "Your Postgres connection string.",
+  "settingsInfra.varA2a":
+    "Lets the apps in this workspace call each other. In a workspace, it also signs sign-in sessions when BETTER_AUTH_SECRET isn't set.",
+  "settingsInfra.varBetterAuth":
+    "Signs sign-in sessions. Use at least 32 random characters.",
+  "settingsInfra.varAppUrl":
+    "Only needed when the host can't tell the app its public URL.",
+  "settingsInfra.varEncryption":
+    "Encrypts the keys saved in Settings. Without it, the workspace derives one from A2A_SECRET.",
+  "settingsInfra.varEncryptionSingle":
+    "Encrypts the keys saved in Settings. Without it, the app derives one from BETTER_AUTH_SECRET.",
+  "settingsInfra.varWeak": "Too short. Use at least 32 random characters.",
+  "settingsInfra.varWeakLabel": "Too short",
+  "settingsInfra.generateSecret": "To generate a secret:",
+  "settingsInfra.copy": "Copy",
+  "settingsInfra.copied": "Copied",
+  "settingsInfra.copyFailed": "Couldn't copy.",
   "settingsModel.addEndpoint": "Add an endpoint URL",
   "settingsModel.addNamed": "Add {{provider}}",
   "settingsModel.addProvider": "Add provider",

@@ -128,7 +128,8 @@ export interface FrameworkToolsOption {
   orgServiceTokens?: boolean;
   /** Administer app roles, app permission mappings, file storage
    *  (`get-file-storage`, `manage-file-storage`), and service providers
-   *  (`manage-service-providers`) for the active org. */
+   *  (`manage-service-providers`), and the infrastructure read
+   *  (`get-infrastructure-status`) for the active org. */
   orgAdministration?: boolean;
   /** `"minimal"` turns every group above off, for voice-first and
    *  single-purpose apps that want the template's own actions and nothing else.
@@ -294,6 +295,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-file-storage": "orgAdministration",
   "manage-file-storage": "orgAdministration",
   "manage-service-providers": "orgAdministration",
+  "get-infrastructure-status": "orgAdministration",
   "share-resource": "sharing",
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",

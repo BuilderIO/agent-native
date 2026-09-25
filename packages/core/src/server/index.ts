@@ -660,6 +660,22 @@ export {
   type ServiceProviderSettings,
 } from "./service-providers.js";
 export {
+  getInfrastructureStatus,
+  type InfrastructureApp,
+  type InfrastructureDatabase,
+  type InfrastructureDatabaseProvider,
+  type InfrastructureHosting,
+  type InfrastructureSetupTag,
+  type InfrastructureSetupTags,
+  type InfrastructureStatus,
+  type InfrastructureVariable,
+  type InfrastructureVariableKey,
+} from "./infrastructure-status.js";
+export {
+  resolveDeployPlatform,
+  type DeployPlatform,
+} from "./deploy-environment.js";
+export {
   BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,

@@ -1502,6 +1502,131 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "Añadir archivo",
   "settingsResources.files.upload": "Subir archivo",
   "settingsResources.files.create": "Crear archivo",
+  "settingsInfra.setup": "Configuración",
+  "settingsInfra.services": "Servicios",
+  "settingsInfra.environment": "Entorno",
+  "settingsInfra.builderConnected":
+    "Conectado. Los créditos de tu cuenta alimentan cada servicio marcado con Builder.io.",
+  "settingsInfra.builderNotConnected":
+    "No conectado. Configura cada servicio por tu cuenta o conecta Builder.io para usar los créditos de tu cuenta.",
+  "settingsInfra.builderUnknown":
+    "No se pudo comprobar la conexión con Builder.io.",
+  "settingsInfra.manage": "Gestionar",
+  "settingsInfra.connect": "Conectar",
+  "settingsInfra.connecting": "Conectando…",
+  "settingsInfra.setUp": "Configurar",
+  "settingsInfra.view": "Ver",
+  "settingsInfra.retry": "Reintentar",
+  "settingsInfra.close": "Cerrar",
+  "settingsInfra.cancel": "Cancelar",
+  "settingsInfra.save": "Guardar",
+  "settingsInfra.required": "Obligatorio",
+  "settingsInfra.recommended": "Recomendado",
+  "settingsInfra.optional": "Opcional",
+  "settingsInfra.needsBuilder": "Requiere Builder.io",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "Sin configurar",
+  "settingsInfra.notAvailable": "No disponible",
+  "settingsInfra.loadFailed": "No se pudo cargar.",
+  "settingsInfra.aiModel": "Modelo de IA",
+  "settingsInfra.useEveryApp": "Todas las apps",
+  "settingsInfra.storageBucket": "{{provider}}, bucket {{bucket}}",
+  "settingsInfra.useUploads": "Subidas en todas las apps",
+  "settingsInfra.storageTitle": "Almacenamiento de archivos",
+  "settingsInfra.storageIntro":
+    "Las nuevas subidas van a tu bucket. Los archivos existentes se quedan donde están.",
+  "settingsInfra.voice": "Entrada de voz",
+  "settingsInfra.images": "Generación de imágenes",
+  "settingsInfra.embeddings": "Embeddings",
+  "settingsInfra.useVoice": "Dictado en todas las apps",
+  "settingsInfra.useImages": "Slides y Design",
+  "settingsInfra.useEmbeddings": "Búsqueda en Brain",
+  "settingsInfra.whyVoice":
+    "Convierte la voz en texto. Escribir siempre funciona sin ella.",
+  "settingsInfra.whyImages": "Genera imágenes para diapositivas y diseños.",
+  "settingsInfra.whyEmbeddings":
+    "Mejora la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ella.",
+  "settingsInfra.designSystem": "Inteligencia del sistema de diseño",
+  "settingsInfra.whyDesignSystem":
+    "Mantiene las diapositivas y los diseños generados fieles a tu marca.",
+  "settingsInfra.whyBackground": "Hace cambios en el código desde producción.",
+  "settingsInfra.whyBrowser":
+    "Permite que el agente use un navegador en producción.",
+  "settingsInfra.provider": "Proveedor",
+  "settingsInfra.keyOrg": "Usa la clave de {{provider}} de la organización.",
+  "settingsInfra.manageKey": "Gestionar clave",
+  "settingsInfra.keyPersonal":
+    "Tu clave de {{provider}} es personal. Los servicios necesitan una clave de la organización.",
+  "settingsInfra.keyNone":
+    "Los servicios usan claves de la organización y todavía no hay una clave de {{provider}}.",
+  "settingsInfra.keyUnavailable":
+    "No se pudo comprobar la clave de {{provider}} de la organización.",
+  "settingsInfra.useBuilder": "Usar Builder.io",
+  "settingsInfra.addNamed": "Añadir {{provider}}",
+  "settingsInfra.serviceSaved": "{{service}} ahora usa {{provider}}.",
+  "settingsInfra.serviceSaveFailed": "No se pudo cambiar {{service}}.",
+  "settingsInfra.reindex":
+    "Vuelve a indexar Brain para que la búsqueda semántica incluya los elementos existentes.",
+  "settingsInfra.variables": "Variables obligatorias",
+  "settingsInfra.databaseHosted":
+    "{{name}}, configurada en tu host. Todas las apps la comparten.",
+  "settingsInfra.databaseHostedSingle": "{{name}}, configurada en tu host.",
+  "settingsInfra.databaseLocal":
+    "{{name}} en este equipo. Configura DATABASE_URL en tu host antes de desplegar.",
+  "settingsInfra.databaseMissing":
+    "Sin configurar. Configura DATABASE_URL en tu host.",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}. El espacio de trabajo despliega cada app en su propia dirección.",
+  "settingsInfra.hostingSingle": "{{host}}, en {{address}}.",
+  "settingsInfra.hostingPlain": "{{host}}.",
+  "settingsInfra.hostOwnServer": "Tu propio servidor",
+  "settingsInfra.hostThisComputer": "Este equipo",
+  "settingsInfra.variablesSet": "{{keys}} están configuradas en tu host.",
+  "settingsInfra.variablesMissing": "Configura {{keys}} en tu host.",
+  "settingsInfra.dbConnected": "Conectada",
+  "settingsInfra.dbLocal": "En este equipo",
+  "settingsInfra.notSet": "Sin configurar",
+  "settingsInfra.set": "Configurada",
+  "settingsInfra.dbIntro":
+    "Cada app lee la base de datos antes de iniciarse, así que se configura una vez en tu host. Para cambiar a otra base de datos:",
+  "settingsInfra.dbStep1":
+    "Crea una base de datos Postgres en Neon, Supabase o cualquier host de Postgres.",
+  "settingsInfra.dbStep2":
+    "Configura {{key}} con su cadena de conexión en el entorno de tu host.",
+  "settingsInfra.dbStep3":
+    "Vuelve a desplegar. Las migraciones se ejecutan durante el despliegue.",
+  "settingsInfra.dbOwn":
+    "Para dar a una app su propia base de datos, configura su propia variable, como {{key}}.",
+  "settingsInfra.hostIntroWorkspace":
+    "El espacio de trabajo despliega cada app, cada una en su propia dirección. Para alojar en Vercel, Cloudflare o tu propio servidor:",
+  "settingsInfra.hostIntro":
+    "Para alojar en Vercel, Cloudflare o tu propio servidor:",
+  "settingsInfra.hostStep1":
+    "Elige el destino con {{key}}, como vercel, cloudflare_module o node.",
+  "settingsInfra.hostStep2":
+    "Da al nuevo host el mismo entorno, incluidas {{keys}}.",
+  "settingsInfra.hostStep3":
+    "Despliega. En un espacio de trabajo, esto compila cada app y muestra el comando de publicación:",
+  "settingsInfra.envIntro":
+    "Cada app las lee antes de iniciarse. Configúralas una vez en tu host y vuelve a desplegar.",
+  "settingsInfra.varDatabaseUrl": "Tu cadena de conexión de Postgres.",
+  "settingsInfra.varA2a":
+    "Permite que las apps de este espacio de trabajo se llamen entre sí. En un espacio de trabajo, también firma las sesiones de inicio de sesión cuando BETTER_AUTH_SECRET no está configurada.",
+  "settingsInfra.varBetterAuth":
+    "Firma las sesiones de inicio de sesión. Usa al menos 32 caracteres aleatorios.",
+  "settingsInfra.varAppUrl":
+    "Solo hace falta si el host no puede indicar a la app su URL pública.",
+  "settingsInfra.varEncryption":
+    "Cifra las claves guardadas en Ajustes. Sin ella, el espacio de trabajo deriva una de A2A_SECRET.",
+  "settingsInfra.varEncryptionSingle":
+    "Cifra las claves guardadas en Ajustes. Sin ella, la app deriva una de BETTER_AUTH_SECRET.",
+  "settingsInfra.varWeak":
+    "Demasiado corta. Usa al menos 32 caracteres aleatorios.",
+  "settingsInfra.varWeakLabel": "Demasiado corta",
+  "settingsInfra.generateSecret": "Para generar un secreto:",
+  "settingsInfra.copy": "Copiar",
+  "settingsInfra.copied": "Copiado",
+  "settingsInfra.copyFailed": "No se pudo copiar.",
   "settingsModel.addEndpoint": "Añadir una URL de endpoint",
   "settingsModel.addNamed": "Añadir {{provider}}",
   "settingsModel.addProvider": "Añadir proveedor",

@@ -189,9 +189,6 @@ const SHELL_SECTION_SEARCH_LABELS: Partial<Record<SettingsSectionId, string>> =
   {
     "app-models": "agentChat.settingsShell.search.appDefaultModel",
     "demo-mode": "agentChat.settingsShell.search.demoMode",
-    hosting: "agentChat.settingsShell.search.hosting",
-    database: "agentChat.settingsShell.search.database",
-    uploads: "agentChat.settingsShell.search.fileUploads",
     auth: "agentChat.settingsShell.search.signInMethods",
     email: "agentChat.settingsShell.search.email",
     browser: "agentChat.settingsShell.search.browserAutomation",

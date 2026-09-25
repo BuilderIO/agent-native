@@ -538,6 +538,14 @@ and `null` resets it to the default order.
 - The choice picks a provider, not a key: its key still resolves through
   `resolveSecretDetailed` (personal before organization). An unreadable choice
   is a failed lookup, never "unset".
+- The rest of Settings › Infrastructure reads through actions too:
+  `get-file-storage` / `manage-file-storage` for uploads,
+  `list-model-providers` for the AI model, and `get-infrastructure-status`
+  (owners and admins) for the environment: the database provider and host,
+  where each app is hosted and its address, which deploy variables are set,
+  and the app profile's Required/Recommended tags. It never returns a value or
+  a database URL. Those variables live on the host, so the answer to "change
+  DATABASE_URL" is a host setting plus a redeploy, not a Settings write.
 
 ## Dispatch Vault Access
 

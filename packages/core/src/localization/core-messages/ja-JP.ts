@@ -1448,6 +1448,129 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "ファイルを追加",
   "settingsResources.files.upload": "ファイルをアップロード",
   "settingsResources.files.create": "ファイルを作成",
+  "settingsInfra.setup": "セットアップ",
+  "settingsInfra.services": "サービス",
+  "settingsInfra.environment": "環境",
+  "settingsInfra.builderConnected":
+    "接続済み。Builder.io と表示されたサービスはすべてアカウントのクレジットで動きます。",
+  "settingsInfra.builderNotConnected":
+    "未接続。各サービスを自分で設定するか、Builder.io を接続してアカウントのクレジットを使います。",
+  "settingsInfra.builderUnknown": "Builder.io の接続を確認できませんでした。",
+  "settingsInfra.manage": "管理",
+  "settingsInfra.connect": "接続",
+  "settingsInfra.connecting": "接続しています…",
+  "settingsInfra.setUp": "設定",
+  "settingsInfra.view": "表示",
+  "settingsInfra.retry": "再試行",
+  "settingsInfra.close": "閉じる",
+  "settingsInfra.cancel": "キャンセル",
+  "settingsInfra.save": "保存",
+  "settingsInfra.required": "必須",
+  "settingsInfra.recommended": "推奨",
+  "settingsInfra.optional": "任意",
+  "settingsInfra.needsBuilder": "Builder.io が必要",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "未設定",
+  "settingsInfra.notAvailable": "利用できません",
+  "settingsInfra.loadFailed": "読み込めませんでした。",
+  "settingsInfra.aiModel": "AI モデル",
+  "settingsInfra.useEveryApp": "すべてのアプリ",
+  "settingsInfra.storageBucket": "{{provider}}、バケット {{bucket}}",
+  "settingsInfra.useUploads": "すべてのアプリのアップロード",
+  "settingsInfra.storageTitle": "ファイルストレージ",
+  "settingsInfra.storageIntro":
+    "新しいアップロードはバケットに保存されます。既存のファイルはそのままです。",
+  "settingsInfra.voice": "音声入力",
+  "settingsInfra.images": "画像生成",
+  "settingsInfra.embeddings": "埋め込み",
+  "settingsInfra.useVoice": "すべてのアプリの音声入力",
+  "settingsInfra.useImages": "Slides と Design",
+  "settingsInfra.useEmbeddings": "Brain の検索",
+  "settingsInfra.whyVoice":
+    "音声をテキストに変換します。入力はこれがなくても使えます。",
+  "settingsInfra.whyImages": "スライドとデザインの画像を生成します。",
+  "settingsInfra.whyEmbeddings":
+    "セマンティック検索を改善します。キーワード検索はこれがなくても使えます。",
+  "settingsInfra.designSystem": "デザインシステムインテリジェンス",
+  "settingsInfra.whyDesignSystem":
+    "生成したスライドとデザインをブランドに沿わせます。",
+  "settingsInfra.whyBackground": "本番環境からコードを変更します。",
+  "settingsInfra.whyBrowser":
+    "本番環境でエージェントがブラウザを使えるようにします。",
+  "settingsInfra.provider": "プロバイダー",
+  "settingsInfra.keyOrg": "組織の {{provider}} キーを使います。",
+  "settingsInfra.manageKey": "キーを管理",
+  "settingsInfra.keyPersonal":
+    "{{provider}} キーは個人用です。サービスには組織のキーが必要です。",
+  "settingsInfra.keyNone":
+    "サービスは組織のキーを使いますが、{{provider}} キーはまだありません。",
+  "settingsInfra.keyUnavailable":
+    "組織の {{provider}} キーを確認できませんでした。",
+  "settingsInfra.useBuilder": "Builder.io を使う",
+  "settingsInfra.addNamed": "{{provider}} を追加",
+  "settingsInfra.serviceSaved":
+    "{{service}} は {{provider}} を使うようになりました。",
+  "settingsInfra.serviceSaveFailed": "{{service}} を変更できませんでした。",
+  "settingsInfra.reindex":
+    "既存の項目がセマンティック検索の対象になるよう、Brain を再インデックスしてください。",
+  "settingsInfra.variables": "必須の変数",
+  "settingsInfra.databaseHosted":
+    "{{name}}。ホストで設定され、すべてのアプリが共有します。",
+  "settingsInfra.databaseHostedSingle": "{{name}}。ホストで設定されています。",
+  "settingsInfra.databaseLocal":
+    "このコンピューター上の {{name}}。デプロイする前にホストで DATABASE_URL を設定してください。",
+  "settingsInfra.databaseMissing":
+    "未設定です。ホストで DATABASE_URL を設定してください。",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}。ワークスペースは各アプリをそれぞれのアドレスにデプロイします。",
+  "settingsInfra.hostingSingle": "{{host}}、{{address}}。",
+  "settingsInfra.hostingPlain": "{{host}}。",
+  "settingsInfra.hostOwnServer": "自分のサーバー",
+  "settingsInfra.hostThisComputer": "このコンピューター",
+  "settingsInfra.variablesSet": "{{keys}} はホストで設定されています。",
+  "settingsInfra.variablesMissing": "ホストで {{keys}} を設定してください。",
+  "settingsInfra.dbConnected": "接続済み",
+  "settingsInfra.dbLocal": "このコンピューター上",
+  "settingsInfra.notSet": "未設定",
+  "settingsInfra.set": "設定済み",
+  "settingsInfra.dbIntro":
+    "各アプリは起動前にデータベースを読み込むため、ホストで一度だけ設定します。別のデータベースに移るには:",
+  "settingsInfra.dbStep1":
+    "Neon、Supabase、または任意の Postgres ホストで Postgres データベースを作成します。",
+  "settingsInfra.dbStep2": "ホストの環境で {{key}} に接続文字列を設定します。",
+  "settingsInfra.dbStep3": "再デプロイします。移行はデプロイ中に実行されます。",
+  "settingsInfra.dbOwn":
+    "1 つのアプリに専用のデータベースを使わせるには、{{key}} のようなそのアプリ専用の変数を設定します。",
+  "settingsInfra.hostIntroWorkspace":
+    "ワークスペースは各アプリをそれぞれのアドレスにデプロイします。Vercel、Cloudflare、または自分のサーバーでホストするには:",
+  "settingsInfra.hostIntro":
+    "Vercel、Cloudflare、または自分のサーバーでホストするには:",
+  "settingsInfra.hostStep1":
+    "{{key}} でターゲットを選びます (vercel、cloudflare_module、node など)。",
+  "settingsInfra.hostStep2":
+    "新しいホストにも {{keys}} を含む同じ環境を設定します。",
+  "settingsInfra.hostStep3":
+    "デプロイします。ワークスペースでは、すべてのアプリをビルドして公開コマンドを表示します:",
+  "settingsInfra.envIntro":
+    "各アプリは起動前にこれらを読み込みます。ホストで一度設定してから再デプロイしてください。",
+  "settingsInfra.varDatabaseUrl": "Postgres の接続文字列です。",
+  "settingsInfra.varA2a":
+    "このワークスペースのアプリ同士が呼び出し合えるようにします。ワークスペースでは、BETTER_AUTH_SECRET が未設定のときにサインインセッションの署名にも使われます。",
+  "settingsInfra.varBetterAuth":
+    "サインインセッションに署名します。32 文字以上のランダムな文字列を使ってください。",
+  "settingsInfra.varAppUrl":
+    "ホストがアプリに公開 URL を伝えられない場合にだけ必要です。",
+  "settingsInfra.varEncryption":
+    "設定に保存したキーを暗号化します。未設定の場合、ワークスペースは A2A_SECRET から鍵を導出します。",
+  "settingsInfra.varEncryptionSingle":
+    "設定に保存したキーを暗号化します。未設定の場合、アプリは BETTER_AUTH_SECRET から鍵を導出します。",
+  "settingsInfra.varWeak":
+    "短すぎます。32 文字以上のランダムな文字列を使ってください。",
+  "settingsInfra.varWeakLabel": "短すぎます",
+  "settingsInfra.generateSecret": "シークレットを生成するには:",
+  "settingsInfra.copy": "コピー",
+  "settingsInfra.copied": "コピーしました",
+  "settingsInfra.copyFailed": "コピーできませんでした。",
   "settingsModel.addEndpoint": "エンドポイント URL を追加",
   "settingsModel.addNamed": "{{provider}} を追加",
   "settingsModel.addProvider": "プロバイダーを追加",

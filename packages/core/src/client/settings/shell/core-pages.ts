@@ -77,14 +77,6 @@ const MODEL_PAGE_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
     keywords: "max iterations agent limits steps loop budget",
     anchor: "max-iterations",
   },
-  // Bridged onto the Model page until Infrastructure's Services list lands;
-  // `SHELL_SECTION_SEARCH_LABELS` leaves `background` out meanwhile.
-  {
-    id: "section:background",
-    labelKey: "agentChat.settingsShell.search.backgroundAgents",
-    keywords: "background agent builder code changes production",
-    anchor: "background",
-  },
   {
     id: "model:chatgpt-subscription",
     labelKey: modelRow("chatgptTitle"),
@@ -97,6 +89,88 @@ const MODEL_PAGE_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
     label: option.label,
     keywords: `${option.id} provider api key model byok`,
   })),
+];
+
+const infraRow = (key: string) => `agentChat.settingsInfra.${key}`;
+
+// Anchors are the Infrastructure page's row ids; `hosting`, `database`,
+// `uploads`, and `background` are also where legacy section links land.
+const INFRA_PAGE_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
+  {
+    id: "infra:builder",
+    label: "Builder.io",
+    keywords: "builder setup byok configure manually credits connect",
+    anchor: "builder",
+  },
+  {
+    id: "infra:ai-model",
+    labelKey: infraRow("aiModel"),
+    keywords: "ai model llm provider byok every app",
+    anchor: "ai-model",
+  },
+  {
+    id: "infra:uploads",
+    labelKey: "agentChat.settingsShell.search.fileUploads",
+    keywords:
+      "s3 r2 bucket storage uploads supabase minio amazon cloudflare file storage",
+    anchor: "uploads",
+  },
+  {
+    id: "infra:voice",
+    labelKey: infraRow("voice"),
+    keywords: "voice input dictation transcription speech gemini groq openai",
+    anchor: "voice",
+  },
+  {
+    id: "infra:images",
+    labelKey: infraRow("images"),
+    keywords: "image generation images slides design gemini openai",
+    anchor: "images",
+  },
+  {
+    id: "infra:embeddings",
+    labelKey: infraRow("embeddings"),
+    keywords: "embeddings semantic search brain gemini cohere voyage",
+    anchor: "embeddings",
+  },
+  {
+    id: "infra:design-system-intelligence",
+    labelKey: infraRow("designSystem"),
+    keywords: "design system intelligence brand builder only",
+    anchor: "design-system-intelligence",
+  },
+  {
+    id: "infra:background",
+    labelKey: "agentChat.settingsShell.search.backgroundAgents",
+    keywords: "background agent builder code changes production",
+    anchor: "background",
+  },
+  {
+    id: "infra:browser-automation",
+    labelKey: "agentChat.settingsShell.search.browserAutomation",
+    keywords: "browser automation builder only production",
+    anchor: "browser-automation",
+  },
+  {
+    id: "infra:database",
+    labelKey: "agentChat.settingsShell.search.database",
+    keywords: "database postgres database_url neon supabase pglite",
+    anchor: "database",
+  },
+  {
+    id: "infra:hosting",
+    labelKey: "agentChat.settingsShell.search.hosting",
+    keywords:
+      "hosting deploy deployment netlify vercel cloudflare addresses nitro_preset",
+    anchor: "hosting",
+  },
+  {
+    id: "infra:variables",
+    labelKey: infraRow("variables"),
+    keywords:
+      "env environment variables secrets database_url a2a_secret better_auth_secret app_url secrets_encryption_key",
+    anchor: "variables",
+  },
 ];
 
 /** The read-only group of resources Dispatch shares with every app. */
@@ -409,6 +483,7 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     component: lazy(() => import("./pages/infra.js")),
     legacyTabIds: ["workspace"],
     keywords: "infrastructure hosting database storage uploads services",
+    searchEntries: INFRA_PAGE_SEARCH_ENTRIES,
   }),
   defineSettingsPage({
     id: "audit",
