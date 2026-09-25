@@ -443,3 +443,56 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     expect(() => drainAsSql(subqueryChain)).toThrow(/unresolved|await/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// createGetDb — hosted-runtime local database guard
+//
+// `getDbExec()` (client.ts's initClient) already refused to fall back to
+// PGlite on a hosted function invocation. This opener resolved the same
+// runtime URL but skipped the refusal entirely, so a request that reached
+// Drizzle first silently opened the ephemeral per-instance PGlite file
+// instead of failing loudly. Both now share `assertHostedRuntimeDatabase()`.
+// ---------------------------------------------------------------------------
+describe("createGetDb hosted-runtime local database guard", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+  });
+
+  it("rejects instead of opening PGlite on a hosted function invocation with no database URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { createGetDb } = await import("./create-get-db.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("./client.js");
+    const getDb = createGetDb({});
+
+    await expect(getDb().select()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("rejects on a Cloudflare Worker/Pages invocation with no database URL", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__cf_env", {});
+
+    const { createGetDb } = await import("./create-get-db.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("./client.js");
+    const getDb = createGetDb({});
+
+    await expect(getDb().select()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+});

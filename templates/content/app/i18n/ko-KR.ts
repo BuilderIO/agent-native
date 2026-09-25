@@ -807,6 +807,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "아이콘",
+    iconPickerEmoji: "이모지",
+    iconPickerRecent: "최근 항목",
+    iconPickerColors: "색상",
+    iconPickerDefault: "기본값",
+    iconPickerUpload: "업로드",
+    iconPickerUploading: "업로드 중…",
     suggestionCreateFailed: "제안을 만들 수 없습니다",
     suggestionsCount: "제안 {{count}}개",
     acceptSuggestion: "수락",
@@ -849,6 +856,35 @@ const rawLiterals = {
     contentSpace: "Content 공간",
     addChild: "하위 항목 추가",
     addChildTo: "{{title}}에 하위 항목 추가",
+    collapseItem: "{{title}} 접기",
+    removeFromRecent: "최근 방문에서 제거",
+    copyLink: "링크 복사",
+    openInNewTab: "새 탭에서 열기",
+    rename: "이름 바꾸기",
+    duplicate: "복제",
+    moveTo: "이동",
+    moveToTrash: "휴지통으로 이동",
+    lastEditedBy: "최종 편집자: {{name}}",
+    lastEdited: "최종 편집",
+    pageName: "페이지 이름",
+    movePageTo: "“{{title}}” 이동 위치",
+    topLevel: "최상위",
+    noMatchingPages: "일치하는 페이지 없음",
+    failedRenamePage: "페이지 이름을 바꾸지 못했습니다",
+    failedDuplicatePage: "페이지를 복제하지 못했습니다",
+    duplicatedFromLastSave:
+      "마지막으로 저장된 버전을 복사했습니다. 저장되지 않은 최근 편집은 포함되지 않았습니다.",
+    chooseSpace: "워크스페이스 선택",
+    moveToSpaceTitle: "{{space}}(으)로 이동할까요?",
+    moveToSpaceWarningShared:
+      "{{space}}의 모든 사람이 “{{title}}” 및 하위 페이지를 볼 수 있게 됩니다. 현재 공유 설정과 공개 링크가 제거되고 내가 소유자가 됩니다.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” 및 하위 페이지는 {{space}}에서 나만 볼 수 있게 됩니다. 현재 공유 설정과 공개 링크가 제거되고 내가 소유자가 됩니다.",
+    back: "뒤로",
+    movePage: "이동",
+    movedToSpace: "“{{title}}”을(를) {{space}}(으)로 이동했습니다",
+    failedRemoveFromRecent: "최근 방문에서 제거하지 못했습니다",
+    expandItem: "{{title}} 펼치기",
     database: "컬렉션",
     collection: "컬렉션",
     databasePermanentlyDeleted: "컬렉션가 영구 삭제되었습니다",
@@ -988,6 +1024,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "아이콘",
+    iconPickerEmoji: "이모지",
+    iconPickerRecent: "최근 항목",
+    iconPickerColors: "색상",
+    iconPickerDefault: "기본값",
+    iconPickerUpload: "업로드",
+    iconPickerUploading: "업로드 중…",
     suggestionAmendmentEmpty:
       "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
     suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
@@ -1239,6 +1282,13 @@ const overrides = {
     genericError: "문제가 발생했습니다",
   },
   editor: {
+    iconPickerIcons: "아이콘",
+    iconPickerEmoji: "이모지",
+    iconPickerRecent: "최근 항목",
+    iconPickerColors: "색상",
+    iconPickerDefault: "기본값",
+    iconPickerUpload: "업로드",
+    iconPickerUploading: "업로드 중…",
     ...editor,
     sourceComponent: {
       defaultTitle: "소스 컴포넌트",

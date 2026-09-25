@@ -1,9 +1,9 @@
 ---
 name: new-branch
 description: >-
-  Only when explicitly asked for /new-branch or a fresh git branch: stash local
-  changes, update main, and create it. Do not auto-run for normal coding, PR,
-  Builder.io, or Fusion branch workflows.
+  Use when explicitly asked for /new-branch or a fresh git branch. A /ship
+  request alone does not authorize post-merge branch movement. Keep
+  platform-assigned Builder.io and Fusion branches in place.
 user-invocable: true
 scope: dev
 metadata:
@@ -14,19 +14,31 @@ metadata:
 
 ## Activation guard
 
-Use this skill only when the user explicitly invokes `/new-branch`, mentions this skill as the workflow to run, or directly asks you to create a fresh git branch from main.
+Use this skill when the user explicitly invokes `/new-branch`, mentions this
+skill as the workflow to run, or directly asks you to create a fresh git branch
+from main. A post-merge branch move during `/ship` requires the user to
+explicitly request that exact branch operation in the current task, and only
+after `/ship` verifies its merge commit on `origin/main`. Platform-assigned
+Builder.io and Fusion branches stay in place. This never authorizes moving
+branches earlier or touching another checkout.
 
-If this skill was loaded without an explicit user request to create a new branch, **stop here**. Report that branch movement requires explicit confirmation, then continue the original task on the current branch.
+If neither an explicit new-branch request nor the explicitly requested
+post-merge branch operation above applies, **stop here** and continue the
+original task without branch movement.
 
 ### Do NOT invoke this skill in any of these situations
 
 These are mistakes other agents have made that stranded concurrent work:
 
-- The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — those work on the **current** branch. PR and ship workflows in this repo push the current branch; they don't branch-then-push.
+- The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — those work on the **current** branch. PR and ship workflows in this repo push the current branch; they don't branch-then-push. A `/ship` request alone does not authorize post-merge branch movement.
 - The current branch name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, `feat/...`). Those are platform-managed or other agents' branches; moving off looks like work-loss to whoever started them.
 - You're running inside Builder.io / Fusion / a project container. The platform tracks the user's work by the branch it assigned — leaving silently breaks their UI.
-- The working tree has uncommitted changes. Checkpoint all nonignored local work
-  before branching; do not classify changes by authorship or stash them silently.
+- The working tree has uncommitted changes. For normal branch requests,
+  checkpoint all nonignored work before branching; do not classify by authorship
+  or stash it silently. An explicitly requested `/ship` rotation may carry only
+  its documented `learnings.md`, `bridge/**`, and `data/**` exclusions to its
+  post-merge branch, preserving and verifying those local changes. Any other
+  dirty path blocks rotation.
 - You think a fresh branch would be "tidier." Tidiness is not a goal here; concurrent-agent durability is.
 
 When in doubt: stay on the current branch. Ask the user before moving.
@@ -45,7 +57,110 @@ git log origin/main --oneline -1
 
 Compare the merge commit SHA. If `origin/main` doesn't include it yet, wait and re-fetch — GitHub can take a few seconds to update after a squash merge. **Never create a branch off stale main.** Creating a branch that's missing a just-merged PR causes chaos: subsequent work assumes the merged code is there, leading to conflicts, regressions, and duplicated changes.
 
+## Explicitly requested post-merge `/ship` rotation
+
+When the user explicitly requests the exact branch operation during `/ship`,
+use this path after verifying the merge commit on `origin/main`. In the current
+user-owned worktree, confirm there are no unpushed commits on any path
+and no dirty publishable paths; only `learnings.md`, `bridge/**`, and `data/**`
+may remain dirty. If any unpushed commit remains, keep the source branch checked
+out and report the commit hashes instead of rotating. This preserves commits
+excluded from `/ship:push`. Use the immutable `ship_merge_head_oid` captured
+before the guarded merge (from the Codex watcher prompt or foreground task
+transcript, or the Claude `/goal` or foreground task transcript); never
+substitute the live `headRefOid` after merge. This remains verifiable if GitHub
+deletes the source branch after squash merge. Fetch origin
+and inspect both local and remote source-branch tips before choosing a name and
+creating directly from `origin/main`:
+
+```bash
+if ! git fetch --no-prune origin; then
+  echo "Cannot refresh origin; keep the source branch." >&2
+  exit 1
+fi
+branch=$(git branch --show-current)
+if [ -z "$branch" ]; then
+  echo "Detached checkout; keep the current worktree unchanged." >&2
+  exit 1
+fi
+ship_head="<persisted-ship_merge_head_oid>"
+if ! git cat-file -e "$ship_head^{commit}"; then
+  echo "Cannot verify the immutable merged PR head; keep the source branch." >&2
+  exit 1
+fi
+if ! git merge-base --is-ancestor "$ship_head" HEAD; then
+  echo "Local HEAD does not contain the merged PR head; keep the source branch." >&2
+  git log --oneline HEAD --not "$ship_head"
+  exit 1
+fi
+remote_line=$(git ls-remote --heads origin "refs/heads/$branch") || {
+  echo "Cannot inspect the remote source branch; keep the source branch." >&2
+  exit 1
+}
+remote_ref="refs/remotes/origin/$branch"
+local_unpublished=$(git log --oneline "$ship_head"..HEAD) || {
+  echo "Cannot inspect local commits; keep the source branch." >&2
+  exit 1
+}
+remote_unpublished=
+if [ -n "$remote_line" ]; then
+  if ! git fetch --no-prune origin "refs/heads/$branch:$remote_ref"; then
+    echo "Cannot refresh the remote source branch; keep the source branch." >&2
+    exit 1
+  fi
+  if ! git merge-base --is-ancestor "$ship_head" "$remote_ref"; then
+    echo "Remote source branch diverged from the merged PR head; keep the source branch." >&2
+    git log --oneline "$remote_ref" --not "$ship_head"
+    exit 1
+  fi
+  remote_unpublished=$(git log --oneline "$ship_head".."$remote_ref") || {
+    echo "Cannot inspect remote commits; keep the source branch." >&2
+    exit 1
+  }
+fi
+if [ -n "$local_unpublished" ] || [ -n "$remote_unpublished" ]; then
+  if [ -n "$local_unpublished" ]; then
+    printf 'Local commits after the merged PR head:\n%s\n' "$local_unpublished"
+  fi
+  if [ -n "$remote_unpublished" ]; then
+    printf 'Remote commits after the merged PR head:\n%s\n' "$remote_unpublished"
+  fi
+  echo "Keeping the source branch; report these commits instead of rotating."
+else
+  dirty_publishable=$(git status --porcelain --untracked-files=all -- . \
+    ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**') || {
+    echo "Cannot verify the working tree; keep the source branch." >&2
+    exit 1
+  }
+  if [ -n "$dirty_publishable" ]; then
+    printf 'Dirty publishable paths:\n%s\n' "$dirty_publishable" >&2
+    echo "Keep the source branch until publishable paths are clean." >&2
+    exit 1
+  fi
+  # Replace with a unique name following the Branch naming rules above.
+  new_branch="<github-username>/changes-N"
+  git switch -c "$new_branch" origin/main || {
+    echo "Could not create the next branch; keep the source branch." >&2
+    exit 1
+  }
+fi
+```
+
+These unfiltered checks cover local and remote commits on every path; do not
+use `/ship`'s excluded-path filter for rotation.
+
+Verify the new branch points at current `origin/main` and the excluded local
+changes are still present. Do not check out or pull a local `main`, stash,
+force, reset, or touch another worktree. If Git refuses to carry an excluded
+path, leave the current worktree intact. Retaining the source branch because it
+has unpublished commits is a safe branch disposition; platform-assigned
+Builder.io and Fusion checkouts stay on their assigned branches and do not use
+this path.
+
 ## Steps
+
+For an ordinary `/new-branch`, run the generic command below. For a
+post-merge `/ship` rotation, use the dedicated path above instead.
 
 Run as a single chained command to minimize time off-branch. Resolve the
 authenticated GitHub username before choosing the branch name so concurrent

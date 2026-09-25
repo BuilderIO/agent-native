@@ -406,6 +406,7 @@ export function runMigrations(
             );
           } catch (err) {
             if (isPermissionError(err)) {
+              if (isMigrationAuthorizedRuntime()) throw err;
               console.warn(
                 `[db] Migration ${label} skipped - insufficient privilege: ${(err as Error).message}. ` +
                   "Apply it with a database role that owns the table. Halting further migrations.",

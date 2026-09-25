@@ -1,3 +1,4 @@
+import { ResourceIcon } from "@agent-native/toolkit/icons";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconArrowUpRight,
@@ -220,6 +221,7 @@ export function OrgSwitcher({
     ? `${buttonLabel}, Demo mode`
     : buttonLabel;
   const ButtonIcon = inOrg ? IconBriefcase : IconUser;
+  const buttonIcon = inOrg ? org.icon : null;
   const organizationSettingsHref = settingsPath
     ? organizationSettingsPath(settingsPath)
     : null;
@@ -239,7 +241,14 @@ export function OrgSwitcher({
                   aria-label={triggerLabel}
                   className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
                 >
-                  <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+                  <ResourceIcon
+                    value={buttonIcon}
+                    size={14}
+                    resolveImageUrl={(image) =>
+                      image.authority === "url" ? image.assetId : undefined
+                    }
+                    fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
+                  />
                 </button>
               </PopoverPrimitive.Trigger>
             </TooltipTrigger>
@@ -253,7 +262,14 @@ export function OrgSwitcher({
             aria-label={triggerLabel}
             className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
           >
-            <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+            <ResourceIcon
+              value={buttonIcon}
+              size={14}
+              resolveImageUrl={(image) =>
+                image.authority === "url" ? image.assetId : undefined
+              }
+              fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
+            />
             <span className="truncate flex-1 text-start">{buttonLabel}</span>
             {demoModeEnabled && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
@@ -356,7 +372,16 @@ export function OrgSwitcher({
                   disabled={switchOrg.isPending}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
-                  <IconBriefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <ResourceIcon
+                    value={o.icon}
+                    size={14}
+                    resolveImageUrl={(image) =>
+                      image.authority === "url" ? image.assetId : undefined
+                    }
+                    fallback={
+                      <IconBriefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    }
+                  />
                   <span className="min-w-0 truncate flex-1 text-start">
                     {o.orgName}
                   </span>

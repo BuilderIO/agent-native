@@ -4,6 +4,7 @@ import type { Document } from "@shared/api";
 import { IconArrowLeft, IconExternalLink, IconX } from "@tabler/icons-react";
 import { Link } from "react-router";
 
+import { ContentIcon } from "@/components/icons/ContentIcon";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -80,7 +81,11 @@ export function TrashDocumentPreview({
         </div>
       ) : view === "ready" && query.data ? (
         <article className="mx-auto w-full max-w-3xl overflow-y-auto px-6 py-10 sm:px-10">
-          <div className="mb-8 text-4xl">{query.data.icon || ""}</div>
+          {query.data.icon ? (
+            <div className="mb-8">
+              <ContentIcon value={query.data.icon} size={40} />
+            </div>
+          ) : null}
           <h1 className="mb-8 text-3xl font-bold tracking-tight">
             {query.data.title || t("sidebar.untitled")}
           </h1>

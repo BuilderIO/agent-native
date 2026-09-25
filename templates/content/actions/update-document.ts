@@ -3,6 +3,12 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
+  iconValueSchema,
+  parseIconValue,
+  serializeIconValue,
+  type IconValue,
+} from "@agent-native/core/icons";
+import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
@@ -89,7 +95,7 @@ function isFavoriteOnlyUpdate(args: {
   title?: string;
   content?: string;
   description?: string;
-  icon?: string | null;
+  icon?: IconValue | string | null;
 }) {
   return (
     args.isFavorite !== undefined &&
@@ -371,7 +377,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("Stable page guidance; this does not alter page content"),
-    icon: z.string().nullable().optional().describe("New emoji icon"),
+    icon: z
+      .union([z.string(), iconValueSchema])
+      .nullable()
+      .optional()
+      .describe("New emoji, Tabler icon, or uploaded image icon"),
     isFavorite: z.coerce
       .boolean()
       .optional()
@@ -755,7 +765,11 @@ export default defineAction({
           updates.content = content;
           updates.bodyRevision = historyBefore.bodyRevision + 1;
         }
-        if (lockedIconChanged) updates.icon = args.icon;
+        if (lockedIconChanged)
+          updates.icon =
+            args.icon === null
+              ? null
+              : serializeIconValue(parseIconValue(args.icon));
         if (lockedTitleChanged || lockedContentChanged) {
           Object.assign(updates, documentEditAttribution(actor));
         }

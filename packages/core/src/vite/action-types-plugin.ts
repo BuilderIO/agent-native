@@ -204,6 +204,11 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/observability/actions/get-observability-review-app",
   },
   {
+    name: "get-observability-review-detail",
+    specifier:
+      "@agent-native/core/observability/actions/get-observability-review-detail",
+  },
+  {
     name: "save-observability-instruction-update",
     specifier:
       "@agent-native/core/observability/actions/save-observability-instruction-update",

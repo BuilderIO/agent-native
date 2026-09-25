@@ -47,6 +47,8 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "Révoquer",
   couldNotRevoke: "Impossible de révoquer le jeton.",
   authorizeDevice: "Autoriser l’appareil",
+  fullCatalogRequested:
+    "Cet appareil demande l’accès au catalogue complet des actions.",
   createToken: "Créer un jeton de connexion",
   authorizingDevice: "Autorisation de l’appareil...",
   creatingToken: "Création du jeton...",

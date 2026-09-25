@@ -63,6 +63,7 @@ export interface StyleChangeMeta {
   phase?: "preview" | "commit" | "cancel";
   relativeDelta?: number;
   relativeExpression?: ScrubRelativeExpression;
+  relativeDeltaProperties?: string[];
   interactionState?: InteractionState;
   breakpointReset?: { property: string; maxWidthPx: number };
   /** Source targets captured by an async inspector operation such as image upload. */

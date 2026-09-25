@@ -16,13 +16,29 @@ registry; do not assume a fixed 1920x1080 canvas.
 
 ## Slide HTML Structure
 
-Every slide uses this wrapper:
+Every slide uses the same `--deck-*` wrapper contract. What changes is where
+those values come from.
+
+**A design system is linked** - inherit its tokens:
 
 ```html
-<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg); --deck-ink: var(--ds-text); --deck-muted: var(--ds-text-muted); --deck-accent: var(--ds-accent); --deck-surface: var(--ds-surface); --deck-heading-font: var(--ds-heading-font); --deck-body-font: var(--ds-body-font); --deck-radius: var(--ds-radius); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
   <!-- Slide content here -->
 </div>
 ```
+
+**No design system is linked** - write the deck's chosen values as literals:
+
+```html
+<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6; --deck-muted: #A8B8AC; --deck-accent: #7FB069; --deck-surface: rgba(255,255,255,0.05); --deck-heading-font: 'Fraunces', Georgia, serif; --deck-body-font: 'Inter', sans-serif; --deck-radius: 4px; background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
+  <!-- Slide content here -->
+</div>
+```
+
+The renderer publishes `--ds-bg` from the slide's own background, and nothing
+else, when no system is linked. Every other `var(--ds-*, ...)` reference
+resolves to its fallback, so an unlinked deck that inherits instead of baking
+renders as unstyled browser defaults. Bake the values.
 
 ## Styling Rules
 

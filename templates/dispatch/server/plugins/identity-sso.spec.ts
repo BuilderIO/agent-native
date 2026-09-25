@@ -154,10 +154,33 @@ vi.mock("@agent-native/core/db", () => ({
         };
       }
       if (/^INSERT INTO organizations/i.test(sql)) {
+        organizationRow = {
+          id: args[0],
+          name: args[1],
+          icon_json: args[7],
+          icon_revision: args[8],
+        };
         return { rows: [], rowsAffected: 1 };
       }
       if (/^UPDATE organizations/i.test(sql)) {
+        if (/SET icon_json = \?, icon_revision = \?/i.test(sql)) {
+          if (
+            organizationRow &&
+            Number(organizationRow.icon_revision ?? 0) < Number(args[3])
+          ) {
+            organizationRow.icon_json = args[0];
+            organizationRow.icon_revision = args[1];
+            return { rows: [{ icon_revision: args[1] }], rowsAffected: 1 };
+          }
+          return { rows: [], rowsAffected: 0 };
+        }
         return { rows: [], rowsAffected: 1 };
+      }
+      if (/^SELECT icon_json, icon_revision\s+FROM organizations/i.test(sql)) {
+        return {
+          rows: organizationRow ? [organizationRow] : [],
+          rowsAffected: 0,
+        };
       }
       if (/^INSERT INTO org_members/i.test(sql)) {
         return { rows: [], rowsAffected: 1 };
@@ -1183,6 +1206,49 @@ describe("silent browser bootstrap", () => {
 });
 
 describe("organization federation endpoint", () => {
+  it("returns the canonical icon and revision when a replica sends a stale icon", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(
+      async (flag) => flag.key === "organization.cross-app-federation",
+    );
+    const canonical = { version: 1, kind: "emoji", emoji: "📚" };
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+      icon_json: JSON.stringify(canonical),
+      icon_revision: 5,
+    };
+    centralActorRole = "owner";
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+        org_icon: { version: 1, kind: "emoji", emoji: "🏗️" },
+        org_icon_revision: 2,
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer stale-icon-assertion" },
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: "icon-revision-conflict",
+      icon: canonical,
+      iconRevision: 5,
+    });
+  });
+
   it("atomically bootstraps the existing owner roster", async () => {
     featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
       return flag.key === "organization.cross-app-federation";
@@ -1197,6 +1263,7 @@ describe("organization federation endpoint", () => {
     const rosterHash = createHash("sha256")
       .update(JSON.stringify(roster))
       .digest("base64url");
+    const icon = { version: 1, kind: "emoji", emoji: "📚" };
     verifyA2ATokenMock.mockResolvedValue({
       email: "owner@example.test",
       orgDomain: null,
@@ -1207,6 +1274,8 @@ describe("organization federation endpoint", () => {
         scope: "organization-federation",
         org_name: "Example Org",
         org_role: "owner",
+        org_icon: icon,
+        org_icon_revision: 1,
         federation_roster_hash: rosterHash,
       },
     });
@@ -1223,6 +1292,10 @@ describe("organization federation endpoint", () => {
     expect(await response.json()).toMatchObject({
       orgId: "dispatch-org-1",
       rosterInitialized: true,
+    });
+    expect(organizationRow).toMatchObject({
+      icon_json: JSON.stringify(icon),
+      icon_revision: 1,
     });
     expect(verifyA2ATokenMock).toHaveBeenCalledWith(
       "roster-assertion",
@@ -1251,6 +1324,7 @@ describe("organization federation endpoint", () => {
     const rosterHash = createHash("sha256")
       .update(JSON.stringify(roster))
       .digest("base64url");
+    const icon = { version: 1, kind: "emoji", emoji: "📚" };
     verifyA2ATokenMock.mockResolvedValue({
       email: "owner@example.test",
       orgDomain: null,
@@ -1261,6 +1335,8 @@ describe("organization federation endpoint", () => {
         scope: "organization-federation",
         org_name: "Example Org",
         org_role: "owner",
+        org_icon: icon,
+        org_icon_revision: 1,
         federation_roster_hash: rosterHash,
       },
     });
@@ -1277,6 +1353,10 @@ describe("organization federation endpoint", () => {
     expect(await response.json()).toMatchObject({
       orgId: "dispatch-org-1",
       rosterInitialized: true,
+    });
+    expect(organizationRow).toMatchObject({
+      icon_json: JSON.stringify(icon),
+      icon_revision: 1,
     });
   });
 

@@ -727,7 +727,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "Der KI-Anbieter hat diese Anfrage vorübergehend abgelehnt. Das behebt sich meist innerhalb einer Minute – versuche es erneut.",
   "errorMessages.startNewChat": "Neuen Chat starten",
-  "errorMessages.upgradeAtBuilder": "Bei Builder.io upgraden",
+  "errorMessages.addCreditsInBuilder": "Credits bei Builder hinzufügen",
   "feedback.inaccurate": "Ungenau",
   "feedback.keyboardHint": "{{shortcut}} Enter zum Senden",
   "feedback.notHelpful": "Nicht hilfreich",
@@ -866,6 +866,17 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "Bestätigung konnte nicht gesendet werden.",
   "settings.emailNewLabel": "Neue E-Mail-Adresse",
   "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
+  "usage.builderCredits": "Builder-Credits",
+  "usage.estimatedBuilderCredits": "~{{amount}} geschätzte Credits",
+  "usage.otherUsdSpend": "{{amount}} USD sonstige",
+  "usage.noBuilderCredits": "0 Builder-Credits",
+  "usage.otherUnclassifiedSpend":
+    "Sonstige oder nicht zugeordnete Ausgaben in USD",
+  "usage.providerSpendDetail":
+    "Anbieteraufrufe oder ältere Aufrufe außerhalb der Builder-Abrechnung",
+  "usage.providerSpendToday":
+    "Sonstige oder nicht zugeordnete Nutzung heute: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder-Credits / USD",
 };
 
 export default messages;
