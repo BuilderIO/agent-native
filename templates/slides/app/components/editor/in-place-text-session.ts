@@ -237,7 +237,7 @@ interface Snapshot extends TextOffsets {
   tag: string;
   attributes: [string, string][];
   html: string;
-  /** Text offsets of the author's zero-width-space nodes. */
+  /** Which of the element's zero-width spaces, in text order, are the author's. */
   authorZwsp: number[];
 }
 
@@ -248,6 +248,10 @@ interface PastedLine {
 }
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function countZwsp(text: string) {
+  return text.split(ZERO_WIDTH_SPACE).length - 1;
+}
 
 function textNodesIn(root: Node): Text[] {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -644,10 +648,12 @@ export function startInPlaceTextSession(
   const initialEditingBlock = el.getAttribute("data-editing-block");
   const startHtml = el.innerHTML;
   const startText = el.innerText;
-  // An author ZWSP is told apart from a placeholder by its text node. An
-  // undo rebuilds the nodes from HTML, so snapshots carry them by position.
-  const authorZwsp = new WeakSet<Text>(
-    textNodesIn(el).filter((text) => text.data.includes(ZERO_WIDTH_SPACE)),
+  // An author ZWSP is told apart from a placeholder by its place among the
+  // element's ZWSPs, never by its text node: a split, a rebuild (a list
+  // toggle, an undo), or Chrome's own typing makes new text nodes.
+  let zwspText = el.textContent!;
+  let authorZwsp = new Set(
+    Array.from({ length: countZwsp(zwspText) }, (_, index) => index),
   );
   const undoStack: Snapshot[] = [];
   const redoStack: Snapshot[] = [];
@@ -678,7 +684,62 @@ export function startInPlaceTextSession(
     }
   }
 
+  /**
+   * The author's ZWSPs, re-placed after a change. A change that adds or
+   * removes ZWSPs does it in one place, between the text it left alone at
+   * either end; any other change keeps every ZWSP in order.
+   */
+  function authorZwspOrdinals(): ReadonlySet<number> {
+    const text = el.textContent!;
+    if (text === zwspText) return authorZwsp;
+    const before = countZwsp(zwspText);
+    const delta = countZwsp(text) - before;
+    if (delta !== 0) {
+      const shortest = Math.min(text.length, zwspText.length);
+      let head = 0;
+      while (head < shortest && text[head] === zwspText[head]) head += 1;
+      let tail = 0;
+      while (
+        tail < shortest - head &&
+        text[text.length - 1 - tail] === zwspText[zwspText.length - 1 - tail]
+      ) {
+        tail += 1;
+      }
+      const kept = countZwsp(zwspText.slice(0, head));
+      const shifted =
+        before - countZwsp(zwspText.slice(zwspText.length - tail));
+      authorZwsp = new Set(
+        Array.from(authorZwsp).flatMap((ordinal) =>
+          ordinal < kept
+            ? [ordinal]
+            : ordinal >= shifted
+              ? [ordinal + delta]
+              : [],
+        ),
+      );
+    }
+    zwspText = text;
+    return authorZwsp;
+  }
+
+  /** Whether each ZWSP in `texts` (the element's, in order from the `first`th) is the author's. */
+  function authorFlags(texts: Text[], first = 0): boolean[][] {
+    const author = authorZwspOrdinals();
+    let ordinal = first;
+    return texts.map((text) =>
+      Array.from({ length: countZwsp(text.data) }, () => author.has(ordinal++)),
+    );
+  }
+
+  function keepZwsp(data: string, flags: boolean[]) {
+    let index = 0;
+    return data.replaceAll(ZERO_WIDTH_SPACE, (char) =>
+      flags[index++] ? char : "",
+    );
+  }
+
   const notify = () => {
+    authorZwspOrdinals();
     unscroll();
     if (lastEdit) lastEdit.after = selectionOffsets(true);
     options.onInput?.();
@@ -760,19 +821,9 @@ export function startInPlaceTextSession(
         attribute.value,
       ]),
       html: el.innerHTML,
-      authorZwsp: authorZwspOffsets(),
+      authorZwsp: Array.from(authorZwspOrdinals()),
       ...selectionOffsets(true),
     };
-  }
-
-  function authorZwspOffsets(): number[] {
-    const offsets: number[] = [];
-    let at = 0;
-    for (const text of textNodesIn(el)) {
-      if (authorZwsp.has(text)) offsets.push(at);
-      at += text.length;
-    }
-    return offsets;
   }
 
   function restore(state: Snapshot) {
@@ -786,14 +837,8 @@ export function startInPlaceTextSession(
       if (el.getAttribute(name) !== value) el.setAttribute(name, value);
     }
     el.innerHTML = state.html;
-    let at = 0;
-    for (const text of textNodesIn(el)) {
-      const end = at + text.length;
-      if (state.authorZwsp.some((offset) => offset >= at && offset < end)) {
-        authorZwsp.add(text);
-      }
-      at = end;
-    }
+    authorZwsp = new Set(state.authorZwsp);
+    zwspText = el.textContent!;
     selectOffsets(state, true);
   }
 
@@ -1709,18 +1754,17 @@ export function startInPlaceTextSession(
   function writeSelection(data: DataTransfer, range: Range) {
     const holder = document.createElement("div");
     holder.append(range.cloneContents());
-    // The copies come in the order of the text nodes the range touches. Only
-    // the session's placeholders are dropped, never an author's ZWSP.
-    const touched = textNodesIn(el).filter((text) =>
-      range.intersectsNode(text),
-    );
-    const keptZwsp: boolean[] = [];
-    textNodesIn(holder).forEach((copy, index) => {
-      const author = authorZwsp.has(touched[index]);
-      const count = copy.data.split(ZERO_WIDTH_SPACE).length - 1;
-      keptZwsp.push(...Array<boolean>(count).fill(author));
-      if (!author) copy.data = copy.data.replaceAll(ZERO_WIDTH_SPACE, "");
+    // The copies hold the range's text in order. Only the session's
+    // placeholders are dropped, never an author's ZWSP.
+    const preceding = document.createRange();
+    preceding.setStart(el, 0);
+    preceding.setEnd(range.startContainer, range.startOffset);
+    const copies = textNodesIn(holder);
+    const flags = authorFlags(copies, countZwsp(preceding.toString()));
+    copies.forEach((copy, index) => {
+      copy.data = keepZwsp(copy.data, flags[index]);
     });
+    const keptZwsp = flags.flat();
     // Items copied across a list are that list, numbered from the first one.
     const common = range.commonAncestorContainer;
     if (
@@ -1830,23 +1874,25 @@ export function startInPlaceTextSession(
    * other placeholder character is removed.
    */
   function settlePlaceholders() {
-    for (const text of textNodesIn(el)) {
-      if (authorZwsp.has(text) || !text.data.includes(ZERO_WIDTH_SPACE)) {
-        continue;
-      }
+    const texts = textNodesIn(el);
+    const flags = authorFlags(texts);
+    texts.forEach((text, index) => {
+      const author = flags[index];
+      if (author.every(Boolean)) return;
       const block = nearestLineBox(text, el);
       const rest = lineRest(text, block);
       if (
         PLACEHOLDER_ONLY.test(text.data) &&
+        !author.some(Boolean) &&
         !hasRenderedContent(rest) &&
         !rest.textContent?.includes(ZERO_WIDTH_SPACE) &&
         renderedBefore(text, block) !== "content"
       ) {
         text.replaceWith(document.createElement("br"));
       } else {
-        text.data = text.data.replaceAll(ZERO_WIDTH_SPACE, "");
+        text.data = keepZwsp(text.data, author);
       }
-    }
+    });
   }
 
   /**
@@ -1879,16 +1925,15 @@ export function startInPlaceTextSession(
   function cloneWithoutPlaceholders(root: HTMLElement): HTMLElement {
     const copy = root.cloneNode(true) as HTMLElement;
     const copies = textNodesIn(copy);
+    const texts = textNodesIn(el);
+    const flags = new Map(
+      authorFlags(texts).map((author, index) => [texts[index], author]),
+    );
     textNodesIn(root).forEach((text, index) => {
+      const author = flags.get(text);
+      if (!author || author.every(Boolean)) return;
       const placeholder = copies[index];
-      if (
-        !el.contains(text) ||
-        authorZwsp.has(text) ||
-        !text.data.includes(ZERO_WIDTH_SPACE)
-      ) {
-        return;
-      }
-      const rest = text.data.replaceAll(ZERO_WIDTH_SPACE, "");
+      const rest = keepZwsp(text.data, author);
       // A lone placeholder keeps an empty run from collapsing, so the run
       // keeps its font; anywhere else it is dropped.
       if (rest) placeholder.data = rest;
