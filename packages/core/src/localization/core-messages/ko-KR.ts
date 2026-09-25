@@ -814,6 +814,13 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "새 이메일",
   "settings.emailNewPlaceholder": "새 이메일 입력",
   "usage.builderCredits": "Builder 크레딧",
+  "usage.creditBalance": "워크스페이스 잔액",
+  "usage.monthlyPlan": "월간 플랜",
+  "usage.dailyFreeLimit": "무료 일일 한도",
+  "usage.creditUsedOfLimit": "{{limit}} 중 {{used}} 사용",
+  "usage.creditRemaining": "{{amount}} 남음",
+  "usage.creditUsageUnavailable":
+    "Builder 크레딧 사용량을 불러오지 못했습니다.",
   "usage.estimatedBuilderCredits": "~{{amount}} 예상 크레딧",
   "usage.otherUsdSpend": "{{amount}} 기타 USD",
   "usage.noBuilderCredits": "Builder 크레딧 0",

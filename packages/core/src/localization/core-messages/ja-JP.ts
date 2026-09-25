@@ -829,6 +829,13 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
   "usage.builderCredits": "Builder クレジット",
+  "usage.creditBalance": "ワークスペース残高",
+  "usage.monthlyPlan": "月間プラン",
+  "usage.dailyFreeLimit": "無料の日次上限",
+  "usage.creditUsedOfLimit": "{{limit}} 中 {{used}} を使用",
+  "usage.creditRemaining": "残り {{amount}}",
+  "usage.creditUsageUnavailable":
+    "Builder クレジットの使用状況を読み込めませんでした。",
   "usage.estimatedBuilderCredits": "~{{amount}} 推定クレジット",
   "usage.otherUsdSpend": "{{amount}} その他の USD",
   "usage.noBuilderCredits": "Builder クレジット 0",

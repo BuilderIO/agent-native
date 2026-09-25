@@ -875,6 +875,13 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Nouvelle adresse e-mail",
   "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
   "usage.builderCredits": "Crédits Builder",
+  "usage.creditBalance": "Solde de l’espace de travail",
+  "usage.monthlyPlan": "Forfait mensuel",
+  "usage.dailyFreeLimit": "Limite quotidienne gratuite",
+  "usage.creditUsedOfLimit": "{{used}} sur {{limit}} utilisés",
+  "usage.creditRemaining": "{{amount}} restants",
+  "usage.creditUsageUnavailable":
+    "Impossible de charger l’utilisation des crédits Builder.",
   "usage.estimatedBuilderCredits": "~{{amount}} crédits estimés",
   "usage.otherUsdSpend": "{{amount}} USD supplémentaires",
   "usage.noBuilderCredits": "0 crédit Builder",
