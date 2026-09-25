@@ -7,6 +7,7 @@ import {
   unregisterFileUploadProvider,
 } from "../file-upload/index.js";
 import type { FileUploadProvider } from "../file-upload/types.js";
+import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
 import {
   BUILDER_CONNECT_PARAM,
   createBuilderConnectState,
@@ -40,9 +41,8 @@ import {
   createPublicRemoteAgentsHandler,
   createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
-import type { H3AppShim } from "./framework-request-handler.js";
-import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
 import { signEmbedSessionToken } from "./embed-session.js";
+import type { H3AppShim } from "./framework-request-handler.js";
 import { createSecurityHeadersMiddleware } from "./security-headers.js";
 
 describe("mountApplicationStateRoutes", () => {
