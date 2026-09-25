@@ -85,6 +85,48 @@ async function portableStyleSnapshotStylesFor(
   }
 }
 
+async function crossScreenStartSizeFor(
+  html: string,
+  selector: string,
+): Promise<{ width?: number; height?: number } | undefined> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    await page.setContent(html);
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as any).__messages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        if (event.data?.type === "agent-native:cross-screen-drag") {
+          (window as any).__messages.push(event.data);
+        }
+      });
+    });
+    const box = await page.locator(selector).boundingBox();
+    if (!box) throw new Error(`Missing drag fixture ${selector}`);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) => message.phase === "start",
+      ),
+    );
+    const startSize = await page.evaluate(
+      () =>
+        (window as any).__messages.find(
+          (message: any) => message.phase === "start",
+        )?.sourceComputedSize,
+    );
+    await page.mouse.up();
+    return startSize;
+  } finally {
+    await browser.close();
+  }
+}
+
 /**
  * Same drive-a-real-browser flow, but with the probe iframe made unavailable
  * before the bridge script loads. Returns the snapshot plus the capture-failure
@@ -227,6 +269,57 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       // carried so the card doesn't collapse in a destination document.
       expect(styles?.width).toBe("320px");
       expect(styles?.height).toBe("200px");
+    },
+  );
+
+  it(
+    "does not send used pixels for authored percentage and auto sizing on an ordinary drag",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="width:600px;height:240px;position:relative">
+          <div data-agent-native-node-id="responsive" style="display:inline-block;width:50%;height:auto">Responsive</div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="responsive"]',
+      );
+      expect(sourceComputedSize).toBeUndefined();
+    },
+  );
+
+  it(
+    "sends only the omitted dimension resolved by an auto-layout parent",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:400px;height:100px">
+          <div data-agent-native-node-id="child" style="flex:0 0 100px;height:50px"></div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="child"]',
+      );
+      expect(sourceComputedSize).toEqual({ width: 100 });
+    },
+  );
+
+  it(
+    "does not freeze intrinsic Grid sizing when normal alignment is not a proven stretch",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:grid;width:300px;grid-template-columns:auto;grid-template-rows:auto">
+          <div data-agent-native-node-id="intrinsic" style="aspect-ratio:2">Intrinsic content</div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="intrinsic"]',
+      );
+      expect(sourceComputedSize).toBeUndefined();
     },
   );
 

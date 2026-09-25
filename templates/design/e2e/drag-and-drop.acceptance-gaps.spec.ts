@@ -70,6 +70,7 @@ async function action(
 async function createScreens(
   request: APIRequestContext,
   secondContent = SCREEN,
+  sourceContent = SCREEN,
 ) {
   const created = await action(request, "create-design", {
     title: "drag acceptance",
@@ -83,7 +84,7 @@ async function createScreens(
       const file = await action(request, "create-file", {
         designId,
         filename,
-        content: index === 0 ? SCREEN : secondContent,
+        content: index === 0 ? sourceContent : secondContent,
         fileType: "html",
       });
       const fileId = file.id ?? file.data?.id;
@@ -467,7 +468,7 @@ test("nested auto-layout child drops into an existing root frame across Screens"
     expect(sizeMessages.length).toBeGreaterThan(0);
     expect(sizeMessages[sizeMessages.length - 1]?.phase).toBe("end");
     expect(sizeMessages.map((message) => message.sourceComputedSize)).toEqual(
-      sizeMessages.map(() => sourceComputedSize),
+      sizeMessages.map(() => ({ width: sourceComputedSize.width })),
     );
     const persistedDestination = ownership(
       await file(request, designId, "second.html"),
@@ -585,6 +586,156 @@ test("nested auto-layout child drops into an existing root frame across Screens"
     expect(movedBox!.y + movedBox!.height).toBeLessThanOrEqual(
       reloadedRootBox!.y + reloadedRootBox!.height,
     );
+  } finally {
+    await action(request, "delete-design", { id: designId });
+  }
+});
+
+test("ordinary cross-Screen drops preserve percentage and auto sizing", async ({
+  page,
+  request,
+}) => {
+  const responsiveSource = `<!doctype html><html><body style="margin:0;position:relative;width:800px;height:600px">
+    <div style="position:relative;margin:80px;width:600px;min-height:200px">
+      <div data-agent-native-node-id="responsive" data-agent-native-layer-name="Responsive" style="width:50%;height:auto;background:#059669">Responsive layer</div>
+    </div>
+  </body></html>`;
+  const { designId, ids } = await createScreens(
+    request,
+    DESTINATION,
+    responsiveSource,
+  );
+  try {
+    await gotoEditor(page, designId);
+    await expandAllLayers(page);
+    const source = screenById(page, ids[0]!)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="responsive"]');
+    const target = screenById(page, ids[1]!)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="root"]');
+    await expect(source).toBeVisible();
+    await expect(target).toBeVisible();
+    expect(
+      await source.evaluate((element) => ({
+        width: (element as HTMLElement).style.width,
+        height: (element as HTMLElement).style.height,
+      })),
+    ).toEqual({ width: "50%", height: "auto" });
+    await page.evaluate(() => {
+      const host = window as Window & {
+        __crossScreenDndMessages?: Array<{
+          phase?: string;
+          sourceComputedSize?: unknown;
+        }>;
+      };
+      host.__crossScreenDndMessages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        if (event.data?.type === "agent-native:cross-screen-drag") {
+          host.__crossScreenDndMessages?.push(event.data);
+        }
+      });
+    });
+    const sourceBox = (await source.boundingBox())!;
+    const targetBox = (await target.boundingBox())!;
+    const editorUrl = page.url();
+    const sourceBefore = await file(request, designId, "index.html");
+    const destinationBefore = await file(request, designId, "second.html");
+    const origin = {
+      x: sourceBox.x + sourceBox.width / 2,
+      y: sourceBox.y + sourceBox.height / 2,
+    };
+    await page.mouse.move(origin.x, origin.y);
+    await page.mouse.down();
+    try {
+      await page.mouse.move(origin.x - 12, origin.y, { steps: 4 });
+      await page.mouse.move(
+        targetBox.x + targetBox.width / 2,
+        targetBox.y + targetBox.height / 2,
+        { steps: 24 },
+      );
+      const dragMessages = await page.evaluate(
+        () =>
+          (
+            window as Window & {
+              __crossScreenDndMessages?: Array<{ phase?: string }>;
+            }
+          ).__crossScreenDndMessages ?? [],
+      );
+      await test.info().attach("responsive-cross-screen-drag-phases.json", {
+        body: JSON.stringify(dragMessages.map(({ phase }) => phase)),
+        contentType: "application/json",
+      });
+      expect(dragMessages.map(({ phase }) => phase)).toContain("move");
+      await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+        timeout: 5_000,
+      });
+      expect(await file(request, designId, "index.html")).toBe(sourceBefore);
+      expect(await file(request, designId, "second.html")).toBe(
+        destinationBefore,
+      );
+    } finally {
+      await page.mouse.up();
+    }
+    expect(new URL(page.url()).pathname).toBe(new URL(editorUrl).pathname);
+    await expect
+      .poll(async () => {
+        const [sourceHtml, destinationHtml] = await Promise.all([
+          file(request, designId, "index.html"),
+          file(request, designId, "second.html"),
+        ]);
+        return {
+          source: ownership(sourceHtml, "responsive"),
+          destination: ownership(destinationHtml, "responsive"),
+        };
+      })
+      .toEqual({
+        source: { exists: false, parent: null, style: "" },
+        destination: {
+          exists: true,
+          parent: "root",
+          style: expect.stringMatching(/(?:^|;)\s*width\s*:\s*50%/i),
+        },
+      });
+    const persisted = ownership(
+      await file(request, designId, "second.html"),
+      "responsive",
+    );
+    expect(persisted.style).toMatch(/(?:^|;)\s*height\s*:\s*auto/i);
+    expect(persisted.style).not.toMatch(
+      /(?:^|;)\s*width\s*:\s*\d+(?:\.\d+)?px/i,
+    );
+    const sizeMessages = await page.evaluate(
+      () =>
+        (
+          window as Window & {
+            __crossScreenDndMessages?: Array<{
+              phase?: string;
+              sourceComputedSize?: unknown;
+            }>;
+          }
+        ).__crossScreenDndMessages ?? [],
+    );
+    const startAndEnd = sizeMessages.filter((message) =>
+      ["start", "end"].includes(message.phase ?? ""),
+    );
+    expect(startAndEnd.length).toBeGreaterThan(0);
+    expect(startAndEnd.map((message) => message.sourceComputedSize)).toEqual(
+      startAndEnd.map(() => undefined),
+    );
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const moved = screenById(page, ids[1]!)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="responsive"]');
+    await expect(moved).toBeVisible();
+    const movedSizing = await moved.evaluate((element) => ({
+      width: (element as HTMLElement).style.width,
+      height: (element as HTMLElement).style.height,
+      rectWidth: element.getBoundingClientRect().width,
+    }));
+    expect(movedSizing).toMatchObject({ width: "50%", height: "auto" });
+    expect(movedSizing.rectWidth).toBeLessThan(260);
   } finally {
     await action(request, "delete-design", { id: designId });
   }

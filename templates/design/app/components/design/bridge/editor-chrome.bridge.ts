@@ -4265,10 +4265,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return cacheFailure();
         }
         var size = String(typedValue).trim();
+        var preservesSizingMode =
+          /%|calc\(|clamp\(|(?:min|max)\(|(?:fit|fill)-content|(?:min|max)-content/i.test(
+            size,
+          );
         if (
           size &&
           (size !== "auto" || hostStyle?.getPropertyValue(property)) &&
-          !portableSizeIsLayoutResolved(el, property, cs)
+          (!portableSizeIsLayoutResolved(el, property, cs) ||
+            preservesSizingMode)
         ) {
           styles[property] = size;
         }
@@ -15557,6 +15562,64 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Number.isFinite(size) ? size : undefined;
   }
 
+  function crossScreenAutoLayoutSizeFallback(
+    el: Element | null,
+    snapshot: unknown,
+    computed: CSSStyleDeclaration | null,
+  ): { width?: number; height?: number } | undefined {
+    if (!el || !computed || computed.position !== "static") return undefined;
+    var parent = el.parentElement;
+    if (!parent) return undefined;
+    var parentStyle = window.getComputedStyle(parent);
+    var isFlex = /^(inline-)?flex$/.test(parentStyle.display);
+    var isGrid = /^(inline-)?grid$/.test(parentStyle.display);
+    if (!isFlex && !isGrid) return undefined;
+    var snapshotRoot = (
+      snapshot as {
+        nodes?: Array<{ path?: unknown; styles?: unknown }>;
+      } | null
+    )?.nodes?.find(
+      (node) => Array.isArray(node.path) && node.path.length === 0,
+    );
+    var styles = snapshotRoot?.styles;
+    if (!styles || typeof styles !== "object") return undefined;
+    var resolvedByAutoLayout = function (property: "width" | "height") {
+      if (isGrid) {
+        var alignment =
+          property === "width" ? computed.justifySelf : computed.alignSelf;
+        return alignment === "stretch";
+      }
+      var mainAxis = /^column/.test(parentStyle.flexDirection)
+        ? "height"
+        : "width";
+      if (property === mainAxis) {
+        return (
+          (computed.flexBasis !== "auto" && computed.flexBasis !== "content") ||
+          Number(computed.flexGrow) > 0
+        );
+      }
+      var alignment =
+        computed.alignSelf === "auto"
+          ? parentStyle.alignItems
+          : computed.alignSelf;
+      return alignment === "stretch";
+    };
+    var result: { width?: number; height?: number } = {};
+    (["width", "height"] as const).forEach((property) => {
+      if (
+        Object.prototype.hasOwnProperty.call(styles, property) ||
+        !resolvedByAutoLayout(property)
+      ) {
+        return;
+      }
+      var size = computedSizeInPixels(computed[property]);
+      if (size !== undefined) result[property] = size;
+    });
+    return result.width !== undefined || result.height !== undefined
+      ? result
+      : undefined;
+  }
+
   // Chromium reports Event.timeStamp relative to the document time origin,
   // while synthetic and older events can carry an epoch timestamp. Normalize
   // both forms before sending a source timestamp to the host document.
@@ -15621,12 +15684,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : collectPortableStyleSnapshot(el ?? null);
       activeCrossScreenSourceHtml = el?.outerHTML;
       var computed = el ? window.getComputedStyle(el) : null;
-      var width = computed ? computedSizeInPixels(computed.width) : undefined;
-      var height = computed ? computedSizeInPixels(computed.height) : undefined;
-      activeCrossScreenComputedSize =
-        width !== undefined || height !== undefined
-          ? { width, height }
-          : undefined;
+      activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
+        el ?? null,
+        activeCrossScreenStyleSnapshot,
+        computed,
+      );
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
