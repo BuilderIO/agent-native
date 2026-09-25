@@ -75,7 +75,9 @@ function parsePlaceholderTarget(src: string): PlaceholderTarget | null {
 }
 
 function parseFragment(html: string): Document {
-  return new DOMParser().parseFromString(html, "text/html");
+  // Opening in <body> keeps a slide's leading <style> (and <link>, comments)
+  // in the body instead of <head>, where serializing the body would drop it.
+  return new DOMParser().parseFromString(`<body>${html}`, "text/html");
 }
 
 function serializeFragment(doc: Document): string {

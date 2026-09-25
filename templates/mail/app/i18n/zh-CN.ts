@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "收件箱",
+      all: "全部",
       unread: "未读",
       starred: "已加星标",
       snoozed: "已稍后提醒",
@@ -67,7 +68,8 @@ const messages = {
       renameTab: "重命名标签页",
       savedFilters: "已保存的筛选条件",
       combinedInbox: "合并收件箱",
-      help: "勾选的项目会显示为标签页。标签邮件会从收件箱中分离。",
+      allTab: "全部标签页",
+      help: "全部会显示收件箱中的所有对话。勾选的标签会拆分收件箱。",
     },
     accounts: {
       remove: "移除",

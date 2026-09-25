@@ -710,6 +710,8 @@ const messages = {
       "Se você sair ou recarregar agora, poderá perder alterações que ainda não foram salvas. Tem certeza de que deseja sair?",
     keepEditing: "Continuar editando",
     leaveWithoutSaving: "Sair sem salvar",
+    editorMarkupNotSaved:
+      "Esta edição não foi salva porque adicionaria marcação do editor ao slide.",
   },
   designSystemSetup: {
     importedBrand: "Marca importada",

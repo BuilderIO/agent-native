@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "전체",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -67,7 +68,8 @@ const messages = {
       renameTab: "탭 이름 변경",
       savedFilters: "저장된 필터",
       combinedInbox: "통합 받은편지함",
-      help: "체크한 항목은 탭으로 표시됩니다. 라벨 이메일은 받은편지함에서 분리됩니다.",
+      allTab: "전체 탭",
+      help: "전체에는 받은편지함의 모든 스레드가 포함됩니다. 선택한 라벨에 따라 받은편지함이 나뉩니다.",
     },
     accounts: {
       remove: "제거",

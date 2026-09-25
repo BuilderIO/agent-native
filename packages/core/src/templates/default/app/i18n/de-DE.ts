@@ -713,6 +713,7 @@ const messages = {
     saveUpdate: "Entwurf speichern",
     draftSaved: "Entwurf gespeichert",
     noReviews: "Noch keine Agentenantworten zur Prüfung",
+    summarizeWithAgent: "Mit dem Agenten zusammenfassen",
   },
   error: {
     genericTitle: "Etwas ist schiefgelaufen",

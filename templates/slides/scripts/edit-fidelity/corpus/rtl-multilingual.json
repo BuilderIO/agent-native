@@ -1,0 +1,21 @@
+{
+  "title": "Regional Launch — Multilingual",
+  "notes": "Hebrew and Arabic RTL slides (dir attribute is stripped by the sanitizer, so direction is also inline), mixed-direction numbers, accented Latin, CJK and emoji.",
+  "slides": [
+    {
+      "id": "rtl-hebrew",
+      "layout": "content",
+      "content": "<div class=\"fmd-slide\" dir=\"rtl\" style=\"padding: 64px 80px; background: #0f172a; color: #f1f5f9; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; gap: 18px; direction: rtl; text-align: right;\"><div style=\"font-size: 14px; font-weight: 700; letter-spacing: 0.08em; color: #38bdf8;\">סקירה רבעונית</div><h2 style=\"font-size: 40px; font-weight: 700; margin: 0;\">הצמיחה שלנו ברבעון השלישי</h2><ul style=\"margin: 0; padding-right: 26px; padding-left: 0; font-size: 22px; line-height: 1.6;\"><li>ההכנסות עלו ב־<strong style=\"color: #38bdf8;\">24%</strong> לעומת השנה שעברה</li><li>שלושה לקוחות חדשים בתל אביב ובחיפה</li><li>זמן תגובה ממוצע: 3.5 שעות</li></ul></div>"
+    },
+    {
+      "id": "rtl-arabic",
+      "layout": "content",
+      "content": "<div class=\"fmd-slide\" dir=\"rtl\" style=\"padding: 64px 80px; background: #fefce8; color: #1c1917; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; gap: 16px; direction: rtl; text-align: right;\"><h2 style=\"font-size: 38px; font-weight: 700; margin: 0;\">مراجعة ربع سنوية</h2><p style=\"font-size: 22px; line-height: 1.7; margin: 0;\">نمت المبيعات بنسبة <span style=\"color: #b45309; font-weight: 700;\">18%</span> هذا الربع، وافتتحنا متجرين جديدين.</p><p style=\"font-size: 16px; color: #57534e; margin: 0;\" dir=\"ltr\">Q3 2026 · Dubai &amp; Riyadh</p></div>"
+    },
+    {
+      "id": "ltr-mixed",
+      "layout": "content",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 64px 80px; background: #ffffff; color: #111827; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; gap: 18px;\"><h2 style=\"font-size: 36px; font-weight: 700; margin: 0;\">Próximos pasos · 次のステップ</h2><div style=\"display: grid; grid-template-columns: 1fr 1fr; gap: 28px; font-size: 20px; line-height: 1.6;\"><div><div style=\"font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6b7280; margin-bottom: 6px;\">España 🇪🇸</div>Lanzamiento en Barcelona y Valencia el 3 de noviembre; formación del equipo en curso.</div><div><div style=\"font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6b7280; margin-bottom: 6px;\">日本 🇯🇵</div>東京と大阪で11月に開始。サポート窓口は日本語で対応します。</div></div></div>"
+    }
+  ]
+}

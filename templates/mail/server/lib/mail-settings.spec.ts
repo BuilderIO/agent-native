@@ -75,6 +75,22 @@ describe("normalizeMailSettings", () => {
     ).toBe(true);
   });
 
+  it("shows the All tab by default and rejects malformed stored visibility", () => {
+    expect(normalizeMailSettings(null, "owner@example.com").showAllTab).toBe(
+      true,
+    );
+    expect(
+      normalizeMailSettings(
+        { showAllTab: "false" } as unknown as Record<string, unknown>,
+        "owner@example.com",
+      ).showAllTab,
+    ).toBe(true);
+    expect(
+      normalizeMailSettings({ showAllTab: false }, "owner@example.com")
+        .showAllTab,
+    ).toBe(false);
+  });
+
   it("defaults autocomplete off and rejects non-boolean stored values", () => {
     expect(
       normalizeMailSettings(null, "owner@example.com").autocompleteEnabled,

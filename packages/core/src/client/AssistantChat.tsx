@@ -104,13 +104,15 @@ import { AgentActivityTrace } from "./chat/agent-activity-trace.js";
 import {
   DownscalingImageAttachmentAdapter,
   BinaryDocumentAttachmentAdapter,
+  MAX_PDF_BYTES,
   MAX_ESTIMATED_BODY_BYTES,
   AGGRESSIVE_MAX_IMAGE_DIMENSION,
   AGGRESSIVE_JPEG_QUALITY,
   transcodeImageToDataURL,
   createAgentImageAttachments,
   serializeQueuedAttachments,
-  estimateAttachmentBodyBytes,
+  getSubmittedPromptBodyStrings,
+  measureJsonStringBytes,
   getAttachmentBodyStrings,
   type QueuedAttachment,
 } from "./chat/attachment-adapters.js";
@@ -5175,7 +5177,10 @@ const AssistantChatInner = forwardRef<
       // tool cards or a second Thinking/Stop state.
       clearReconnectReaderForTerminalError();
       setRunErrorInfo({
-        message: detail.message,
+        message:
+          detail.errorCode === "request_too_large"
+            ? t("agentChat.composer.requestTooLarge")
+            : detail.message,
         ...(detail.details ? { details: detail.details } : {}),
         ...(detail.errorCode ? { errorCode: detail.errorCode } : {}),
         ...(detail.runId ? { runId: detail.runId } : {}),
@@ -5195,6 +5200,7 @@ const AssistantChatInner = forwardRef<
     clearReconnectReaderForTerminalError,
     forceStopped,
     latestAssistantRunId,
+    t,
     tabId,
     threadId,
   ]);
@@ -5946,15 +5952,21 @@ const AssistantChatInner = forwardRef<
         ];
 
         // ── Body-size guard (Fix 3) ─────────────────────────────────────
-        // Estimate the total serialized attachment payload. If it exceeds the
-        // Vercel/Netlify body limit, progressively re-compress images until
-        // the payload fits, then reject the largest remaining file if still over.
+        // Estimate the prompt and attachment payload. Recompress images before
+        // rejecting a request that still exceeds the Vercel/Netlify body budget.
         let messageAttachments = allAttachments;
         {
-          const allPayloadStrings = getAttachmentBodyStrings(allAttachments);
+          // Continuation requests serialize the prompt once more in history.
+          const promptPayloadStrings = getSubmittedPromptBodyStrings(
+            submittedText,
+            continuationTurnId !== undefined,
+          );
+          const allPayloadStrings = [
+            ...getAttachmentBodyStrings(allAttachments),
+            ...promptPayloadStrings,
+          ];
           if (
-            estimateAttachmentBodyBytes(allPayloadStrings) >
-            MAX_ESTIMATED_BODY_BYTES
+            measureJsonStringBytes(allPayloadStrings) > MAX_ESTIMATED_BODY_BYTES
           ) {
             // Re-compress image attachments more aggressively.
             const recompressed: typeof allAttachments = [];
@@ -5994,36 +6006,21 @@ const AssistantChatInner = forwardRef<
               recompressed.push(att);
             }
             // Re-estimate after recompression.
-            const recompressedPayloadStrings =
-              getAttachmentBodyStrings(recompressed);
+            const recompressedPayloadStrings = [
+              ...getAttachmentBodyStrings(recompressed),
+              ...promptPayloadStrings,
+            ];
             if (
-              estimateAttachmentBodyBytes(recompressedPayloadStrings) >
+              measureJsonStringBytes(recompressedPayloadStrings) >
               MAX_ESTIMATED_BODY_BYTES
             ) {
-              // Find the largest attachment and reject it.
-              let largestIdx = -1;
-              let largestSize = 0;
-              for (let i = 0; i < recompressed.length; i++) {
-                const attachmentSize = estimateAttachmentBodyBytes(
-                  getAttachmentBodyStrings([recompressed[i]]),
-                );
-                if (attachmentSize > largestSize) {
-                  largestSize = attachmentSize;
-                  largestIdx = i;
-                }
-              }
-              if (largestIdx >= 0) {
-                const rejected = recompressed[largestIdx];
-                setComposerError(
-                  `"${rejected.name}" makes the message too large to send (combined attachments must be under ${(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024).toFixed(1)} MB). Remove it or use a smaller file.`,
-                );
-                reportAgentChatSubmitResult(
-                  submitMessageId,
-                  false,
-                  "attachment-too-large",
-                );
-                return false;
-              }
+              setComposerError(t("agentChat.composer.requestTooLarge"));
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "attachment-too-large",
+              );
+              return false;
             }
             messageAttachments = recompressed;
           }
@@ -7517,6 +7514,7 @@ const AssistantChatInner = forwardRef<
                                   <ComposerAttachmentPreviewStrip />
                                   <TiptapComposer
                                     focusRef={tiptapRef}
+                                    maxDocumentAttachmentBytes={MAX_PDF_BYTES}
                                     initialText={
                                       initialComposerText ?? undefined
                                     }

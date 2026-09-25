@@ -152,6 +152,21 @@ describe("mutateDesignData with real local SQL transactions", () => {
     expect(JSON.parse(row.data ?? "null")).toEqual({ keep: true });
   });
 
+  it("takes the source-mutation advisory lock for metadata-only updates when requested", async () => {
+    await seed(JSON.stringify({ sourceMode: "localhost" }));
+
+    await mutateDesignData({
+      designId: "design_1",
+      lockSourceMutation: true,
+      mutate: (current) => ({ ...current, sourceMode: "inline" }),
+      isApplied: (data) => data.sourceMode === "inline",
+    });
+
+    expect(JSON.parse((await persistedRow()).data ?? "null")).toEqual({
+      sourceMode: "inline",
+    });
+  });
+
   it("fails loud and leaves malformed non-null JSON untouched", async () => {
     await seed("{broken-json");
 

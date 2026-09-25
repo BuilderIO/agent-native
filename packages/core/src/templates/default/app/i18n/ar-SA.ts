@@ -723,6 +723,7 @@ const messages = {
     saveUpdate: "حفظ مسودة التحديث",
     draftSaved: "تم حفظ المسودة",
     noReviews: "لا توجد إجابات وكيل للمراجعة حتى الآن",
+    summarizeWithAgent: "لخّص باستخدام الوكيل",
   },
   error: {
     genericTitle: "حدث خطأ",

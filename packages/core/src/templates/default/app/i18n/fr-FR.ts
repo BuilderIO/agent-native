@@ -719,6 +719,7 @@ const messages = {
     saveUpdate: "Enregistrer le brouillon",
     draftSaved: "Brouillon enregistré",
     noReviews: "Aucune réponse d’agent à examiner pour le moment",
+    summarizeWithAgent: "Résumer avec l’agent",
   },
   error: {
     genericTitle: "Une erreur est survenue",

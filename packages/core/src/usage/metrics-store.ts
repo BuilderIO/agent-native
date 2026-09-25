@@ -225,6 +225,16 @@ async function getOrgRole(
   return typeof role === "string" ? role : null;
 }
 
+export async function canViewWorkspaceUsage(
+  input: Pick<UsageMetricsAccessInput, "ownerEmail" | "orgId">,
+): Promise<boolean> {
+  const role = await getOrgRole(
+    input.orgId?.trim() || null,
+    normalizeEmail(input.ownerEmail),
+  );
+  return role === "owner" || role === "admin";
+}
+
 async function resolveScope(
   input: UsageMetricsAccessInput,
   scope: UsageMetricsScope,

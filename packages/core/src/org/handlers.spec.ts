@@ -26,6 +26,7 @@ const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
 const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
 const mockOffboardMember = vi.hoisted(() => vi.fn());
 const mockGetUserProfiles = vi.hoisted(() => vi.fn());
+const mockTrackInviteAccepted = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -90,6 +91,13 @@ vi.mock("../server/email.js", () => ({
   sendEmail: vi.fn(),
 }));
 
+const mockTrack = vi.hoisted(() => vi.fn());
+const mockFlushTracking = vi.hoisted(() => vi.fn(async () => []));
+vi.mock("../tracking/registry.js", () => ({
+  track: (...args: any[]) => mockTrack(...args),
+  flushTracking: () => mockFlushTracking(),
+}));
+
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (event: any) => Promise.resolve(event._body),
 }));
@@ -101,6 +109,12 @@ vi.mock("../settings/user-settings.js", () => ({
 vi.mock("../user-profile/store.js", () => ({
   getUserProfiles: (...args: any[]) => mockGetUserProfiles(...args),
 }));
+vi.mock("./track-invite-accepted.js", () => ({
+  trackInviteAccepted: (...args: any[]) => mockTrackInviteAccepted(...args),
+  registerBackgroundWork: (event: any, promise: Promise<unknown>) => {
+    if (typeof event?.waitUntil === "function") event.waitUntil(promise);
+  },
+}));
 
 import { putUserSetting } from "../settings/user-settings.js";
 import { createOrganization } from "./context.js";
@@ -111,6 +125,7 @@ import {
   removeMemberHandler,
   retryPendingFederatedRemovalHandler,
   acceptInvitationHandler,
+  createInvitationHandler,
   joinByDomainHandler,
   updateOrgHandler,
   setOrgVisualIdentityHandler,
@@ -488,6 +503,63 @@ describe("org handlers", () => {
     expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("registers invite_sent telemetry with the event's waitUntil", async () => {
+    // Regression test for the P1 finding on PR #5765: the fire-and-forget
+    // `invite_sent` import had no lifecycle hook, so a serverless runtime
+    // could freeze the function before it ever emitted. Fails before the
+    // fix (no waitUntil wiring existed) and passes after.
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const waitUntil = vi.fn();
+    const event = {
+      ...makeEvent("/_agent-native/org/invitations", {
+        email: "new@example.test",
+        role: "member",
+      }),
+      waitUntil,
+    };
+
+    await expect(createInvitationHandler(event)).resolves.toMatchObject({
+      email: "new@example.test",
+    });
+
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    expect(waitUntil.mock.calls[0][0]).toBeInstanceOf(Promise);
+  });
+
+  it("keeps invite_sent background work pending until providers flush", async () => {
+    let releaseFlush!: () => void;
+    mockFlushTracking.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseFlush = () => resolve([]))),
+    );
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const waitUntil = vi.fn();
+    await createInvitationHandler({
+      ...makeEvent("/_agent-native/org/invitations", {
+        email: "new@example.test",
+        role: "member",
+      }),
+      waitUntil,
+    });
+    let settled = false;
+    const registered = (waitUntil.mock.calls[0][0] as Promise<void>).then(
+      () => {
+        settled = true;
+      },
+    );
+
+    await vi.waitFor(() => expect(mockFlushTracking).toHaveBeenCalled());
+    expect(mockTrack).toHaveBeenCalledWith(
+      "invite_sent",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(settled).toBe(false);
+
+    releaseFlush();
+    await registered;
+    expect(settled).toBe(true);
+  });
+
   it("waits for federated invitation approval before inserting local membership", async () => {
     mockExecute.mockImplementation(async (input: { sql: string }) => {
       const sql = input.sql;
@@ -532,12 +604,28 @@ describe("org handlers", () => {
       return true;
     });
 
-    await expect(
-      acceptInvitationHandler(
-        makeEvent("/_agent-native/org/invitations/invite-1/accept"),
-      ),
-    ).resolves.toMatchObject({ orgId: "org-1", role: "member" });
+    // A `waitUntil`-carrying event, so we can assert the handler forwards it
+    // to `trackInviteAccepted` instead of discarding the telemetry promise
+    // (PR #5765 review: fire-and-forget telemetry can be dropped mid-flight
+    // on a serverless runtime).
+    const event = {
+      ...makeEvent("/_agent-native/org/invitations/invite-1/accept"),
+      waitUntil: vi.fn(),
+    };
+
+    await expect(acceptInvitationHandler(event)).resolves.toMatchObject({
+      orgId: "org-1",
+      role: "member",
+    });
     expect(mockAddFederatedOrganizationMember).toHaveBeenCalled();
+    expect(mockTrackInviteAccepted).toHaveBeenCalledWith({
+      email: "member@example.test",
+      orgId: "org-1",
+      role: "member",
+      invitedBy: "owner@example.test",
+      federated: true,
+      event,
+    });
     expect(
       mockExecute.mock.calls.some(([input]) =>
         input.sql.includes("INSERT INTO org_members"),

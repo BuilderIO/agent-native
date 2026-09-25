@@ -108,15 +108,26 @@ export default function ObservabilityPage() {
 
 Todos os dados têm como escopo o usuário conectado; não há visualização de administrador entre usuários hoje.
 
-O painel possui 5 guias:
+O painel possui 6 guias:
 
-| Guia             | O que mostra                                                                                                       |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Visão geral**  | Principais métricas: execuções, custo, latência, taxa de sucesso da ferramenta, satisfação, pontuação de avaliação |
-| **Conversas**    | Lista de rastreamento com detalhamento de períodos individuais (agent_run, llm_call, tool_call)                    |
-| **Avaliações**   | Pontuações de avaliação automatizadas por critérios, tendências ao longo do tempo                                  |
-| **Experiências** | Lista de testes A/B com selos de status, resultados de variantes com intervalos de confiança                       |
-| **Comentários**  | Stream de aprovação/rejeição, detalhamento de categorias, pontuações de frustração                                 |
+| Guia               | O que mostra                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| **Visão geral**    | Principais métricas: execuções, custo, latência, taxa de sucesso da ferramenta, satisfação, pontuação de avaliação |
+| **Conversas**      | Lista de rastreamento com detalhamento de períodos individuais (agent_run, llm_call, tool_call)                    |
+| **Avaliações**     | Pontuações de avaliação automatizadas por critérios, tendências ao longo do tempo                                  |
+| **Experiências**   | Lista de testes A/B com selos de status, resultados de variantes com intervalos de confiança                       |
+| **Comentários**    | Stream de aprovação/rejeição, detalhamento de categorias, pontuações de frustração                                 |
+| **Revisão humana** | Revise o pedido e a resposta, registre feedback e elabore uma atualização das instruções                           |
+
+### Detalhes das conversas {#conversations}
+
+A guia Conversas mostra as execuções registradas. Selecione uma para inspecionar seus períodos e expanda qualquer período para ver entradas, saídas, erros e metadados de ferramentas capturados. **Abrir conversa completa** leva à conversa de chat correspondente.
+
+Os argumentos e resultados das ferramentas não são capturados por padrão. Ative `captureToolArgs` e `captureToolResults` na configuração `observability` para armazená-los. Campos sensíveis e mensagens de erro das ferramentas são ocultados antes do armazenamento.
+
+### Revisão humana {#review}
+
+A guia Revisão humana mostra o pedido e a resposta de cada execução, permite registrar feedback e salvar um rascunho de atualização das instruções para revisão humana. Salvar o rascunho não altera as instruções automaticamente.
 
 ## Feedback do usuário {#feedback}
 

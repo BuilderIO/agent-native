@@ -99,7 +99,7 @@ describe("DesignEditor pending live edits", () => {
     expect(source).toContain("pendingVisualStylePrompt");
   });
 
-  it("wires canEditDesign into the extracted publish command and its effect deps", () => {
+  it("allows owners and live-share guests to publish the durable handoff", () => {
     const source = readFileSync(
       new URL("./DesignEditor.tsx", import.meta.url),
       "utf8",
@@ -111,12 +111,13 @@ describe("DesignEditor pending live edits", () => {
     const depsEnd = source.indexOf("]);", depsStart);
     const publishCall = source.slice(publishCallIndex, depsStart);
     const deps = source.slice(depsStart, depsEnd);
-    // publish-visual-edit-pending requires editor access; a signed-out or
-    // read-only viewer can never satisfy it. runPublishVisualEditPending
-    // (design-editor/commands/publish-visual-edit-pending.ts) is the actual
-    // gate — see its own describe block below for the behavioral proof.
-    expect(publishCall).toContain("canEditDesign,");
+    // The action enforces editor access or the exact same-origin live-share
+    // route; this browser flag only decides whether the durable attempt runs.
+    expect(publishCall).toContain(
+      "canPublishDurableHandoff: canEditDesign || isLiveCanvasShareLink,",
+    );
     expect(deps).toContain("canEditDesign,");
+    expect(deps).toContain("isLiveCanvasShareLink,");
   });
 
   it("uses the shared guard for frame entry and close path for re-clicking the focused screen", () => {
@@ -142,5 +143,16 @@ describe("DesignEditor pending live edits", () => {
     expect(focusedFrameIndex).toBeGreaterThan(-1);
     expect(closeIndex).toBeGreaterThan(focusedFrameIndex);
     expect(enterIndex).toBeGreaterThan(closeIndex);
+
+    const modeChangeStart = source.indexOf(
+      "const handleModeChange = useCallback(",
+    );
+    const modeChangeEnd = source.indexOf("\n  );", modeChangeStart);
+    expect(modeChangeStart).toBeGreaterThan(-1);
+    expect(modeChangeEnd).toBeGreaterThan(modeChangeStart);
+    const modeChange = source.slice(modeChangeStart, modeChangeEnd);
+    expect(modeChange).toContain("blockInteraction:");
+    expect(modeChange).toContain("remoteVisualEditPending");
+    expect(modeChange).toContain('designAccessRole !== "owner"');
   });
 });

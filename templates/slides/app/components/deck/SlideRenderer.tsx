@@ -9,6 +9,7 @@ import {
   useId,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 
@@ -22,6 +23,10 @@ import {
   sanitizeSlideUrl,
 } from "@/lib/sanitize-slide-html";
 import { swapImageSourcesInPlace } from "@/lib/slide-image-replacement";
+import {
+  stampSlideSource,
+  type RenderedSlideSource,
+} from "@/lib/slide-source-map";
 
 import type { DesignSystemData } from "../../../shared/api";
 import {
@@ -46,6 +51,12 @@ interface SlideRendererProps {
   onOverflowChange?: (info: SlideOverflowInfo) => void;
   /** Fires after AutoFit has applied its final transform for this render. */
   onAutofitSettled?: () => void;
+  /**
+   * Stamp rendered elements with their stored source position so an editor
+   * can save edits into the stored HTML. Only the editable main canvas sets
+   * this; see `getRenderedSlideSource`.
+   */
+  stampSource?: boolean;
 }
 
 export const layoutClasses: Record<string, string> = {
@@ -851,144 +862,220 @@ function loadImportedFonts(hrefs: string[]) {
   }
 }
 
-/** Renders blank slide HTML content and applies white filter to logo images */
+const renderedSlideSources = new WeakMap<HTMLElement, RenderedSlideSource>();
+
+/**
+ * What a stamped `.slide-content` root was rendered from. Undefined for roots
+ * rendered without `stampSource` (thumbnails, present mode, Markdown layouts).
+ */
+export function getRenderedSlideSource(
+  root: HTMLElement,
+): RenderedSlideSource | undefined {
+  return renderedSlideSources.get(root);
+}
+
+function registerRenderedSlideSource(
+  root: HTMLElement,
+  source: RenderedSlideSource | null,
+) {
+  if (source) renderedSlideSources.set(root, source);
+  else renderedSlideSources.delete(root);
+}
+
+const LOGO_IMAGE_TAG =
+  /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi;
+
+/**
+ * The raw-HTML render pipeline: optional source stamps, mermaid extraction,
+ * the logo filter, sanitizing with a scoped stylesheet, and font renames.
+ */
+export function renderRawSlideHtml(
+  content: string,
+  options: { scopeSelector: string; stampNonce?: string },
+): {
+  html: string;
+  mermaidBlocks: string[];
+  fontHrefs: string[];
+  source: Omit<RenderedSlideSource, "base"> | null;
+} {
+  // Stamp first: the stamps are what map every later rewrite back to source.
+  const stamped =
+    options.stampNonce !== undefined
+      ? stampSlideSource(content, options.stampNonce)
+      : null;
+  // Extract mermaid blocks BEFORE sanitization — see mermaid-blocks.ts for
+  // why (sanitizer HTML-escaping breaks the mermaid parser).
+  const { blocks, contentWithPlaceholders } = extractMermaidBlocks(
+    stamped?.html ?? content,
+  );
+
+  // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
+  const sanitized = sanitizeSlideHtml(
+    contentWithPlaceholders.replace(
+      LOGO_IMAGE_TAG,
+      (_match, before: string, close: string) => {
+        if (before.includes('style="')) {
+          return (
+            before.replace(
+              'style="',
+              'style="filter:brightness(0) invert(1);',
+            ) + close
+          );
+        }
+        return before + ' style="filter:brightness(0) invert(1);"' + close;
+      },
+    ),
+    {
+      scopeSelector: options.scopeSelector,
+      allowBlobImages: typeof window !== "undefined",
+    },
+  );
+  const { html, hrefs } = prepareImportedFonts(sanitized);
+  return {
+    html,
+    mermaidBlocks: blocks,
+    fontHrefs: hrefs,
+    source:
+      stamped && options.stampNonce !== undefined
+        ? { stored: content, ranges: stamped.ranges, nonce: options.stampNonce }
+        : null,
+  };
+}
+
+/**
+ * Mounts the rendered slide HTML once and renders each mermaid diagram into
+ * its placeholder, so the canvas tree is the stored tree: a diagram inside
+ * `.fmd-slide` stays inside it.
+ */
 function RawSlideHtmlContent({
   html,
   scopeId,
+  source,
+  mermaidBlocks,
 }: {
   html: string;
   scopeId: string;
+  source: RenderedSlideSource | null;
+  mermaidBlocks: string[];
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const renderedHtmlRef = useRef(html);
   const dangerousHtmlRef = useRef({ __html: html });
+  const [mermaidSlots, setMermaidSlots] = useState<HTMLElement[]>([]);
 
   useLayoutEffect(() => {
     const root = contentRef.current;
-    if (!root || renderedHtmlRef.current === html) return;
-
-    // Keep the live image node for upload-only changes so pointer-driven transforms survive.
-    if (!swapImageSourcesInPlace(root, renderedHtmlRef.current, html)) {
-      root.innerHTML = html;
+    if (!root) return;
+    if (renderedHtmlRef.current !== html) {
+      // Keep the live image node for upload-only changes so pointer-driven transforms survive.
+      if (!swapImageSourcesInPlace(root, renderedHtmlRef.current, html)) {
+        root.innerHTML = html;
+      }
+      renderedHtmlRef.current = html;
     }
-    renderedHtmlRef.current = html;
-  }, [html]);
+    registerRenderedSlideSource(root, source);
+    // The diagram component renders its own `data-mermaid-index` node inside
+    // the placeholder; only the outermost one is a slot.
+    const slots =
+      mermaidBlocks.length > 0
+        ? Array.from(
+            root.querySelectorAll<HTMLElement>("[data-mermaid-index]"),
+          ).filter((el) => !el.parentElement?.closest("[data-mermaid-index]"))
+        : [];
+    setMermaidSlots((prev) =>
+      prev.length === slots.length && prev.every((slot, i) => slot === slots[i])
+        ? prev
+        : slots,
+    );
+  }, [html, source, mermaidBlocks]);
 
   return (
-    <div
-      ref={contentRef}
-      className="slide-content w-full block h-full"
-      // guard:allow-raw-color - design-system text fallback for raw HTML
-      style={{ color: "var(--ds-text, #1f2933)" }}
-      data-slide-content-scope={scopeId}
-      dangerouslySetInnerHTML={dangerousHtmlRef.current}
-    />
+    <>
+      <div
+        ref={contentRef}
+        className="slide-content w-full block h-full"
+        // guard:allow-raw-color - design-system text fallback for raw HTML
+        style={{ color: "var(--ds-text, #1f2933)" }}
+        data-slide-content-scope={scopeId}
+        dangerouslySetInnerHTML={dangerousHtmlRef.current}
+      />
+      {mermaidSlots.map((slot) => {
+        const index = Number(slot.getAttribute("data-mermaid-index"));
+        return createPortal(
+          <MermaidRenderer
+            definition={mermaidBlocks[index] ?? ""}
+            index={index}
+            className="my-4 w-full"
+          />,
+          slot,
+          `mermaid-${index}`,
+        );
+      })}
+    </>
   );
 }
 
-function BlankSlideContent({ content }: { content: string }) {
+function BlankSlideContent({
+  content,
+  stampNonce,
+}: {
+  content: string;
+  stampNonce?: string;
+}) {
   const scopeId = `slide-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const scopeSelector = `[data-slide-content-scope="${scopeId}"]`;
+  // The scope keeps two canvases apart; the slide id keeps a stale stamp from
+  // another slide rendered by this same instance from mapping onto this one.
+  const nonce =
+    stampNonce === undefined ? undefined : `${scopeId}.${stampNonce}`;
   // Memoize derived strings on `content`; RawSlideHtmlContent owns the stable
   // dangerouslySetInnerHTML object so React does not wipe live child mutations.
-  const { mermaidBlocks, htmlWithPlaceholders, fontHrefs } = useMemo(() => {
-    // Extract mermaid blocks BEFORE sanitization — see mermaid-blocks.ts for
-    // why (sanitizer HTML-escaping breaks the mermaid parser).
-    const { blocks, contentWithPlaceholders } = extractMermaidBlocks(content);
-
-    // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
-    const sanitized = sanitizeSlideHtml(
-      contentWithPlaceholders.replace(
-        /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
-        (_match, before, close) => {
-          if (before.includes('style="')) {
-            return (
-              before.replace(
-                'style="',
-                'style="filter:brightness(0) invert(1);',
-              ) + close
-            );
-          }
-          return before + ' style="filter:brightness(0) invert(1);"' + close;
-        },
-      ),
-      {
+  const { mermaidBlocks, htmlWithPlaceholders, fontHrefs, source } =
+    useMemo(() => {
+      const rendered = renderRawSlideHtml(content, {
         scopeSelector,
-        allowBlobImages: typeof window !== "undefined",
-      },
-    );
-    const { html: processed, hrefs } = prepareImportedFonts(sanitized);
-
-    return {
-      mermaidBlocks: blocks,
-      htmlWithPlaceholders: processed,
-      fontHrefs: hrefs,
-    };
-  }, [content, scopeSelector]);
+        stampNonce: nonce,
+      });
+      return {
+        mermaidBlocks: rendered.mermaidBlocks,
+        htmlWithPlaceholders: rendered.html,
+        fontHrefs: rendered.fontHrefs,
+        source: rendered.source
+          ? { ...rendered.source, base: rendered.html }
+          : null,
+      };
+    }, [content, scopeSelector, nonce]);
 
   useEffect(() => {
     loadImportedFonts(fontHrefs);
   }, [fontHrefs]);
 
-  if (mermaidBlocks.length > 0) {
-    return (
-      <div
-        className="slide-content w-full block h-full"
-        // guard:allow-raw-color - design-system text fallback for raw HTML
-        style={{ color: "var(--ds-text, #1f2933)" }}
-        data-slide-content-scope={scopeId}
-      >
-        <MermaidHtmlContent
-          html={htmlWithPlaceholders}
-          mermaidBlocks={mermaidBlocks}
-        />
-      </div>
-    );
-  }
-
-  return <RawSlideHtmlContent html={htmlWithPlaceholders} scopeId={scopeId} />;
+  return (
+    <RawSlideHtmlContent
+      html={htmlWithPlaceholders}
+      scopeId={scopeId}
+      source={source}
+      mermaidBlocks={mermaidBlocks}
+    />
+  );
 }
 
-/** Renders HTML content with mermaid placeholders replaced by React MermaidRenderer */
-function MermaidHtmlContent({
-  html,
-  mermaidBlocks,
-}: {
-  html: string;
-  mermaidBlocks: string[];
-}) {
-  // Split on mermaid placeholders and interleave HTML + MermaidRenderer. The
-  // per-fragment `{ __html }` objects are memoized for the same reason as
-  // BlankSlideContent's `dangerousHtml` above: a fresh literal each render
-  // re-assigns `innerHTML` and wipes the live contentEditable block.
-  const fragments = useMemo(
-    () =>
-      html
-        .split(/(<div data-mermaid-index="\d+"><\/div>)/)
-        .map((part) => ({ __html: part })),
-    [html],
-  );
-
+/**
+ * Whether a slide renders its stored content as raw HTML (the fmd-slide
+ * contract) rather than as Markdown. The editor gates in-place text editing
+ * on this, so the two must never disagree.
+ */
+export function isRawHtmlSlide(slide: Pick<Slide, "content" | "layout">) {
+  const content = typeof slide.content === "string" ? slide.content : "";
+  const trimmedContent = content.trimStart();
+  const isConvertedMarkdownImage =
+    /^<img\b\s+data-markdown-image(?:\s*=\s*(?:"true"|'true'|true))?(?:\s|>)/i.test(
+      trimmedContent,
+    );
   return (
-    <>
-      {fragments.map((fragment, i) => {
-        const part = fragment.__html;
-        const match = part.match(/data-mermaid-index="(\d+)"/);
-        if (match) {
-          const idx = parseInt(match[1], 10);
-          return (
-            <MermaidRenderer
-              key={`mermaid-${i}`}
-              definition={mermaidBlocks[idx]}
-              index={idx}
-              className="my-4 w-full"
-            />
-          );
-        }
-        if (!part.trim()) return null;
-        return <div key={i} dangerouslySetInnerHTML={fragment} />;
-      })}
-    </>
+    content.includes('class="fmd-slide"') ||
+    (trimmedContent.startsWith("<") && !isConvertedMarkdownImage) ||
+    ["blank", "section", "statement", "full-image"].includes(slide.layout)
   );
 }
 
@@ -999,12 +1086,14 @@ export function SlideInner({
   aspectRatio,
   onOverflowChange,
   onAutofitSettled,
+  stampSource,
 }: {
   slide: Slide;
   designSystem?: DesignSystemData;
   aspectRatio?: AspectRatio;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
   onAutofitSettled?: () => void;
+  stampSource?: boolean;
 }) {
   const t = useT();
   const dims = getAspectRatioDims(aspectRatio);
@@ -1159,18 +1248,8 @@ export function SlideInner({
     </div>
   );
 
-  // Slides with fmd-slide markup carry their layout in the raw HTML contract;
-  // render them as-is so supported semantic classes and inline styles survive.
   const content = typeof slide.content === "string" ? slide.content : "";
-  const trimmedContent = content.trimStart();
-  const isConvertedMarkdownImage =
-    /^<img\b\s+data-markdown-image(?:\s*=\s*(?:"true"|'true'|true))?(?:\s|>)/i.test(
-      trimmedContent,
-    );
-  const isRawHtml =
-    content.includes('class="fmd-slide"') ||
-    (trimmedContent.startsWith("<") && !isConvertedMarkdownImage) ||
-    ["blank", "section", "statement", "full-image"].includes(slide.layout);
+  const isRawHtml = isRawHtmlSlide(slide);
 
   if (!isRawHtml && slide.layout === "two-column") {
     const parts = content.split("---");
@@ -1239,7 +1318,10 @@ export function SlideInner({
           onOverflowChange={(info) => reportTargetOverflow("raw", info)}
           onAutofitSettled={onAutofitSettled}
         >
-          <BlankSlideContent content={content} />
+          <BlankSlideContent
+            content={content}
+            stampNonce={stampSource ? slide.id : undefined}
+          />
         </AutoFitContent>
       </div>
     );
@@ -1287,6 +1369,7 @@ export default function SlideRenderer({
   aspectRatio,
   onOverflowChange,
   onAutofitSettled,
+  stampSource,
 }: SlideRendererProps) {
   const dims = getAspectRatioDims(aspectRatio);
 
@@ -1308,6 +1391,7 @@ export default function SlideRenderer({
             aspectRatio={aspectRatio}
             onOverflowChange={onOverflowChange}
             onAutofitSettled={onAutofitSettled}
+            stampSource={stampSource}
           />
         </div>
         <ScaleHelper
@@ -1339,6 +1423,7 @@ export default function SlideRenderer({
           aspectRatio={aspectRatio}
           onOverflowChange={onOverflowChange}
           onAutofitSettled={onAutofitSettled}
+          stampSource={stampSource}
         />
       </div>
       <ScaleHelper targetWidth={dims.width} />

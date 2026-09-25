@@ -41,6 +41,7 @@ export interface RuntimeLayerSnapshot {
   html: string;
   nodeCount: number;
   documentId?: string;
+  reservationToken?: string;
 }
 
 export type PendingStructureVerificationStatus =
