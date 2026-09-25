@@ -15,11 +15,13 @@
  */
 
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
+import { GEMINI_API_KEY } from "./key-aliases.js";
 import {
   getRequiredSecret,
   registerRequiredSecret,
   registerSecretUsage,
   type SecretUsage,
+  type SecretValidator,
 } from "./register.js";
 
 /**
@@ -48,7 +50,7 @@ const FRAMEWORK_SECRET_USAGE: Record<string, SecretUsage[]> = {
         "Uses another voice provider, or stops if none is set up.",
     },
   ],
-  GEMINI_API_KEY: [
+  [GEMINI_API_KEY]: [
     {
       feature: "Voice input",
       effectWhenRemoved:
@@ -305,11 +307,16 @@ export function registerFrameworkSecrets(): void {
   // Every model provider key registers at "user" scope: API keys writes the
   // same personal row the provider forms save by default, and an owner's or
   // admin's organization key sits beside it instead of replacing it.
+  // The Gemini key is the only Gemini registration: voice input, embeddings,
+  // and image generation read it too, and still accept rows saved under the
+  // older GEMINI_API_KEY name. Templates record their uses with
+  // registerSecretUsage instead of registering a second Gemini key.
   const modelProviderKeys: {
     key: string;
     label: string;
     description: string;
     docsUrl: string;
+    validator?: SecretValidator;
   }[] = [
     {
       key: "OPENROUTER_API_KEY",
@@ -319,10 +326,22 @@ export function registerFrameworkSecrets(): void {
       docsUrl: "https://openrouter.ai/settings/keys",
     },
     {
-      key: "GOOGLE_GENERATIVE_AI_API_KEY",
+      key: GEMINI_API_KEY,
       label: "Google Gemini API key",
       description: "Run Gemini models with your own Google AI Studio key.",
       docsUrl: "https://aistudio.google.com/app/apikey",
+      validator: async (value) => {
+        const response = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models",
+          { headers: { "x-goog-api-key": value } },
+        );
+        return response.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              error: `Google rejected the key (HTTP ${response.status}).`,
+            };
+      },
     },
     {
       key: "GROQ_API_KEY",

@@ -1,4 +1,8 @@
-import { registerRequiredSecret } from "@agent-native/core/secrets";
+import {
+  GEMINI_API_KEY,
+  registerRequiredSecret,
+  registerSecretUsage,
+} from "@agent-native/core/secrets";
 
 import "./onboarding.js";
 
@@ -77,24 +81,17 @@ registerRequiredSecret({
   required: false,
 });
 
-registerRequiredSecret({
-  key: "GEMINI_API_KEY",
-  label: "Gemini API Key",
-  description:
-    "Optional shared embedding provider for Brain semantic retrieval. Lexical search remains available without it.",
-  docsUrl: "https://aistudio.google.com/apikey",
-  scope: "workspace",
-  kind: "api-key",
-  usedFor: [
-    {
-      appId: "brain",
-      feature: "Embeddings",
-      effectWhenRemoved:
-        "Semantic search uses another provider, or falls back to keyword search.",
-    },
-  ],
-  required: false,
-});
+// The framework registers the one Gemini key (Google Gemini API key), so
+// Brain records what it uses the key for instead of registering a
+// second copy under another name or scope.
+registerSecretUsage(GEMINI_API_KEY, [
+  {
+    appId: "brain",
+    feature: "Embeddings",
+    effectWhenRemoved:
+      "Semantic search uses another provider, or falls back to keyword search.",
+  },
+]);
 
 registerRequiredSecret({
   key: "COHERE_API_KEY",

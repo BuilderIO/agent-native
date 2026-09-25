@@ -16,6 +16,7 @@ import {
   PROVIDER_ENV_META,
 } from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
+import { secretKeyNames } from "../secrets/key-aliases.js";
 import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
 import {
   readDefaultModelSelectionRequest,
@@ -303,10 +304,11 @@ export function createAgentEngineApiKeyHandler() {
         setResponseStatus(event, resolved.statusCode);
         return { error: resolved.error };
       }
-      await deleteAppSecret({
-        key: payload.key,
-        ...resolved.target,
-      });
+      // A row saved under an older name of the same key would otherwise keep
+      // the provider working after it was removed.
+      for (const key of secretKeyNames(payload.key)) {
+        await deleteAppSecret({ key, ...resolved.target });
+      }
       if (payload.endpointKey) {
         await deleteAppSecret({
           key: payload.endpointKey,

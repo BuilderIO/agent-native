@@ -20,6 +20,7 @@ const requestBodyText = (body: BodyInit | null | undefined): string =>
 
 const resolveBuilderGatewayAuthMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
+const resolveGeminiApiKeyMock = vi.hoisted(() => vi.fn());
 const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const googleGenerateContentMock = vi.hoisted(() => vi.fn());
 
@@ -45,10 +46,12 @@ vi.mock("@agent-native/core/server", () => {
 
   return {
     FeatureNotConfiguredError,
+    GEMINI_API_KEY: "GOOGLE_GENERATIVE_AI_API_KEY",
     getBuilderImageGenerationBaseUrl: vi.fn(
       () => "https://builder.test/agent-native/images/v1",
     ),
     resolveBuilderGatewayAuth: resolveBuilderGatewayAuthMock,
+    resolveGeminiApiKey: resolveGeminiApiKeyMock,
     resolveHasBuilderPrivateKey: resolveHasBuilderPrivateKeyMock,
     resolveSecret: resolveSecretMock,
   };
@@ -141,6 +144,7 @@ describe("generateWithManagedImageProvider", () => {
     });
     resolveHasBuilderPrivateKeyMock.mockResolvedValue(true);
     resolveSecretMock.mockResolvedValue(null);
+    resolveGeminiApiKeyMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -154,7 +158,7 @@ describe("generateWithManagedImageProvider", () => {
     await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
       expect.objectContaining({
         name: "FeatureNotConfiguredError",
-        requiredCredential: "GEMINI_API_KEY",
+        requiredCredential: "GOOGLE_GENERATIVE_AI_API_KEY",
         message: expect.stringContaining("Builder.io is connected"),
       }),
     );
@@ -270,9 +274,7 @@ describe("generateWithManagedImageProvider", () => {
   it("refuses to reroute gpt board-reference runs into the manual Gemini fallback", async () => {
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
     resolveBuilderGatewayAuthMock.mockResolvedValue(null);
-    resolveSecretMock.mockImplementation(async (key: string) =>
-      key === "GEMINI_API_KEY" ? "gemini-test" : null,
-    );
+    resolveGeminiApiKeyMock.mockResolvedValue("gemini-test");
 
     await expect(
       generateWithManagedImageProvider({
@@ -300,9 +302,7 @@ describe("generateWithManagedImageProvider", () => {
 
   it("passes board references through the manual Gemini fallback", async () => {
     resolveBuilderGatewayAuthMock.mockResolvedValue(null);
-    resolveSecretMock.mockImplementation(async (key: string) =>
-      key === "GEMINI_API_KEY" ? "gemini-test" : null,
-    );
+    resolveGeminiApiKeyMock.mockResolvedValue("gemini-test");
     googleGenerateContentMock.mockResolvedValue({
       candidates: [
         {
@@ -351,6 +351,8 @@ describe("generateWithManagedImageProvider", () => {
         ]),
       }),
     );
+    expect(resolveGeminiApiKeyMock).toHaveBeenCalled();
+    expect(resolveSecretMock).not.toHaveBeenCalledWith("GEMINI_API_KEY");
   });
 
   it("preserves gpt-image-1 for transparent OpenAI fallback requests", async () => {
@@ -555,7 +557,7 @@ describe("generateWithManagedImageProvider", () => {
     ).rejects.toEqual(
       expect.objectContaining({
         name: "FeatureNotConfiguredError",
-        requiredCredential: "GEMINI_API_KEY",
+        requiredCredential: "GOOGLE_GENERATIVE_AI_API_KEY",
         message: expect.stringContaining("Restyle and edit runs need"),
       }),
     );

@@ -272,6 +272,30 @@ describe("getOwnerApiKey", () => {
     ]);
   });
 
+  it("reads a Gemini key saved under either name, the chat name first at each scope", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope }: { key: string; scope: string }) =>
+        key === "GEMINI_API_KEY" && scope === "user"
+          ? { value: "personal-service-key", last4: "-key", updatedAt: 1 }
+          : key === "GOOGLE_GENERATIVE_AI_API_KEY" && scope === "org"
+            ? { value: "org-chat-key", last4: "-key", updatedAt: 1 }
+            : null,
+    );
+
+    await expect(getOwnerApiKey("google", "owner@example.com")).resolves.toBe(
+      "personal-service-key",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      {
+        key: "GOOGLE_GENERATIVE_AI_API_KEY",
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
+      { key: "GEMINI_API_KEY", scope: "user", scopeId: "owner@example.com" },
+    ]);
+  });
+
   it("does not cache Jev as absent when the secret store is unreadable", async () => {
     mockReadAppSecret.mockRejectedValue(new Error("database unavailable"));
 

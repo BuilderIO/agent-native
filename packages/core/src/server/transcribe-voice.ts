@@ -40,10 +40,13 @@ import { getSession } from "./auth.js";
 import {
   gatewayLaneUnavailableMessage,
   resolveHasBuilderGatewayCredential,
-  resolveSecret,
 } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import {
+  GEMINI_API_KEY,
+  resolveSecretWithAliases,
+} from "./secret-key-aliases.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -67,7 +70,7 @@ const MAX_TRANSCRIPT_CHARS = 150_000;
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const BUILDER_CLEANUP_MODEL = "gpt-5-6-luna";
 
-// Gemini Flash Lite BYOK path when GEMINI_API_KEY is configured.
+// Gemini Flash Lite BYOK path when a Gemini key is configured.
 // Gemini accepts inline audio; we just give it the bytes and a "transcribe
 // this" prompt and it replies with text. 2.5x faster TTFT than 2.5 Flash
 // per Google's release notes, and noticeably snappier than the Whisper
@@ -251,7 +254,10 @@ export function createTranscribeVoiceHandler() {
     // Per-user-or-fallback API key resolution. Hoisted up so the Gemini
     // path below can use it without duplicating logic.
     async function resolveApiKey(key: string): Promise<string | undefined> {
-      return (await withRequestContext(() => resolveSecret(key))) ?? undefined;
+      return (
+        (await withRequestContext(() => resolveSecretWithAliases(key))) ??
+        undefined
+      );
     }
 
     if (transcriptText) {
@@ -290,12 +296,12 @@ export function createTranscribeVoiceHandler() {
     // earlier providers and lands on the Whisper path).
 
     if (providerPref === "gemini") {
-      const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+      const geminiKey = await resolveApiKey(GEMINI_API_KEY);
       if (!geminiKey) {
         setResponseStatus(event, 400);
         return {
           error:
-            "Gemini is selected but GEMINI_API_KEY is not configured. Add it in Settings → API Keys, or change the provider preference.",
+            "Gemini is selected but no Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY) is configured. Add it in Settings → API Keys, or change the provider preference.",
         };
       }
       try {
@@ -418,7 +424,7 @@ export function createTranscribeVoiceHandler() {
     // If Builder is unavailable, try a user-provided Gemini key before
     // Whisper-compatible providers.
     if (providerPref !== "openai") {
-      const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+      const geminiKey = await resolveApiKey(GEMINI_API_KEY);
       if (geminiKey) {
         try {
           const text = await transcribeWithGemini({
@@ -487,8 +493,8 @@ export function createTranscribeVoiceHandler() {
       return {
         error: gatewayLaneUnavailableMessage(
           builderError
-            ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-            : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+            ? `Builder transcription failed: ${builderError}. Add GOOGLE_GENERATIVE_AI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+            : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GOOGLE_GENERATIVE_AI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
         ),
       };
     }
@@ -662,12 +668,12 @@ async function cleanupTranscriptText({
   }
 
   if (providerPref === "gemini") {
-    const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+    const geminiKey = await resolveApiKey(GEMINI_API_KEY);
     if (!geminiKey) {
       setResponseStatus(event, 400);
       return {
         error:
-          "Gemini cleanup is selected but GEMINI_API_KEY is not configured.",
+          "Gemini cleanup is selected but no Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY) is configured.",
       };
     }
     try {
@@ -740,7 +746,7 @@ async function cleanupTranscriptText({
     }
   }
 
-  const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+  const geminiKey = await resolveApiKey(GEMINI_API_KEY);
   if (geminiKey) {
     try {
       const cleaned = await cleanupWithGemini({

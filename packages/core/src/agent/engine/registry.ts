@@ -37,6 +37,10 @@ import {
   getRequestContext,
   getRequestUserEmail,
 } from "../../server/request-context.js";
+import {
+  resolveSecretWithAliases,
+  secretKeyNames,
+} from "../../server/secret-key-aliases.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
   CHATGPT_SUBSCRIPTION_ENGINE_NAME,
@@ -763,7 +767,7 @@ export async function detectEngineFromUserSecrets(
             (entry) =>
               entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
           )
-          .flatMap((entry) => entry.requiredEnvVars),
+          .flatMap((entry) => entry.requiredEnvVars.flatMap(secretKeyNames)),
       ),
     ]);
   };
@@ -970,7 +974,7 @@ async function canRunBuilderEngine(
 async function resolveUsableProviderSecret(
   key: string,
 ): Promise<string | null> {
-  const value = await resolveSecret(key);
+  const value = await resolveSecretWithAliases(key);
   if (!value) return null;
   const authFailure = await getProviderCredentialAuthFailure({ key, value });
   return authFailure ? null : value;

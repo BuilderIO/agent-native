@@ -115,7 +115,8 @@ Settings must keep these as separate choices:
 
 - **Live transcription source**: `mac-native`, `google-realtime`, or `batch`.
 - **AI cleanup**: independent off/on toggle. Cleanup uses managed Gemini first
-  when a managed AI services connection is configured, then BYOK Gemini (`GEMINI_API_KEY`).
+  when a managed AI services connection is configured, then BYOK Gemini (the one
+  Gemini key, `GOOGLE_GENERATIVE_AI_API_KEY`; older `GEMINI_API_KEY` rows still work).
   Gemini cleanup/title/summary generation is not a live STT source.
 
 `application_state["voice-transcription-prefs"]` stores
@@ -129,7 +130,7 @@ is still written for old clients and batch provider preferences:
 | `batch`           | Upload audio after stop through the existing batch route       | Builder/Gemini/Groq/OpenAI depending on fallback |
 | `auto` provider   | Browser SpeechRecognition when supported; server batch fallback chain otherwise | No key needed in browsers that support SpeechRecognition |
 | `builder-gemini`  | Managed Gemini Flash-Lite batch/cleanup preference             | Managed AI services account connected |
-| `gemini`          | Direct Google Gemini BYOK batch/cleanup preference             | `GEMINI_API_KEY`             |
+| `gemini`          | Direct Google Gemini BYOK batch/cleanup preference             | `GOOGLE_GENERATIVE_AI_API_KEY` (or legacy `GEMINI_API_KEY`) |
 | `groq`            | Groq Whisper batch preference                                  | `GROQ_API_KEY`               |
 | `openai`          | OpenAI Whisper batch preference                                | `OPENAI_API_KEY`             |
 | `browser`         | Legacy native/browser live speech preference                   | No                           |
@@ -180,7 +181,7 @@ Batch routing is based on the user's provider preference:
 
 1. If `builder-gemini` and `resolveHasBuilderPrivateKey()` → calls `transcribeWithBuilder({ model: "gemini-3-1-flash-lite" })` via Builder proxy, or uses Builder Gemini Flash-Lite to clean up a live native/browser transcript when the desktop client sends text instead of audio.
 2. If `builder` and `resolveHasBuilderPrivateKey()` → legacy alias; prefer `builder-gemini`.
-3. If `gemini` → resolves `GEMINI_API_KEY` and calls the direct Google Gemini path.
+3. If `gemini` → resolves the Gemini key under either name (`resolveGeminiApiKey`) and calls the direct Google Gemini path.
 4. If `groq` → resolves `GROQ_API_KEY` and calls Groq's Whisper-compatible endpoint.
 5. If `openai` → resolves `OPENAI_API_KEY`:
    - `readAppSecret({ key: "OPENAI_API_KEY", scope: "user", scopeId: session.email })` — user's encrypted secret.

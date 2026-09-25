@@ -31,7 +31,7 @@ export async function getProvider(name?: string): Promise<ImageProvider> {
   }
 
   throw new Error(
-    "No image generation provider configured. Save GEMINI_API_KEY or OPENAI_API_KEY in settings.",
+    "No image generation provider configured. Save GOOGLE_GENERATIVE_AI_API_KEY or OPENAI_API_KEY in settings.",
   );
 }
 

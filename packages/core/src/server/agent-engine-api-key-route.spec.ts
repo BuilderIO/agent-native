@@ -704,6 +704,34 @@ describe("agent engine api-key route helpers", () => {
     });
   });
 
+  it("removes a Gemini key under both of its names", async () => {
+    mockGetSession.mockResolvedValue({ email: "member@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "member" });
+    mockDeleteAppSecret.mockClear();
+
+    await expect(
+      createAgentEngineApiKeyHandler()(
+        keyRequest("DELETE", { provider: "google", scope: "user" }) as any,
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      key: "GOOGLE_GENERATIVE_AI_API_KEY",
+      scope: "user",
+    });
+    expect(mockDeleteAppSecret.mock.calls.map(([ref]) => ref)).toEqual([
+      {
+        key: "GOOGLE_GENERATIVE_AI_API_KEY",
+        scope: "user",
+        scopeId: "member@example.test",
+      },
+      {
+        key: "GEMINI_API_KEY",
+        scope: "user",
+        scopeId: "member@example.test",
+      },
+    ]);
+  });
+
   it("refuses a member's organization key removal", async () => {
     mockGetSession.mockResolvedValue({ email: "member@example.test" });
     mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "member" });

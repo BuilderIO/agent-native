@@ -875,6 +875,11 @@ interface AdHocKey {
 
 const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
 
+/** One name can be listed once per scope, so rows are told apart by both. */
+function adHocKeyId(key: AdHocKey): string {
+  return `${key.scope}-${key.name}`;
+}
+
 function AdHocKeysSection({
   showForm,
   initialName,
@@ -898,10 +903,8 @@ function AdHocKeysSection({
   const [formScope, setFormScope] = useState<"user" | "workspace">("user");
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(
-    null,
-  );
-  const [deletingName, setDeletingName] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
     text: string;
@@ -1001,11 +1004,11 @@ function AdHocKeysSection({
   ]);
 
   const handleDelete = useCallback(
-    async (name: string) => {
-      setDeletingName(name);
+    async (key: AdHocKey) => {
+      setDeletingId(adHocKeyId(key));
       try {
         const res = await fetch(
-          `${ADHOC_ENDPOINT}/${encodeURIComponent(name)}`,
+          `${ADHOC_ENDPOINT}/${encodeURIComponent(key.name)}?scope=${key.scope}`,
           {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
@@ -1026,11 +1029,11 @@ function AdHocKeysSection({
           return;
         }
         showToast("ok", "Key deleted");
-        setConfirmDeleteName(null);
+        setConfirmDeleteId(null);
         notifySecretsChanged();
         reload();
       } finally {
-        setDeletingName(null);
+        setDeletingId(null);
       }
     },
     [showToast, reload],
@@ -1120,7 +1123,7 @@ function AdHocKeysSection({
         <div className="overflow-hidden rounded-md border border-border">
           {keys.map((key) => (
             <div
-              key={`${key.scope}-${key.name}`}
+              key={adHocKeyId(key)}
               className="border-b border-border px-2.5 py-2 last:border-b-0"
             >
               <div className="flex items-center justify-between gap-2">
@@ -1195,17 +1198,17 @@ function AdHocKeysSection({
                         })}
                       </TooltipContent>
                     </Tooltip>
-                  ) : confirmDeleteName === key.name ? (
+                  ) : confirmDeleteId === adHocKeyId(key) ? (
                     <div className="flex items-center gap-1">
                       <Button
                         type="button"
                         intent="danger"
                         emphasis="solid"
-                        onClick={() => handleDelete(key.name)}
-                        disabled={deletingName === key.name}
+                        onClick={() => handleDelete(key)}
+                        disabled={deletingId === adHocKeyId(key)}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-40"
                       >
-                        {deletingName === key.name ? (
+                        {deletingId === adHocKeyId(key) ? (
                           <IconLoader2 size={10} className="animate-spin" />
                         ) : (
                           "Confirm"
@@ -1215,7 +1218,7 @@ function AdHocKeysSection({
                         type="button"
                         intent="neutral"
                         emphasis="solid"
-                        onClick={() => setConfirmDeleteName(null)}
+                        onClick={() => setConfirmDeleteId(null)}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-accent/60 text-muted-foreground hover:text-foreground"
                       >
                         Cancel
@@ -1228,7 +1231,7 @@ function AdHocKeysSection({
                           type="button"
                           intent="danger"
                           emphasis="ghost"
-                          onClick={() => setConfirmDeleteName(key.name)}
+                          onClick={() => setConfirmDeleteId(adHocKeyId(key))}
                           className="text-muted-foreground hover:text-red-500"
                         >
                           <IconTrash size={12} />

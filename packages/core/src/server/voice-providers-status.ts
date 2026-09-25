@@ -24,10 +24,14 @@ import { getSession } from "./auth.js";
 import {
   prefetchSecrets,
   resolveHasCompleteBuilderConnection,
-  resolveSecret,
 } from "./credential-provider.js";
 import { resolveGoogleRealtimeCredentials } from "./google-realtime-session.js";
 import { runWithRequestContext } from "./request-context.js";
+import {
+  GEMINI_API_KEY,
+  resolveSecretWithAliases,
+  secretKeyNames,
+} from "./secret-key-aliases.js";
 
 export interface VoiceProvidersStatus {
   builder: boolean;
@@ -85,7 +89,9 @@ export function createVoiceProvidersStatusHandler() {
           );
           return typeof resolved === "string" && resolved.length > 0;
         }
-        const resolved = await withRequestContext(() => resolveSecret(key));
+        const resolved = await withRequestContext(() =>
+          resolveSecretWithAliases(key),
+        );
         return typeof resolved === "string" && resolved.length > 0;
       } catch {
         return false;
@@ -95,7 +101,7 @@ export function createVoiceProvidersStatusHandler() {
     // One read per scope for every key below, instead of one per key per scope.
     await withRequestContext(() =>
       prefetchSecrets([
-        "GEMINI_API_KEY",
+        ...secretKeyNames(GEMINI_API_KEY),
         "OPENAI_API_KEY",
         "GROQ_API_KEY",
         "GOOGLE_APPLICATION_CREDENTIALS",
@@ -113,7 +119,7 @@ export function createVoiceProvidersStatusHandler() {
     }
 
     const [gemini, openai, groq, googleRealtime] = await Promise.all([
-      hasKey("GEMINI_API_KEY"),
+      hasKey(GEMINI_API_KEY),
       hasKey("OPENAI_API_KEY"),
       hasKey("GROQ_API_KEY"),
       hasKey("GOOGLE_APPLICATION_CREDENTIALS"),

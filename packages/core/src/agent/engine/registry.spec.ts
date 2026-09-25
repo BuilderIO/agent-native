@@ -3065,6 +3065,60 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(googleEngine);
     });
 
+    it("runs Gemini chat on a key saved under the older GEMINI_API_KEY name", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "ai-sdk:google",
+          model: "gemini-3.1-pro-preview",
+        }),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+          key === "GEMINI_API_KEY"
+            ? { key, value: "gemini-service-key" }
+            : null,
+        );
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
+
+      const {
+        registerAgentEngine,
+        resolveEngine,
+        detectEngineFromUserSecrets,
+      } = await import("./registry.js");
+
+      const googleEngine = { name: "ai-sdk:google", stream: vi.fn() } as any;
+      const googleCreate = vi.fn().mockReturnValue(googleEngine);
+      registerAgentEngine({
+        name: "ai-sdk:google",
+        label: "Gemini",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gemini-3.1-pro-preview",
+        supportedModels: [],
+        requiredEnvVars: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+        create: googleCreate,
+      });
+
+      await expect(detectEngineFromUserSecrets()).resolves.toMatchObject({
+        name: "ai-sdk:google",
+      });
+      const resolved = await resolveEngine({});
+      expect(googleCreate).toHaveBeenCalledWith({
+        apiKey: "gemini-service-key",
+        allowEnvFallback: true,
+      });
+      expect(resolved).toBe(googleEngine);
+    });
+
     it("passes a scoped OpenAI-compatible endpoint into the OpenAI engine", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,

@@ -38,11 +38,39 @@ describe("embedding family availability", () => {
       unavailableProviders: ["cohere"],
     });
     expect(mocks.prefetchSecrets).toHaveBeenCalledWith([
+      "GOOGLE_GENERATIVE_AI_API_KEY",
       "GEMINI_API_KEY",
       "COHERE_API_KEY",
       "VOYAGE_API_KEY",
     ]);
-    expect(mocks.resolveSecretDetailed).toHaveBeenCalledTimes(3);
+    expect(mocks.resolveSecretDetailed).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses the Gemini key saved for chat models", async () => {
+    mocks.resolveSecretDetailed.mockImplementation(async (key: string) => ({
+      value: key === "GOOGLE_GENERATIVE_AI_API_KEY" ? "gemini-chat-key" : null,
+      lookupFailed: false,
+      ...(key === "GOOGLE_GENERATIVE_AI_API_KEY"
+        ? { source: "org", scopeId: "org-1" }
+        : {}),
+    }));
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init: RequestInit) =>
+        new Response(
+          JSON.stringify({ embedding: { values: Array(1024).fill(0.5) } }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [family] = await availableEmbeddingFamilies();
+    expect(family?.provider).toBe("gemini");
+    await expect(family!.embed([{ text: "hello" }], "query")).resolves.toEqual([
+      Array(1024).fill(0.5),
+    ]);
+    expect(fetchMock).toHaveBeenCalled();
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(JSON.stringify(init?.headers)).toContain("gemini-chat-key");
   });
 
   it("fails closed when any provider lookup is unavailable", async () => {

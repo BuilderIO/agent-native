@@ -126,9 +126,11 @@ const FALLBACK_LABEL: Record<"org" | "workspace" | "vault", string> = {
 };
 
 async function resolveSharedFallback(key: string): Promise<SharedKeyFallback> {
-  const { resolveSecretDetailed } =
-    await import("../server/credential-provider.js");
-  const shared = await resolveSecretDetailed(key, { skipUserScope: true });
+  const { resolveSecretWithAliasesDetailed } =
+    await import("../server/secret-key-aliases.js");
+  const shared = await resolveSecretWithAliasesDetailed(key, {
+    skipUserScope: true,
+  });
   if (!shared.value || !shared.source || shared.source === "env") {
     return shared.lookupFailed
       ? { status: "unknown", error: "Could not read the credential store" }
@@ -140,7 +142,7 @@ async function resolveSharedFallback(key: string): Promise<SharedKeyFallback> {
   const { readAppSecretMeta } = await import("./storage.js");
   const meta = shared.scopeId
     ? await readAppSecretMeta({
-        key,
+        key: shared.key ?? key,
         scope: shared.source,
         scopeId: shared.scopeId,
       })

@@ -1,4 +1,8 @@
-import { registerRequiredSecret } from "@agent-native/core/secrets";
+import {
+  GEMINI_API_KEY,
+  registerRequiredSecret,
+  registerSecretUsage,
+} from "@agent-native/core/secrets";
 
 // ── File upload provider + onboarding step ────────────────────────────
 // Registered in server/plugins/onboarding.ts (not here) because Nitro
@@ -26,48 +30,17 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // matches the mail template's `import "../onboarding.js"` pattern and
 // guarantees the registerRequiredSecret() call runs at boot.
 
-registerRequiredSecret({
-  key: "GEMINI_API_KEY",
-  label: "Gemini API Key (recommended)",
-  description:
-    "Fast text-model-backed transcription cleanup via Builder/Luna or Gemini Flash Lite. Recommended for Clips voice dictation when you want to bring your own key.",
-  docsUrl: "https://aistudio.google.com/apikey",
-  scope: "user",
-  kind: "api-key",
-  usedFor: [
-    {
-      appId: "clips",
-      feature: "Dictation cleanup",
-      effectWhenRemoved:
-        "Uses Builder.io when it's connected, otherwise dictation stays uncleaned.",
-    },
-  ],
-  required: false,
-  validator: async (value) => {
-    if (!value) return true;
-    if (typeof value !== "string" || value.length < 20) {
-      return { ok: false, error: "Key looks too short." };
-    }
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(value)}`,
-      );
-      if (res.ok) return true;
-      if (res.status === 400 || res.status === 401 || res.status === 403) {
-        return {
-          ok: false,
-          error: `Gemini rejected this key (${res.status}).`,
-        };
-      }
-      return { ok: false, error: `Gemini returned ${res.status}.` };
-    } catch (err: any) {
-      return {
-        ok: false,
-        error: `Could not reach Gemini: ${err?.message ?? err}`,
-      };
-    }
+// The framework registers the one Gemini key (Google Gemini API key), so
+// Clips records what it uses the key for instead of registering a
+// second copy under another name or scope.
+registerSecretUsage(GEMINI_API_KEY, [
+  {
+    appId: "clips",
+    feature: "Dictation cleanup",
+    effectWhenRemoved:
+      "Uses Builder.io when it's connected, otherwise dictation stays uncleaned.",
   },
-});
+]);
 
 registerRequiredSecret({
   key: "GOOGLE_APPLICATION_CREDENTIALS",

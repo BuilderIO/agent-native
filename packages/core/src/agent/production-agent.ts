@@ -97,6 +97,7 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
@@ -621,19 +622,21 @@ export async function getOwnerApiKey(
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
     }
     for (const ref of refs) {
-      const fromSecrets = await readAppSecret({
-        key: secretKey,
-        scope: ref.scope,
-        scopeId: ref.scopeId,
-      });
-      if (
-        fromSecrets?.value &&
-        !(await getProviderCredentialAuthFailure({
-          key: secretKey,
-          value: fromSecrets.value,
-        }))
-      ) {
-        return fromSecrets.value;
+      for (const storedKey of secretKeyNames(secretKey)) {
+        const fromSecrets = await readAppSecret({
+          key: storedKey,
+          scope: ref.scope,
+          scopeId: ref.scopeId,
+        });
+        if (
+          fromSecrets?.value &&
+          !(await getProviderCredentialAuthFailure({
+            key: secretKey,
+            value: fromSecrets.value,
+          }))
+        ) {
+          return fromSecrets.value;
+        }
       }
     }
   } catch {

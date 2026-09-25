@@ -675,6 +675,83 @@ describe("secrets routes", () => {
     });
   });
 
+  it("reports the one Gemini key as set from a row saved under the older name", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "GOOGLE_GENERATIVE_AI_API_KEY",
+        label: "Google Gemini API key",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockResolveSecretDetailed.mockImplementation(async (key: string) =>
+      key === "GEMINI_API_KEY"
+        ? {
+            value: "gemini-service-key",
+            lookupFailed: false,
+            source: "user",
+            scopeId: "alice+qa@example.com",
+          }
+        : { value: null, lookupFailed: false },
+    );
+    mockReadAppSecretMeta.mockImplementation(async ({ key }: any) =>
+      key === "GEMINI_API_KEY"
+        ? { key, last4: "-key", description: null, updatedAt: 5 }
+        : null,
+    );
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        key: "GOOGLE_GENERATIVE_AI_API_KEY",
+        status: "set",
+        effectiveScope: "user",
+        managedHere: true,
+        last4: "-key",
+        updatedAt: 5,
+      }),
+    ]);
+    expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
+      key: "GEMINI_API_KEY",
+      scope: "user",
+      scopeId: "alice+qa@example.com",
+    });
+  });
+
+  it("removes the Gemini key under both names so an older row stops answering", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "GOOGLE_GENERATIVE_AI_API_KEY",
+      label: "Google Gemini API key",
+      scope: "user",
+      kind: "api-key",
+    });
+    mockDeleteAppSecret.mockImplementation(
+      async ({ key }: { key: string }) => key === "GEMINI_API_KEY",
+    );
+
+    const handler = createWriteSecretHandler();
+    const result = await handler(
+      event("/GOOGLE_GENERATIVE_AI_API_KEY", "DELETE"),
+    );
+
+    expect(result).toEqual({ ok: true, removed: true });
+    expect(mockDeleteAppSecret.mock.calls.map(([ref]) => ref)).toEqual([
+      {
+        key: "GOOGLE_GENERATIVE_AI_API_KEY",
+        scope: "user",
+        scopeId: "alice+qa@example.com",
+      },
+      {
+        key: "GEMINI_API_KEY",
+        scope: "user",
+        scopeId: "alice+qa@example.com",
+      },
+    ]);
+  });
+
   it("reports managedHere + overrides when a personal row shadows a vault-synced value", async () => {
     mockListRequiredSecrets.mockReturnValue([
       {
@@ -955,6 +1032,163 @@ describe("secrets routes", () => {
       }),
     ]);
     expect(result.some((r) => r.name === "REGISTERED_KEY")).toBe(false);
+  });
+
+  it("keeps a row under the older Gemini name at the key's own scope out of the ad-hoc list", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "GOOGLE_GENERATIVE_AI_API_KEY",
+        label: "Google Gemini API key",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockListAppSecretsForScope.mockImplementation((scope: string) =>
+      Promise.resolve(
+        scope === "user"
+          ? [
+              {
+                key: "GEMINI_API_KEY",
+                scope: "user",
+                scopeId: "alice+qa@example.com",
+                last4: "4444",
+                description: null,
+                urlAllowlist: null,
+                createdAt: 1,
+                updatedAt: 2,
+              },
+            ]
+          : [],
+      ),
+    );
+
+    const handler = createAdHocSecretHandler();
+    await expect(handler(event("/", "GET"))).resolves.toEqual([]);
+  });
+
+  describe("a workspace row Brain saved under the older Gemini name", () => {
+    const geminiKey = {
+      key: "GOOGLE_GENERATIVE_AI_API_KEY",
+      label: "Google Gemini API key",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+    };
+    const brainRow = {
+      key: "GEMINI_API_KEY",
+      scope: "workspace",
+      scopeId: "org-qa",
+      last4: "9999",
+      description: null,
+      urlAllowlist: null,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+
+    beforeEach(() => {
+      mockListRequiredSecrets.mockReturnValue([geminiKey]);
+      mockResolveSecretDetailed.mockImplementation(async (key: string) =>
+        key === "GEMINI_API_KEY"
+          ? {
+              value: "brain-shared-9999",
+              lookupFailed: false,
+              source: "workspace",
+              scopeId: "org-qa",
+            }
+          : { value: null, lookupFailed: false },
+      );
+      mockReadAppSecretMeta.mockImplementation(async ({ key, scope }: any) =>
+        key === "GEMINI_API_KEY" && scope === "workspace" ? brainRow : null,
+      );
+      mockListAppSecretsForScope.mockImplementation((scope: string) =>
+        Promise.resolve(scope === "workspace" ? [brainRow] : []),
+      );
+    });
+
+    it("shows as the shared Gemini key and as a removable workspace row", async () => {
+      const status = await createListSecretsHandler()(event("/", "GET"));
+      expect(status).toEqual([
+        expect.objectContaining({
+          key: "GOOGLE_GENERATIVE_AI_API_KEY",
+          status: "set",
+          effectiveScope: "workspace",
+          source: "workspace",
+          managedHere: false,
+          last4: "9999",
+        }),
+      ]);
+
+      const adHoc = (await createAdHocSecretHandler()(
+        event("/", "GET"),
+      )) as any[];
+      expect(adHoc).toEqual([
+        expect.objectContaining({
+          name: "GEMINI_API_KEY",
+          scope: "workspace",
+          source: "workspace",
+          last4: "9999",
+        }),
+      ]);
+      expect(adHoc[0].usedFor).toEqual(
+        expect.arrayContaining([expect.objectContaining({ feature: "Agent" })]),
+      );
+    });
+
+    it("is removed at workspace scope by an owner, leaving personal rows alone", async () => {
+      mockDeleteAppSecret.mockResolvedValue(true);
+
+      const result = await createAdHocSecretHandler()(
+        event("/GEMINI_API_KEY?scope=workspace", "DELETE"),
+      );
+
+      expect(result).toEqual({ ok: true, removed: true });
+      expect(mockDeleteAppSecret.mock.calls.map(([ref]) => ref)).toEqual([
+        { key: "GEMINI_API_KEY", scope: "workspace", scopeId: "org-qa" },
+      ]);
+    });
+
+    it("refuses a member's workspace removal with a 403", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        orgId: "org-qa",
+        email: "alice+qa@example.com",
+        role: "member",
+      });
+
+      const result = await createAdHocSecretHandler()(
+        event("/GEMINI_API_KEY?scope=workspace", "DELETE"),
+      );
+
+      expect(lastStatus).toBe(403);
+      expect(result).toEqual({
+        error:
+          "Only organization owners and admins can delete workspace-scoped secrets",
+      });
+      expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+    });
+  });
+
+  it("removes only the personal ad-hoc row when the caller names the personal scope", async () => {
+    mockDeleteAppSecret.mockResolvedValue(false);
+
+    const result = await createAdHocSecretHandler()(
+      event("/SLACK_WEBHOOK?scope=user", "DELETE"),
+    );
+
+    expect(result).toEqual({ ok: true, removed: false });
+    expect(mockDeleteAppSecret.mock.calls.map(([ref]) => ref)).toEqual([
+      { key: "SLACK_WEBHOOK", scope: "user", scopeId: "alice+qa@example.com" },
+    ]);
+  });
+
+  it("rejects an ad-hoc removal at a scope the list cannot remove", async () => {
+    const result = await createAdHocSecretHandler()(
+      event("/SLACK_WEBHOOK?scope=org", "DELETE"),
+    );
+
+    expect(lastStatus).toBe(400);
+    expect(result).toEqual({ error: 'scope must be "user" or "workspace"' });
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
   });
 
   it("validates the resolved effective value when no candidate is supplied", async () => {

@@ -633,6 +633,18 @@ export {
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
+  GEMINI_API_KEY,
+  LEGACY_GEMINI_API_KEY,
+  canonicalSecretKey,
+  readGeminiDeployCredentialEnv,
+  resolveGeminiApiKey,
+  resolveGeminiApiKeyDetailed,
+  resolveSecretWithAliases,
+  resolveSecretWithAliasesDetailed,
+  secretKeyNames,
+  type ResolvedAliasedSecret,
+} from "./secret-key-aliases.js";
+export {
   BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,

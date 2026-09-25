@@ -408,7 +408,9 @@ Core routes plugin mounts these under `/_agent-native/secrets/adhoc`:
   chars, URL allowlist). Values are never returned.
 - `POST /_agent-native/secrets/adhoc` — body `{ name, value, urlAllowlist? }`.
   Creates or updates an ad-hoc key.
-- `DELETE /_agent-native/secrets/adhoc/:name` — remove an ad-hoc key.
+- `DELETE /_agent-native/secrets/adhoc/:name[?scope=user|workspace]` —
+  remove an ad-hoc key. Pass the listed row's `scope` when a name is saved
+  at both; without it the personal row goes first.
 
 ### URL Allowlists
 
@@ -475,6 +477,17 @@ with `deleteAgentEngineProviderSettings({ provider, scope })`.
   Save stays off until the role is read; a failed read shows a retry and
   never falls back to a personal save. Every provider key registers at `scope: "user"`, so Settings → API keys
   writes the same personal row.
+- Gemini has one key, `GOOGLE_GENERATIVE_AI_API_KEY`, for chat models and
+  for voice input, embeddings, and image generation. Read it with
+  `resolveGeminiApiKey()` from `@agent-native/core/server` (never
+  `resolveSecret("GEMINI_API_KEY")`): rows saved under the older
+  `GEMINI_API_KEY` name still answer, and removing the key removes both
+  names at its own scope. An older-name row at another scope (Brain once
+  saved one for the whole workspace) still answers and is listed with the
+  ad-hoc keys; remove it with
+  `DELETE /_agent-native/secrets/adhoc/GEMINI_API_KEY?scope=workspace`
+  (owners and admins). Don't register `GEMINI_API_KEY`; record an app's uses with
+  `registerSecretUsage(GEMINI_API_KEY, [...])` from `@agent-native/core/secrets`.
 
 ### Restrict personal API keys
 

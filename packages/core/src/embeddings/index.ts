@@ -3,9 +3,13 @@ import {
   getBuilderEmbeddingsBaseUrl,
   prefetchSecrets,
   resolveBuilderGatewayAuth,
-  resolveSecretDetailed,
   type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
+import {
+  GEMINI_API_KEY,
+  resolveSecretWithAliasesDetailed,
+  secretKeyNames,
+} from "../server/secret-key-aliases.js";
 
 export type EmbeddingInputPurpose = "query" | "document";
 export interface EmbeddingImageInput {
@@ -372,7 +376,7 @@ export function createBuilderEmbeddingFamily(
 const EMBEDDING_CREDENTIALS = [
   {
     provider: "gemini",
-    key: "GEMINI_API_KEY",
+    key: GEMINI_API_KEY,
     create: createGeminiEmbeddingFamily,
   },
   {
@@ -393,15 +397,15 @@ export interface EmbeddingFamilyAvailability {
 }
 
 export async function readEmbeddingFamilyAvailability(): Promise<EmbeddingFamilyAvailability> {
-  await prefetchSecrets(EMBEDDING_CREDENTIALS.map(({ key }) => key)).catch(
-    () => undefined,
-  );
+  await prefetchSecrets(
+    EMBEDDING_CREDENTIALS.flatMap(({ key }) => secretKeyNames(key)),
+  ).catch(() => undefined);
   const resolved = await Promise.all(
     EMBEDDING_CREDENTIALS.map(async (credential) => {
       try {
         return {
           credential,
-          detail: await resolveSecretDetailed(credential.key),
+          detail: await resolveSecretWithAliasesDetailed(credential.key),
         };
       } catch {
         return {

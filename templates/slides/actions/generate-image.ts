@@ -260,7 +260,7 @@ Options:
     provider = await getProvider(modelChoice);
   } catch {
     console.error(
-      "Error: No image generation provider configured. Save GEMINI_API_KEY or OPENAI_API_KEY in settings.",
+      "Error: No image generation provider configured. Save GOOGLE_GENERATIVE_AI_API_KEY or OPENAI_API_KEY in settings.",
     );
     throw new Error("Script failed");
   }

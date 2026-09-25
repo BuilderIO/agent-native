@@ -68,7 +68,10 @@ vi.mock("../agent/engine/index.js", () => ({
 
 // Slides imports the public entry; point it at this source tree so the
 // template's real registrations land in the registry under test.
-vi.mock("@agent-native/core/secrets", async () => import("./register.js"));
+vi.mock("@agent-native/core/secrets", async () => ({
+  ...(await import("./register.js")),
+  ...(await import("./key-aliases.js")),
+}));
 
 import { registerFrameworkSecrets } from "./register-framework-secrets.js";
 import { __resetSecretsRegistry, registerRequiredSecret } from "./register.js";

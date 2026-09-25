@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 
@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   hasGatewayCredential: false,
   status: 0,
   provider: "builder" as string,
+  secrets: {} as Record<string, string>,
 }));
 
 vi.mock("h3", () => ({
@@ -40,7 +41,16 @@ vi.mock("./request-context.js", () => ({
 // reads `BUILDER_GATEWAY_TOKEN` from the environment.
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
-  resolveSecret: async () => null,
+  resolveSecret: async (key: string) => state.secrets[key] ?? null,
+  resolveSecretDetailed: async (key: string) =>
+    state.secrets[key]
+      ? {
+          value: state.secrets[key],
+          lookupFailed: false,
+          source: "user",
+          scopeId: "owner@example.com",
+        }
+      : { value: null, lookupFailed: false },
   resolveHasBuilderGatewayCredential: async () => state.hasGatewayCredential,
 }));
 
@@ -62,6 +72,7 @@ describe("transcribe-voice Builder provider gate", () => {
   beforeEach(() => {
     state.status = 0;
     state.provider = "builder";
+    state.secrets = {};
     delete process.env.BUILDER_GATEWAY_TOKEN;
     // Pinned rather than inherited: the deploy-lane predicate reads these, and a
     // runner with a preview/hosted value set takes the owner path, so the visitor
@@ -165,8 +176,56 @@ describe("transcribe-voice Builder provider gate", () => {
 
       const result = await post();
       expect(result.error).toContain("revoked token");
-      expect(result.error).toContain("GEMINI_API_KEY");
+      expect(result.error).toContain("GOOGLE_GENERATIVE_AI_API_KEY");
       expect(state.status).toBe(502);
     });
+  });
+});
+
+describe("transcribe-voice Gemini key", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    state.status = 0;
+    state.provider = "gemini";
+    state.hasGatewayCredential = false;
+    state.secrets = {};
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "hello there" }] } }],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["GOOGLE_GENERATIVE_AI_API_KEY", "gemini-chat-key"],
+    ["GEMINI_API_KEY", "gemini-legacy-key"],
+  ])("transcribes with a Gemini key saved as %s", async (name, value) => {
+    state.secrets = { [name]: value };
+
+    await expect(post()).resolves.toEqual({ text: "hello there" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("generativelanguage.googleapis.com");
+    expect((init as RequestInit).headers).toMatchObject({
+      "x-goog-api-key": value,
+    });
+  });
+
+  it("names the canonical key when no Gemini key is saved", async () => {
+    const result = await post();
+
+    expect(state.status).toBe(400);
+    expect(result.error).toContain("GOOGLE_GENERATIVE_AI_API_KEY");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

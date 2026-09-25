@@ -6091,7 +6091,7 @@ type VoiceProviderStatus = {
 
 function keyForByokProvider(provider: ByokVoiceProvider): string {
   return {
-    gemini: "GEMINI_API_KEY",
+    gemini: "GOOGLE_GENERATIVE_AI_API_KEY",
     groq: "GROQ_API_KEY",
   }[provider];
 }

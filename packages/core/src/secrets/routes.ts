@@ -14,9 +14,9 @@ import {
   type H3Event,
 } from "h3";
 
-import type { ResolvedSecretDetail } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import type { ResolvedAliasedSecret } from "../server/secret-key-aliases.js";
 
 /**
  * Workspace-scoped secret writes/deletes are deployment-wide for every
@@ -65,6 +65,7 @@ import {
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
   resolvePersonalProviderKeySaveDenial,
 } from "../server/personal-provider-key-policy.js";
+import { canonicalSecretKey, secretKeyNames } from "./key-aliases.js";
 import {
   isManagedDeleteAllowed,
   managedDeleteRefusal,
@@ -106,7 +107,10 @@ function secretSource(
     : "workspace";
 }
 
-const NOT_RESOLVED: ResolvedSecretDetail = { value: null, lookupFailed: false };
+const NOT_RESOLVED: ResolvedAliasedSecret = {
+  value: null,
+  lookupFailed: false,
+};
 
 /**
  * Run `fn` as the signed-in caller so `resolveSecret`'s precedence applies —
@@ -238,11 +242,13 @@ async function resolveScopeId(
 /** GET /_agent-native/secrets — list registered secrets with status. */
 export function createListSecretsHandler() {
   return defineEventHandler(async (event: H3Event) => {
-    const {
-      prefetchSecrets,
-      readProviderCredentialRejections,
-      resolveSecretDetailed,
-    } = await import("../server/credential-provider.js");
+    const [
+      { prefetchSecrets, readProviderCredentialRejections },
+      { resolveSecretWithAliasesDetailed },
+    ] = await Promise.all([
+      import("../server/credential-provider.js"),
+      import("../server/secret-key-aliases.js"),
+    ]);
     if (getMethod(event) !== "GET") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -257,16 +263,17 @@ export function createListSecretsHandler() {
     const resolved = await asRequestUser(
       event,
       async () => {
-        await prefetchSecrets(apiKeys);
+        await prefetchSecrets(apiKeys.flatMap((key) => secretKeyNames(key)));
         return new Map(
           await Promise.all(
             apiKeys.map(
-              async (key) => [key, await resolveSecretDetailed(key)] as const,
+              async (key) =>
+                [key, await resolveSecretWithAliasesDetailed(key)] as const,
             ),
           ),
         );
       },
-      new Map<string, ResolvedSecretDetail>(),
+      new Map<string, ResolvedAliasedSecret>(),
     );
     // null means the markers couldn't be read: the keys report "unknown"
     // rather than "set", since nobody knows whether they still work.
@@ -354,7 +361,7 @@ export function createListSecretsHandler() {
         base.status = "set";
       }
       const hit = {
-        key: secret.key,
+        key: effective.key ?? secret.key,
         scope: effective.source,
         scopeId: effective.scopeId,
       };
@@ -369,7 +376,10 @@ export function createListSecretsHandler() {
       if (base.managedHere && secret.scope === "user") {
         const shared = await asRequestUser(
           event,
-          () => resolveSecretDetailed(secret.key, { skipUserScope: true }),
+          () =>
+            resolveSecretWithAliasesDetailed(secret.key, {
+              skipUserScope: true,
+            }),
           NOT_RESOLVED,
         );
         if (shared.value && shared.source && shared.source !== "env") {
@@ -378,7 +388,7 @@ export function createListSecretsHandler() {
           }
           const sharedMeta = shared.scopeId
             ? await readAppSecretMeta({
-                key: secret.key,
+                key: shared.key ?? secret.key,
                 scope: shared.source,
                 scopeId: shared.scopeId,
               })
@@ -557,12 +567,14 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
         "Only organization owners and admins can delete org-scoped secrets",
     };
   }
-  const removed = await deleteAppSecret({
-    key: secret.key,
-    scope: secret.scope,
-    scopeId,
-  });
-  return { ok: true, removed };
+  // Removing a key removes it under every name it is stored as, or a row saved
+  // under an older name would keep the credential working after "Remove".
+  const removals = await Promise.all(
+    secretKeyNames(secret.key).map((key) =>
+      deleteAppSecret({ key, scope: secret.scope, scopeId }),
+    ),
+  );
+  return { ok: true, removed: removals.some(Boolean) };
 }
 
 /**
@@ -641,8 +653,8 @@ export function createSecretUsageHandler() {
  */
 export function createTestSecretHandler() {
   return defineEventHandler(async (event: H3Event) => {
-    const { resolveSecretDetailed } =
-      await import("../server/credential-provider.js");
+    const { resolveSecretWithAliasesDetailed } =
+      await import("../server/secret-key-aliases.js");
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -709,7 +721,7 @@ export function createTestSecretHandler() {
       // than a row saved from this UI.
       const stored = await asRequestUser(
         event,
-        () => resolveSecretDetailed(secret.key),
+        () => resolveSecretWithAliasesDetailed(secret.key),
         NOT_RESOLVED,
       );
       if (!stored.value) {
@@ -771,7 +783,7 @@ const AD_HOC_NAME_REGEX = /^[A-Za-z0-9_-]+$/;
 function metaToPayload(meta: SecretMeta): AdHocSecretPayload {
   const managedBy = resolveSecretManagedBy(meta.key);
   return {
-    usedFor: describeSecretUsage(meta.key),
+    usedFor: describeSecretUsage(canonicalSecretKey(meta.key)),
     ...(managedBy ? { managedBy } : {}),
     name: meta.key,
     scope: meta.scope,
@@ -824,7 +836,9 @@ async function handleAdHocList(event: H3Event) {
     return { error: reason ?? "Unable to resolve scope" };
   }
 
-  const registered = new Set(listRequiredSecrets().map((s) => s.key));
+  const registeredScope = new Map(
+    listRequiredSecrets().map((s) => [s.key, s.scope] as const),
+  );
   const userRows = await listAppSecretsForScope("user", scopeId);
   const workspaceContext = await resolveScopeId(event, "workspace");
   const workspaceRows = workspaceContext.scopeId
@@ -839,7 +853,14 @@ async function handleAdHocList(event: H3Event) {
 
   const payload: AdHocSecretPayload[] = [];
   for (const row of [...userRows, ...workspaceRows, ...orgRows]) {
-    if (registered.has(row.key)) continue;
+    if (registeredScope.has(row.key)) continue;
+    // A row under an older name of a registered key (GEMINI_API_KEY) at that
+    // key's scope already shows as its status, and the key's Remove clears
+    // it. At any other scope (Brain once saved GEMINI_API_KEY for the whole
+    // workspace) this list is the only place it can be removed.
+    if (registeredScope.get(canonicalSecretKey(row.key)) === row.scope) {
+      continue;
+    }
     payload.push(metaToPayload(row));
   }
   return payload;
@@ -941,6 +962,37 @@ async function handleAdHocDelete(event: H3Event, name: string) {
   }
   const refusal = refuseManagedDelete(event, name);
   if (refusal) return refusal;
+  // The list can hold a personal and a workspace row under one name, so the
+  // row's own scope says which one to remove. Without it, personal first.
+  const requestedScope = getQuery(event).scope;
+  if (
+    requestedScope !== undefined &&
+    requestedScope !== "user" &&
+    requestedScope !== "workspace"
+  ) {
+    setResponseStatus(event, 400);
+    return { error: 'scope must be "user" or "workspace"' };
+  }
+  if (requestedScope === "workspace") {
+    const { scopeId, reason } = await resolveScopeId(event, "workspace");
+    if (!scopeId) {
+      setResponseStatus(event, 401);
+      return { error: reason ?? "Unable to resolve scope" };
+    }
+    if (!(await canMutateWorkspaceScope(event, scopeId))) {
+      setResponseStatus(event, 403);
+      return {
+        error:
+          "Only organization owners and admins can delete workspace-scoped secrets",
+      };
+    }
+    const removed = await deleteAppSecret({
+      key: name,
+      scope: "workspace",
+      scopeId,
+    });
+    return { ok: true, removed };
+  }
   const scope: SecretScope = "user";
   const { scopeId, reason } = await resolveScopeId(event, scope);
   if (!scopeId) {
@@ -948,6 +1000,7 @@ async function handleAdHocDelete(event: H3Event, name: string) {
     return { error: reason ?? "Unable to resolve scope" };
   }
   const removed = await deleteAppSecret({ key: name, scope, scopeId });
+  if (requestedScope === "user") return { ok: true, removed };
   if (!removed) {
     // Fall back to workspace scope so the agent / UI can clean up shared keys.
     // Gate the fallback behind the org-admin check so a regular member can't

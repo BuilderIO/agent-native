@@ -498,4 +498,52 @@ describe("SecretsSection", () => {
     // Only the unmanaged custom key keeps its trash button.
     expect(container.querySelectorAll(".tabler-icon-trash")).toHaveLength(1);
   });
+
+  it("removes a same-named key at the scope of the row that was deleted", async () => {
+    const row = (scope: "user" | "workspace", last4: string) => ({
+      name: "GEMINI_API_KEY",
+      scope,
+      scopeId: scope === "user" ? "user-1" : "org-1",
+      source: scope === "user" ? "personal" : "workspace",
+      description: null,
+      last4,
+      createdAt: 1,
+      updatedAt: 1,
+      usedFor: [],
+    });
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "DELETE") return Response.json({ removed: true });
+        if (url.endsWith("/secrets/adhoc")) {
+          return Response.json([row("user", "1111"), row("workspace", "9999")]);
+        }
+        return Response.json(registeredSecrets);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    const trashButtons = Array.from(
+      container.querySelectorAll(".tabler-icon-trash"),
+    ).map((icon) => icon.closest("button"));
+    expect(trashButtons).toHaveLength(2);
+    await click(trashButtons[1]);
+    expect(
+      Array.from(container.querySelectorAll("button")).filter(
+        (button) => button.textContent?.trim() === "Confirm",
+      ),
+    ).toHaveLength(1);
+    await click(findButton("Confirm"));
+
+    const deletes = fetchMock.mock.calls.filter(
+      ([, init]) => init?.method === "DELETE",
+    );
+    expect(deletes.map(([url]) => String(url))).toEqual([
+      "/_agent-native/secrets/adhoc/GEMINI_API_KEY?scope=workspace",
+    ]);
+  });
 });

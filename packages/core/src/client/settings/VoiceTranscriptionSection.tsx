@@ -25,6 +25,7 @@ import {
   buildSettingsRoute,
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
+import { GEMINI_API_KEY } from "../../secrets/key-aliases.js";
 import { agentNativePath, appMountedPath } from "../api-path.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { SettingsRow } from "./SettingsRow.js";
@@ -267,7 +268,7 @@ export function VoiceTranscriptionSection({
             const find = (key: string) =>
               Array.isArray(list) ? list.find((s) => s.key === key) : null;
             setOpenAiConfigured(find("OPENAI_API_KEY")?.status === "set");
-            setGeminiConfigured(find("GEMINI_API_KEY")?.status === "set");
+            setGeminiConfigured(find(GEMINI_API_KEY)?.status === "set");
             setGroqConfigured(find("GROQ_API_KEY")?.status === "set");
             setGoogleRealtimeConfigured(
               find("GOOGLE_APPLICATION_CREDENTIALS")?.status === "set",
@@ -662,7 +663,7 @@ export function VoiceTranscriptionSection({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      focusKey("GEMINI_API_KEY");
+                      focusKey(GEMINI_API_KEY);
                     }}
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >

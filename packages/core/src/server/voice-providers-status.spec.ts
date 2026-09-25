@@ -26,6 +26,15 @@ vi.mock("./credential-provider.js", () => ({
   resolveHasCompleteBuilderConnection: (...args: any[]) =>
     mockResolveHasCompleteBuilderConnection(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
+  // The Gemini key resolves through the alias resolver, which reads each name
+  // in detail. Same answers as `resolveSecret`, so one mock drives both.
+  resolveSecretDetailed: async (key: string) => {
+    const value = await mockResolveSecret(key);
+    return value
+      ? { value, lookupFailed: false, source: "user", scopeId: "qa" }
+      : { value: null, lookupFailed: false };
+  },
+  assertCredentialStoreReadable: () => {},
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -116,6 +125,26 @@ describe("voice providers status route", () => {
     });
     expect(mockResolveSecret).toHaveBeenCalledWith("GEMINI_API_KEY");
   });
+
+  it.each(["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"])(
+    "reports Gemini with the key saved as %s",
+    async (name) => {
+      mockResolveSecret.mockImplementation(async (key: string) =>
+        key === name ? "gemini-key" : null,
+      );
+
+      const handler = createVoiceProvidersStatusHandler();
+      const result = await handler(event());
+
+      expect(result).toMatchObject({ gemini: true, openai: false });
+      expect(mockPrefetchSecrets).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          "GOOGLE_GENERATIVE_AI_API_KEY",
+          "GEMINI_API_KEY",
+        ]),
+      );
+    },
+  );
 
   it("reports deploy-managed Google credentials only when they resolve cleanly", async () => {
     mockResolveGoogleRealtimeCredentials.mockResolvedValue(

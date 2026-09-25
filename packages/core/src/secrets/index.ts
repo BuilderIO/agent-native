@@ -88,3 +88,10 @@ export {
 } from "./managed-keys.js";
 
 export { maybeRegisterSecretOnboardingStep } from "./onboarding.js";
+
+export {
+  GEMINI_API_KEY,
+  LEGACY_GEMINI_API_KEY,
+  canonicalSecretKey,
+  secretKeyNames,
+} from "./key-aliases.js";
