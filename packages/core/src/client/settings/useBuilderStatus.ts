@@ -787,6 +787,9 @@ export function useBuilderConnectFlow(
           started !== null &&
           callbackSuccessStartedAtRef.current === started
         ) {
+          // Keep cancellation observable after confirmation finishes, but let
+          // its bounded retries finish before starting the close grace window.
+          popupClosedAtRef.current ??= Date.now();
           return;
         }
         popupClosedAtRef.current ??= Date.now();
@@ -1536,6 +1539,9 @@ export function useBuilderConnectFlow(
         }
         if (callbackSuccessInFlightAtRef.current === started) {
           callbackSuccessInFlightAtRef.current = null;
+          if (popupClosedAtRef.current !== null && !s?.configured) {
+            popupClosedAtRef.current = Date.now();
+          }
         }
       }
       if (!mountedRef.current || connectStartedAtRef.current !== started) {
