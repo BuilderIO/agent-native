@@ -7,7 +7,6 @@ import {
   computeSlideFitTransform,
   getRenderedSlideSource,
   isRawHtmlSlide,
-  noteSlideEditDraft,
   prepareImportedFonts,
   resolveImportedFont,
   renderRawSlideHtml,
@@ -360,7 +359,6 @@ describe("SlideInner source stamps", () => {
     const remote = content
       .replace("blob:preview", "https://cdn.test/a.png")
       .replace("Caption", "Agent caption");
-    noteSlideEditDraft(root, remote);
     registerSlideImageUploadProvenance(slide.id, remote, provenance);
     const commit = vi.fn((event: Event) => {
       expect((event as CustomEvent).detail).toEqual({ content: remote });
