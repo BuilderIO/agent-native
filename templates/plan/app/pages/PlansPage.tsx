@@ -6605,18 +6605,18 @@ function PlanInviteSuggestionCard({
     navigate("/settings#team");
   };
 
-  const enableDomainJoin = () => {
+  const enableDomainJoin = async () => {
     if (!domain || setOrgDomain.isPending) return;
     trackAction("plan_invite_suggestion_clicked", "enable_domain_join");
-    setOrgDomain.mutate(domain, {
-      onSuccess: () => {
-        trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
-        actionCloseRef.current = true;
-        setVisible(false);
-      },
-      onError: () =>
-        toast.error(t("plansPage.share.teammateSuggestion.enableFailed")),
-    });
+    try {
+      await setOrgDomain.mutateAsync(domain);
+    } catch {
+      toast.error(t("plansPage.share.teammateSuggestion.enableFailed"));
+      return;
+    }
+    trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
+    actionCloseRef.current = true;
+    setVisible(false);
   };
 
   return (
