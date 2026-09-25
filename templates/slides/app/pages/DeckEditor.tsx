@@ -193,6 +193,82 @@ type PendingImagePreviewUpdate =
 
 type CommentComposerAnchor = SlideCommentAnchor | Range;
 
+type OutputViewClaim = "claimed" | "already_seen" | "unavailable";
+
+const OUTPUT_VIEW_LOCK_NAME = "agent-native:slides-output-viewed";
+const OUTPUT_VIEW_STORAGE_KEY = "slides:output-viewed";
+const OUTPUT_VIEW_LEGACY_PREFIX = "slides:output-viewed:";
+const OUTPUT_VIEW_LEGACY_CLEANUP_KEY = "slides:output-viewed-cleanup-v1";
+const OUTPUT_VIEW_DECK_LIMIT = 512;
+
+async function claimOutputView(
+  sessionId: string,
+  deckId: string,
+): Promise<OutputViewClaim> {
+  if (typeof window === "undefined" || !navigator.locks) {
+    return "unavailable";
+  }
+
+  try {
+    return await navigator.locks.request(
+      OUTPUT_VIEW_LOCK_NAME,
+      { mode: "exclusive" },
+      () => {
+        try {
+          const storage = window.localStorage;
+          if (storage.getItem(OUTPUT_VIEW_LEGACY_CLEANUP_KEY) !== "1") {
+            const legacyKeys: string[] = [];
+            for (let index = 0; index < storage.length; index += 1) {
+              const key = storage.key(index);
+              if (key?.startsWith(OUTPUT_VIEW_LEGACY_PREFIX)) {
+                legacyKeys.push(key);
+              }
+            }
+            for (const key of legacyKeys) storage.removeItem(key);
+            storage.setItem(OUTPUT_VIEW_LEGACY_CLEANUP_KEY, "1");
+          }
+
+          const stored = storage.getItem(OUTPUT_VIEW_STORAGE_KEY);
+          const marker = stored ? JSON.parse(stored) : null;
+          if (
+            stored &&
+            (!marker ||
+              typeof marker !== "object" ||
+              Array.isArray(marker) ||
+              typeof marker.sessionId !== "string" ||
+              !Array.isArray(marker.deckIds))
+          ) {
+            return "unavailable";
+          }
+
+          const seenDeckIds =
+            marker?.sessionId === sessionId
+              ? marker.deckIds.filter(
+                  (value: unknown): value is string =>
+                    typeof value === "string",
+                )
+              : [];
+          if (seenDeckIds.includes(deckId)) return "already_seen";
+
+          // ponytail: 512 IDs bounds one session; a longer session can re-emit an evicted deck.
+          storage.setItem(
+            OUTPUT_VIEW_STORAGE_KEY,
+            JSON.stringify({
+              sessionId,
+              deckIds: [...seenDeckIds, deckId].slice(-OUTPUT_VIEW_DECK_LIMIT),
+            }),
+          );
+          return "claimed";
+        } catch {
+          return "unavailable";
+        }
+      },
+    );
+  } catch {
+    return "unavailable";
+  }
+}
+
 function isDomRange(value: CommentComposerAnchor | undefined): value is Range {
   return Boolean(
     value &&
@@ -334,7 +410,6 @@ export default function DeckEditor() {
     width: number;
   } | null>(null);
   const selectionAnchorSlideIdRef = useRef<string | null>(null);
-  const viewedDeckIdsRef = useRef(new Set<string>());
   const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   // The blank placeholder the agent was asked to fill in place. The rail must
@@ -718,28 +793,20 @@ export default function DeckEditor() {
       return;
     }
     const analyticsSessionId = getAnalyticsSessionId();
-    const viewKey = JSON.stringify([analyticsSessionId ?? "no-session", id]);
-    if (viewedDeckIdsRef.current.has(viewKey)) return;
-    viewedDeckIdsRef.current.add(viewKey);
-    const viewedKey = "slides:output-viewed:" + viewKey;
-    try {
-      const storage = analyticsSessionId
-        ? window.localStorage
-        : window.sessionStorage;
-      if (storage.getItem(viewedKey) === "1") return;
-      storage.setItem(viewedKey, "1");
-      // coercion-ok: storage may be disabled; in-memory dedupe is fallback.
-    } catch {}
-    trackEvent("output_viewed", {
-      app_name: "slides",
-      template_name: "slides",
-      output_id: id,
-      output_type: "deck",
-      slide_count: slideCount,
-      source: "deck_editor",
-      ...(generationAttemptId
-        ? { generation_attempt_id: generationAttemptId }
-        : {}),
+    if (!analyticsSessionId) return;
+    void claimOutputView(analyticsSessionId, id).then((claim) => {
+      if (claim !== "claimed") return;
+      trackEvent("output_viewed", {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: id,
+        output_type: "deck",
+        slide_count: slideCount,
+        source: "deck_editor",
+        ...(generationAttemptId
+          ? { generation_attempt_id: generationAttemptId }
+          : {}),
+      });
     });
   }, [deck, generationAttemptId, id, slideCount]);
   const generationLifecycleOwnedByEditor =

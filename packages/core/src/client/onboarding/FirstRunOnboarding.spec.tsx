@@ -1020,6 +1020,63 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("does not start duplicate manual setup attempts while completion is pending", async () => {
+    let resolveCompletion: (() => void) | undefined;
+    mocks.completeFirstRun.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const manualSetupButton = document.body.querySelector(
+      "[data-testid='first-run-open-key-settings']",
+    );
+    act(() => {
+      manualSetupButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+      manualSetupButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    expect(
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event, properties]) =>
+          event === "onboarding_method_clicked" &&
+          (properties as Record<string, unknown>).method_id === "custom_keys",
+      ),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      resolveCompletion?.();
+    });
+
+    expect(
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event, properties]) =>
+          event === "onboarding_method_outcome" &&
+          (properties as Record<string, unknown>).method_id === "custom_keys",
+      ),
+    ).toHaveLength(1);
+    window.history.replaceState(null, "", "/");
+  });
+
   it("strips the onboarding preview query when navigating to settings", async () => {
     window.history.replaceState(
       null,

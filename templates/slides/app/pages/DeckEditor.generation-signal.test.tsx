@@ -203,6 +203,24 @@ const localStorageStub: Storage = {
   removeItem: (key) => localStorageState.delete(key),
   setItem: (key, value) => localStorageState.set(key, String(value)),
 };
+let lockTail: Promise<void> = Promise.resolve();
+const lockRequest = vi.fn(
+  (_name: string, _options: unknown, callback: (lock: unknown) => unknown) => {
+    const previous = lockTail;
+    let release: () => void;
+    lockTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return previous.then(async () => {
+      try {
+        return await callback({});
+      } finally {
+        release();
+      }
+    });
+  },
+);
+let originalLocksDescriptor: PropertyDescriptor | undefined;
 
 function publishAgentGeneratingChange() {
   mocks.revision += 1;
@@ -213,6 +231,16 @@ describe("DeckEditor generation signal wiring", () => {
   let router: ReturnType<typeof createMemoryRouter> | undefined;
 
   beforeEach(() => {
+    originalLocksDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "locks",
+    );
+    lockTail = Promise.resolve();
+    lockRequest.mockClear();
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: lockRequest },
+    });
     window.sessionStorage.clear();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -236,6 +264,12 @@ describe("DeckEditor generation signal wiring", () => {
     cleanup();
     router?.dispose();
     router = undefined;
+    if (originalLocksDescriptor) {
+      Object.defineProperty(navigator, "locks", originalLocksDescriptor);
+    } else {
+      Reflect.deleteProperty(navigator, "locks");
+    }
+    vi.restoreAllMocks();
   });
 
   it("emits one content-free output view after the deck has slides", async () => {
@@ -346,8 +380,8 @@ describe("DeckEditor generation signal wiring", () => {
   it("deduplicates deck views across tabs in the same analytics session", async () => {
     mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
     window.localStorage.setItem(
-      'slides:output-viewed:["session-1","deck-1"]',
-      "1",
+      "slides:output-viewed",
+      JSON.stringify({ sessionId: "session-1", deckIds: ["deck-1"] }),
     );
     router = createMemoryRouter(
       [{ path: "/deck/:id", element: <DeckEditor /> }],
@@ -356,11 +390,72 @@ describe("DeckEditor generation signal wiring", () => {
 
     render(<RouterProvider router={router} />);
 
+    await waitFor(() => expect(lockRequest).toHaveBeenCalledOnce());
     expect(
       vi
         .mocked(trackEvent)
         .mock.calls.filter(([name]) => name === "output_viewed"),
     ).toHaveLength(0);
+  });
+
+  it("serializes simultaneous deck views and bounds the shared marker", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    window.localStorage.setItem(
+      'slides:output-viewed:["previous-session","old-deck"]',
+      "1",
+    );
+    router = createMemoryRouter(
+      [
+        {
+          path: "/deck/:id",
+          element: (
+            <>
+              <DeckEditor />
+              <DeckEditor />
+            </>
+          ),
+        },
+      ],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(lockRequest).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(([name]) => name === "output_viewed"),
+      ).toHaveLength(1),
+    );
+    expect(window.localStorage.getItem("slides:output-viewed")).toBe(
+      JSON.stringify({ sessionId: "session-1", deckIds: ["deck-1"] }),
+    );
+    expect(
+      window.localStorage.getItem(
+        'slides:output-viewed:["previous-session","old-deck"]',
+      ),
+    ).toBeNull();
+    expect(window.localStorage.getItem("slides:output-viewed-cleanup-v1")).toBe(
+      "1",
+    );
+  });
+
+  it("does not emit when shared storage cannot persist the cross-tab claim", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new Error("storage unavailable");
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(lockRequest).toHaveBeenCalledOnce());
+    expect(trackEvent).not.toHaveBeenCalled();
   });
 
   it("clears generation state when the target tab finishes while another chat stays busy", async () => {

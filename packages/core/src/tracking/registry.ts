@@ -120,12 +120,13 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
     };
   }
   if (isActionRunContext(source)) {
+    const callerMatchesRequest = source.userEmail === requestContext?.userEmail;
     return {
       userId: source.userEmail,
-      ...(source.userEmail === requestContext?.userEmail
+      ...(callerMatchesRequest
         ? { authUserId: requestContext?.authUserId }
         : {}),
-      sessionId: ambientSessionId,
+      sessionId: callerMatchesRequest ? ambientSessionId : undefined,
       telemetryOrigin: "server",
     };
   }

@@ -81,6 +81,31 @@ describe("tracking registry", () => {
     });
   });
 
+  it("does not attach the ambient session to a mismatched action caller", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "session-1",
+      },
+      () =>
+        track(
+          "background_action",
+          {},
+          {
+            caller: "agent",
+            userEmail: "bob@example.com",
+          },
+        ),
+    );
+
+    expect(events[0]).toMatchObject({ userId: "bob@example.com" });
+    expect(events[0]?.sessionId).toBeUndefined();
+    expect(events[0]?.properties).not.toHaveProperty("auth_user_id");
+  });
+
   it("joins explicit user sources to matching ambient authenticated identity", async () => {
     const events = captureEvents();
 

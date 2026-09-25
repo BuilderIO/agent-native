@@ -410,6 +410,7 @@ export function FirstRunOnboarding({
   };
 
   const handleOpenSettings = async () => {
+    if (completionInFlightRef.current) return;
     const attempt = startSetupMethod("custom_keys", "manual");
     const completed = await finishOnboarding("choice");
     if (!completed) {
