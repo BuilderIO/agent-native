@@ -583,6 +583,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Colaboração ao vivo",
+      description:
+        "Permita que pessoas sem acesso ao localhost do proprietário vejam e editem uma cópia ao vivo deste design.",
+      enabled: "Ativada",
+      disabled: "Desativada",
+      saving: "Salvando…",
+      enableError: "Não foi possível atualizar a colaboração ao vivo.",
+    },
     vectorEndpoints: {
       startPoint: "Ponto inicial",
       endPoint: "Ponto final",
