@@ -37,7 +37,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      "const inboxSidebarUnreadCount = inboxThreads.data?.labels.find(",
+      "const inboxSidebarUnreadCount = inboxMetadata?.labels.find(",
     );
     expect(source).not.toContain('getInboxCount("unread")');
     expect(source).not.toContain("labelThreadCounts");
@@ -82,7 +82,10 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       'import { inboxTabHref } from "@shared/inbox-threads";',
     );
-    expect(source).toContain("const tabs = inboxThreads.data?.tabs ?? [];");
+    expect(source).toContain(
+      "const inboxOverview = useInboxOverview(inboxAccountEmails);",
+    );
+    expect(source).toContain("const tabs = inboxMetadata?.tabs ?? [];");
     expect(source).toContain("href: inboxTabHref(tab.id)");
     expect(source).toContain("tooltip: tab.query");
     expect(source).toContain("total: tab.total");
@@ -317,7 +320,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      "const inboxSyncing = inboxThreads.data?.syncing === true;",
+      "const inboxSyncing = inboxMetadata?.syncing === true;",
     );
     expect(source).toContain("{inboxSyncing && (");
     expect(source).toContain('{t("mail.inbox.syncing")}');

@@ -102,6 +102,7 @@ import {
   INBOX_PAGE_SIZE,
   invalidateInboxThreads,
   resolveInboxTabId,
+  useInboxOverview,
   useInboxThreads,
 } from "@/hooks/use-inbox-threads";
 import {
@@ -568,12 +569,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     limit: INBOX_PAGE_SIZE,
     offset: 0,
   });
+  const inboxOverview = useInboxOverview(inboxAccountEmails);
+  const inboxMetadata = inboxOverview.data ?? inboxThreads.data;
   const activeInboxTabId = inboxThreads.isPlaceholderData
     ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id)
     : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);
   const inboxIsFetching = inboxThreads.isFetching;
-  const inboxSyncing = inboxThreads.data?.syncing === true;
-  const needsReauthAccount = inboxThreads.data?.accounts.find(
+  const inboxSyncing = inboxMetadata?.syncing === true;
+  const needsReauthAccount = inboxMetadata?.accounts.find(
     (account) => account.state === "needs_reauth",
   );
 
@@ -720,11 +723,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [combineInbox, pinnedLabels, view, t]);
 
   // The inbox split (Important / pinned labels / saved filters / Other) with
-  // its counts comes straight from the server — see the useInboxThreads call
-  // above. A tab's badge can never disagree with what it lists because both
-  // are read off the same row.
+  // its counts comes from one account-scoped snapshot, shared across each
+  // tab's separately cached row page.
   const dataTabs = useMemo<RenderedTab[]>(() => {
-    const tabs = inboxThreads.data?.tabs ?? [];
+    const tabs = inboxMetadata?.tabs ?? [];
     return tabs.map((tab) => {
       const label = labels.find((l) => l.id === tab.id);
       return {
@@ -742,7 +744,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isSystemView: false,
       };
     });
-  }, [inboxThreads.data?.tabs, activeInboxTabId, labels, view]);
+  }, [inboxMetadata?.tabs, activeInboxTabId, labels, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
     () => [...systemViewTabs, ...dataTabs],
@@ -1226,7 +1228,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // unread count from the same sync-cache label list the tab bar uses —
   // summing the (possibly overlapping) split tabs would double-count threads
   // that match more than one label/filter tab.
-  const inboxSidebarUnreadCount = inboxThreads.data?.labels.find(
+  const inboxSidebarUnreadCount = inboxMetadata?.labels.find(
     (label) => label.id === "inbox",
   )?.unreadCount;
   const railNavItems = [

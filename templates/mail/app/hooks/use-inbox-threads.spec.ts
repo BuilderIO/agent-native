@@ -2,18 +2,21 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  type InboxOverview,
   applyInboxMutationOverlay,
   adjustInboxThreadUnreadOptimistic,
   cancelInboxThreadsQueries,
   clearInboxThreadRemoval,
   findInboxThreadIdByMessageId,
   INBOX_THREADS_QUERY_KEY,
+  inboxOverviewQueryKey,
   inboxThreadsHasNextPage,
   keepLatestInboxSnapshot,
   inboxThreadsRefetchInterval,
   isUnauthorizedError,
   markInboxThreadReadOptimistic,
   mergeInboxThreadPages,
+  publishInboxOverview,
   removeInboxThreadsOptimistic,
   retainInboxMutationTargets,
   resolveInboxTabId,
@@ -68,6 +71,47 @@ describe("inboxThreadsRefetchInterval", () => {
         state: { error: null, data: { syncing: false } },
       }),
     ).toBe(20_000);
+  });
+});
+
+describe("shared inbox overview snapshots", () => {
+  it("keeps the newest tab counts in one account-scoped cache across tab switches", () => {
+    const qc = new QueryClient();
+    const accounts = ["steve@example.com"];
+    const queryKey = inboxOverviewQueryKey(accounts);
+    const snapshot = (clientSnapshotId: number, totals: number[]) => ({
+      tabs: ["important", "automated", "pitch"].map((id, index) => ({
+        id,
+        kind: "label" as const,
+        name: id,
+        total: totals[index]!,
+        unread: 0,
+      })),
+      syncing: false,
+      accounts: [],
+      labels: [],
+      clientSnapshotId,
+    });
+
+    publishInboxOverview(qc, accounts, snapshot(4, [2, 36, 2]));
+    expect(
+      qc.getQueryData<InboxOverview>(queryKey)?.tabs.map((tab) => tab.total),
+    ).toEqual([2, 36, 2]);
+
+    publishInboxOverview(qc, accounts, snapshot(3, [1, 35, 1]));
+    expect(
+      qc.getQueryData<InboxOverview>(queryKey)?.tabs.map((tab) => tab.total),
+    ).toEqual([2, 36, 2]);
+
+    publishInboxOverview(qc, accounts, snapshot(5, [3, 36, 2]));
+    expect(
+      qc.getQueryData<InboxOverview>(queryKey)?.tabs.map((tab) => tab.total),
+    ).toEqual([3, 36, 2]);
+    expect(
+      inboxOverviewQueryKey(["STEVE@example.com", "other@example.com"]),
+    ).toEqual(
+      inboxOverviewQueryKey(["other@example.com", "steve@example.com"]),
+    );
   });
 });
 
