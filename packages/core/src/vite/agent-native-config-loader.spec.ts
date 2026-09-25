@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  readFirstRunOnboardingBuildMarker,
   resolveFirstRunOnboardingBuildReplacement,
+  writeFirstRunOnboardingBuildMarker,
 } from "./agent-native-config-loader.js";
 
 const temporaryRoots: string[] = [];
@@ -162,5 +164,32 @@ describe("resolveFirstRunOnboardingBuildReplacement", () => {
         { VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING: "true" },
       ),
     ).toBe("connect");
+  });
+});
+
+describe("first-run onboarding build marker", () => {
+  it("round-trips the mode, including a recorded unknown", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+
+    expect(readFirstRunOnboardingBuildMarker(root)).toBeUndefined();
+    writeFirstRunOnboardingBuildMarker(root, "off");
+    expect(readFirstRunOnboardingBuildMarker(root)).toBe("off");
+    writeFirstRunOnboardingBuildMarker(root, "");
+    expect(readFirstRunOnboardingBuildMarker(root)).toBe("");
+  });
+
+  it("rejects a marker that is not a known mode", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agent-native"));
+    fs.writeFileSync(
+      path.join(root, ".agent-native", "first-run-onboarding"),
+      "sometimes",
+    );
+
+    expect(() => readFirstRunOnboardingBuildMarker(root)).toThrow(
+      /Invalid first-run onboarding build marker/,
+    );
   });
 });

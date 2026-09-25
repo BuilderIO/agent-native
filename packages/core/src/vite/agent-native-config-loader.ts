@@ -161,6 +161,49 @@ export function resolveFirstRunOnboardingBuildReplacement(
   return resolveEffectiveFirstRunOnboardingMode(envOverride, configured);
 }
 
+const FIRST_RUN_ONBOARDING_BUILD_MARKER = path.join(
+  ".agent-native",
+  "first-run-onboarding",
+);
+
+/**
+ * `agent-native build` runs the Vite build and the deploy (Nitro) build as
+ * separate processes, and only the Vite build sees config passed inline to
+ * `agentNative()`. The Vite build records the mode it resolved here so the
+ * deploy build embeds the same value (same handoff as the Nitro preset marker).
+ */
+export function writeFirstRunOnboardingBuildMarker(
+  cwd: string,
+  mode: AgentNativeFirstRunOnboardingMode | "",
+): void {
+  const filePath = path.join(cwd, FIRST_RUN_ONBOARDING_BUILD_MARKER);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, mode);
+}
+
+/** `undefined` when no Vite build recorded a mode; "" is a recorded unknown. */
+export function readFirstRunOnboardingBuildMarker(
+  cwd: string,
+): AgentNativeFirstRunOnboardingMode | "" | undefined {
+  const filePath = path.join(cwd, FIRST_RUN_ONBOARDING_BUILD_MARKER);
+  let value: string;
+  try {
+    value = fs.readFileSync(filePath, "utf8").trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  if (
+    value === "" ||
+    value === "off" ||
+    value === "connect" ||
+    value === "connect-and-integrations"
+  ) {
+    return value;
+  }
+  throw new Error(`Invalid first-run onboarding build marker: ${filePath}`);
+}
+
 function findConfigPath(cwd: string): string | undefined {
   return AGENT_NATIVE_CONFIG_FILE_CANDIDATES.map((filename) =>
     path.join(cwd, filename),

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
+import { readFirstRunOnboardingBuildMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
   _devActionBridgeOrigin,
@@ -1599,6 +1600,8 @@ describe("agent-native app config", () => {
       );
       expect(staged.nitro.replace[key]).toBe(JSON.stringify("connect"));
       expect(staged.define[key]).toBe(JSON.stringify("connect"));
+      // The separate deploy build process reads the same resolved value.
+      expect(readFirstRunOnboardingBuildMarker(tmpDir)).toBe("connect");
 
       fs.writeFileSync(
         path.join(tmpDir, ".env.production"),

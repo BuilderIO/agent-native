@@ -87,6 +87,7 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  readFirstRunOnboardingBuildMarker,
   resolveFirstRunOnboardingBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import {
@@ -6360,10 +6361,11 @@ export default bundle;
       nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
       cwd,
-      resolveFirstRunOnboardingBuildReplacement(
-        nitroAgentConfig,
-        nitroEnvironment,
-      ),
+      readFirstRunOnboardingBuildMarker(cwd) ??
+        resolveFirstRunOnboardingBuildReplacement(
+          nitroAgentConfig,
+          nitroEnvironment,
+        ),
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real

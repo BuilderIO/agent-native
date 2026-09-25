@@ -88,6 +88,7 @@ import {
   loadWorkspaceAgentNativeConfigFile,
   readAgentNativeJsonConfig,
   resolveFirstRunOnboardingBuildReplacement,
+  writeFirstRunOnboardingBuildMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -4353,9 +4354,14 @@ function createAgentNativeConfig(
           },
         }
       : appConfig;
-  const firstRunOnboardingBuildMode = JSON.stringify(
-    resolveFirstRunOnboardingBuildReplacement(resolvedAppConfig, runtimeEnv),
+  const firstRunOnboardingMode = resolveFirstRunOnboardingBuildReplacement(
+    resolvedAppConfig,
+    runtimeEnv,
   );
+  if (command === "build") {
+    writeFirstRunOnboardingBuildMarker(cwd, firstRunOnboardingMode);
+  }
+  const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   // The public framework route prefix is resolved exactly here, once. The
