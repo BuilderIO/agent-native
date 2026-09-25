@@ -9,6 +9,8 @@ import {
   handleUpdateResource,
   handleDeleteResource,
   handleUploadResource,
+  handleExportResourcePack,
+  handleImportResourcePack,
 } from "../resources/handlers.js";
 import {
   getH3App,
@@ -21,13 +23,15 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
  * Creates a Nitro plugin that mounts all resource CRUD routes.
  *
  * Routes:
- *   GET    /_agent-native/resources          — list resources
- *   POST   /_agent-native/resources          — create resource
- *   GET    /_agent-native/resources/tree     — get resource tree
- *   POST   /_agent-native/resources/upload   — upload file
- *   GET    /_agent-native/resources/:id      — get resource by ID
- *   PUT    /_agent-native/resources/:id      — update resource
- *   DELETE /_agent-native/resources/:id      — delete resource
+ *   GET    /_agent-native/resources              — list resources
+ *   POST   /_agent-native/resources              — create resource
+ *   GET    /_agent-native/resources/tree         — get resource tree
+ *   POST   /_agent-native/resources/upload       — upload file
+ *   POST   /_agent-native/resources/export-pack  — export a text resource pack
+ *   POST   /_agent-native/resources/import-pack  — import a text resource pack
+ *   GET    /_agent-native/resources/:id          — get resource by ID
+ *   PUT    /_agent-native/resources/:id          — update resource
+ *   DELETE /_agent-native/resources/:id          — delete resource
  */
 export function createResourcesPlugin(): NitroPluginDef {
   return async (nitroApp: any) => {
@@ -67,6 +71,28 @@ export function createResourcesPlugin(): NitroPluginDef {
       }),
     );
 
+    getH3App(nitroApp).use(
+      "/_agent-native/resources/export-pack",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return handleExportResourcePack(event);
+      }),
+    );
+
+    getH3App(nitroApp).use(
+      "/_agent-native/resources/import-pack",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return handleImportResourcePack(event);
+      }),
+    );
+
     // Catch-all for /_agent-native/resources and /_agent-native/resources/:id
     getH3App(nitroApp).use(
       "/_agent-native/resources",
@@ -88,7 +114,9 @@ export function createResourcesPlugin(): NitroPluginDef {
         if (
           subPath === "effective" ||
           subPath === "tree" ||
-          subPath === "upload"
+          subPath === "upload" ||
+          subPath === "export-pack" ||
+          subPath === "import-pack"
         )
           return;
 

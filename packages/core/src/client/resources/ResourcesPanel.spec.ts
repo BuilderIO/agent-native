@@ -6,6 +6,7 @@ import {
   normalizeResourceFileName,
   resolveInitialResourceScope,
   resolveResourceCreateMenuMode,
+  resourcePackPrefixForView,
   shouldRenderResourceSectionCreateMenu,
 } from "./ResourcesPanel.js";
 import type { TreeNode } from "./use-resources.js";
@@ -200,5 +201,15 @@ describe("filterResourceTree", () => {
     expect(filterResourceTree(tree, "skills")[0]?.path).toBe("skills");
     expect(filterResourceTree(tree, "instructions")[0]?.path).toBe("AGENTS.md");
     expect(filterResourceTree(tree, "learnings")[0]?.path).toBe("LEARNINGS.md");
+  });
+});
+
+describe("resourcePackPrefixForView", () => {
+  it("scopes a pack export to the open collection", () => {
+    expect(resourcePackPrefixForView("memory")).toBe("memory/");
+    expect(resourcePackPrefixForView("skills")).toBe("skills/");
+    expect(resourcePackPrefixForView("agents")).toBe("agents/");
+    expect(resourcePackPrefixForView("files")).toBeUndefined();
+    expect(resourcePackPrefixForView(undefined)).toBeUndefined();
   });
 });

@@ -7,6 +7,7 @@ import type {
   SkillMetadata,
 } from "../../resources/metadata.js";
 import { agentNativePath } from "../api-path.js";
+import { callActionWithRetry, useActionMutation } from "../use-action.js";
 import {
   mcpBuiltinVirtualId,
   type BuiltinCapability,
@@ -403,6 +404,60 @@ export function useDeleteResource() {
       );
       if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
     },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["resources"] });
+    },
+  });
+}
+
+export type ResourcePackExportScope =
+  | "personal"
+  | "organization"
+  | "workspace"
+  | "accessible";
+
+export function resourcePackScopeFromPanel(
+  scope: ResourceScope,
+): ResourcePackExportScope {
+  if (scope === "shared") return "organization";
+  if (scope === "all") return "accessible";
+  return scope;
+}
+
+export function resourcePackDownloadFilename(exportedAt = Date.now()): string {
+  return `agent-resource-pack-${exportedAt}.json`;
+}
+
+export function downloadResourcePackJson(
+  pack: unknown,
+  filename = resourcePackDownloadFilename(),
+): void {
+  const blob = new Blob([JSON.stringify(pack, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export function useExportResourcePack() {
+  return useMutation({
+    mutationFn: (params: {
+      scope?: ResourcePackExportScope;
+      prefix?: string;
+    }) =>
+      callActionWithRetry<{ pack: unknown }>("export-resource-pack", params, {
+        method: "GET",
+      }),
+  });
+}
+
+export function useImportResourcePack() {
+  const queryClient = useQueryClient();
+  return useActionMutation("import-resource-pack", {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["resources"] });
     },

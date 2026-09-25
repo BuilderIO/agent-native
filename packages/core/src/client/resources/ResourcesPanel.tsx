@@ -13,6 +13,8 @@ import {
   IconHierarchy2,
   IconPlugConnected,
   IconDownload,
+  IconPackageExport,
+  IconFileImport,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -44,6 +46,7 @@ import { PromptComposer } from "../composer/index.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { useUploadResource } from "../uploads/use-upload-resource.js";
+import { actionErrorMessage } from "../use-action.js";
 import { cn } from "../utils.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
 import {
@@ -74,6 +77,11 @@ import {
   resourceDownloadUrl,
   withMcpServersFolder,
   withAgentScratchFolder,
+  useExportResourcePack,
+  useImportResourcePack,
+  downloadResourcePackJson,
+  resourcePackScopeFromPanel,
+  resourcePackDownloadFilename,
   type ResourceScope,
   type ResourceMeta,
   type Resource,
@@ -1229,6 +1237,23 @@ export function shouldRenderResourceSectionCreateMenu(
   );
 }
 
+export function resourcePackPrefixForView(
+  view: ResourceView | undefined,
+): string | undefined {
+  switch (view) {
+    case "memory":
+      return "memory/";
+    case "skills":
+      return "skills/";
+    case "agents":
+      return "agents/";
+    case "remote-agents":
+      return "remote-agents/";
+    default:
+      return undefined;
+  }
+}
+
 export function ResourcesPanel({
   showMcpServers = true,
   scope: requestedScope,
@@ -1288,6 +1313,7 @@ export function ResourcesPanel({
     setToolbarDeleteConfirmId(null);
   }, [selectedResourceId]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const packFileInputRef = useRef<HTMLInputElement>(null);
 
   const sharedTreeQuery = useResourceTree("shared", {
     includeAgentScratch: showAgentScratch,
@@ -1420,6 +1446,8 @@ export function ResourcesPanel({
   const createResource = useCreateResource();
   const updateResource = useUpdateResource();
   const deleteResource = useDeleteResource();
+  const exportResourcePack = useExportResourcePack();
+  const importResourcePack = useImportResourcePack();
   const uploadResource = useUploadResource();
   const selectedResourceReadOnly =
     !!resourceQuery.data &&
@@ -1597,6 +1625,57 @@ export function ResourcesPanel({
       }
     },
     [uploadResource],
+  );
+
+  const handleExportPack = useCallback(async () => {
+    try {
+      const prefix = resourcePackPrefixForView(resourceFilter);
+      const result = (await exportResourcePack.mutateAsync({
+        scope: resourcePackScopeFromPanel(activeScope),
+        ...(prefix ? { prefix } : {}),
+      })) as { pack?: { exportedAt?: number } };
+      downloadResourcePackJson(
+        result.pack,
+        resourcePackDownloadFilename(result.pack?.exportedAt),
+      );
+      showToast("ok", t("agentResources.exportPackSuccess"));
+    } catch (err) {
+      showToast(
+        "err",
+        actionErrorMessage(err) ?? t("agentResources.exportPackFailed"),
+      );
+    }
+  }, [activeScope, exportResourcePack, resourceFilter, showToast, t]);
+
+  const handleImportPackFile = useCallback(
+    async (file: File) => {
+      let pack: unknown;
+      try {
+        pack = JSON.parse(await file.text());
+      } catch {
+        showToast("err", t("agentResources.importPackInvalid"));
+        return;
+      }
+      try {
+        const result = (await importResourcePack.mutateAsync({ pack })) as {
+          imported?: number;
+          skipped?: number;
+        };
+        showToast(
+          "ok",
+          t("agentResources.importPackSuccess", {
+            imported: result.imported ?? 0,
+            skipped: result.skipped ?? 0,
+          }),
+        );
+      } catch (err) {
+        showToast(
+          "err",
+          actionErrorMessage(err) ?? t("agentResources.importPackFailed"),
+        );
+      }
+    },
+    [importResourcePack, showToast, t],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1888,6 +1967,38 @@ export function ResourcesPanel({
       ) : (
         /* Floating action buttons — absolute top-right over tree view */
         <div className="absolute end-3 top-3 z-10 flex items-center gap-1">
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => void handleExportPack()}
+                  disabled={exportResourcePack.isPending}
+                  aria-label={t("agentResources.exportPack")}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                >
+                  <IconPackageExport className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("agentResources.exportPack")}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => packFileInputRef.current?.click()}
+                  disabled={importResourcePack.isPending}
+                  aria-label={t("agentResources.importPack")}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                >
+                  <IconFileImport className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("agentResources.importPack")}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {activeCreateMenuMode !== "hidden" &&
             (!resourceFilter || resourceFilter === "files") && (
               <CreateMenu
@@ -1969,6 +2080,17 @@ export function ResourcesPanel({
                 handleUploadFiles(e.target.files, activeScope);
                 e.target.value = "";
               }
+            }}
+          />
+          <input
+            ref={packFileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleImportPackFile(file);
+              e.target.value = "";
             }}
           />
         </div>

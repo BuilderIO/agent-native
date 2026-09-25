@@ -125,7 +125,7 @@ For app-backed skills, declare skill visibility in the app-skill manifest:
 
 ### 4. Application State Sync
 
-Expose navigation and selection state so the agent knows what the user is looking at. Write to the `navigation` app-state key on route changes. Update the `view-screen` action to fetch relevant data for the new feature. Add a `navigate` command if the agent needs to open the new view.
+Expose navigation and selection state so the agent knows what the user is looking at. Write to the `navigation` app-state key on route changes. Update the `view-screen` action to fetch relevant data for the new feature. Add a `navigate` command if the agent needs to open the new view. Text resources participate in `export-resource-pack`; binaries and secrets do not.
 
 ## Examples
 
