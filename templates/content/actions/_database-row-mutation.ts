@@ -1277,13 +1277,6 @@ export async function createDatabaseRow(
         tx as unknown as Db,
         true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       await touchContentDatabase(
@@ -1365,13 +1358,6 @@ export async function updateDatabaseRow(
         tx as unknown as Db,
         true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       const updated = await updateInsideTransaction(
@@ -1525,13 +1511,6 @@ export async function upsertDatabaseRow(
         tx as unknown as Db,
         true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       if (locked.database.naturalKeyPropertyId !== keyPropertyId) {
