@@ -3697,7 +3697,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
       );
     }
+    function dimensionHasAutoMargin(el, property) {
+      var style = el.style;
+      return property === "width" ? style.marginLeft === "auto" || style.marginRight === "auto" : style.marginTop === "auto" || style.marginBottom === "auto";
+    }
     function gridItemDimensionIsStretched(el, property, cs, parentStyle) {
+      if (dimensionHasAutoMargin(el, property)) return false;
       var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
       if (alignment === "auto") {
         alignment = property === "width" ? parentStyle.justifyItems : parentStyle.alignItems;
@@ -3708,19 +3713,29 @@ export const editorChromeBridgeScript: string = `"use strict";
         el.tagName.toLowerCase()
       );
     }
+    function flexItemDimensionIsStretched(el, property, cs, parentStyle) {
+      var mainAxis = /^column/.test(parentStyle.flexDirection) ? "height" : "width";
+      if (property === mainAxis || dimensionHasAutoMargin(el, property)) {
+        return false;
+      }
+      var alignment = cs.alignSelf === "auto" ? parentStyle.alignItems : cs.alignSelf;
+      return alignment === "normal" || alignment === "stretch";
+    }
     function portableSizeIsLayoutResolved(el, property, cs, typedSize) {
       if (el.style?.getPropertyValue(property)) return false;
       if (typedSize !== cs[property]) return false;
-      if (property !== "width" || cs.position !== "static") return false;
+      if (cs.position === "absolute" || cs.position === "fixed") return false;
       var parent = el.parentElement;
       if (!parent) return false;
       var parentStyle = window.getComputedStyle(parent);
       if (/^(inline-)?flex$/.test(parentStyle.display)) {
-        return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+        var mainAxis = /^column/.test(parentStyle.flexDirection) ? "height" : "width";
+        return property === mainAxis ? cs.flexBasis !== "auto" && cs.flexBasis !== "content" || Number(cs.flexGrow) > 0 || Number(cs.flexShrink) > 0 : flexItemDimensionIsStretched(el, property, cs, parentStyle);
       }
       if (/^(inline-)?grid$/.test(parentStyle.display)) {
         return gridItemDimensionIsStretched(el, property, cs, parentStyle);
       }
+      if (property !== "width") return false;
       if (cs.display !== "block" && cs.display !== "flow-root") return false;
       var parentContentWidth = parent.clientWidth - parseFloat(parentStyle.paddingLeft || "0") - parseFloat(parentStyle.paddingRight || "0");
       return parentContentWidth > 0 && Math.abs(el.getBoundingClientRect().width - parentContentWidth) < 1;
@@ -11417,7 +11432,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       return Number.isFinite(size) ? size : void 0;
     }
     function crossScreenAutoLayoutSizeFallback(el, snapshot, computed) {
-      if (!el || !computed || computed.position !== "static") return void 0;
+      if (!el || !computed || computed.position === "absolute" || computed.position === "fixed") {
+        return void 0;
+      }
       var parent = el.parentElement;
       if (!parent) return void 0;
       var parentStyle = window.getComputedStyle(parent);
@@ -11429,6 +11446,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       var styles = snapshotRoot?.styles;
       if (!styles || typeof styles !== "object") return void 0;
+      var mainAxis = /^column/.test(parentStyle.flexDirection) ? "height" : "width";
       var resolvedByAutoLayout = function(property) {
         if (isGrid) {
           return gridItemDimensionIsStretched(
@@ -11438,16 +11456,16 @@ export const editorChromeBridgeScript: string = `"use strict";
             parentStyle
           );
         }
-        var mainAxis = /^column/.test(parentStyle.flexDirection) ? "height" : "width";
         if (property === mainAxis) {
-          return computed.flexBasis !== "auto" && computed.flexBasis !== "content" || Number(computed.flexGrow) > 0;
+          return computed.flexBasis !== "auto" && computed.flexBasis !== "content" || Number(computed.flexGrow) > 0 || Number(computed.flexShrink) > 0;
         }
-        var alignment = computed.alignSelf === "auto" ? parentStyle.alignItems : computed.alignSelf;
-        return alignment === "stretch";
+        return flexItemDimensionIsStretched(el, property, computed, parentStyle);
       };
       var result = {};
       ["width", "height"].forEach((property) => {
-        if (Object.prototype.hasOwnProperty.call(styles, property) || !resolvedByAutoLayout(property)) {
+        var snapshotSize = styles[property];
+        var snapshotSizeIsAuto = typeof snapshotSize === "string" && snapshotSize.trim().toLowerCase() === "auto";
+        if (Object.prototype.hasOwnProperty.call(styles, property) && !snapshotSizeIsAuto || !resolvedByAutoLayout(property)) {
           return;
         }
         var size = computedSizeInPixels(computed[property]);

@@ -307,6 +307,91 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
   );
 
   it(
+    "captures the default flex cross-axis stretch dimension",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:300px;height:200px">
+          <div data-agent-native-node-id="stretched" style="width:40px;height:auto">Tall item</div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="stretched"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.height).toBe("auto");
+      expect(sourceComputedSize).toEqual({ height: 200 });
+    },
+  );
+
+  it(
+    "captures Flex sizing for relatively positioned in-flow items",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:300px;height:200px">
+          <div data-agent-native-node-id="relative" style="position:relative;width:40px;height:auto">Tall item</div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="relative"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.height).toBe("auto");
+      expect(sourceComputedSize).toEqual({ height: 200 });
+    },
+  );
+
+  it(
+    "captures an auto-basis Flex main-axis size after flex-shrink",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:120px;height:40px">
+          <div data-agent-native-node-id="shrunk" style="width:auto;min-width:0;flex:0 1 auto;white-space:nowrap">A long unbreakable flex item</div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="shrunk"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.width).toBe("auto");
+      expect(sourceComputedSize).toEqual({ width: 120, height: 40 });
+    },
+  );
+
+  it(
+    "does not capture flex cross-axis size when auto margins disable stretch",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:300px;height:200px">
+          <div data-agent-native-node-id="auto-margin" style="width:40px;margin-top:auto">Tall item</div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="auto-margin"]',
+      );
+      expect(sourceComputedSize).toBeUndefined();
+    },
+  );
+
+  it(
+    "captures default Flex stretch on the cross axis for column layout",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;flex-direction:column;width:300px;height:200px">
+          <div data-agent-native-node-id="stretched" style="width:auto;height:40px">Wide item</div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="stretched"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.width).toBe("auto");
+      expect(sourceComputedSize).toEqual({ width: 300 });
+    },
+  );
+
+  it(
     "preserves a fixed width when flex-basis controls the used width",
     { timeout: 30_000 },
     async () => {

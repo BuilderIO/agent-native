@@ -756,3 +756,157 @@ test("ordinary cross-Screen drops preserve percentage and auto sizing", async ({
     await action(request, "delete-design", { id: designId });
   }
 });
+
+test("cross-Screen drops preserve relative, flex-shrunk, and stretched Flex sizes", async ({
+  page,
+  request,
+}) => {
+  const flexSource = `<!doctype html><html><body style="margin:0;position:relative;width:800px;height:600px">
+    <section style="position:absolute;left:80px;top:80px;width:300px;height:200px;display:flex">
+      <div data-agent-native-node-id="stretched" data-agent-native-layer-name="Stretched item" style="position:relative;width:auto;height:auto;min-width:0;flex:0 1 auto;white-space:nowrap;background:#059669">A long unbreakable flex child that shrinks to fit its row</div>
+    </section>
+  </body></html>`;
+  const { designId, ids } = await createScreens(
+    request,
+    DESTINATION,
+    flexSource,
+  );
+  try {
+    await gotoEditor(page, designId);
+    const source = screenById(page, ids[0]!)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="stretched"]');
+    const target = screenById(page, ids[1]!)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="root"]');
+    await expect(source).toBeVisible();
+    await expect(target).toBeVisible();
+    expect(
+      await source.evaluate((element) => {
+        const { width, height } = element.getBoundingClientRect();
+        return { width, height };
+      }),
+    ).toEqual({ width: 300, height: 200 });
+
+    await page.evaluate(() => {
+      const host = window as Window & {
+        __crossScreenDndMessages?: Array<{
+          phase?: string;
+          sourceComputedSize?: { width?: number; height?: number };
+        }>;
+      };
+      host.__crossScreenDndMessages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        if (event.data?.type === "agent-native:cross-screen-drag") {
+          host.__crossScreenDndMessages?.push(event.data);
+        }
+      });
+    });
+    const sourceBefore = await file(request, designId, "index.html");
+    const destinationBefore = await file(request, designId, "second.html");
+    const sourceBox = (await source.boundingBox())!;
+    const targetBox = (await target.boundingBox())!;
+    const origin = {
+      x: sourceBox.x + sourceBox.width / 2,
+      y: sourceBox.y + sourceBox.height / 2,
+    };
+    await page.mouse.move(origin.x, origin.y);
+    await page.mouse.down();
+    try {
+      await page.mouse.move(origin.x - 12, origin.y, { steps: 4 });
+      await page.mouse.move(
+        targetBox.x + targetBox.width / 2,
+        targetBox.y + targetBox.height / 2,
+        { steps: 24 },
+      );
+      await expect(page.locator("[data-cross-screen-drop-guide]")).toBeVisible({
+        timeout: 5_000,
+      });
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (
+                window as Window & {
+                  __crossScreenDndMessages?: Array<{ phase?: string }>;
+                }
+              ).__crossScreenDndMessages?.some(
+                (message) => message.phase === "start",
+              ) ?? false,
+          ),
+        )
+        .toBe(true);
+      const startMessage = await page.evaluate(() =>
+        (
+          window as Window & {
+            __crossScreenDndMessages?: Array<{
+              phase?: string;
+              sourceComputedSize?: { width?: number; height?: number };
+            }>;
+          }
+        ).__crossScreenDndMessages?.find(
+          (message) => message.phase === "start",
+        ),
+      );
+      expect(startMessage?.sourceComputedSize).toEqual({
+        width: 300,
+        height: 200,
+      });
+      expect(await file(request, designId, "index.html")).toBe(sourceBefore);
+      expect(await file(request, designId, "second.html")).toBe(
+        destinationBefore,
+      );
+    } finally {
+      await page.mouse.up();
+    }
+
+    await expect
+      .poll(async () => {
+        const [sourceHtml, destinationHtml] = await Promise.all([
+          file(request, designId, "index.html"),
+          file(request, designId, "second.html"),
+        ]);
+        return {
+          source: ownership(sourceHtml, "stretched"),
+          destination: ownership(destinationHtml, "stretched"),
+        };
+      })
+      .toMatchObject({
+        source: { exists: false },
+        destination: {
+          exists: true,
+          parent: "root",
+          style: expect.stringMatching(/(?:^|;)\s*width\s*:\s*300px/i),
+        },
+      });
+    await expect
+      .poll(async () => {
+        const destinationHtml = await file(request, designId, "second.html");
+        return ownership(destinationHtml, "stretched").style;
+      })
+      .toMatch(/(?:^|;)\s*height\s*:\s*200px/i);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const moved = screenById(page, ids[1]!)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="stretched"]');
+    await expect(moved).toBeVisible();
+    const movedSize = await moved.evaluate((element) => {
+      const { width, height } = element.getBoundingClientRect();
+      return {
+        width: (element as HTMLElement).style.width,
+        height: (element as HTMLElement).style.height,
+        rectWidth: width,
+        rectHeight: height,
+      };
+    });
+    expect(movedSize).toEqual({
+      width: "300px",
+      height: "200px",
+      rectWidth: 300,
+      rectHeight: 200,
+    });
+  } finally {
+    await action(request, "delete-design", { id: designId });
+  }
+});

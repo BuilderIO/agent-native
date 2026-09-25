@@ -4182,12 +4182,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  function dimensionHasAutoMargin(el: Element, property: string): boolean {
+    var style = (el as HTMLElement).style;
+    return property === "width"
+      ? style.marginLeft === "auto" || style.marginRight === "auto"
+      : style.marginTop === "auto" || style.marginBottom === "auto";
+  }
+
   function gridItemDimensionIsStretched(
     el: Element,
     property: string,
     cs: CSSStyleDeclaration,
     parentStyle: CSSStyleDeclaration,
   ): boolean {
+    if (dimensionHasAutoMargin(el, property)) return false;
     var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
     if (alignment === "auto") {
       alignment =
@@ -4202,6 +4210,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  function flexItemDimensionIsStretched(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+    parentStyle: CSSStyleDeclaration,
+  ): boolean {
+    var mainAxis = /^column/.test(parentStyle.flexDirection)
+      ? "height"
+      : "width";
+    if (property === mainAxis || dimensionHasAutoMargin(el, property)) {
+      return false;
+    }
+    var alignment =
+      cs.alignSelf === "auto" ? parentStyle.alignItems : cs.alignSelf;
+    return alignment === "normal" || alignment === "stretch";
+  }
+
   function portableSizeIsLayoutResolved(
     el: Element,
     property: string,
@@ -4210,16 +4235,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): boolean {
     if ((el as HTMLElement).style?.getPropertyValue(property)) return false;
     if (typedSize !== cs[property]) return false;
-    if (property !== "width" || cs.position !== "static") return false;
+    if (cs.position === "absolute" || cs.position === "fixed") return false;
     var parent = el.parentElement;
     if (!parent) return false;
     var parentStyle = window.getComputedStyle(parent);
     if (/^(inline-)?flex$/.test(parentStyle.display)) {
-      return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+      var mainAxis = /^column/.test(parentStyle.flexDirection)
+        ? "height"
+        : "width";
+      return property === mainAxis
+        ? (cs.flexBasis !== "auto" && cs.flexBasis !== "content") ||
+            Number(cs.flexGrow) > 0 ||
+            Number(cs.flexShrink) > 0
+        : flexItemDimensionIsStretched(el, property, cs, parentStyle);
     }
     if (/^(inline-)?grid$/.test(parentStyle.display)) {
       return gridItemDimensionIsStretched(el, property, cs, parentStyle);
     }
+    if (property !== "width") return false;
     if (cs.display !== "block" && cs.display !== "flow-root") return false;
     var parentContentWidth =
       parent.clientWidth -
@@ -15589,7 +15622,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     snapshot: unknown,
     computed: CSSStyleDeclaration | null,
   ): { width?: number; height?: number } | undefined {
-    if (!el || !computed || computed.position !== "static") return undefined;
+    if (
+      !el ||
+      !computed ||
+      computed.position === "absolute" ||
+      computed.position === "fixed"
+    ) {
+      return undefined;
+    }
     var parent = el.parentElement;
     if (!parent) return undefined;
     var parentStyle = window.getComputedStyle(parent);
@@ -15605,6 +15645,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     var styles = snapshotRoot?.styles;
     if (!styles || typeof styles !== "object") return undefined;
+    var mainAxis = /^column/.test(parentStyle.flexDirection)
+      ? "height"
+      : "width";
     var resolvedByAutoLayout = function (property: "width" | "height") {
       if (isGrid) {
         return gridItemDimensionIsStretched(
@@ -15614,25 +15657,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           parentStyle,
         );
       }
-      var mainAxis = /^column/.test(parentStyle.flexDirection)
-        ? "height"
-        : "width";
       if (property === mainAxis) {
         return (
           (computed.flexBasis !== "auto" && computed.flexBasis !== "content") ||
-          Number(computed.flexGrow) > 0
+          Number(computed.flexGrow) > 0 ||
+          Number(computed.flexShrink) > 0
         );
       }
-      var alignment =
-        computed.alignSelf === "auto"
-          ? parentStyle.alignItems
-          : computed.alignSelf;
-      return alignment === "stretch";
+      return flexItemDimensionIsStretched(el, property, computed, parentStyle);
     };
     var result: { width?: number; height?: number } = {};
     (["width", "height"] as const).forEach((property) => {
+      var snapshotSize = styles[property];
+      var snapshotSizeIsAuto =
+        typeof snapshotSize === "string" &&
+        snapshotSize.trim().toLowerCase() === "auto";
       if (
-        Object.prototype.hasOwnProperty.call(styles, property) ||
+        (Object.prototype.hasOwnProperty.call(styles, property) &&
+          !snapshotSizeIsAuto) ||
         !resolvedByAutoLayout(property)
       ) {
         return;
