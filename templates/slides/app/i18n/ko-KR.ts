@@ -781,6 +781,23 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    connectBuilderIo: "Builder.io 연결",
+    connectingBuilder: "Builder.io 연결 중…",
+    recent: "최근 항목",
+    starters: {
+      pitch: {
+        label: "제안 발표",
+        prompt: "다음 주제로 제안 발표를 만들어 주세요: ",
+      },
+      update: {
+        label: "프로젝트 현황",
+        prompt: "다음 프로젝트의 진행 상황, 성과, 다음 단계를 정리해 주세요: ",
+      },
+      lesson: {
+        label: "주제 설명",
+        prompt: "다음 주제를 설명하는 발표를 만들어 주세요: ",
+      },
+    },
     loadFailed: "콘텐츠를 불러올 수 없습니다",
     loadFailedDescription:
       "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",

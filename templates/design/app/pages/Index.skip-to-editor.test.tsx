@@ -24,6 +24,36 @@ const mocks = vi.hoisted(() => ({
   writePendingGeneration: vi.fn(),
   clearPendingGeneration: vi.fn(),
   fullAppBuilding: false,
+  ownCount: 0,
+  ownStatus: "success",
+  templatesError: false,
+  summaryParams: null as Record<string, unknown> | null,
+  listParams: null as Record<string, unknown> | null,
+  refetch: vi.fn(),
+  focusComposer: vi.fn(),
+  agentEngine: { state: "configured", missing: false },
+  connect: vi.fn(),
+  starterPrompt: "Un panel de análisis con cuatro indicadores clave.",
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  useAgentEngineConfigured: () => mocks.agentEngine,
+}));
+vi.mock("@agent-native/core/client/settings", () => ({
+  useBuilderConnectFlow: () => ({ connecting: false, start: mocks.connect }),
+  BuilderConnectPopover: ({ children }: { children: React.ReactNode }) => (
+    <div onClick={mocks.connect}>{children}</div>
+  ),
+}));
+vi.mock("@/components/templates/TemplatePreview", () => ({
+  TemplatePreview: () => null,
+}));
+vi.mock("@/components/QueryErrorState", () => ({
+  QueryErrorState: ({ onRetry }: { onRetry: () => void }) => (
+    <button data-query-error onClick={onRetry}>
+      Retry
+    </button>
+  ),
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
@@ -40,15 +70,35 @@ vi.mock("@agent-native/core/client/org", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (name: string) => {
+  useActionQuery: (name: string, params: Record<string, unknown>) => {
     if (name === "list-designs") {
-      return { data: { count: 0, designs: [] }, isLoading: false };
+      if (params.compact === "true") {
+        mocks.summaryParams = params;
+        return {
+          data: { totalCount: mocks.ownCount },
+          isSuccess: mocks.ownStatus === "success",
+          isError: mocks.ownStatus === "error",
+          isFetching: false,
+          refetch: mocks.refetch,
+        };
+      }
+      mocks.listParams = params;
+      return {
+        data: { count: 0, totalCount: 0, designs: [] },
+        isLoading: false,
+      };
     }
     if (name === "list-design-templates") {
       return {
         data: {
-          count: 1,
+          count: 2,
           templates: [
+            {
+              id: "starter-template",
+              title: "Starter template",
+              isBuiltIn: true,
+              previewHtml: "<main>Starter</main>",
+            },
             {
               id: "saved-template",
               title: "Saved template",
@@ -61,6 +111,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           ],
         },
         isLoading: false,
+        isError: mocks.templatesError,
+        refetch: mocks.refetch,
       };
     }
     return { data: undefined, isLoading: false };
@@ -88,6 +140,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => {
     if (key === "home.untitledDesign") return "Untitled Design";
+    if (key === "home.starterDashboardPrompt") return mocks.starterPrompt;
     if (key === "home.searchNoResultsTitle") {
       return "No designs match your search";
     }
@@ -129,7 +182,11 @@ vi.mock("@agent-native/creative-context/client", () => ({
 vi.mock("react-router", () => ({
   useNavigate: () => mocks.navigate,
   useSearchParams: () => [new URLSearchParams(), mocks.setSearchParams],
-  Link: ({ children }: { children: unknown }) => <>{children as never}</>,
+  Link: ({ children, to, ...props }: Record<string, any>) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 vi.mock("nanoid", () => ({
@@ -144,6 +201,8 @@ vi.mock("@/components/editor/PromptDialog", () => ({
   preloadPromptComposer: vi.fn(),
   default: (props: Record<string, any>) => {
     mocks.promptProps = props;
+    if (props.composerRef)
+      props.composerRef.current = { focus: mocks.focusComposer };
     return null;
   },
 }));
@@ -214,6 +273,10 @@ beforeEach(async () => {
   mocks.promptProps = null;
   mocks.headerActions = null;
   mocks.fullAppBuilding = false;
+  mocks.ownCount = 0;
+  mocks.ownStatus = "success";
+  mocks.templatesError = false;
+  mocks.agentEngine = { state: "configured", missing: false };
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -235,25 +298,27 @@ afterEach(async () => {
 });
 
 describe("Index skip to editor", () => {
-  it("keeps starter prompts in the collaborative intake flow", async () => {
-    mocks.createDesign.mockResolvedValue(undefined);
-
-    const starterPrompt = Array.from(container.querySelectorAll("button")).find(
+  it("seeds and focuses suggestions without spending or losing the selected template/system", async () => {
+    await act(async () =>
+      mocks.promptProps?.onDesignSystemChange("override-system"),
+    );
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+    const suggestion = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "home.starterDashboard",
     );
-    expect(starterPrompt).toBeDefined();
-
-    await act(async () => {
-      starterPrompt?.click();
-      await Promise.resolve();
-    });
-
-    expect(mocks.writePendingGeneration).toHaveBeenCalledWith(
-      "design-1",
-      expect.objectContaining({
-        skipQuestions: undefined,
-      }),
-    );
+    await act(async () => suggestion?.click());
+    expect(mocks.promptProps?.initialText).toBe(mocks.starterPrompt);
+    expect(mocks.promptProps?.initialTextKey).toBe(1);
+    expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
+    expect(mocks.promptProps?.selectedDesignSystemId).toBe("override-system");
+    expect(mocks.focusComposer).toHaveBeenCalled();
+    await act(async () => suggestion?.click());
+    expect(mocks.promptProps?.initialTextKey).toBe(2);
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.createFromTemplate).not.toHaveBeenCalled();
+    expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
   });
 
   it("persists one empty shell before navigating without starting generation", async () => {
@@ -291,68 +356,50 @@ describe("Index skip to editor", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1");
   });
 
-  it("opens the prompt before creating a new design", async () => {
-    const card = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "home.newDesign",
-    );
-    expect(card).toBeDefined();
-
-    await act(async () => {
-      card?.click();
-      await Promise.resolve();
+  it("shows the inline prompt without New buttons or creation side effects", () => {
+    expect(mocks.promptProps).toMatchObject({
+      inline: true,
+      open: true,
+      draftScope: "design:new:0",
     });
-
+    expect(container.textContent).not.toContain("home.newDesign");
+    expect(container.textContent).not.toContain("home.createFirstDesign");
     expect(mocks.createDesign).not.toHaveBeenCalled();
-    expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
-    expect(mocks.promptProps?.open).toBe(true);
-    expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
   });
 
-  it("starts each new design with a fresh prompt draft scope", async () => {
-    const card = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "home.newDesign",
-    );
-    expect(card).toBeDefined();
-
-    await act(async () => {
-      card?.click();
-      await Promise.resolve();
-    });
-    expect(mocks.promptProps?.draftScope).toBe("design:new:1");
-
-    await act(async () => {
-      mocks.promptProps?.onOpenChange(false);
-      await Promise.resolve();
-    });
-    await act(async () => {
-      card?.click();
-      await Promise.resolve();
-    });
-
-    expect(mocks.promptProps?.draftScope).toBe("design:new:2");
-  });
-
-  it("still asks up front when the design-or-app choice exists", async () => {
-    await act(async () => root.unmount());
+  it("retains the feature-gated design-or-app choice", async () => {
+    expect(mocks.promptProps?.creationMode).toBeUndefined();
     mocks.fullAppBuilding = true;
-    mocks.promptProps = null;
-    root = createRoot(container);
-    await act(async () => {
-      root.render(<Index />);
-    });
-
-    const card = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "home.newDesign",
-    );
-    await act(async () => {
-      card?.click();
-      await Promise.resolve();
-    });
-
-    // An app is a different creation call, so the row cannot exist yet.
+    await act(async () => root.render(<Index />));
+    expect(mocks.promptProps?.creationMode).toBe("design");
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    expect(mocks.promptProps?.creationMode).toBe("app");
     expect(mocks.createDesign).not.toHaveBeenCalled();
-    expect(mocks.navigate).not.toHaveBeenCalled();
-    expect((mocks.promptProps as { open?: boolean } | null)?.open).toBe(true);
+  });
+
+  it("offers provider connection and reenables the composer when configured", async () => {
+    mocks.agentEngine = { state: "missing", missing: true };
+    await act(async () => root.render(<Index />));
+    const connect = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("home.connectBuilderIo"),
+    );
+    expect(connect).toBeDefined();
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.promptProps).toMatchObject({
+      disabled: true,
+      showModelSelector: false,
+      modelStatusChecksEnabled: false,
+    });
+    await act(async () => connect?.click());
+    expect(mocks.connect).toHaveBeenCalledTimes(1);
+    mocks.agentEngine = { state: "configured", missing: false };
+    await act(async () => root.render(<Index />));
+    expect(mocks.promptProps).toMatchObject({
+      disabled: false,
+      showModelSelector: true,
+      modelStatusChecksEnabled: true,
+    });
+    expect(container.textContent).not.toContain("home.connectBuilderIo");
   });
 
   it("does not navigate on failure and allows a successful retry", async () => {
@@ -440,8 +487,9 @@ describe("Index skip to editor", () => {
 
 describe("Index search empty state", () => {
   it("distinguishes no search matches from a first-time empty state", async () => {
-    expect(container.textContent).toContain("home.createFirstDesign");
-    expect(container.textContent).toContain("home.pickStartingPoint");
+    expect(container.textContent).toContain("Starter template");
+    mocks.ownCount = 1;
+    await act(async () => root.render(<Index />));
 
     headerContainer = document.createElement("div");
     document.body.append(headerContainer);
@@ -471,6 +519,60 @@ describe("Index search empty state", () => {
     expect(container.textContent).toContain("Try a different search.");
     expect(container.textContent).not.toContain("home.createFirstDesign");
     expect(container.textContent).not.toContain("home.pickStartingPoint");
-    expect(container.textContent).not.toContain("home.starterDashboard");
+    expect(container.textContent).toContain("home.starterDashboard");
+  });
+});
+
+describe("home library", () => {
+  it("uses an unfiltered own-design summary and keeps shared-only users on templates", async () => {
+    expect(mocks.summaryParams).toEqual({
+      page: 1,
+      pageSize: 1,
+      createdBy: "me",
+      compact: "true",
+      includePreview: "false",
+    });
+    expect(
+      container.querySelector('[role="tab"][data-state="active"]')?.textContent,
+    ).toBe("navigation.templates");
+    expect(container.textContent).not.toContain("home.recent");
+    expect(container.querySelector('a[href="/templates"]')).not.toBeNull();
+    mocks.ownCount = 1;
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).toContain("home.recent");
+  });
+
+  it("does not treat pending or failed ownership reads as successful empty results", async () => {
+    mocks.ownCount = 3;
+    mocks.ownStatus = "pending";
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).not.toContain("home.recent");
+    mocks.ownStatus = "error";
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).not.toContain("home.recent");
+    const retry =
+      container.querySelector<HTMLButtonElement>("[data-query-error]");
+    expect(retry).not.toBeNull();
+    await act(async () => retry?.click());
+    expect(mocks.refetch).toHaveBeenCalled();
+  });
+
+  it("shows template errors with retry rather than an empty grid", async () => {
+    mocks.templatesError = true;
+    await act(async () => root.render(<Index />));
+    expect(container.querySelector("[data-query-error]")).not.toBeNull();
+    expect(container.textContent).not.toContain(
+      "promptDialog.noTemplatesFound",
+    );
+  });
+
+  it("selects a template and focuses the same composer without creating a design", async () => {
+    const template = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Starter template",
+    );
+    await act(async () => template?.click());
+    expect(mocks.promptProps?.selectedTemplateId).toBe("starter-template");
+    expect(mocks.focusComposer).toHaveBeenCalled();
+    expect(mocks.createFromTemplate).not.toHaveBeenCalled();
   });
 });

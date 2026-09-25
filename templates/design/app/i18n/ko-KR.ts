@@ -1632,6 +1632,19 @@ export default {
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
   home: {
+    starterSaasPrompt:
+      "어두운 테마, 히어로 섹션, 기능 카드 3개, 마지막 행동 유도 섹션을 갖춘 현대적인 SaaS 랜딩 페이지.",
+    starterDashboardPrompt:
+      "사이드바 탐색, 핵심 지표 카드 4개, 차트, 최근 활동 표를 갖춘 깔끔한 분석 대시보드.",
+    starterMobilePrompt:
+      "휴대폰 프레임 안에 표시되는 모바일 앱 프로토타입. 하단에는 탭 바가 있고 홈 화면에는 목록 카드 3개가 있습니다.",
+    starterPricingPrompt:
+      "월간/연간 전환, 기능 체크리스트, 강조된 추천 요금제가 있는 3단계 요금 페이지.",
+    designPromptTitle: "무엇을 디자인할까요?",
+    recent: "최근",
+    browseAllTemplates: "모두 둘러보기",
+    connectBuilderIo: "Builder.io 연결",
+    connectingBuilder: "Builder.io 연결 중…",
     pageTitle: "Design",
     searchPlaceholder: "디자인 검색...",
     newDesign: "새로운 Design",

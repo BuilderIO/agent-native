@@ -1582,6 +1582,19 @@ export default {
     staleAnchorDetail: "在画布上已找不到原始元素。",
   },
   home: {
+    starterSaasPrompt:
+      "一个现代 SaaS 落地页，采用深色主题，包含首屏主视觉、三张功能卡片和最后的行动号召区域。",
+    starterDashboardPrompt:
+      "一个简洁的分析仪表盘，包含侧边导航、四张关键指标卡片、一个图表和最近活动表格。",
+    starterMobilePrompt:
+      "一个展示在手机边框内的移动应用原型，底部带有标签栏，主屏幕上有三张列表卡片。",
+    starterPricingPrompt:
+      "一个三档定价页面，包含月付/年付切换、功能清单，并突出显示推荐方案。",
+    designPromptTitle: "你想设计什么？",
+    recent: "最近",
+    browseAllTemplates: "浏览全部",
+    connectBuilderIo: "连接 Builder.io",
+    connectingBuilder: "正在连接 Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "搜索设计...",
     newDesign: "新Design",

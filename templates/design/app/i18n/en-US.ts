@@ -1641,6 +1641,19 @@ export default {
     staleAnchorDetail: "Original element no longer found on the canvas.",
   },
   home: {
+    starterSaasPrompt:
+      "A modern SaaS landing page with a dark theme, hero section, three feature cards, and a final CTA section.",
+    starterDashboardPrompt:
+      "A clean analytics dashboard with a sidebar nav, four KPI tiles, a chart, and a recent-activity table.",
+    starterMobilePrompt:
+      "A mobile app prototype shown on a phone frame, with a tab bar at the bottom and three list cards on the home screen.",
+    starterPricingPrompt:
+      "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
+    designPromptTitle: "What do you want to design?",
+    recent: "Recent",
+    browseAllTemplates: "Browse all",
+    connectBuilderIo: "Connect Builder.io",
+    connectingBuilder: "Connecting Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Search designs...",
     newDesign: "New Design",

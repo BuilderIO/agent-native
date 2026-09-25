@@ -6,10 +6,18 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ensureEmbedAuthFetchInterceptor = vi.hoisted(() => vi.fn());
+const promptComposerProps = vi.hoisted(() => vi.fn());
 const promptFile = new File(["pdf"], "large.pdf", {
   type: "application/pdf",
 });
@@ -60,6 +68,11 @@ function useEagerFileUploadsMock<T>(
 vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: {
     disabled?: boolean;
+    showModelSelector?: boolean;
+    modelStatusChecksEnabled?: boolean;
+    initialText?: string;
+    initialTextKey?: string | number;
+    composerRef?: Ref<{ focus(): void }>;
     onAttachmentsChange?: (files: File[]) => void;
     onModelSelectionChange?: (selection: {
       model?: string;
@@ -73,6 +86,11 @@ vi.mock("@agent-native/core/client/composer", () => ({
       options: Record<string, unknown>,
     ) => void | Promise<void>;
   }) => {
+    promptComposerProps(props);
+    const inputRef = useRef<HTMLTextAreaElement>(null);
+    useImperativeHandle(props.composerRef, () => ({
+      focus: () => inputRef.current?.focus(),
+    }));
     useEffect(() => {
       props.onModelSelectionChange?.({
         model: "gpt-5.6-terra",
@@ -82,6 +100,12 @@ vi.mock("@agent-native/core/client/composer", () => ({
     }, [props.onModelSelectionChange]);
     return (
       <>
+        <textarea
+          ref={inputRef}
+          aria-label="Prompt"
+          value={props.initialText ?? ""}
+          readOnly
+        />
         <button
           type="button"
           data-testid="prompt-composer-attach"
@@ -495,229 +519,382 @@ describe("uploadPromptFiles", () => {
   });
 });
 
-describe("PromptPopover import mode", () => {
-  afterEach(() => cleanup());
+describe.each(["popover", "inline"] as const)(
+  "PromptPopover %s presentation",
+  (presentation) => {
+    afterEach(() => cleanup());
 
-  function renderPopover(
-    onImport: React.ComponentProps<typeof PromptPopover>["onImport"],
-  ) {
-    return render(
-      <PromptPopover
-        open
-        centered
-        onOpenChange={vi.fn()}
-        title="New presentation"
-        onSubmit={vi.fn()}
-        onSkip={vi.fn()}
-        skipLabel="Skip prompt"
-        onImport={onImport}
-        importFromLabel="Import from"
-        importingLabel="Importing..."
-      />,
-    );
-  }
+    function renderPopover(
+      onImport: React.ComponentProps<typeof PromptPopover>["onImport"],
+    ) {
+      return render(
+        <PromptPopover
+          presentation={presentation}
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+          onImport={onImport}
+          importFromLabel="Import from"
+          importingLabel="Importing..."
+        />,
+      );
+    }
 
-  it("takes over the popover with a Google Slides URL form", () => {
-    renderPopover(vi.fn());
+    it("takes over the popover with a Google Slides URL form", () => {
+      renderPopover(vi.fn());
 
-    expect(screen.getByText("Or import from")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+      expect(screen.getByText("Or import from")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Slides" }));
 
-    expect(
-      screen.getByRole("textbox", { name: "Paste a Google Slides link" }),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Back to prompt" })).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Prompt composer" }),
-    ).toBeNull();
-    expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
-  });
-
-  it("passes an uploaded PDF to the direct import callback", async () => {
-    const onImport = vi.fn().mockResolvedValue(true);
-    renderPopover(onImport);
-
-    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
-    expect(screen.getByRole("button", { name: "Upload PDF" })).toBeTruthy();
-
-    const file = new File(["pdf"], "reference.pdf", {
-      type: "application/pdf",
-    });
-    fireEvent.change(screen.getAllByLabelText("Import file")[0], {
-      target: { files: [file] },
+      expect(
+        screen.getByRole("textbox", { name: "Paste a Google Slides link" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Back to prompt" }),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: "Prompt composer" }),
+      ).toBeNull();
+      expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
     });
 
-    await waitFor(() => {
-      expect(onImport).toHaveBeenCalledWith({ kind: "pdf", files: [file] });
-    });
-  });
+    it("passes an uploaded PDF to the direct import callback", async () => {
+      const onImport = vi.fn().mockResolvedValue(true);
+      renderPopover(onImport);
 
-  it("shows the importing state while a direct import is pending", async () => {
-    let resolveImport!: (value: boolean) => void;
-    const onImport = vi.fn(
-      () =>
-        new Promise<boolean>((resolve) => {
-          resolveImport = resolve;
-        }),
-    );
-    renderPopover(onImport);
+      fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Paste a Google Slides link" }),
-      { target: { value: "https://docs.google.com/presentation/d/example" } },
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+      const file = new File(["pdf"], "reference.pdf", {
+        type: "application/pdf",
+      });
+      fireEvent.change(screen.getAllByLabelText("Import file")[0], {
+        target: { files: [file] },
+      });
 
-    expect(screen.getByRole("status").textContent).toContain("Importing...");
-    expect(screen.queryByRole("button", { name: "Skip prompt" })).toBeNull();
-
-    resolveImport(true);
-    await waitFor(() => {
-      expect(onImport).toHaveBeenCalledWith({
-        kind: "google-slides",
-        url: "https://docs.google.com/presentation/d/example",
+      await waitFor(() => {
+        expect(onImport).toHaveBeenCalledWith({ kind: "pdf", files: [file] });
       });
     });
-  });
 
-  it("shows a busy state while prompt attachments are uploading", async () => {
-    let resolveUpload!: (response: Response) => void;
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveUpload = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const onSubmit = vi.fn();
+    it("shows the importing state while a direct import is pending", async () => {
+      let resolveImport!: (value: boolean) => void;
+      const onImport = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveImport = resolve;
+          }),
+      );
+      renderPopover(onImport);
 
-    render(
-      <PromptPopover
-        open
-        centered
-        onOpenChange={vi.fn()}
-        title="New presentation"
-        onSubmit={onSubmit}
-        onSkip={vi.fn()}
-        skipLabel="Skip prompt"
-      />,
-    );
+      fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+      fireEvent.change(
+        screen.getByRole("textbox", { name: "Paste a Google Slides link" }),
+        { target: { value: "https://docs.google.com/presentation/d/example" } },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Import" }));
 
-    const composer = screen.getByRole("button", { name: "Prompt composer" });
-    fireEvent.click(composer);
+      expect(screen.getByRole("status").textContent).toContain("Importing...");
+      expect(screen.queryByRole("button", { name: "Skip prompt" })).toBeNull();
 
-    expect(screen.getByRole("status").textContent).toContain("Uploading...");
-    expect((composer as HTMLButtonElement).disabled).toBe(true);
+      resolveImport(true);
+      await waitFor(() => {
+        expect(onImport).toHaveBeenCalledWith({
+          kind: "google-slides",
+          url: "https://docs.google.com/presentation/d/example",
+        });
+      });
+    });
 
-    resolveUpload(
-      new Response(
-        JSON.stringify([
+    it("shows a busy state while prompt attachments are uploading", async () => {
+      let resolveUpload!: (response: Response) => void;
+      const fetchMock = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveUpload = resolve;
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const onSubmit = vi.fn();
+
+      render(
+        <PromptPopover
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+        />,
+      );
+
+      const composer = screen.getByRole("button", { name: "Prompt composer" });
+      fireEvent.click(composer);
+
+      expect(screen.getByRole("status").textContent).toContain("Uploading...");
+      expect((composer as HTMLButtonElement).disabled).toBe(true);
+
+      resolveUpload(
+        new Response(
+          JSON.stringify([
+            {
+              path: "uploads/large.pdf",
+              originalName: "large.pdf",
+              filename: "large.pdf",
+              type: "application/pdf",
+              size: 3,
+            },
+          ]),
+          { status: 200 },
+        ),
+      );
+      await waitFor(() => {
+        expect(onSubmit).toHaveBeenCalledWith(
+          "  make a deck  \n",
+          [expect.objectContaining({ originalName: "large.pdf" })],
+          expect.objectContaining({
+            commit: expect.any(Function),
+            discard: expect.any(Function),
+            attachments: [],
+          }),
           {
-            path: "uploads/large.pdf",
-            originalName: "large.pdf",
-            filename: "large.pdf",
-            type: "application/pdf",
-            size: 3,
+            model: "gpt-5.6-terra",
+            engine: "builder",
+            effort: "high",
           },
-        ]),
-        { status: 200 },
-      ),
-    );
-    await waitFor(() => {
-      expect(onSubmit).toHaveBeenCalledWith(
-        "  make a deck  \n",
-        [expect.objectContaining({ originalName: "large.pdf" })],
-        expect.objectContaining({
-          commit: expect.any(Function),
-          discard: expect.any(Function),
-          attachments: [],
-        }),
-        {
-          model: "gpt-5.6-terra",
-          engine: "builder",
-          effort: "high",
-        },
-      );
+        );
+      });
+      expect(screen.queryByRole("status")).toBeNull();
     });
-    expect(screen.queryByRole("status")).toBeNull();
+
+    it("hands off signed-out prompts before uploading files", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const onBeforeUpload = vi.fn(() => false);
+      const onSubmit = vi.fn();
+
+      render(
+        <PromptPopover
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+          onBeforeUpload={onBeforeUpload}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
+
+      await waitFor(() => {
+        expect(onBeforeUpload).toHaveBeenCalledWith(
+          "  make a deck  \n",
+          [expect.objectContaining({ name: "large.pdf" })],
+          undefined,
+          [],
+          {
+            model: "gpt-5.6-terra",
+            engine: "builder",
+            effort: "high",
+          },
+        );
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it("hands off the selected model when an attachment triggers sign-in", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const onBeforeUpload = vi.fn(() => false);
+
+      render(
+        <PromptPopover
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+          onBeforeUpload={onBeforeUpload}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+
+      await waitFor(() => {
+        expect(onBeforeUpload).toHaveBeenCalledWith(
+          "",
+          [expect.objectContaining({ name: "large.pdf" })],
+          undefined,
+          undefined,
+          {
+            model: "gpt-5.6-terra",
+            engine: "builder",
+            effort: "high",
+          },
+        );
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("starts uploading when a prompt attachment is added and reuses it on submit", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              path: "uploads/large.pdf",
+              originalName: "large.pdf",
+              filename: "large.pdf",
+              type: "application/pdf",
+              size: 3,
+            },
+          ]),
+          { status: 200 },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const onSubmit = vi.fn();
+
+      render(
+        <PromptPopover
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+
+      fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+  },
+);
+
+describe("inline prompt starters", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
   });
 
-  it("hands off signed-out prompts before uploading files", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const onBeforeUpload = vi.fn(() => false);
-    const onSubmit = vi.fn();
+  it("forwards provider gating without disabling imports or Skip", async () => {
+    const onImport = vi.fn().mockResolvedValue(false);
+    const onSkip = vi.fn();
+    render(
+      <PromptPopover
+        presentation="inline"
+        open
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
+        disabled
+        showModelSelector={false}
+        modelStatusChecksEnabled={false}
+        onImport={onImport}
+        importFromLabel="Import from"
+        onSkip={onSkip}
+        skipLabel="Skip prompt"
+      />,
+    );
+    expect(promptComposerProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        disabled: true,
+        showModelSelector: false,
+        modelStatusChecksEnabled: false,
+      }),
+    );
+    expect(
+      (screen.getByTestId("prompt-composer") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    for (const name of ["PDF", "Slides", "PPT", "Skip prompt"]) {
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Skip prompt" }));
+    expect(onSkip).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    fireEvent.change(screen.getAllByLabelText("Import file")[0], {
+      target: { files: [promptFile] },
+    });
+    await waitFor(() =>
+      expect(onImport).toHaveBeenCalledWith({
+        kind: "pdf",
+        files: [promptFile],
+      }),
+    );
+  });
 
+  it("leaves the editor's provider defaults unchanged", () => {
     render(
       <PromptPopover
         open
         centered
-        onOpenChange={vi.fn()}
         title="New presentation"
-        onSubmit={onSubmit}
-        onSkip={vi.fn()}
-        skipLabel="Skip prompt"
-        onBeforeUpload={onBeforeUpload}
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
       />,
     );
+    expect(promptComposerProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        disabled: false,
+        showModelSelector: undefined,
+        modelStatusChecksEnabled: undefined,
+      }),
+    );
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
+  it("seeds and focuses in place without submitting or closing on outside interaction", () => {
+    const onSubmit = vi.fn();
+    const onOpenChange = vi.fn();
+    const props = {
+      open: true,
+      presentation: "inline" as const,
+      title: "New presentation",
+      onSubmit,
+      onOpenChange,
+      draftScope: "slides-new-deck",
+    };
+    const { container, rerender } = render(<PromptPopover {...props} />);
+    expect(container.querySelector('[role="group"]')).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const originalInput = screen.getByRole("textbox", { name: "Prompt" });
 
-    await waitFor(() => {
-      expect(onBeforeUpload).toHaveBeenCalledWith(
-        "  make a deck  \n",
-        [expect.objectContaining({ name: "large.pdf" })],
-        undefined,
-        [],
-        {
-          model: "gpt-5.6-terra",
-          engine: "builder",
-          effort: "high",
-        },
-      );
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
+    rerender(
+      <PromptPopover
+        {...props}
+        initialText="Create a pitch deck about "
+        initialTextKey={1}
+      />,
+    );
+    expect(screen.getByRole("textbox", { name: "Prompt" })).toBe(originalInput);
+    expect((originalInput as HTMLTextAreaElement).value).toBe(
+      "Create a pitch deck about ",
+    );
+    expect(document.activeElement).toBe(originalInput);
+    fireEvent.mouseDown(document.body);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("hands off the selected model when an attachment triggers sign-in", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const onBeforeUpload = vi.fn(() => false);
-
-    render(
-      <PromptPopover
-        open
-        centered
-        onOpenChange={vi.fn()}
-        title="New presentation"
-        onSubmit={vi.fn()}
-        onSkip={vi.fn()}
-        skipLabel="Skip prompt"
-        onBeforeUpload={onBeforeUpload}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
-
-    await waitFor(() => {
-      expect(onBeforeUpload).toHaveBeenCalledWith(
-        "",
-        [expect.objectContaining({ name: "large.pdf" })],
-        undefined,
-        undefined,
-        {
-          model: "gpt-5.6-terra",
-          engine: "builder",
-          effort: "high",
-        },
-      );
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("starts uploading when a prompt attachment is added and reuses it on submit", async () => {
+  it("retains the upload and model selection across a starter and reference-step return", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify([
@@ -733,26 +910,49 @@ describe("PromptPopover import mode", () => {
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const onSubmit = vi.fn();
-
-    render(
+    const onSubmit = vi.fn().mockReturnValue("retain");
+    const props = {
+      presentation: "inline" as const,
+      title: "New presentation",
+      onSubmit,
+      onOpenChange: vi.fn(),
+      draftScope: "slides-new-deck",
+    };
+    const { rerender } = render(<PromptPopover {...props} open />);
+    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("prompt-composer") as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    rerender(
       <PromptPopover
+        {...props}
         open
-        centered
-        onOpenChange={vi.fn()}
-        title="New presentation"
-        onSubmit={onSubmit}
-        onSkip={vi.fn()}
-        skipLabel="Skip prompt"
+        initialText="Create an update"
+        initialTextKey={1}
       />,
     );
-
-    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
-
-    fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("prompt-composer"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    rerender(<PromptPopover {...props} open={false} />);
+    rerender(
+      <PromptPopover
+        {...props}
+        open
+        initialText="Create an update"
+        initialTextKey={2}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("prompt-composer"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[1][3]).toEqual({
+      model: "gpt-5.6-terra",
+      engine: "builder",
+      effort: "high",
+    });
   });
 });

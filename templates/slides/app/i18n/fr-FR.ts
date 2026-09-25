@@ -812,6 +812,24 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
+    connectBuilderIo: "Connecter Builder.io",
+    connectingBuilder: "Connexion à Builder.io…",
+    recent: "Récents",
+    starters: {
+      pitch: {
+        label: "Présentation de projet",
+        prompt: "Crée une présentation de projet sur ",
+      },
+      update: {
+        label: "Point d’avancement",
+        prompt:
+          "Crée un point d’avancement avec les progrès, les résultats et les prochaines étapes pour ",
+      },
+      lesson: {
+        label: "Expliquer un sujet",
+        prompt: "Crée une présentation qui explique ",
+      },
+    },
     loadFailed: "Impossible de charger votre contenu",
     loadFailedDescription:
       "Votre contenu enregistré est toujours disponible. Vérifiez la connexion et réessayez.",

@@ -19,6 +19,63 @@
 
 @source "./**/*.{ts,tsx}";
 
+.slides-home-header {
+  container-type: inline-size;
+}
+
+.slides-home-toolbar {
+  display: grid;
+  height: auto;
+  min-height: 3rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 43.75rem) minmax(0, 1fr);
+  padding: 0 1rem;
+}
+
+@media (min-width: 64rem) {
+  .slides-home-toolbar {
+    padding-inline: 1.5rem;
+  }
+}
+
+@container (max-width: 60rem) {
+  .slides-home-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 3rem 3rem;
+    row-gap: 0;
+  }
+
+  .slides-home-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: center;
+  }
+}
+
+.slides-home-hero {
+  display: flex;
+  min-height: clamp(30rem, 52svh, 40rem);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 5rem;
+  text-align: center;
+}
+
+@media (min-width: 40rem) {
+  .slides-home-hero {
+    padding-top: 6rem;
+  }
+}
+
+.slides-home-prompt-composer-area.agent-composer-area--hero {
+  padding: 0;
+}
+
+[data-slides-home-composer] {
+  --agent-kit-composer-min-height: 7.75rem;
+  --agent-kit-composer-editor-min-height: 3.875rem;
+}
+
 /* Keep the editable agent prompt readable even if the generated text utility
    is missing or loses a cascade tie during the hosted build. */
 .agent-composer-root [data-agent-composer-slot="editor-input"] {

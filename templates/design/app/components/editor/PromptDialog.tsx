@@ -2,6 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   type PromptComposerSubmitOptions,
+  type TiptapComposerHandle,
   useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
@@ -352,6 +353,13 @@ function AssetsPickerSkeleton() {
 export type PromptCreationMode = "design" | "app";
 
 interface PromptPopoverProps {
+  inline?: boolean;
+  composerRef?: React.Ref<TiptapComposerHandle>;
+  initialText?: string;
+  initialTextKey?: number;
+  disabled?: boolean;
+  showModelSelector?: boolean;
+  modelStatusChecksEnabled?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
@@ -455,8 +463,15 @@ function hasOpenNestedPromptPopoverSurface() {
 }
 
 export default function PromptPopover({
+  inline = false,
+  composerRef,
+  initialText,
+  initialTextKey,
+  disabled = false,
+  showModelSelector,
+  modelStatusChecksEnabled,
   open,
-  onOpenChange,
+  onOpenChange: onPopoverOpenChange,
   title,
   placeholder,
   onSkip,
@@ -485,6 +500,12 @@ export default function PromptPopover({
   scopeDraftsToOrg = true,
 }: PromptPopoverProps) {
   const t = useT();
+  const onOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!inline) onPopoverOpenChange(nextOpen);
+    },
+    [inline, onPopoverOpenChange],
+  );
   // Composer drafts persist to localStorage, which is scoped to the browser
   // origin, not to the signed-in account — switching orgs is a client-side
   // transition with no reload and no storage clear (see useSwitchOrg). Fold
@@ -522,14 +543,26 @@ export default function PromptPopover({
   // `undefined` in the common case so the composer's normal mount behavior
   // (restore the last localStorage draft for this scope) still applies —
   // passing a defined `initialText` (even `""`) would short-circuit that.
-  const [restoredPromptText, setRestoredPromptText] = useState<
-    string | undefined
-  >(undefined);
-  const [restoredPromptKey, setRestoredPromptKey] = useState(0);
-  const restorePromptText = useCallback((text: string) => {
-    setRestoredPromptText(text);
-    setRestoredPromptKey((key) => key + 1);
-  }, []);
+  const [restoredPrompt, setRestoredPrompt] = useState<{
+    text: string;
+    initialTextKey: number | undefined;
+    revision: number;
+  }>();
+  const restorePromptText = useCallback(
+    (text: string) => {
+      setRestoredPrompt((current) => ({
+        text,
+        initialTextKey,
+        revision: (current?.revision ?? 0) + 1,
+      }));
+    },
+    [initialTextKey],
+  );
+  // A new starter must not consume its seed key with the previous failed text.
+  const activeRestoredPrompt =
+    restoredPrompt?.initialTextKey === initialTextKey
+      ? restoredPrompt
+      : undefined;
   useEffect(() => {
     if (open) return;
     // A submit closes the popover immediately and may still fail, which
@@ -585,7 +618,7 @@ export default function PromptPopover({
     // Only sticks for the session immediately following a failed submit; a
     // fresh open after a real close should fall back to the composer's own
     // localStorage draft restore for this scope, not a stale failed prompt.
-    setRestoredPromptText(undefined);
+    setRestoredPrompt(undefined);
   }, [open]);
 
   const uploadFilesToServer = useCallback(
@@ -714,6 +747,7 @@ export default function PromptPopover({
       _references: unknown,
       options: PromptComposerSubmitOptions,
     ) => {
+      if (submittingRef.current) return;
       const allFiles = [...files, ...selectedUploadFiles];
       submittingRef.current = true;
       setSubmitting(true);
@@ -890,6 +924,338 @@ export default function PromptPopover({
     Boolean(onCreativeContextChange) &&
     (creativeContextsLoading || creativeContexts.length > 0);
 
+  const content = (
+    <>
+      {(!inline || creationMode) && (
+        <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
+          {!inline && (
+            <span className="text-sm font-medium text-foreground/90">
+              {title}
+            </span>
+          )}
+          {creationMode && onCreationModeChange ? (
+            <CreationModeToggle
+              mode={creationMode}
+              onChange={onCreationModeChange}
+              disabled={loading || uploading || submitting}
+            />
+          ) : null}
+        </div>
+      )}
+
+      {showStartChoice ? (
+        <div className="grid grid-cols-2 gap-2 px-3.5 pt-1 pb-3.5">
+          <button
+            type="button"
+            data-start-with-ai
+            disabled={loading}
+            onClick={() => {
+              trackEvent("design_start_mode_selected", {
+                app_name: "design",
+                template_name: "design",
+                mode: "ai",
+              });
+              setShowStartChoice(false);
+              // autoFocus already ran while the composer was display:none,
+              // so revealing it leaves no caret. Focus it once it is shown.
+              requestAnimationFrame(() => {
+                const composer = document.querySelector<HTMLElement>(
+                  "[data-agent-native-prompt-popover] .ProseMirror",
+                );
+                composer?.focus();
+              });
+            }}
+            className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-left text-[color:var(--design-editor-accent-contrast-color)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <IconSparkles className="size-5 shrink-0" />
+            <span className="text-sm font-medium">
+              {t("promptDialog.startWithAi")}
+            </span>
+            <span className="text-xs leading-snug opacity-80">
+              {t("promptDialog.startWithAiHint")}
+            </span>
+          </button>
+          <button
+            type="button"
+            data-start-blank-canvas
+            disabled={loading || skipInFlight}
+            onClick={() => {
+              if (loading || skipInFlightRef.current) return;
+              trackEvent("design_start_mode_selected", {
+                app_name: "design",
+                template_name: "design",
+                mode: "blank_canvas",
+              });
+              skipInFlightRef.current = true;
+              setSkipInFlight(true);
+              // Close on commit rather than after the design is created and
+              // navigated to — the editor owns the loading state from here.
+              onOpenChange(false);
+              void (async () => {
+                try {
+                  await onSkip?.();
+                } catch {
+                  skipInFlightRef.current = false;
+                  setSkipInFlight(false);
+                  onOpenChange(true);
+                }
+              })();
+            }}
+            className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-border px-3 py-3 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <IconArtboard className="size-5 shrink-0 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">
+              {t("promptDialog.startBlankCanvas")}
+            </span>
+            <span className="text-xs leading-snug text-muted-foreground">
+              {t("promptDialog.startBlankCanvasHint")}
+            </span>
+          </button>
+        </div>
+      ) : null}
+
+      <div className={cn(!inline && "px-2 pb-2", showStartChoice && "hidden")}>
+        <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+          <Suspense
+            fallback={
+              <div
+                aria-busy="true"
+                className="flex min-h-36 flex-col justify-between gap-3 rounded-md border border-input p-3"
+              >
+                <Skeleton className="h-16 w-full" />
+                <div className="flex items-center justify-between gap-2">
+                  <Skeleton className="size-8" />
+                  <Skeleton className="h-8 w-24" />
+                </div>
+              </div>
+            }
+          >
+            <LazyPromptComposer
+              key={
+                inline
+                  ? orgScopedDraftScope
+                  : (placeholder ?? t("home.describeBuild"))
+              }
+              autoFocus
+              attachmentsEnabled
+              disabled={disabled || loading || submitting}
+              layoutVariant={inline ? "hero" : undefined}
+              className={
+                inline ? "design-home-prompt-composer-area" : undefined
+              }
+              composerRef={composerRef}
+              ariaLabel={placeholder ?? t("home.describeBuild")}
+              showModelSelector={showModelSelector}
+              modelStatusChecksEnabled={modelStatusChecksEnabled}
+              placeholder={placeholder ?? t("home.describeBuild")}
+              onSubmit={handleSubmit}
+              onAttachmentsChange={handleAttachmentsChange}
+              draftScope={orgScopedDraftScope}
+              initialText={activeRestoredPrompt?.text ?? initialText}
+              initialTextKey={
+                activeRestoredPrompt
+                  ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
+                  : `seed:${initialTextKey ?? 0}`
+              }
+              attachButton={
+                <PromptAttachmentMenu
+                  disabled={loading || uploading || submitting}
+                  onUploadFiles={handleUploadFiles}
+                  onPickAsset={() => setAssetsPickerOpen(true)}
+                />
+              }
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      </div>
+      {!showStartChoice &&
+        (onTemplateChange || onDesignSystemChange || onCreateDesignSystem) && (
+          <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
+            {onTemplateChange ? (
+              <>
+                <TemplatePickerControl
+                  open={templatePickerOpen}
+                  onOpenChange={setTemplatePickerOpen}
+                  options={templateOptions}
+                  loading={templatesLoading}
+                  selectedId={selectedTemplateId ?? null}
+                  onChange={onTemplateChange}
+                />
+                <span aria-hidden="true" className="size-9" />
+              </>
+            ) : null}
+            {onDesignSystemChange || onCreateDesignSystem ? (
+              <>
+                <DesignSystemPickerControl
+                  designSystems={designSystems}
+                  loading={designSystemsLoading}
+                  selectedId={selectedDesignSystemId ?? null}
+                  onChange={(id) => onDesignSystemChange?.(id)}
+                  onSelectClosed={markNestedSelectJustClosed}
+                />
+                {onCreateDesignSystem ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-9 shrink-0"
+                        onClick={() => {
+                          trackEvent("design_system_creator_opened", {
+                            app_name: "design",
+                            template_name: "design",
+                          });
+                          onCreateDesignSystem();
+                        }}
+                        aria-label={t("promptDialog.createDesignSystem")}
+                      >
+                        <IconPlus className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("promptDialog.createDesignSystem")}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <span aria-hidden="true" className="size-9" />
+                )}
+              </>
+            ) : null}
+            {showCreativeContextPicker ? (
+              <>
+                {creativeContextsLoading ? (
+                  <Skeleton className="h-9 w-full rounded-md" />
+                ) : (
+                  <Select
+                    value={selectedCreativeContextId ?? "none"}
+                    onValueChange={(value) =>
+                      onCreativeContextChange?.(value === "none" ? null : value)
+                    }
+                    onOpenChange={(nextOpen) => {
+                      if (!nextOpen) markNestedSelectJustClosed();
+                    }}
+                  >
+                    <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+                      <IconBrain className="size-4 shrink-0 text-muted-foreground" />
+                      <span
+                        className="min-w-0 flex-1 truncate text-start"
+                        title={
+                          selectedCreativeContext?.name ??
+                          t("creativeContext.automatic")
+                        }
+                      >
+                        {selectedCreativeContext?.name ??
+                          t("creativeContext.automatic")}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent data-agent-native-prompt-select>
+                      <SelectItem value="none" className="text-xs">
+                        {t("creativeContext.automatic")}
+                      </SelectItem>
+                      {creativeContexts.map((context) => (
+                        <SelectItem
+                          key={context.id}
+                          value={context.id}
+                          className="text-xs"
+                        >
+                          {context.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <span aria-hidden="true" className="size-9" />
+              </>
+            ) : null}
+          </div>
+        )}
+
+      {!showStartChoice &&
+        (selectedUploadFiles.length > 0 || pickedAssets.length > 0) && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
+            {selectedUploadFiles.map((file, index) => (
+              <span
+                key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
+                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
+              >
+                <span className="truncate">{file.name}</span>
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                  aria-label={t("promptDialog.removeAttachment", {
+                    name: file.name,
+                  })}
+                  onClick={() => removeSelectedUploadFile(index)}
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+            {pickedAssets.map((asset) => (
+              <span
+                key={asset.path}
+                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
+              >
+                <span className="truncate">{asset.originalName}</span>
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                  aria-label={t("promptDialog.removeAttachment", {
+                    name: asset.originalName,
+                  })}
+                  onClick={() => removePickedAsset(asset.path)}
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+      {/* The chooser already offers the blank path as a peer, so the corner
+            link would be a second, quieter way to do the same thing. */}
+      {onSkip && !offerStartChoice && (
+        <div className="flex justify-end border-t border-border px-3.5 py-2">
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            disabled={loading || skipInFlight}
+            onClick={() => {
+              if (loading || skipInFlightRef.current) return;
+              skipInFlightRef.current = true;
+              setSkipInFlight(true);
+              void (async () => {
+                try {
+                  const shouldClose = await onSkip();
+                  if (shouldClose !== false) onOpenChange(false);
+                } catch {
+                  // The caller owns error presentation. Keep the prompt open
+                  // and usable so the user can retry or submit a prompt.
+                  skipInFlightRef.current = false;
+                  setSkipInFlight(false);
+                }
+              })();
+            }}
+          >
+            {skipLabel ?? t("promptDialog.skipPrompt")}
+          </Button>
+        </div>
+      )}
+
+      <AssetsPickerDialog
+        open={assetsPickerOpen}
+        onOpenChange={setAssetsPickerOpen}
+        url={assetsPickerUrl()}
+        onReady={handleAssetsPickerReady}
+        onMessage={handleAssetsPickerMessage}
+      />
+    </>
+  );
+
+  if (inline) return <div data-design-inline-prompt>{content}</div>;
+
   return (
     <Popover open={open} onOpenChange={handlePopoverOpenChange}>
       {open && centered && (
@@ -933,314 +1299,7 @@ export default function PromptPopover({
         data-agent-native-prompt-popover
         className="relative z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
-        <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
-          <span className="text-sm font-medium text-foreground/90">
-            {title}
-          </span>
-          {creationMode && onCreationModeChange ? (
-            <CreationModeToggle
-              mode={creationMode}
-              onChange={onCreationModeChange}
-              disabled={loading || uploading || submitting}
-            />
-          ) : null}
-        </div>
-
-        {showStartChoice ? (
-          <div className="grid grid-cols-2 gap-2 px-3.5 pt-1 pb-3.5">
-            <button
-              type="button"
-              data-start-with-ai
-              disabled={loading}
-              onClick={() => {
-                trackEvent("design_start_mode_selected", {
-                  app_name: "design",
-                  template_name: "design",
-                  mode: "ai",
-                });
-                setShowStartChoice(false);
-                // autoFocus already ran while the composer was display:none,
-                // so revealing it leaves no caret. Focus it once it is shown.
-                requestAnimationFrame(() => {
-                  const composer = document.querySelector<HTMLElement>(
-                    "[data-agent-native-prompt-popover] .ProseMirror",
-                  );
-                  composer?.focus();
-                });
-              }}
-              className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-left text-[color:var(--design-editor-accent-contrast-color)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <IconSparkles className="size-5 shrink-0" />
-              <span className="text-sm font-medium">
-                {t("promptDialog.startWithAi")}
-              </span>
-              <span className="text-xs leading-snug opacity-80">
-                {t("promptDialog.startWithAiHint")}
-              </span>
-            </button>
-            <button
-              type="button"
-              data-start-blank-canvas
-              disabled={loading || skipInFlight}
-              onClick={() => {
-                if (loading || skipInFlightRef.current) return;
-                trackEvent("design_start_mode_selected", {
-                  app_name: "design",
-                  template_name: "design",
-                  mode: "blank_canvas",
-                });
-                skipInFlightRef.current = true;
-                setSkipInFlight(true);
-                // Close on commit rather than after the design is created and
-                // navigated to — the editor owns the loading state from here.
-                onOpenChange(false);
-                void (async () => {
-                  try {
-                    await onSkip?.();
-                  } catch {
-                    skipInFlightRef.current = false;
-                    setSkipInFlight(false);
-                    onOpenChange(true);
-                  }
-                })();
-              }}
-              className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-border px-3 py-3 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <IconArtboard className="size-5 shrink-0 text-muted-foreground" />
-              <span className="text-sm font-medium text-foreground">
-                {t("promptDialog.startBlankCanvas")}
-              </span>
-              <span className="text-xs leading-snug text-muted-foreground">
-                {t("promptDialog.startBlankCanvasHint")}
-              </span>
-            </button>
-          </div>
-        ) : null}
-
-        <div className={cn("px-2 pb-2", showStartChoice && "hidden")}>
-          <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
-            <Suspense
-              fallback={
-                <div
-                  aria-busy="true"
-                  className="flex min-h-36 flex-col justify-between gap-3 rounded-md border border-input p-3"
-                >
-                  <Skeleton className="h-16 w-full" />
-                  <div className="flex items-center justify-between gap-2">
-                    <Skeleton className="size-8" />
-                    <Skeleton className="h-8 w-24" />
-                  </div>
-                </div>
-              }
-            >
-              <LazyPromptComposer
-                key={placeholder ?? t("home.describeBuild")}
-                autoFocus
-                attachmentsEnabled
-                disabled={loading || submitting}
-                placeholder={placeholder ?? t("home.describeBuild")}
-                onSubmit={handleSubmit}
-                onAttachmentsChange={handleAttachmentsChange}
-                draftScope={orgScopedDraftScope}
-                initialText={restoredPromptText}
-                initialTextKey={restoredPromptKey}
-                attachButton={
-                  <PromptAttachmentMenu
-                    disabled={loading || uploading || submitting}
-                    onUploadFiles={handleUploadFiles}
-                    onPickAsset={() => setAssetsPickerOpen(true)}
-                  />
-                }
-              />
-            </Suspense>
-          </LazyChunkErrorBoundary>
-        </div>
-        {!showStartChoice &&
-          (onTemplateChange ||
-            onDesignSystemChange ||
-            onCreateDesignSystem) && (
-            <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
-              {onTemplateChange ? (
-                <>
-                  <TemplatePickerControl
-                    open={templatePickerOpen}
-                    onOpenChange={setTemplatePickerOpen}
-                    options={templateOptions}
-                    loading={templatesLoading}
-                    selectedId={selectedTemplateId ?? null}
-                    onChange={onTemplateChange}
-                  />
-                  <span aria-hidden="true" className="size-9" />
-                </>
-              ) : null}
-              {onDesignSystemChange || onCreateDesignSystem ? (
-                <>
-                  <DesignSystemPickerControl
-                    designSystems={designSystems}
-                    loading={designSystemsLoading}
-                    selectedId={selectedDesignSystemId ?? null}
-                    onChange={(id) => onDesignSystemChange?.(id)}
-                    onSelectClosed={markNestedSelectJustClosed}
-                  />
-                  {onCreateDesignSystem ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          className="size-9 shrink-0"
-                          onClick={() => {
-                            trackEvent("design_system_creator_opened", {
-                              app_name: "design",
-                              template_name: "design",
-                            });
-                            onCreateDesignSystem();
-                          }}
-                          aria-label={t("promptDialog.createDesignSystem")}
-                        >
-                          <IconPlus className="size-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("promptDialog.createDesignSystem")}
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <span aria-hidden="true" className="size-9" />
-                  )}
-                </>
-              ) : null}
-              {showCreativeContextPicker ? (
-                <>
-                  {creativeContextsLoading ? (
-                    <Skeleton className="h-9 w-full rounded-md" />
-                  ) : (
-                    <Select
-                      value={selectedCreativeContextId ?? "none"}
-                      onValueChange={(value) =>
-                        onCreativeContextChange?.(
-                          value === "none" ? null : value,
-                        )
-                      }
-                      onOpenChange={(nextOpen) => {
-                        if (!nextOpen) markNestedSelectJustClosed();
-                      }}
-                    >
-                      <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
-                        <IconBrain className="size-4 shrink-0 text-muted-foreground" />
-                        <span
-                          className="min-w-0 flex-1 truncate text-start"
-                          title={
-                            selectedCreativeContext?.name ??
-                            t("creativeContext.automatic")
-                          }
-                        >
-                          {selectedCreativeContext?.name ??
-                            t("creativeContext.automatic")}
-                        </span>
-                      </SelectTrigger>
-                      <SelectContent data-agent-native-prompt-select>
-                        <SelectItem value="none" className="text-xs">
-                          {t("creativeContext.automatic")}
-                        </SelectItem>
-                        {creativeContexts.map((context) => (
-                          <SelectItem
-                            key={context.id}
-                            value={context.id}
-                            className="text-xs"
-                          >
-                            {context.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  <span aria-hidden="true" className="size-9" />
-                </>
-              ) : null}
-            </div>
-          )}
-
-        {!showStartChoice &&
-          (selectedUploadFiles.length > 0 || pickedAssets.length > 0) && (
-            <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
-              {selectedUploadFiles.map((file, index) => (
-                <span
-                  key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
-                  className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
-                >
-                  <span className="truncate">{file.name}</span>
-                  <button
-                    type="button"
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                    aria-label={t("promptDialog.removeAttachment", {
-                      name: file.name,
-                    })}
-                    onClick={() => removeSelectedUploadFile(index)}
-                  >
-                    <IconX className="h-3.5 w-3.5" />
-                  </button>
-                </span>
-              ))}
-              {pickedAssets.map((asset) => (
-                <span
-                  key={asset.path}
-                  className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
-                >
-                  <span className="truncate">{asset.originalName}</span>
-                  <button
-                    type="button"
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                    aria-label={t("promptDialog.removeAttachment", {
-                      name: asset.originalName,
-                    })}
-                    onClick={() => removePickedAsset(asset.path)}
-                  >
-                    <IconX className="h-3.5 w-3.5" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-        {/* The chooser already offers the blank path as a peer, so the corner
-            link would be a second, quieter way to do the same thing. */}
-        {onSkip && !offerStartChoice && (
-          <div className="flex justify-end border-t border-border px-3.5 py-2">
-            <button
-              type="button"
-              disabled={loading || skipInFlight}
-              onClick={() => {
-                if (loading || skipInFlightRef.current) return;
-                skipInFlightRef.current = true;
-                setSkipInFlight(true);
-                void (async () => {
-                  try {
-                    const shouldClose = await onSkip();
-                    if (shouldClose !== false) onOpenChange(false);
-                  } catch {
-                    // The caller owns error presentation. Keep the prompt open
-                    // and usable so the user can retry or submit a prompt.
-                    skipInFlightRef.current = false;
-                    setSkipInFlight(false);
-                  }
-                })();
-              }}
-              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {skipLabel ?? t("promptDialog.skipPrompt")}
-            </button>
-          </div>
-        )}
-
-        <AssetsPickerDialog
-          open={assetsPickerOpen}
-          onOpenChange={setAssetsPickerOpen}
-          url={assetsPickerUrl()}
-          onReady={handleAssetsPickerReady}
-          onMessage={handleAssetsPickerMessage}
-        />
+        {content}
       </PopoverContent>
     </Popover>
   );

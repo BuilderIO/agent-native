@@ -1676,6 +1676,19 @@ export default {
       "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
   },
   home: {
+    starterSaasPrompt:
+      "Eine moderne SaaS-Landingpage mit dunklem Design, einem Hero-Bereich, drei Funktionskarten und einem abschließenden Handlungsaufruf.",
+    starterDashboardPrompt:
+      "Ein übersichtliches Analyse-Dashboard mit seitlicher Navigation, vier Kennzahlenkarten, einem Diagramm und einer Tabelle mit den letzten Aktivitäten.",
+    starterMobilePrompt:
+      "Ein mobiler App-Prototyp in einem Smartphone-Rahmen mit einer Tab-Leiste unten und drei Listenkarten auf dem Startbildschirm.",
+    starterPricingPrompt:
+      "Eine Preisseite mit drei Tarifen, einer monatlichen/jährlichen Umschaltung, Funktionslisten und einem hervorgehobenen empfohlenen Tarif.",
+    designPromptTitle: "Was möchtest du gestalten?",
+    recent: "Zuletzt verwendet",
+    browseAllTemplates: "Alle ansehen",
+    connectBuilderIo: "Builder.io verbinden",
+    connectingBuilder: "Builder.io wird verbunden…",
     pageTitle: "Designs",
     searchPlaceholder: "Designs suchen...",
     newDesign: "Neue Design",

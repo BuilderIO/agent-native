@@ -1,6 +1,14 @@
 // @vitest-environment happy-dom
 
-import { act, useCallback, useState } from "react";
+import {
+  act,
+  createRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +19,8 @@ interface ComposerStubProps {
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
+  composerRef?: React.Ref<{ focus: () => void }>;
+  layoutVariant?: string;
   onAttachmentsChange?: (files: File[]) => void;
   onSubmit: (
     text: string,
@@ -59,6 +69,18 @@ vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: ComposerStubProps) => {
     const [text, setText] = useState("");
     const [files, setFiles] = useState<File[]>([]);
+    const editorRef = useRef<HTMLTextAreaElement>(null);
+    const appliedSeedKey = useRef<string | number | undefined>(undefined);
+    useImperativeHandle(props.composerRef, () => ({
+      focus: () => editorRef.current?.focus(),
+    }));
+    useEffect(() => {
+      const key = props.initialTextKey ?? props.initialText;
+      if (props.initialText !== undefined && appliedSeedKey.current !== key) {
+        appliedSeedKey.current = key;
+        setText(props.initialText);
+      }
+    }, [props.initialText, props.initialTextKey]);
     return (
       <div
         data-testid="prompt-composer"
@@ -66,8 +88,10 @@ vi.mock("@agent-native/core/client/composer", () => ({
         data-initial-text={props.initialText ?? ""}
         data-initial-text-key={String(props.initialTextKey ?? "")}
         data-disabled={String(Boolean(props.disabled))}
+        data-layout-variant={props.layoutVariant}
       >
         <textarea
+          ref={editorRef}
           data-testid="prompt-editor"
           disabled={props.disabled}
           value={text}
@@ -205,6 +229,164 @@ async function renderPopover(props: Record<string, unknown>) {
     );
   });
 }
+
+describe("PromptPopover inline home", () => {
+  it("seeds and focuses the shared composer without remounting or losing eager attachments", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const onOpenChange = vi.fn();
+    const composerRef = createRef<{ focus: () => void }>();
+    await renderPopover({
+      inline: true,
+      draftScope: "design:new:0",
+      onSubmit,
+      onOpenChange,
+      composerRef,
+    });
+    const editor = container!.querySelector<HTMLTextAreaElement>(
+      '[data-testid="prompt-editor"]',
+    )!;
+    const fileInput = container!.querySelector<HTMLInputElement>(
+      '[data-testid="prompt-file-input"]',
+    )!;
+    const file = new File(["image"], "reference.png", { type: "image/png" });
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () =>
+      fileInput.dispatchEvent(new Event("change", { bubbles: true })),
+    );
+
+    await act(async () => {
+      root!.render(
+        <PromptPopover
+          inline
+          open
+          title="Generate design"
+          draftScope="design:new:0"
+          onSubmit={onSubmit}
+          onOpenChange={onOpenChange}
+          composerRef={composerRef as never}
+          placeholder="Adapt the selected template"
+          initialText="Un tableau de bord"
+          initialTextKey={1}
+        />,
+      );
+      await Promise.resolve();
+    });
+    composerRef.current?.focus();
+    expect(container!.querySelector('[data-testid="prompt-editor"]')).toBe(
+      editor,
+    );
+    expect(editor.value).toBe("Un tableau de bord");
+    expect(document.activeElement).toBe(editor);
+    expect(
+      container!
+        .querySelector('[data-testid="prompt-composer"]')
+        ?.getAttribute("data-layout-variant"),
+    ).toBe("hero");
+    expect(onSubmit).not.toHaveBeenCalled();
+    await act(async () =>
+      container!
+        .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')
+        ?.click(),
+    );
+    expect(onSubmit).toHaveBeenCalledWith(
+      "Un tableau de bord",
+      [{ path: "/uploads/reference.png" }],
+      expect.anything(),
+    );
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("restores a failed inline submission and accepts the next seed without closing", async () => {
+    const onSubmit = vi.fn().mockRejectedValue(new Error("offline"));
+    const onOpenChange = vi.fn();
+    await renderPopover({
+      inline: true,
+      onSubmit,
+      onOpenChange,
+      initialText: "First draft",
+      initialTextKey: 1,
+    });
+    await act(async () =>
+      container!
+        .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')
+        ?.click(),
+    );
+    expect(toastError).toHaveBeenCalledWith("offline");
+    expect(
+      container!.querySelector<HTMLTextAreaElement>(
+        '[data-testid="prompt-editor"]',
+      )?.value,
+    ).toBe("First draft");
+    expect(onOpenChange).not.toHaveBeenCalled();
+    await act(async () =>
+      root!.render(
+        <PromptPopover
+          inline
+          open
+          title="Generate design"
+          onSubmit={onSubmit}
+          onOpenChange={onOpenChange}
+          initialText="Second draft"
+          initialTextKey={2}
+        />,
+      ),
+    );
+    expect(
+      container!.querySelector<HTMLTextAreaElement>(
+        '[data-testid="prompt-editor"]',
+      )?.value,
+    ).toBe("Second draft");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replace a newer starter when an older submission fails late", async () => {
+    let rejectSubmit!: (error: Error) => void;
+    const pendingSubmit = new Promise<void>((_resolve, reject) => {
+      rejectSubmit = reject;
+    });
+    const onSubmit = vi.fn(() => pendingSubmit);
+    const onOpenChange = vi.fn();
+    await renderPopover({
+      inline: true,
+      onSubmit,
+      onOpenChange,
+      initialText: "First draft",
+      initialTextKey: 1,
+    });
+    await act(async () => {
+      container!
+        .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')
+        ?.click();
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      root!.render(
+        <PromptPopover
+          inline
+          open
+          title="Generate design"
+          onSubmit={onSubmit}
+          onOpenChange={onOpenChange}
+          initialText="Second draft"
+          initialTextKey={2}
+        />,
+      );
+    });
+    await act(async () => {
+      rejectSubmit(new Error("late failure"));
+    });
+    expect(toastError).toHaveBeenCalledWith("late failure");
+    expect(
+      container!.querySelector<HTMLTextAreaElement>(
+        '[data-testid="prompt-editor"]',
+      )?.value,
+    ).toBe("Second draft");
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
 
 describe("PromptPopover draft isolation", () => {
   it("scopes the composer draft key to this popover's title by default", async () => {

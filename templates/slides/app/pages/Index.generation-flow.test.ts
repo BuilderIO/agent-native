@@ -21,20 +21,17 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
-  it("defers the home prompt until open and prefetches on intent", () => {
+  it("loads the inline home composer with chunk recovery", () => {
     expect(source).toContain(
       'const loadPromptPopover = () => import("@/components/editor/PromptDialog")',
     );
     expect(source).toContain(
       "const LazyPromptPopover = lazy(loadPromptPopover)",
     );
-    expect(source).toContain(
-      "(showNewDeckPrompt || hasOpenedNewDeckPrompt) &&",
-    );
-    expect(source).toContain("onPointerEnter={preloadPromptPopover}");
-    expect(source).toContain("onFocus={preloadPromptPopover}");
+    expect(source).toContain('presentation="inline"');
+    expect(source).toContain("data-slides-home-composer");
     expect(source).toContain(".then(clearInitialPromptFromUrl)");
-    expect(source).toContain("onClose={closeNewDeckPromptFallback}");
+    expect(source).toContain("window.location.reload()");
     expect(source).toContain("<LazyChunkErrorBoundary");
   });
 

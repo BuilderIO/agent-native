@@ -803,6 +803,24 @@ const messages = {
     chooseAnotherFile: "Escolher outro arquivo",
   },
   home: {
+    connectBuilderIo: "Conectar o Builder.io",
+    connectingBuilder: "Conectando ao Builder.io…",
+    recent: "Recentes",
+    starters: {
+      pitch: {
+        label: "Apresentação de projeto",
+        prompt: "Crie uma apresentação de projeto sobre ",
+      },
+      update: {
+        label: "Atualização do projeto",
+        prompt:
+          "Crie uma atualização com o progresso, os resultados e os próximos passos de ",
+      },
+      lesson: {
+        label: "Ensinar um tema",
+        prompt: "Crie uma apresentação que explique ",
+      },
+    },
     loadFailed: "Não foi possível carregar seu conteúdo",
     loadFailedDescription:
       "Seu conteúdo salvo continua disponível. Verifique a conexão e tente novamente.",

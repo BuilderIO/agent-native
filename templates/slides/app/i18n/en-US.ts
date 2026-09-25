@@ -786,6 +786,24 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    connectBuilderIo: "Connect Builder.io",
+    connectingBuilder: "Connecting Builder.io…",
+    recent: "Recent",
+    starters: {
+      pitch: {
+        label: "Pitch deck",
+        prompt: "Create a pitch deck about ",
+      },
+      update: {
+        label: "Project update",
+        prompt:
+          "Create a project update covering progress, results, and next steps for ",
+      },
+      lesson: {
+        label: "Teach a topic",
+        prompt: "Create a presentation that explains ",
+      },
+    },
     loadFailed: "Couldn't load your content",
     loadFailedDescription:
       "Your saved content is still available. Check the connection and try again.",

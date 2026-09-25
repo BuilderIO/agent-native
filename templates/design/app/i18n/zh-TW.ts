@@ -1685,6 +1685,19 @@ export default {
     layoutLabel: "畫面版面已可儲存",
   },
   home: {
+    starterSaasPrompt:
+      "一個現代 SaaS 登陸頁，採用深色主題，包含主視覺區、三張功能卡片和最後的行動呼籲區。",
+    starterDashboardPrompt:
+      "一個簡潔的分析儀表板，包含側邊導覽、四張關鍵指標卡片、一個圖表和最近活動表格。",
+    starterMobilePrompt:
+      "一個顯示在手機外框內的行動應用程式原型，底部有分頁列，主畫面上有三張清單卡片。",
+    starterPricingPrompt:
+      "一個三層級定價頁面，包含月繳/年繳切換、功能清單，並醒目標示推薦方案。",
+    designPromptTitle: "您想設計什麼？",
+    recent: "最近",
+    browseAllTemplates: "瀏覽全部",
+    connectBuilderIo: "連線 Builder.io",
+    connectingBuilder: "正在連線 Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "搜尋設計...",
     newDesign: "新Design",

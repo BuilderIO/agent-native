@@ -1,3 +1,4 @@
+import { useAgentEngineConfigured } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
@@ -12,6 +13,10 @@ import {
   fetchFirstRunOnboardingStatus,
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
@@ -21,7 +26,7 @@ import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
-  IconPlus,
+  IconArrowRight,
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
@@ -42,7 +47,6 @@ import { toast } from "sonner";
 import DeckCard from "@/components/deck/DeckCard";
 import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
-import { DeferredPopoverFallback } from "@/components/editor/DeferredPopoverFallback";
 import {
   NewDeckReferenceStep,
   type ImportedReference,
@@ -110,6 +114,7 @@ import {
 } from "@/lib/recent-references";
 import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
+import { cn } from "@/lib/utils";
 
 const loadPromptPopover = () => import("@/components/editor/PromptDialog");
 const LazyPromptPopover = lazy(loadPromptPopover);
@@ -373,14 +378,19 @@ export default function Index() {
     refetch: refetchWorkspaceDefaults,
   } = useWorkspaceDefaults();
   const { session } = useSession();
+  const agentEngine = useAgentEngineConfigured();
+  const builderConnect = useBuilderConnectFlow({
+    enabled: agentEngine.missing,
+    provisionAccount: true,
+    trackingSource: "slides_home",
+  });
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
     useState<Deck | null>(null);
-  const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
-  const [hasOpenedNewDeckPrompt, setHasOpenedNewDeckPrompt] = useState(false);
+  const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(true);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
     key: number;
@@ -443,13 +453,6 @@ export default function Index() {
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const { generating, submit: agentSubmit } = useAgentGenerating();
-  const anchorElRef = useRef<HTMLElement | null>(null);
-  const anchorRef = useRef<HTMLElement | null>(null);
-  // Keep anchorRef.current in sync so PromptPopover can read it
-  anchorRef.current = anchorElRef.current;
-  useEffect(() => {
-    if (showNewDeckPrompt) setHasOpenedNewDeckPrompt(true);
-  }, [showNewDeckPrompt]);
   const effectiveDefaultDesignSystemId = resolveSelectableDesignSystemId(
     designSystems,
     defaultSystem?.id,
@@ -540,7 +543,6 @@ export default function Index() {
   const openInitialPrompt = useCallback(() => {
     if (!initialPrompt || initialPromptConsumedRef.current) return;
     initialPromptConsumedRef.current = true;
-    anchorElRef.current = null;
     setNewDeckInitialPrompt({ text: initialPrompt, key: Date.now() });
     setShowNewDeckPrompt(true);
     void loadPromptPopover()
@@ -607,18 +609,10 @@ export default function Index() {
     [setSearchParams],
   );
 
-  const openNewDeck = useCallback(
-    (e: React.MouseEvent<HTMLElement>) => {
-      preloadPromptPopover();
-      anchorElRef.current = e.currentTarget;
-      designSystemAutoRef.current = true;
-      referenceDeckAutoRef.current = true;
-      setSelectedDesignSystemId(initialDesignSystemId ?? null);
-      setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
-      setShowNewDeckPrompt(true);
-    },
-    [initialDesignSystemId, initialReferenceDeckId],
-  );
+  const fillStarterPrompt = useCallback((prompt: string) => {
+    setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+    setShowNewDeckPrompt(true);
+  }, []);
 
   const setNewDeckPromptOpen = useCallback(
     (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {
@@ -639,11 +633,6 @@ export default function Index() {
     },
     [],
   );
-
-  const closeNewDeckPromptFallback = useCallback(() => {
-    setNewDeckPromptOpen(false);
-    clearInitialPromptFromUrl();
-  }, [clearInitialPromptFromUrl, setNewDeckPromptOpen]);
 
   const preservePromptForSignIn = useCallback(
     (
@@ -682,6 +671,7 @@ export default function Index() {
     setShowSignInDialog(open);
     if (!open) {
       setSignInPromptHadFiles(false);
+      setShowNewDeckPrompt(true);
     }
   }, []);
 
@@ -734,13 +724,9 @@ export default function Index() {
     setNewDeckRetryContext(savedContext);
     setNewDeckRetryPrompt(saved);
     setNewDeckRetryModelSelection(savedModelSelection);
-    if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved)) {
-      clearPendingPromptForRetry();
-      setNewDeckInitialPrompt(null);
-    } else {
-      clearPendingPromptForRetry();
-      setNewDeckInitialPrompt({ text: saved, key: Date.now() });
-    }
+    savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved);
+    clearPendingPromptForRetry();
+    setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     designSystemAutoRef.current = true;
     referenceDeckAutoRef.current = true;
     setSelectedDesignSystemId(initialDesignSystemId ?? null);
@@ -757,11 +743,8 @@ export default function Index() {
   useEffect(() => {
     const state = location.state as DeckGenerationRetryState | null;
     if (!state?.retryPrompt) return;
-    if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, state.retryPrompt)) {
-      setNewDeckInitialPrompt(null);
-    } else {
-      setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
-    }
+    savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, state.retryPrompt);
+    setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     setNewDeckRetryFiles(state.retryFiles ?? []);
     setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? []);
     setNewDeckRetryImportedReference(state.retryImportedReference);
@@ -1898,28 +1881,16 @@ export default function Index() {
 
   useSetPageTitle(t("home.decksTitle"));
 
-  // Keep the deck controls in the same compact header row as the primary
-  // create action. The mobile fallback below mirrors them because Header is
-  // intentionally desktop-only.
   useSetHeaderActions(
     useMemo(
       () => (
-        <>
-          <DeckSearchInput value={deckSearch} onChange={setDeckSearch} />
-          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-          <Button
-            onClick={openNewDeck}
-            onPointerEnter={preloadPromptPopover}
-            onFocus={preloadPromptPopover}
-            size="sm"
-            className="cursor-pointer"
-          >
-            <IconPlus className="w-3.5 h-3.5" />
-            {t("home.newDeck")}
-          </Button>
-        </>
+        <DeckSearchInput
+          value={deckSearch}
+          onChange={setDeckSearch}
+          className="w-full"
+        />
       ),
-      [deckFilter, deckSearch, openNewDeck, setDeckFilter, t],
+      [deckSearch],
     ),
   );
 
@@ -1928,6 +1899,8 @@ export default function Index() {
     loadError,
     deckCount: decks.length,
   });
+  const hasRecentDecks =
+    viewState === "decks" && decks.some((deck) => deck.createdByMe === true);
 
   if (isStartingNewDeck) {
     return (
@@ -1941,36 +1914,154 @@ export default function Index() {
   }
 
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-0 sm:px-6 sm:pb-10">
-      {viewState === "loading" ? (
-        <>
-          <div className="mb-4 flex items-center justify-end">
-            <div className="skeleton-shimmer h-3 w-16 rounded bg-muted" />
-          </div>
-          <div className="deck-grid-container">
-            <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="overflow-hidden rounded-xl bg-card">
-                  <div className="skeleton-shimmer aspect-video bg-muted/50" />
-                  <div className="space-y-2 p-4">
-                    <div className="skeleton-shimmer h-4 w-3/4 rounded bg-muted" />
-                    <div className="skeleton-shimmer h-3 w-1/2 rounded bg-muted" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      ) : viewState === "error" ? (
-        <div className="flex min-h-[360px] items-center justify-center">
-          <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-            <IconAlertTriangle className="size-7 text-destructive/70" />
-            <div>
-              <h2 className="font-medium">{t("home.loadFailed")}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("home.loadFailedDescription")}
+    <main className="mx-auto w-full min-w-0 max-w-370 px-4 pb-14 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-175 pt-3 md:hidden">
+        <DeckSearchInput
+          value={deckSearch}
+          onChange={setDeckSearch}
+          className="w-full"
+        />
+      </div>
+      <section className="slides-home-hero relative">
+        {agentEngine.missing ? (
+          <div className="absolute top-7 flex flex-col items-center gap-2">
+            <BuilderConnectPopover flow={builderConnect}>
+              <Button variant="outline" disabled={builderConnect.connecting}>
+                {builderConnect.connecting
+                  ? t("home.connectingBuilder")
+                  : t("home.connectBuilderIo")}
+                <IconArrowRight />
+              </Button>
+            </BuilderConnectPopover>
+            {builderConnect.error ? (
+              <p role="alert" className="max-w-md text-xs text-destructive">
+                {builderConnect.error}
               </p>
-            </div>
+            ) : null}
+          </div>
+        ) : null}
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          {t("home.firstDeckPromptTitle")}
+        </h2>
+        <div
+          data-slides-home-composer
+          className="mt-4 w-full max-w-175 text-start"
+        >
+          <LazyChunkErrorBoundary
+            fallback={
+              <div
+                className="flex min-h-44 items-center justify-center gap-3"
+                role="alert"
+              >
+                <span className="text-sm text-muted-foreground">
+                  {t("home.loadFailed")}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => window.location.reload()}
+                >
+                  {t("home.retry")}
+                </Button>
+              </div>
+            }
+          >
+            <Suspense
+              fallback={
+                <div
+                  className="skeleton-shimmer h-44 rounded-xl bg-muted"
+                  aria-busy="true"
+                />
+              }
+            >
+              <LazyPromptPopover
+                presentation="inline"
+                disabled={agentEngine.missing}
+                showModelSelector={!agentEngine.missing}
+                modelStatusChecksEnabled={!agentEngine.missing}
+                open={showNewDeckPrompt}
+                onOpenChange={setNewDeckPromptOpen}
+                title={t("home.newDeckPromptTitle")}
+                placeholder={t("home.newDeckPlaceholder")}
+                onSkip={handlePromptSkip}
+                skipLabel={t("home.skipPrompt")}
+                onSubmit={handlePromptSubmit}
+                onImport={handleDirectImport}
+                importFromLabel={t("home.importFrom")}
+                importingLabel={t("editorToolbar.importing")}
+                onBeforeUpload={(
+                  prompt,
+                  files,
+                  context,
+                  attachments,
+                  options,
+                ) => {
+                  if (session) return true;
+                  preservePromptForSignIn(prompt, {
+                    context,
+                    attachments,
+                    hadFiles: files.length > 0,
+                    modelSelection: options
+                      ? {
+                          model: options.model,
+                          engine: options.engine,
+                          effort: options.effort,
+                        }
+                      : undefined,
+                  });
+                  return false;
+                }}
+                loading={generating}
+                draftScope={NEW_DECK_DRAFT_SCOPE}
+                initialText={newDeckInitialPrompt?.text}
+                initialTextKey={newDeckInitialPrompt?.key}
+                initialModelSelection={newDeckRetryModelSelection}
+                onRetainedAttachmentsAbandoned={
+                  handlePendingDeckAttachmentsAbandoned
+                }
+              />
+            </Suspense>
+          </LazyChunkErrorBoundary>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            {(["pitch", "update", "lesson"] as const).map((starter) => (
+              <Button
+                key={starter}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!showNewDeckPrompt || generating}
+                onClick={() =>
+                  fillStarterPrompt(t(`home.starters.${starter}.prompt`))
+                }
+              >
+                {t(`home.starters.${starter}.label`)}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {viewState === "loading" ? (
+        <div className="deck-grid-container" aria-busy="true">
+          <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="overflow-hidden rounded-xl bg-card">
+                <div className="skeleton-shimmer aspect-video bg-muted/50" />
+                <div className="p-4">
+                  <div className="skeleton-shimmer h-4 w-3/4 rounded bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : viewState === "error" ? (
+        <div className="flex min-h-40 items-center justify-center">
+          <div
+            className="flex max-w-sm flex-col items-center gap-3 text-center"
+            role="alert"
+          >
+            <IconAlertTriangle className="size-7 text-destructive/70" />
+            <h2 className="font-medium">{t("home.loadFailed")}</h2>
             <Button
               type="button"
               variant="outline"
@@ -1981,39 +2072,14 @@ export default function Index() {
             </Button>
           </div>
         </div>
-      ) : viewState === "empty" ? (
-        <EmptyState onCreateDeck={openNewDeck} />
-      ) : (
-        <>
-          <div className="mb-4 flex items-center gap-2 md:hidden">
-            <DeckSearchInput
-              value={deckSearch}
-              onChange={setDeckSearch}
-              className="flex-1"
-            />
+      ) : hasRecentDecks ? (
+        <section aria-label={t("home.recent")} className="mt-2">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <h2 className="text-sm font-medium">{t("home.recent")}</h2>
             <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           </div>
           <div className="deck-grid-container">
             <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {/* New deck card */}
-              <button
-                onClick={openNewDeck}
-                onPointerEnter={preloadPromptPopover}
-                onFocus={preloadPromptPopover}
-                className="group relative cursor-pointer overflow-hidden rounded-xl border border-transparent bg-card text-start transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
-              >
-                <div className="flex aspect-video items-center justify-center bg-muted/30">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/50 group-hover:bg-accent">
-                    <IconPlus className="h-6 w-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
-                  </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="text-sm font-medium text-muted-foreground group-hover:text-foreground/70">
-                    {t("home.newDeck")}
-                  </h3>
-                </div>
-              </button>
-
               {visibleDecks.map((deck) => (
                 <DeckCard
                   key={deck.id}
@@ -2036,8 +2102,8 @@ export default function Index() {
               )}
             </div>
           </div>
-        </>
-      )}
+        </section>
+      ) : null}
 
       <AlertDialog
         open={!!workspaceDefaultCandidate}
@@ -2086,77 +2152,6 @@ export default function Index() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {(showNewDeckPrompt || hasOpenedNewDeckPrompt) && (
-        <LazyChunkErrorBoundary
-          fallback={
-            showNewDeckPrompt ? (
-              <DeferredPopoverFallback
-                surface="prompt"
-                anchorRef={anchorRef}
-                failed
-                onClose={closeNewDeckPromptFallback}
-              />
-            ) : null
-          }
-        >
-          <Suspense
-            fallback={
-              showNewDeckPrompt ? (
-                <DeferredPopoverFallback
-                  surface="prompt"
-                  anchorRef={anchorRef}
-                  onClose={closeNewDeckPromptFallback}
-                />
-              ) : null
-            }
-          >
-            <LazyPromptPopover
-              open={showNewDeckPrompt}
-              onOpenChange={setNewDeckPromptOpen}
-              title={t("home.newDeckPromptTitle")}
-              placeholder={t("home.newDeckPlaceholder")}
-              onSkip={handlePromptSkip}
-              skipLabel={t("home.skipPrompt")}
-              onSubmit={handlePromptSubmit}
-              onImport={handleDirectImport}
-              importFromLabel={t("home.importFrom")}
-              importingLabel={t("editorToolbar.importing")}
-              onBeforeUpload={(
-                prompt,
-                files,
-                context,
-                attachments,
-                options,
-              ) => {
-                if (session) return true;
-                preservePromptForSignIn(prompt, {
-                  context,
-                  attachments,
-                  hadFiles: files.length > 0,
-                  modelSelection: options
-                    ? {
-                        model: options.model,
-                        engine: options.engine,
-                        effort: options.effort,
-                      }
-                    : undefined,
-                });
-                return false;
-              }}
-              loading={generating}
-              anchorRef={anchorRef}
-              draftScope={NEW_DECK_DRAFT_SCOPE}
-              initialText={newDeckInitialPrompt?.text}
-              initialTextKey={newDeckInitialPrompt?.key}
-              initialModelSelection={newDeckRetryModelSelection}
-              onRetainedAttachmentsAbandoned={
-                handlePendingDeckAttachmentsAbandoned
-              }
-            />
-          </Suspense>
-        </LazyChunkErrorBoundary>
-      )}
 
       <NewDeckReferenceStep
         open={showNewDeckReferenceStep}
@@ -2227,7 +2222,7 @@ export default function Index() {
 function DeckSearchInput({
   value,
   onChange,
-  className = "w-40 lg:w-60",
+  className = "w-full",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -2235,43 +2230,19 @@ function DeckSearchInput({
 }) {
   const t = useT();
   return (
-    <label
-      className={`flex h-9 min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground ${className}`}
-    >
-      <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
+    <div className={cn("relative min-w-0", className)}>
+      <IconSearch
+        className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden="true"
+      />
       <Input
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={t("root.searchDecks")}
         aria-label={t("root.searchDecks")}
-        className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+        className="ps-9"
       />
-    </label>
-  );
-}
-
-function EmptyState({
-  onCreateDeck,
-}: {
-  onCreateDeck: (e: React.MouseEvent<HTMLElement>) => void;
-}) {
-  const t = useT();
-  return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-5 text-center">
-      <h2 className="text-xl font-semibold text-foreground">
-        {t("home.emptyTitle")}
-      </h2>
-      <Button
-        onPointerEnter={preloadPromptPopover}
-        onFocus={preloadPromptPopover}
-        onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
-          onCreateDeck(e as React.MouseEvent<HTMLElement>)
-        }
-      >
-        <IconPlus className="size-4" />
-        {t("home.createFirstDeck")}
-      </Button>
     </div>
   );
 }

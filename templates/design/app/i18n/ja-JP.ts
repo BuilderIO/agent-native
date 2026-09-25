@@ -1654,6 +1654,19 @@ export default {
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
   home: {
+    starterSaasPrompt:
+      "ダークテーマのモダンなSaaSランディングページ。ヒーローセクション、3枚の機能カード、最後の行動喚起セクションを配置してください。",
+    starterDashboardPrompt:
+      "サイドナビゲーション、4枚の主要指標カード、グラフ、最近のアクティビティの表を備えた、すっきりとした分析ダッシュボード。",
+    starterMobilePrompt:
+      "スマートフォンのフレーム内に表示するモバイルアプリのプロトタイプ。下部にタブバーを配置し、ホーム画面には3枚のリストカードを表示してください。",
+    starterPricingPrompt:
+      "月払い・年払いの切り替え、機能チェックリスト、おすすめプランの強調表示を備えた3段階の料金ページ。",
+    designPromptTitle: "何をデザインしますか？",
+    recent: "最近",
+    browseAllTemplates: "すべて見る",
+    connectBuilderIo: "Builder.io に接続",
+    connectingBuilder: "Builder.io に接続中…",
     pageTitle: "Design",
     searchPlaceholder: "デザインを検索...",
     newDesign: "新しいDesign",

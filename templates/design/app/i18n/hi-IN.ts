@@ -1625,6 +1625,19 @@ export default {
     staleAnchorDetail: "मूल एलिमेंट अब कैनवास पर नहीं मिला।",
   },
   home: {
+    starterSaasPrompt:
+      "डार्क थीम, मुख्य परिचय खंड, तीन फ़ीचर कार्ड और अंत में कार्रवाई के आह्वान वाला एक आधुनिक SaaS लैंडिंग पेज।",
+    starterDashboardPrompt:
+      "साइडबार नेविगेशन, चार प्रमुख संकेतक कार्ड, एक चार्ट और हाल की गतिविधियों की तालिका वाला एक साफ़-सुथरा विश्लेषण डैशबोर्ड।",
+    starterMobilePrompt:
+      "फ़ोन फ़्रेम में दिखाया गया एक मोबाइल ऐप प्रोटोटाइप, जिसमें नीचे टैब बार और होम स्क्रीन पर तीन सूची कार्ड हों।",
+    starterPricingPrompt:
+      "मासिक/वार्षिक टॉगल, फ़ीचर चेकलिस्ट और हाइलाइट की गई अनुशंसित योजना वाला तीन-स्तरीय मूल्य पृष्ठ।",
+    designPromptTitle: "आप क्या डिज़ाइन करना चाहते हैं?",
+    recent: "हाल के",
+    browseAllTemplates: "सभी ब्राउज़ करें",
+    connectBuilderIo: "Builder.io कनेक्ट करें",
+    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
     pageTitle: "Designs",
     searchPlaceholder: "डिज़ाइन खोजें...",
     newDesign: "नया Design",

@@ -9,6 +9,7 @@ import {
 import { useLocation } from "react-router";
 
 import { useDecks } from "@/context/DeckContext";
+import { cn } from "@/lib/utils";
 
 const pageTitleKeys: Record<string, string> = {
   "/home": "header.decks",
@@ -61,17 +62,35 @@ export function Header() {
   const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
+  const home = location.pathname === "/home";
 
   return (
-    <header className="hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6">
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        {title ?? <ResolvedTitle pathname={location.pathname} />}
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {actions}
-        <NotificationsBell pollMs={30_000} />
-        <RunsTray pollMs={0} />
-        <AgentToggleButton />
+    <header
+      className={cn(
+        "hidden shrink-0 border-b border-border bg-background md:block",
+        home && "slides-home-header",
+      )}
+    >
+      <div
+        className={cn(
+          "flex h-12 items-center gap-3 px-4 lg:px-6",
+          home && "slides-home-toolbar",
+        )}
+      >
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {title ?? <ResolvedTitle pathname={location.pathname} />}
+        </div>
+        {home && (
+          <div className="slides-home-search w-full min-w-0 max-w-175">
+            {actions}
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-2 shrink-0">
+          {!home && actions}
+          <NotificationsBell pollMs={30_000} />
+          <RunsTray pollMs={0} />
+          <AgentToggleButton />
+        </div>
       </div>
     </header>
   );

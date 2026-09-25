@@ -1616,6 +1616,19 @@ export default {
     staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
   },
   home: {
+    starterSaasPrompt:
+      "صفحة هبوط حديثة لخدمة SaaS بتصميم داكن، وقسم رئيسي، وثلاث بطاقات للميزات، وقسم أخير يحث على اتخاذ إجراء.",
+    starterDashboardPrompt:
+      "لوحة تحليلات واضحة تضم تنقلاً جانبياً وأربع بطاقات للمؤشرات الرئيسية ومخططاً وجدولاً للنشاط الأخير.",
+    starterMobilePrompt:
+      "نموذج أولي لتطبيق جوال داخل إطار هاتف، مع شريط تبويبات في الأسفل وثلاث بطاقات قوائم على الشاشة الرئيسية.",
+    starterPricingPrompt:
+      "صفحة أسعار بثلاث خطط، مع التبديل بين الدفع الشهري والسنوي، وقوائم للميزات، وإبراز الخطة الموصى بها.",
+    designPromptTitle: "ما الذي تريد تصميمه؟",
+    recent: "الأخيرة",
+    browseAllTemplates: "تصفح الكل",
+    connectBuilderIo: "ربط Builder.io",
+    connectingBuilder: "جارٍ ربط Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "تصاميم البحث...",
     newDesign: "جديد Design",

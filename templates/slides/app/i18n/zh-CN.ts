@@ -765,6 +765,23 @@ const messages = {
     chooseAnotherFile: "选择其他文件",
   },
   home: {
+    connectBuilderIo: "连接 Builder.io",
+    connectingBuilder: "正在连接 Builder.io…",
+    recent: "最近",
+    starters: {
+      pitch: {
+        label: "项目推介",
+        prompt: "请围绕以下主题制作项目推介演示文稿：",
+      },
+      update: {
+        label: "项目进展",
+        prompt: "请制作项目进展演示文稿，涵盖进度、成果和后续步骤，项目是：",
+      },
+      lesson: {
+        label: "讲解主题",
+        prompt: "请制作演示文稿，讲解以下主题：",
+      },
+    },
     loadFailed: "无法加载内容",
     loadFailedDescription: "您保存的内容仍然可用。请检查连接并重试。",
     retry: "重试",

@@ -760,6 +760,23 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
+    connectBuilderIo: "連線 Builder.io",
+    connectingBuilder: "正在連線 Builder.io…",
+    recent: "最近",
+    starters: {
+      pitch: {
+        label: "專案提案",
+        prompt: "請根據以下主題製作專案提案簡報：",
+      },
+      update: {
+        label: "專案進度",
+        prompt: "請製作專案進度簡報，涵蓋進度、成果與後續步驟，專案是：",
+      },
+      lesson: {
+        label: "講解主題",
+        prompt: "請製作簡報，講解以下主題：",
+      },
+    },
     loadFailed: "無法載入內容",
     loadFailedDescription: "您儲存的內容仍然可用。請檢查連線並重試。",
     retry: "重試",

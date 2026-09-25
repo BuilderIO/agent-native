@@ -7,6 +7,48 @@
 
 @source "./**/*.{ts,tsx}";
 
+.design-home-hero {
+  min-height: clamp(30rem, 52svh, 40rem);
+}
+
+.design-home-toolbar {
+  container: design-home-toolbar / inline-size;
+}
+
+.design-home-header {
+  display: grid;
+  height: auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 3rem 3rem;
+  row-gap: 0;
+}
+
+.design-home-header-search {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+@container design-home-toolbar (min-width: 60rem) {
+  .design-home-header {
+    grid-template-columns: minmax(0, 1fr) 43.75rem minmax(0, 1fr);
+    grid-template-rows: 3rem;
+  }
+
+  .design-home-header-search {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+.design-home-prompt-composer-area.agent-composer-area--hero {
+  padding: 0;
+}
+
+[data-design-home-composer] {
+  --agent-kit-composer-min-height: 7.75rem;
+  --agent-kit-composer-editor-min-height: 3.875rem;
+}
+
 /* Keep agent context available to the Design agent without making the
  * composer carry implementation details as visible chips. */
 [data-design-app] .agent-composer-context-row {

@@ -803,6 +803,23 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    connectBuilderIo: "ربط Builder.io",
+    connectingBuilder: "جارٍ ربط Builder.io…",
+    recent: "الأخيرة",
+    starters: {
+      pitch: {
+        label: "عرض تقديمي لفكرة",
+        prompt: "أنشئ عرضًا تقديميًا لفكرة حول ",
+      },
+      update: {
+        label: "تحديث المشروع",
+        prompt: "أنشئ تحديثًا يتناول التقدم والنتائج والخطوات التالية لمشروع ",
+      },
+      lesson: {
+        label: "شرح موضوع",
+        prompt: "أنشئ عرضًا تقديميًا يشرح ",
+      },
+    },
     loadFailed: "تعذر تحميل المحتوى",
     loadFailedDescription:
       "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",

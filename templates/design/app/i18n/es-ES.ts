@@ -1655,6 +1655,19 @@ export default {
     staleAnchorDetail: "Ya no se encuentra el elemento original en el lienzo.",
   },
   home: {
+    starterSaasPrompt:
+      "Una página de inicio moderna para un SaaS con tema oscuro, sección principal, tres tarjetas de funciones y una llamada a la acción final.",
+    starterDashboardPrompt:
+      "Un panel de análisis sencillo con navegación lateral, cuatro tarjetas de indicadores clave, un gráfico y una tabla de actividad reciente.",
+    starterMobilePrompt:
+      "Un prototipo de aplicación móvil dentro de un marco de teléfono, con una barra de pestañas inferior y tres tarjetas de lista en la pantalla de inicio.",
+    starterPricingPrompt:
+      "Una página de precios con tres planes, un selector mensual/anual, listas de funciones y el plan recomendado destacado.",
+    designPromptTitle: "¿Qué quieres diseñar?",
+    recent: "Recientes",
+    browseAllTemplates: "Ver todo",
+    connectBuilderIo: "Conectar Builder.io",
+    connectingBuilder: "Conectando Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "Buscar diseños...",
     newDesign: "Nuevo Design",

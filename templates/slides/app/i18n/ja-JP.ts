@@ -790,6 +790,24 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    connectBuilderIo: "Builder.io に接続",
+    connectingBuilder: "Builder.io に接続中…",
+    recent: "最近の項目",
+    starters: {
+      pitch: {
+        label: "企画提案",
+        prompt: "次のテーマで企画提案のプレゼンテーションを作成してください：",
+      },
+      update: {
+        label: "進捗報告",
+        prompt:
+          "進捗、成果、次のステップをまとめた報告を作成してください。対象：",
+      },
+      lesson: {
+        label: "テーマを解説",
+        prompt: "次のテーマを解説するプレゼンテーションを作成してください：",
+      },
+    },
     loadFailed: "コンテンツを読み込めませんでした",
     loadFailedDescription:
       "保存済みのコンテンツはそのままです。接続を確認して再試行してください。",

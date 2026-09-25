@@ -779,6 +779,23 @@ const messages = {
     chooseAnotherFile: "दूसरी फ़ाइल चुनें",
   },
   home: {
+    connectBuilderIo: "Builder.io कनेक्ट करें",
+    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    recent: "हाल के",
+    starters: {
+      pitch: {
+        label: "प्रस्ताव प्रस्तुति",
+        prompt: "इस विषय पर एक प्रस्ताव प्रस्तुति बनाएँ: ",
+      },
+      update: {
+        label: "परियोजना अपडेट",
+        prompt: "इस परियोजना की प्रगति, परिणाम और अगले चरणों पर अपडेट बनाएँ: ",
+      },
+      lesson: {
+        label: "विषय समझाएँ",
+        prompt: "इस विषय को समझाने वाली प्रस्तुति बनाएँ: ",
+      },
+    },
     loadFailed: "आपका कॉन्टेंट लोड नहीं हो सका",
     loadFailedDescription:
       "आपका सहेजा गया कॉन्टेंट अभी भी उपलब्ध है। कनेक्शन जाँचें और फिर कोशिश करें।",

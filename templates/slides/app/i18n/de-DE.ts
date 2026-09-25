@@ -805,6 +805,24 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    connectBuilderIo: "Builder.io verbinden",
+    connectingBuilder: "Builder.io wird verbunden…",
+    recent: "Zuletzt verwendet",
+    starters: {
+      pitch: {
+        label: "Pitch-Präsentation",
+        prompt: "Erstelle eine Pitch-Präsentation über ",
+      },
+      update: {
+        label: "Projektupdate",
+        prompt:
+          "Erstelle ein Projektupdate mit Fortschritten, Ergebnissen und nächsten Schritten für ",
+      },
+      lesson: {
+        label: "Ein Thema erklären",
+        prompt: "Erstelle eine Präsentation, die Folgendes erklärt: ",
+      },
+    },
     loadFailed: "Inhalte konnten nicht geladen werden",
     loadFailedDescription:
       "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",

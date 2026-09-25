@@ -1,6 +1,7 @@
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
+  type TiptapComposerHandle,
   useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
@@ -133,8 +134,12 @@ interface PromptPopoverProps {
     options?: PromptComposerSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
   loading?: boolean;
+  disabled?: boolean;
+  showModelSelector?: boolean;
+  modelStatusChecksEnabled?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
+  presentation?: "popover" | "inline";
   /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
   initialText?: string;
@@ -166,8 +171,12 @@ export default function PromptPopover({
   skipLabel = "Skip prompt",
   onSubmit,
   loading = false,
+  disabled = false,
+  showModelSelector,
+  modelStatusChecksEnabled,
   anchorRef,
   centered = false,
+  presentation = "popover",
   draftScope,
   initialText,
   initialTextKey,
@@ -180,6 +189,7 @@ export default function PromptPopover({
   children,
 }: PromptPopoverProps) {
   const t = useT();
+  const inline = presentation === "inline";
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const [retainingAttachments, setRetainingAttachments] = useState(false);
@@ -197,6 +207,7 @@ export default function PromptPopover({
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<TiptapComposerHandle>(null);
   const [modelSelection, setModelSelection] = useState<
     PromptModelSelection | undefined
   >(initialModelSelection);
@@ -204,6 +215,12 @@ export default function PromptPopover({
   useEffect(() => {
     if (initialModelSelection) setModelSelection(initialModelSelection);
   }, [initialModelSelection]);
+
+  useEffect(() => {
+    if (inline && open && initialTextKey !== undefined) {
+      composerRef.current?.focus();
+    }
+  }, [inline, open, initialTextKey]);
 
   const handleModelChange = useCallback((model: string, engine: string) => {
     setModelSelection((current) => ({ ...current, model, engine }));
@@ -218,7 +235,7 @@ export default function PromptPopover({
 
   // Position the popover after render so we can measure its actual size
   useEffect(() => {
-    if (!open || !panelRef.current) return;
+    if (inline || !open || !panelRef.current) return;
     const panel = panelRef.current;
     const MARGIN = 12;
 
@@ -254,7 +271,7 @@ export default function PromptPopover({
 
   // Close on outside click / escape
   useEffect(() => {
-    if (!open) return;
+    if (inline || !open) return;
     const handleClick = (e: MouseEvent) => {
       if (isInsidePortaledLayer(e.target)) return;
       if (
@@ -274,7 +291,7 @@ export default function PromptPopover({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [open, onOpenChange, anchorRef]);
+  }, [inline, open, onOpenChange, anchorRef]);
 
   const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
 
@@ -520,7 +537,7 @@ export default function PromptPopover({
 
   const popover = (
     <>
-      {centered && (
+      {!inline && centered && (
         <div
           className="fixed inset-0 bg-black/40 z-[199]"
           onClick={() => onOpenChange(false)}
@@ -528,27 +545,33 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className="fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
-        role="dialog"
-        aria-modal="true"
+        className={
+          inline
+            ? "w-full"
+            : "fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
+        }
+        role={inline ? "group" : "dialog"}
+        aria-modal={inline ? undefined : true}
         aria-label={title}
-        style={{ top: 0, left: 0, visibility: "visible" }}
+        style={inline ? undefined : { top: 0, left: 0, visibility: "visible" }}
       >
-        <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
-          <span className="text-sm font-medium text-foreground">{title}</span>
-          {onSkip && !importMode && !submitting && (
-            <button
-              type="button"
-              onClick={() => {
-                onSkip();
-                onOpenChange(false);
-              }}
-              className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {skipLabel}
-            </button>
-          )}
-        </div>
+        {!inline && (
+          <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+            <span className="text-sm font-medium text-foreground">{title}</span>
+            {onSkip && !importMode && !submitting && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSkip();
+                  onOpenChange(false);
+                }}
+                className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {skipLabel}
+              </button>
+            )}
+          </div>
+        )}
 
         {importEnabled && (
           <input
@@ -587,14 +610,25 @@ export default function PromptPopover({
               .join(" ")}
             aria-hidden={importMode ? true : undefined}
           >
-            <div className="px-2.5 pb-2.5">
+            <div className={inline ? undefined : "px-2.5 pb-2.5"}>
               <PromptComposer
-                autoFocus
+                composerRef={composerRef}
+                autoFocus={!inline}
+                layoutVariant={inline ? "hero" : undefined}
+                className={
+                  inline ? "slides-home-prompt-composer-area" : undefined
+                }
                 attachmentsEnabled
+                showModelSelector={showModelSelector}
+                modelStatusChecksEnabled={modelStatusChecksEnabled}
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
                 disabled={
-                  loading || uploading || submitting || Boolean(importMode)
+                  disabled ||
+                  loading ||
+                  uploading ||
+                  submitting ||
+                  Boolean(importMode)
                 }
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
@@ -634,7 +668,13 @@ export default function PromptPopover({
             )}
 
             {importEnabled && (
-              <div className="border-t border-border/60 px-4 pb-3 pt-2.5">
+              <div
+                className={
+                  inline
+                    ? "px-1 pb-1 pt-2"
+                    : "border-t border-border/60 px-4 pb-3 pt-2.5"
+                }
+              >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="mr-1 text-xs text-muted-foreground">
                     {importFromCopy}
@@ -643,7 +683,11 @@ export default function PromptPopover({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className={
+                      inline
+                        ? undefined
+                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    }
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pdf")}
                   >
@@ -654,7 +698,11 @@ export default function PromptPopover({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className={
+                      inline
+                        ? undefined
+                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    }
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("google-slides")}
                   >
@@ -665,13 +713,32 @@ export default function PromptPopover({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className={
+                      inline
+                        ? undefined
+                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    }
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pptx")}
                   >
                     <IconPresentation className="size-3.5" />
                     PPT
                   </Button>
+                  {inline && onSkip && !submitting && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="ms-auto"
+                      disabled={loading || uploading}
+                      onClick={() => {
+                        onSkip();
+                        onOpenChange(false);
+                      }}
+                    >
+                      {skipLabel}
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
@@ -779,5 +846,5 @@ export default function PromptPopover({
     </>
   );
 
-  return createPortal(popover, document.body);
+  return inline ? popover : createPortal(popover, document.body);
 }
