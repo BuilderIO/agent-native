@@ -4,6 +4,6 @@
   "observed_legacy_heartbeat_version": "absent",
   "owner_thread": "01a09635-7e86-72c2-aaad-87176d2d94f3",
   "pr": 5832,
-  "released": false,
-  "version": "c888419c-593b-43e3-a5e1-bed8731661c6"
+  "released": true,
+  "version": "d96b1864-f68b-44f6-8cd1-6939a98da3c1"
 }
