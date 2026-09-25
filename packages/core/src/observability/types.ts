@@ -99,6 +99,16 @@ export interface OutputReviewListRow {
   instructionUpdate: InstructionUpdate | null;
 }
 
+export interface OutputReviewThreadMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface OutputReviewDetail {
+  app: AgentMcpAppPayload | null;
+  messages: OutputReviewThreadMessage[];
+}
+
 /** @deprecated Use OutputReviewListRow for list data. */
 export interface OutputReviewRow extends OutputReviewListRow {
   inlineApp?: AgentMcpAppPayload;

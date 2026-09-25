@@ -141,7 +141,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.querySelector("[data-onboarding-screen]")).toBeNull();
   });
 
-  it("lets users dismiss setup and records completion", async () => {
+  it("does not show a close button during first-run setup", async () => {
     await act(async () => {
       root.render(
         <TooltipProvider>
@@ -150,17 +150,12 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
-    const dismissButton = document.body.querySelector(
-      '[data-testid="first-run-dismiss"]',
-    );
-    expect(dismissButton).not.toBeNull();
-
-    await act(async () => {
-      (dismissButton as HTMLButtonElement).click();
-      await Promise.resolve();
-    });
-
-    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    expect(
+      document.body.querySelector('[data-testid="first-run-dismiss"]'),
+    ).toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="first-run-role-skip"]'),
+    ).not.toBeNull();
   });
 
   it("records the current step when setup is abandoned on page exit", () => {
@@ -195,6 +190,16 @@ describe("FirstRunOnboarding", () => {
           resolveCompletion = resolve;
         }),
     );
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
 
     await act(async () => {
       root.render(
@@ -206,7 +211,13 @@ describe("FirstRunOnboarding", () => {
 
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-dismiss"]')
+        .querySelector('[data-testid="first-run-role-skip"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -226,7 +237,7 @@ describe("FirstRunOnboarding", () => {
     });
   });
 
-  it("surfaces a failed dismissal with a retry action", async () => {
+  it("surfaces a failed setup completion with a retry action", async () => {
     mocks.completeFirstRun.mockRejectedValue(
       new Error("first-run completion failed: 500"),
     );
@@ -242,6 +253,16 @@ describe("FirstRunOnboarding", () => {
       completeFirstRun: mocks.completeFirstRun,
       completeFirstRunError: "first-run completion failed: 500",
     });
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
 
     await act(async () => {
       root.render(
@@ -253,7 +274,13 @@ describe("FirstRunOnboarding", () => {
 
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-dismiss"]')
+        .querySelector('[data-testid="first-run-role-skip"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -289,6 +316,16 @@ describe("FirstRunOnboarding", () => {
       completeFirstRun: mocks.completeFirstRun,
       completeFirstRunError: "first-run completion failed: 500",
     });
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
 
     await act(async () => {
       root.render(
@@ -299,7 +336,13 @@ describe("FirstRunOnboarding", () => {
     });
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-dismiss"]')
+        .querySelector('[data-testid="first-run-role-skip"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -893,7 +936,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).toContain("Extension Complete");
     expect(
       document.body.querySelector('[data-testid="first-run-dismiss"]'),
-    ).not.toBeNull();
+    ).toBeNull();
 
     await act(async () => {
       [...document.body.querySelectorAll("button")]

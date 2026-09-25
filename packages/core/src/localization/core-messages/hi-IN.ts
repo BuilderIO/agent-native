@@ -476,7 +476,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AI प्रदाता ने इस अनुरोध को अस्थायी रूप से अस्वीकार कर दिया। यह आमतौर पर एक मिनट के भीतर ठीक हो जाता है — फिर से प्रयास करें।",
   "errorMessages.startNewChat": "नई चैट शुरू करें",
-  "errorMessages.upgradeAtBuilder": "Builder.io पर अपग्रेड करें",
+  "errorMessages.addCreditsInBuilder": "Builder में क्रेडिट जोड़ें",
   "feedback.inaccurate": "गलत जानकारी",
   "feedback.keyboardHint": "भेजने के लिए {{shortcut}} Enter",
   "feedback.notHelpful": "उपयोगी नहीं",
@@ -809,6 +809,20 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "पुष्टिकरण नहीं भेजा जा सका।",
   "settings.emailNewLabel": "नया ईमेल",
   "settings.emailNewPlaceholder": "नया ईमेल दर्ज करें",
+  "usage.builderCredits": "Builder क्रेडिट",
+  "usage.creditBalance": "वर्कस्पेस बैलेंस",
+  "usage.monthlyPlan": "मासिक प्लान",
+  "usage.dailyFreeLimit": "मुफ़्त दैनिक सीमा",
+  "usage.creditUsedOfLimit": "{{limit}} में से {{used}} उपयोग किए",
+  "usage.creditRemaining": "{{amount}} शेष",
+  "usage.creditUsageUnavailable": "Builder क्रेडिट उपयोग लोड नहीं हो सका।",
+  "usage.estimatedBuilderCredits": "~{{amount}} अनुमानित क्रेडिट",
+  "usage.otherUsdSpend": "{{amount}} अन्य USD",
+  "usage.noBuilderCredits": "0 Builder क्रेडिट",
+  "usage.otherUnclassifiedSpend": "अन्य या अवर्गीकृत USD खर्च",
+  "usage.providerSpendDetail": "Builder बिलिंग से बाहर प्रदाता या पुराने कॉल",
+  "usage.providerSpendToday": "आज का अन्य या अवर्गीकृत उपयोग: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder क्रेडिट / USD",
 };
 
 export default messages;

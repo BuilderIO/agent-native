@@ -458,7 +458,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AI 提供商暂时拒绝了此请求。这种情况通常在一分钟内自行恢复,请重试。",
   "errorMessages.startNewChat": "开始新聊天",
-  "errorMessages.upgradeAtBuilder": "在 Builder.io 升级",
+  "errorMessages.addCreditsInBuilder": "在 Builder 中添加积分",
   "feedback.inaccurate": "不准确",
   "feedback.keyboardHint": "{{shortcut}} Enter 发送",
   "feedback.notHelpful": "没有帮助",
@@ -780,6 +780,20 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "无法发送确认邮件。",
   "settings.emailNewLabel": "新电子邮件",
   "settings.emailNewPlaceholder": "输入新电子邮件",
+  "usage.builderCredits": "Builder 积分",
+  "usage.creditBalance": "工作区余额",
+  "usage.monthlyPlan": "月度套餐",
+  "usage.dailyFreeLimit": "免费每日上限",
+  "usage.creditUsedOfLimit": "已使用 {{used}} / {{limit}}",
+  "usage.creditRemaining": "剩余 {{amount}}",
+  "usage.creditUsageUnavailable": "无法加载 Builder 积分使用情况。",
+  "usage.estimatedBuilderCredits": "~{{amount}} 预估积分",
+  "usage.otherUsdSpend": "{{amount}} 其他 USD",
+  "usage.noBuilderCredits": "Builder 积分 0",
+  "usage.otherUnclassifiedSpend": "其他或未分类的 USD 支出",
+  "usage.providerSpendDetail": "Builder 计费之外的提供商使用量或旧调用",
+  "usage.providerSpendToday": "今日其他或未分类使用量：{{amount}}",
+  "usage.driverCreditsAndUsd": "Builder 积分 / USD",
 };
 
 export default messages;

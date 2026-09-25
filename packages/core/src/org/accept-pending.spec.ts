@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockExecute = vi.fn();
 const mockPutUserSetting = vi.fn();
+const mockTrackInviteAccepted = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
@@ -9,6 +10,9 @@ vi.mock("../db/client.js", () => ({
 }));
 vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: (...args: any[]) => mockPutUserSetting(...args),
+}));
+vi.mock("./track-invite-accepted.js", () => ({
+  trackInviteAccepted: (...args: any[]) => mockTrackInviteAccepted(...args),
 }));
 
 import { acceptPendingInvitationsForEmail } from "./accept-pending.js";
@@ -22,7 +26,12 @@ function queueSelect(...rows: any[][]) {
 describe("acceptPendingInvitationsForEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExecute.mockResolvedValue({ rows: [] });
+    mockExecute.mockImplementation(async (input: { sql: string }) => ({
+      rows: [],
+      ...(input.sql.includes("UPDATE org_invitations")
+        ? { rowsAffected: 1 }
+        : {}),
+    }));
   });
 
   it("returns empty when no pending invitations", async () => {
@@ -47,6 +56,13 @@ describe("acceptPendingInvitationsForEmail", () => {
     expect(calls[2].sql).toContain("INSERT INTO org_members");
     expect(calls[3].sql).toContain("UPDATE org_invitations");
     expect(out.accepted).toEqual([{ invitationId: "inv1", orgId: "org1" }]);
+    expect(mockTrackInviteAccepted).toHaveBeenCalledWith({
+      email: "a@b.com",
+      orgId: "org1",
+      role: null,
+      invitedBy: "",
+      federated: false,
+    });
     expect(out.activeOrgId).toBe("org1");
     expect(mockPutUserSetting).toHaveBeenCalledWith(
       "a@b.com",
@@ -55,6 +71,33 @@ describe("acceptPendingInvitationsForEmail", () => {
         orgId: "org1",
       },
     );
+  });
+
+  // Regression test for the P1 finding on PR #5765: no h3 event reaches this
+  // function (it's called from Better Auth signup/SSO hooks), so telemetry
+  // was pure fire-and-forget with no lifecycle hook at all — the function
+  // returned before `trackInviteAccepted`'s work had any chance to run.
+  // Fails before the fix (resolves immediately, before telemetry settles)
+  // and passes after (bounded-races the telemetry promise, see accept-pending.ts).
+  it("gives invite_accepted telemetry a bounded chance to finish before returning", async () => {
+    queueSelect(
+      [{ id: "inv1", orgId: "org1" }], // pending invitations
+      [], // existing membership check for inv1
+    );
+    let telemetryEmitted = false;
+    mockTrackInviteAccepted.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            telemetryEmitted = true;
+            resolve();
+          }, 20);
+        }),
+    );
+
+    await acceptPendingInvitationsForEmail("a@b.com");
+
+    expect(telemetryEmitted).toBe(true);
   });
 
   it("leaves an invitation pending when its app-role assignment fails", async () => {
@@ -116,6 +159,21 @@ describe("acceptPendingInvitationsForEmail", () => {
 
     expect(out).toEqual({ accepted: [], activeOrgId: null });
     expect(mockExecute).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not report or track an invitation another caller already accepted", async () => {
+    mockExecute.mockImplementation(async ({ sql }: { sql: string }) => ({
+      rows: sql.includes("FROM org_invitations i")
+        ? [{ id: "inv1", orgId: "org1" }]
+        : [],
+      rowsAffected: sql.includes("UPDATE org_invitations") ? 0 : 1,
+    }));
+
+    await expect(acceptPendingInvitationsForEmail("a@b.com")).resolves.toEqual({
+      accepted: [],
+      activeOrgId: null,
+    });
+    expect(mockTrackInviteAccepted).not.toHaveBeenCalled();
   });
 
   it("handles multiple pending invites and picks most recent for active-org", async () => {

@@ -165,7 +165,7 @@ describe("list-agent-engines", () => {
     expect(result.current).toBeNull();
   });
 
-  it("auto-detects hosted app-provided provider env as the current engine", async () => {
+  it("does not auto-detect hosted deployment provider env as the current engine", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("OPENAI_API_KEY", "sk-test-example");
 
@@ -191,7 +191,6 @@ describe("list-agent-engines", () => {
       ),
     );
 
-    expect(result.current?.engine).toBe("test:openai");
-    expect(result.current?.model).toBe("gpt-test");
+    expect(result.current?.engine).toBe("anthropic");
   });
 });

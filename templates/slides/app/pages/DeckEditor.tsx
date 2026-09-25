@@ -422,6 +422,7 @@ export default function DeckEditor() {
   const generationSawActiveRef = useRef(false);
   const generationSettlingAttemptRef = useRef<string | null>(null);
   const generationTerminalAttemptRef = useRef<string | null>(null);
+  const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
   if (searchParams.get("generating") === "1") {
     wasNewDeckCreation.current = true;
   }
@@ -886,17 +887,17 @@ export default function DeckEditor() {
       !wasNewDeckCreation.current
     )
       return;
-    const handlePageHide = (event: PageTransitionEvent) => {
-      if (
-        event.persisted ||
-        generationTerminalAttemptRef.current === generationAttemptId
-      ) {
-        return;
-      }
-      const submitStarted = generationRunStartedRef.current;
-      const settling =
-        generationSettlingAttemptRef.current === generationAttemptId;
-      const sawActive = generationSawActiveRef.current;
+    const attemptKey = `${id ?? ""}:${generationAttemptId}`;
+    generationLifecycleAttemptKeyRef.current = attemptKey;
+    const recordExit = (
+      exitReason: "page_exit" | "route_exit",
+      state = {
+        submitStarted: generationRunStartedRef.current,
+        settling: generationSettlingAttemptRef.current === generationAttemptId,
+        sawActive: generationSawActiveRef.current,
+      },
+    ) => {
+      if (generationTerminalAttemptRef.current === generationAttemptId) return;
       generationTerminalAttemptRef.current = generationAttemptId;
       const properties = {
         app_name: "slides",
@@ -908,32 +909,55 @@ export default function DeckEditor() {
         source: "new_deck_prompt",
       };
       try {
-        if (!submitStarted || !sawActive || settling) {
+        if (!state.submitStarted || !state.sawActive || state.settling) {
           trackEvent("generation_outcome_unresolved", {
             ...properties,
             outcome: "unresolved",
-            reason: !submitStarted
-              ? "page_exit_before_submit"
-              : settling
-                ? "page_exit_during_settlement"
-                : "page_exit_before_active",
+            reason: !state.submitStarted
+              ? `${exitReason}_before_submit`
+              : state.settling
+                ? `${exitReason}_during_settlement`
+                : `${exitReason}_before_active`,
           });
         } else {
           trackEvent("generation_abandoned", {
             ...properties,
-            reason: "page_exit",
+            reason: exitReason,
           });
         }
       } finally {
         if (id) clearStartedGenerationAttempt(generationAttemptId, id);
-        if (settling) generationSettlingAttemptRef.current = null;
+        if (state.settling) generationSettlingAttemptRef.current = null;
         generationSawActiveRef.current = false;
         generationRunStartedRef.current = false;
         generationStartedAtRef.current = null;
       }
     };
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (
+        event.persisted ||
+        generationTerminalAttemptRef.current === generationAttemptId
+      ) {
+        return;
+      }
+      recordExit("page_exit");
+    };
     window.addEventListener("pagehide", handlePageHide);
-    return () => window.removeEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      if (generationLifecycleAttemptKeyRef.current === attemptKey) {
+        generationLifecycleAttemptKeyRef.current = null;
+      }
+      const state = {
+        submitStarted: generationRunStartedRef.current,
+        settling: generationSettlingAttemptRef.current === generationAttemptId,
+        sawActive: generationSawActiveRef.current,
+      };
+      queueMicrotask(() => {
+        if (generationLifecycleAttemptKeyRef.current === attemptKey) return;
+        recordExit("route_exit", state);
+      });
+    };
   }, [generationAttemptId, generationLifecycleOwnedByEditor, id, slideCount]);
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
@@ -3105,7 +3129,7 @@ export default function DeckEditor() {
             questions={questionFlowQuestions ?? []}
             onSubmit={handleQuestionSubmit}
             onSkip={handleQuestionSkip}
-            designSystem={deck.designSystemId ? designSystem : undefined}
+            designSystem={designSystem}
             title={questionFlowTitle}
             description={questionFlowDescription}
             skipLabel={questionFlowSkipLabel}

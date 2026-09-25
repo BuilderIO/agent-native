@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { isValidElement, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   virtualWindowSize: Number.POSITIVE_INFINITY,
   view: "all",
   headerActions: null as unknown,
+  priorityRequest: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -113,7 +120,7 @@ vi.mock("@/hooks/use-account-filter", () => ({
 vi.mock("@/hooks/use-ai-priority", () => ({
   useAiPriority: () => ({
     isPending: false,
-    mutateAsync: vi.fn().mockResolvedValue({ scores: [] }),
+    mutateAsync: mocks.priorityRequest,
   }),
 }));
 
@@ -196,13 +203,15 @@ function Harness({
   hasNextPage,
   isFetchingNextPage,
   showPrioritySort,
+  sortMode,
 }: {
-  emails?: typeof messages;
+  emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
   accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   showPrioritySort?: boolean;
+  sortMode?: "newest" | "priority";
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -222,6 +231,7 @@ function Harness({
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         showPrioritySort={showPrioritySort}
+        sortMode={sortMode}
       />
     </>
   );
@@ -252,6 +262,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
     mocks.view = "all";
     mocks.headerActions = null;
+    mocks.priorityRequest.mockReset().mockResolvedValue({ scores: [] });
   });
 
   afterEach(() => cleanup());
@@ -268,6 +279,43 @@ describe("EmailList keyboard navigation interactions", () => {
     render(<Harness showPrioritySort />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
+  });
+
+  it("reuses priority scores when the visible inbox emails change", async () => {
+    mocks.view = "inbox";
+    mocks.priorityRequest.mockImplementation(
+      async ({ emails }: { emails: Array<{ id: string }> }) => ({
+        scores: emails.map(({ id }) => ({
+          emailId: id,
+          score: id === "middle" ? 0.9 : id === "last" ? 0.8 : 0.1,
+        })),
+      }),
+    );
+    const firstTabEmails = [messages[0], messages[1]].map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    const secondTabEmails = [messages[1], messages[2]].map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    const { rerender } = render(
+      <Harness emails={firstTabEmails} showPrioritySort sortMode="priority" />,
+    );
+
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject middle"),
+    );
+    rerender(
+      <Harness emails={secondTabEmails} showPrioritySort sortMode="priority" />,
+    );
+
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject middle"),
+    );
+    expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
+      emails: [expect.objectContaining({ id: "last" })],
+    });
   });
 
   it("keeps partial refresh warnings out of a populated cached list", () => {

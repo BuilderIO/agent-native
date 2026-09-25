@@ -316,4 +316,74 @@ describe("DeckEditor generation signal wiring", () => {
       }),
     );
   });
+
+  it("closes an attempt when client-side navigation unmounts the editor", async () => {
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/next", element: <div /> },
+      ],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => router?.navigate("/next"));
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        "generation_outcome_unresolved",
+        expect.objectContaining({
+          generation_attempt_id: "attempt-1",
+          outcome: "unresolved",
+          reason: "route_exit_before_submit",
+        }),
+      ),
+    );
+  });
+
+  it("marks an active generation abandoned when client-side navigation leaves the editor", async () => {
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/next", element: <div /> },
+      ],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+      publishAgentGeneratingChange();
+    });
+
+    await act(async () => router?.navigate("/next"));
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        "generation_abandoned",
+        expect.objectContaining({
+          generation_attempt_id: "attempt-1",
+          reason: "route_exit",
+        }),
+      ),
+    );
+  });
 });

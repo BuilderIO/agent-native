@@ -484,7 +484,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "رفض مزوّد الذكاء الاصطناعي هذا الطلب مؤقتًا. عادةً ما يُحل هذا خلال دقيقة — أعد المحاولة.",
   "errorMessages.startNewChat": "بدء محادثة جديدة",
-  "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
+  "errorMessages.addCreditsInBuilder": "إضافة أرصدة في Builder",
   "feedback.inaccurate": "غير دقيق",
   "feedback.keyboardHint": "{{shortcut}} Enter للإرسال",
   "feedback.notHelpful": "غير مفيد",
@@ -842,6 +842,21 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "تعذر إرسال التأكيد.",
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
+  "usage.builderCredits": "أرصدة Builder",
+  "usage.creditBalance": "رصيد مساحة العمل",
+  "usage.monthlyPlan": "الخطة الشهرية",
+  "usage.dailyFreeLimit": "الحد اليومي المجاني",
+  "usage.creditUsedOfLimit": "استخدام {{used}} من {{limit}}",
+  "usage.creditRemaining": "المتبقي {{amount}}",
+  "usage.creditUsageUnavailable": "تعذّر تحميل استخدام أرصدة Builder.",
+  "usage.estimatedBuilderCredits": "~{{amount}} رصيد مقدّر",
+  "usage.otherUsdSpend": "{{amount}} دولار أمريكي أخرى",
+  "usage.noBuilderCredits": "0 من أرصدة Builder",
+  "usage.otherUnclassifiedSpend": "إنفاق آخر أو غير مصنّف بالدولار الأمريكي",
+  "usage.providerSpendDetail":
+    "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
+  "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
+  "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
 };
 
 export default messages;

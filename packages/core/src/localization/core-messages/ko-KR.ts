@@ -480,7 +480,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AI 제공업체가 이 요청을 일시적으로 거부했습니다. 보통 1분 이내에 해결되니 다시 시도하세요.",
   "errorMessages.startNewChat": "새 채팅 시작",
-  "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
+  "errorMessages.addCreditsInBuilder": "Builder에서 크레딧 추가",
   "feedback.inaccurate": "부정확함",
   "feedback.keyboardHint": "보내려면 {{shortcut}} Enter",
   "feedback.notHelpful": "도움이 되지 않음",
@@ -813,6 +813,21 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "확인 메일을 보내지 못했습니다.",
   "settings.emailNewLabel": "새 이메일",
   "settings.emailNewPlaceholder": "새 이메일 입력",
+  "usage.builderCredits": "Builder 크레딧",
+  "usage.creditBalance": "워크스페이스 잔액",
+  "usage.monthlyPlan": "월간 플랜",
+  "usage.dailyFreeLimit": "무료 일일 한도",
+  "usage.creditUsedOfLimit": "{{limit}} 중 {{used}} 사용",
+  "usage.creditRemaining": "{{amount}} 남음",
+  "usage.creditUsageUnavailable":
+    "Builder 크레딧 사용량을 불러오지 못했습니다.",
+  "usage.estimatedBuilderCredits": "~{{amount}} 예상 크레딧",
+  "usage.otherUsdSpend": "{{amount}} 기타 USD",
+  "usage.noBuilderCredits": "Builder 크레딧 0",
+  "usage.otherUnclassifiedSpend": "기타 또는 분류되지 않은 USD 사용액",
+  "usage.providerSpendDetail": "Builder 청구 외 제공업체 사용 또는 이전 호출",
+  "usage.providerSpendToday": "오늘 기타 또는 분류되지 않은 사용량: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder 크레딧 / USD",
 };
 
 export default messages;

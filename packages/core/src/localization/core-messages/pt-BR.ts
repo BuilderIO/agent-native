@@ -719,7 +719,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "O provedor de IA recusou temporariamente esta solicitação. Isso costuma se resolver em menos de um minuto — tente novamente.",
   "errorMessages.startNewChat": "Iniciar novo chat",
-  "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
+  "errorMessages.addCreditsInBuilder": "Adicionar créditos no Builder",
   "feedback.inaccurate": "Impreciso",
   "feedback.keyboardHint": "{{shortcut}} Enter para enviar",
   "feedback.notHelpful": "Pouco útil",
@@ -858,6 +858,24 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "Não foi possível enviar a confirmação.",
   "settings.emailNewLabel": "Novo e-mail",
   "settings.emailNewPlaceholder": "Digite o novo e-mail",
+  "usage.builderCredits": "Créditos do Builder",
+  "usage.creditBalance": "Saldo do workspace",
+  "usage.monthlyPlan": "Plano mensal",
+  "usage.dailyFreeLimit": "Limite diário gratuito",
+  "usage.creditUsedOfLimit": "{{used}} de {{limit}} usados",
+  "usage.creditRemaining": "{{amount}} restantes",
+  "usage.creditUsageUnavailable":
+    "Não foi possível carregar o uso de créditos do Builder.",
+  "usage.estimatedBuilderCredits": "~{{amount}} créditos estimados",
+  "usage.otherUsdSpend": "{{amount}} USD adicional",
+  "usage.noBuilderCredits": "0 créditos do Builder",
+  "usage.otherUnclassifiedSpend":
+    "Gastos em USD adicionais ou não classificados",
+  "usage.providerSpendDetail":
+    "Uso do provedor ou chamadas antigas fora da cobrança do Builder",
+  "usage.providerSpendToday":
+    "Uso adicional ou não classificado hoje: {{amount}}",
+  "usage.driverCreditsAndUsd": "Créditos do Builder / USD",
 };
 
 export default messages;

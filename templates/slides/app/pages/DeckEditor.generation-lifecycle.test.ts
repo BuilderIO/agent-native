@@ -93,21 +93,24 @@ describe("generation outcome cleanup", () => {
   });
 
   it("cleans up a submitted attempt on page exit before the run becomes active", () => {
-    const pageHideStart = deckEditorSource.indexOf(
-      "const handlePageHide = (event: PageTransitionEvent) => {",
+    const recordExitStart = deckEditorSource.indexOf("const recordExit = (");
+    const recordExitEnd = deckEditorSource.indexOf(
+      "const handlePageHide =",
+      recordExitStart,
     );
-    const pageHideEnd = deckEditorSource.indexOf(
-      'window.addEventListener("pagehide", handlePageHide);',
-      pageHideStart,
+    const recordExitBody = deckEditorSource.slice(
+      recordExitStart,
+      recordExitEnd,
     );
-    const pageHideBody = deckEditorSource.slice(pageHideStart, pageHideEnd);
 
-    expect(pageHideBody).not.toContain("!generationSawActiveRef.current");
-    expect(pageHideBody).toContain('"page_exit_before_active"');
-    expect(pageHideBody).toContain(
+    expect(recordExitBody).toContain("!state.sawActive");
+    expect(recordExitBody).toContain("`${exitReason}_before_active`");
+    expect(recordExitBody).toContain(
       "clearStartedGenerationAttempt(generationAttemptId, id);",
     );
-    expect(pageHideBody).toContain("generationRunStartedRef.current = false;");
+    expect(recordExitBody).toContain(
+      "generationRunStartedRef.current = false;",
+    );
   });
 
   it("ignores a bfcache restore instead of treating it as a permanent exit", () => {
@@ -122,27 +125,28 @@ describe("generation outcome cleanup", () => {
   });
 
   it("marks a started-but-not-submitted attempt terminal with a distinct exit reason", () => {
-    const pageHideStart = deckEditorSource.indexOf(
-      "const handlePageHide = (event: PageTransitionEvent) => {",
+    const recordExitStart = deckEditorSource.indexOf("const recordExit = (");
+    const recordExitEnd = deckEditorSource.indexOf(
+      "const handlePageHide =",
+      recordExitStart,
     );
-    const pageHideEnd = deckEditorSource.indexOf(
-      'window.addEventListener("pagehide", handlePageHide);',
-      pageHideStart,
+    const recordExitBody = deckEditorSource.slice(
+      recordExitStart,
+      recordExitEnd,
     );
-    const pageHideBody = deckEditorSource.slice(pageHideStart, pageHideEnd);
 
-    const submitStartedIndex = pageHideBody.indexOf(
-      "const submitStarted = generationRunStartedRef.current;",
+    const submitStartedIndex = recordExitBody.indexOf(
+      "submitStarted: generationRunStartedRef.current,",
     );
-    const terminalMarkIndex = pageHideBody.indexOf(
+    const terminalMarkIndex = recordExitBody.indexOf(
       "generationTerminalAttemptRef.current = generationAttemptId;",
       submitStartedIndex,
     );
 
     expect(submitStartedIndex).toBeGreaterThanOrEqual(0);
     expect(terminalMarkIndex).toBeGreaterThan(submitStartedIndex);
-    expect(pageHideBody).toContain('"page_exit_before_submit"');
-    expect(pageHideBody).toContain("!submitStarted");
+    expect(recordExitBody).toContain("`${exitReason}_before_submit`");
+    expect(recordExitBody).toContain("!state.submitStarted");
   });
 });
 

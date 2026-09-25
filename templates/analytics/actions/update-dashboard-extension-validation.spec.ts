@@ -23,6 +23,7 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
+  DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 
 vi.mock("../server/lib/bigquery", () => ({
