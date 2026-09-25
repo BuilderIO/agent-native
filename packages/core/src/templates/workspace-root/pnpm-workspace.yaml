@@ -90,7 +90,6 @@ onlyBuiltDependencies:
   - canvas
   - electron
   - esbuild
-  # Its postinstall downloads the binary; without this it installs empty.
   - ffmpeg-static
   - lightningcss
   - node-pty
