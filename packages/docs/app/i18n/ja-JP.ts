@@ -2592,6 +2592,7 @@ const jaJP = {
     deploymentProduction: "本番環境と高度な設定",
     deployAnApp: "アプリをデプロイ",
     workspaceDeployment: "ワークスペースのデプロイ",
+    localProviderBuilds: "プロバイダーのビルドをローカルで再現する",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

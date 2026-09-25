@@ -69,6 +69,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "workspace-deployment",
       },
       {
+        id: "local-provider-builds",
+        labelKey: "localProviderBuilds",
+        slug: "local-provider-builds",
+      },
+      {
         id: "deployment-providers",
         labelKey: "deploymentProviders",
         children: [
