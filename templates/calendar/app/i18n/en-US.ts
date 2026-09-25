@@ -253,8 +253,7 @@ export default {
     eventRuleAccept: "Auto accept",
     eventRuleDecline: "Auto decline",
     eventRuleHide: "Auto hide",
-    eventRulePlaceholderAccept:
-      "Example: Accept one-on-ones from my team",
+    eventRulePlaceholderAccept: "Example: Accept one-on-ones from my team",
     eventRulePlaceholderDecline:
       "Example: Decline vendor demos and after-hours events",
     eventRulePlaceholderHide: "Example: Hide focus blocks and reminders",

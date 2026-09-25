@@ -252,8 +252,7 @@ export default {
       "उदाहरण: अपनी टीम के साथ आमने-सामने की बैठकें स्वीकार करें",
     eventRulePlaceholderDecline:
       "उदाहरण: विक्रेता डेमो और काम के घंटों के बाद के कार्यक्रम अस्वीकार करें",
-    eventRulePlaceholderHide:
-      "उदाहरण: फ़ोकस समय और रिमाइंडर छिपाएँ",
+    eventRulePlaceholderHide: "उदाहरण: फ़ोकस समय और रिमाइंडर छिपाएँ",
     eventRulesSave: "नियम सहेजें",
     eventRulesRecentActivity: "हाल की गतिविधि",
     eventRulesNoActivity: "अभी कोई गतिविधि नहीं",

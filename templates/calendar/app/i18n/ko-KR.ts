@@ -250,10 +250,8 @@ export default {
     eventRuleAccept: "자동 수락",
     eventRuleDecline: "자동 거절",
     eventRuleHide: "자동 숨기기",
-    eventRulePlaceholderAccept:
-      "예: 팀과의 일대일 미팅 자동 수락",
-    eventRulePlaceholderDecline:
-      "예: 영업 데모와 업무 시간 외 일정 거절",
+    eventRulePlaceholderAccept: "예: 팀과의 일대일 미팅 자동 수락",
+    eventRulePlaceholderDecline: "예: 영업 데모와 업무 시간 외 일정 거절",
     eventRulePlaceholderHide: "예: 집중 시간과 알림 숨기기",
     eventRulesSave: "규칙 저장",
     eventRulesRecentActivity: "최근 활동",

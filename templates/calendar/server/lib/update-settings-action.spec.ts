@@ -33,8 +33,11 @@ describe("update-settings timezone validation", () => {
     putSettingMock.mockResolvedValue(undefined);
     putUserSettingMock.mockResolvedValue(undefined);
     mutateUserSettingMock.mockImplementation(
-      async (_email: string, _key: string, updater: (current: null) => unknown) =>
-        updater(null),
+      async (
+        _email: string,
+        _key: string,
+        updater: (current: null) => unknown,
+      ) => updater(null),
     );
   });
 

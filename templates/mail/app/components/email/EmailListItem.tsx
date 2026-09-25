@@ -652,8 +652,8 @@ export const EmailListItem = memo(function EmailListItem({
                   type="button"
                   onClick={(event) => event.stopPropagation()}
                   className="email-importance-score ms-2 text-[11px] tabular-nums"
-                style={
-                  {
+                  style={
+                    {
                       "--mail-importance-hue": `${25 + 125 * importanceScore}deg`,
                     } as React.CSSProperties
                   }

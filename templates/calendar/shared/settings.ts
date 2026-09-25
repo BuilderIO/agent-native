@@ -13,7 +13,9 @@ export const DEFAULT_SETTINGS: Settings = {
   weekStart: DEFAULT_CALENDAR_WEEK_START,
 };
 
-function normalizeEventRuleActivity(input: unknown): CalendarEventRuleActivity[] {
+function normalizeEventRuleActivity(
+  input: unknown,
+): CalendarEventRuleActivity[] {
   if (!Array.isArray(input)) return [];
   return input
     .flatMap((entry): CalendarEventRuleActivity[] => {
@@ -34,7 +36,9 @@ function normalizeEventRuleActivity(input: unknown): CalendarEventRuleActivity[]
         item.title.length > 500 ||
         typeof item.occurredAt !== "string" ||
         !Number.isFinite(Date.parse(item.occurredAt)) ||
-        (action !== "accepted" && action !== "declined" && action !== "hidden") ||
+        (action !== "accepted" &&
+          action !== "declined" &&
+          action !== "hidden") ||
         (action === "hidden" &&
           (typeof item.hiddenEventKey !== "string" ||
             !item.hiddenEventKey ||

@@ -86,9 +86,8 @@ export async function saveCalendarSettings(
         ...patchRecord,
         eventRules: {
           ...currentSettings.eventRules,
-          ...((patchRecord.eventRules as
-            | Record<string, unknown>
-            | undefined) ?? {}),
+          ...((patchRecord.eventRules as Record<string, unknown> | undefined) ??
+            {}),
         },
       },
       { timezone: callerTimezone() },

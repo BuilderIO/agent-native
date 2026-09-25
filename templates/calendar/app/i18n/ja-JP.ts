@@ -254,8 +254,7 @@ export default {
     eventRuleAccept: "自動承諾",
     eventRuleDecline: "自動辞退",
     eventRuleHide: "自動非表示",
-    eventRulePlaceholderAccept:
-      "例: チームとの1対1の予定を承諾する",
+    eventRulePlaceholderAccept: "例: チームとの1対1の予定を承諾する",
     eventRulePlaceholderDecline:
       "例: ベンダーのデモや営業時間外の予定を辞退する",
     eventRulePlaceholderHide: "例: 集中時間やリマインダーを非表示にする",

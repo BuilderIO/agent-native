@@ -269,7 +269,8 @@ export default {
       "Ejemplo: Aceptar reuniones individuales con mi equipo",
     eventRulePlaceholderDecline:
       "Ejemplo: Rechazar demostraciones comerciales y eventos fuera de horario",
-    eventRulePlaceholderHide: "Ejemplo: Ocultar bloques de concentración y avisos",
+    eventRulePlaceholderHide:
+      "Ejemplo: Ocultar bloques de concentración y avisos",
     eventRulesSave: "Guardar reglas",
     eventRulesRecentActivity: "Actividad reciente",
     eventRulesNoActivity: "Aún no hay actividad",

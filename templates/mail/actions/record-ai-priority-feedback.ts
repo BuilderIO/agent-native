@@ -10,7 +10,9 @@ const feedbackSchema = z.object({
   sender: z.string().max(512).optional(),
   subject: z.string().max(2000).optional(),
 });
-const storedEntrySchema = feedbackSchema.extend({ createdAt: z.number().int() });
+const storedEntrySchema = feedbackSchema.extend({
+  createdAt: z.number().int(),
+});
 const storedSchema = z.union([
   z.array(storedEntrySchema).max(500),
   z.object({
@@ -29,11 +31,16 @@ export default defineAction({
     const stored = await getUserSetting(ownerEmail, "ai-priority-feedback");
     const parsed =
       stored === undefined || stored === null
-        ? { success: true as const, data: [] as z.infer<typeof storedEntrySchema>[] }
+        ? {
+            success: true as const,
+            data: [] as z.infer<typeof storedEntrySchema>[],
+          }
         : storedSchema.safeParse(stored);
     if (!parsed.success)
       throw new Error("Stored importance feedback is unreadable.");
-    const entries = Array.isArray(parsed.data) ? parsed.data : parsed.data.entries;
+    const entries = Array.isArray(parsed.data)
+      ? parsed.data
+      : parsed.data.entries;
     const totalVotes = Array.isArray(parsed.data)
       ? parsed.data.length
       : (parsed.data.totalVotes ?? parsed.data.entries.length);
