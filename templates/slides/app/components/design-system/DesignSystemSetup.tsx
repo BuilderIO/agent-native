@@ -954,6 +954,7 @@ export function DesignSystemSetup({
                           setDecodeStatus(null);
                           setBuilderIndexResult(null);
                           setBuilderIndexError(null);
+                          setBuilderIndexing(false);
                         }}
                       />
                     )}
