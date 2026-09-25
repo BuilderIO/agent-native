@@ -464,6 +464,50 @@ describe("calendar event rules sweep", () => {
     expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1);
   });
 
+  it("continues reconciling later pending RSVPs after one event lookup fails", async () => {
+    const owner = "owner@example.com";
+    const failedPending = {
+      id: "pending-failed",
+      eventId: "event-failed",
+      accountEmail: "one@example.com",
+      title: "First event",
+      action: "accepted",
+      occurredAt: "2026-09-25T12:00:00.000Z",
+    };
+    const healthyPending = {
+      id: "pending-healthy",
+      eventId: "event-healthy",
+      accountEmail: "one@example.com",
+      title: "Second event",
+      action: "accepted",
+      occurredAt: "2026-09-25T12:01:00.000Z",
+    };
+    const { settingsByOwner } = configureOwnerSweep({
+      rules: {},
+      runtime: {
+        pendingRsvps: {
+          [failedPending.id]: failedPending,
+          [healthyPending.id]: healthyPending,
+        },
+      },
+    });
+    mocks.getEvent
+      .mockRejectedValueOnce(new Error("temporary event lookup failure"))
+      .mockResolvedValueOnce({ responseStatus: "accepted" });
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+
+    expect(mocks.getEvent).toHaveBeenCalledTimes(2);
+    expect(
+      settingsByOwner[owner]["calendar-event-rules-runtime"].pendingRsvps,
+    ).toEqual({ [failedPending.id]: failedPending });
+    expect(
+      settingsByOwner[owner]["calendar-settings"].eventRuleActivity,
+    ).toContainEqual(expect.objectContaining({ id: healthyPending.id }));
+  });
+
   it("claims the event before re-reading and sending an RSVP across overlapping sweeps", async () => {
     configureOwnerSweep();
     let finishRsvp!: () => void;

@@ -230,6 +230,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
   const pendingRsvps = { ...(runtime.pendingRsvps ?? {}) };
   const resolvedPendingRsvps = new Set<string>();
   const releasedRsvpClaims = new Map<string, string>();
+  const pendingReconciliationErrors: Error[] = [];
   let conflictCount = 0;
   const persistProgress = (lastSweepAt?: number) =>
     mutateUserSetting(owner, RUNTIME_KEY, (current) => {
@@ -344,10 +345,22 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
         eventKey(pending.accountEmail, "primary", pending.eventId),
         claimToken,
       );
-      throw error;
+      pendingReconciliationErrors.push(
+        error instanceof Error
+          ? error
+          : new Error("Calendar RSVP reconciliation failed."),
+      );
     }
   }
   if (resolvedPendingRsvps.size) await persistProgress();
+  if (pendingReconciliationErrors.length) {
+    const error = new Error(
+      `Calendar RSVP reconciliation failed for ${pendingReconciliationErrors.length} event(s).`,
+    );
+    error.name = "AggregateError";
+    Object.assign(error, { errors: pendingReconciliationErrors });
+    throw error;
+  }
   if (!hasActiveRules) return;
   if (runtime.lastSweepAt && Date.now() - runtime.lastSweepAt < INTERVAL_MS)
     return;
