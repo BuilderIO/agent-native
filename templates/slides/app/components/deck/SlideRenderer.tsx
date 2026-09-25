@@ -880,10 +880,19 @@ export function getRenderedSlideSource(
 
 /**
  * Dispatched (bubbling) on a `.slide-content` root that holds an open text
- * edit, right before another slide's HTML replaces it. The editor must end
- * and save the edit synchronously; a root still being edited is not replaced.
+ * edit, right before other HTML replaces it: another slide's, or a newer
+ * version of this one. The editor must end and save the edit synchronously;
+ * a root still being edited is not replaced.
  */
 export const SLIDE_CONTENT_REPLACE_EVENT = "slides:before-content-replace";
+
+/**
+ * The event's detail when the incoming HTML is a newer version of the edited
+ * slide: its stored source, which the edit must be saved on top of.
+ */
+export interface SlideContentReplaceDetail {
+  content: string;
+}
 
 const EDITING_SELECTOR = '[contenteditable="true"]';
 
@@ -981,11 +990,6 @@ function RawSlideHtmlContent({
     if (!root) return;
     if (renderedHtmlRef.current !== html) {
       const sameSlide = getRenderedSlideSource(root)?.nonce === source?.nonce;
-      if (root.querySelector(EDITING_SELECTOR) && !sameSlide) {
-        root.dispatchEvent(
-          new Event(SLIDE_CONTENT_REPLACE_EVENT, { bubbles: true }),
-        );
-      }
       if (root.querySelector(EDITING_SELECTOR)) {
         // An upload that finishes while this slide's text is edited writes
         // straight to the deck. Its image lands on the live images and joins
@@ -997,6 +1001,16 @@ function RawSlideHtmlContent({
         ) {
           return;
         }
+        const detail: SlideContentReplaceDetail | null =
+          sameSlide && source ? { content: source.stored } : null;
+        root.dispatchEvent(
+          new CustomEvent(SLIDE_CONTENT_REPLACE_EVENT, {
+            bubbles: true,
+            detail,
+          }),
+        );
+      }
+      if (root.querySelector(EDITING_SELECTOR)) {
         // Rewriting the root would destroy the live edit's DOM and its caret.
         // Every content write during an edit commits the edit first, so this
         // is a missed commit, not something to paper over.

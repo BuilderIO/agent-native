@@ -696,6 +696,8 @@ const messages = {
     leaveWithoutSaving: "बिना सहेजे बाहर निकलें",
     editorMarkupNotSaved:
       "यह संपादन सहेजा नहीं गया, क्योंकि इससे स्लाइड में एडिटर मार्कअप जुड़ जाता।",
+    textEditConflictNotSaved:
+      "आपका टेक्स्ट संपादन सहेजा नहीं गया, क्योंकि उसी समय वही टेक्स्ट कहीं और बदला गया।",
   },
   designSystemSetup: {
     importedBrand: "आयात किया गया ब्रांड",

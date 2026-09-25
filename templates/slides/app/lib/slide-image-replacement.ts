@@ -97,11 +97,21 @@ function findImageWithSource(
   );
 }
 
-function imageStructure(doc: Document): string {
+/** The markup outside images, and outside the element stamped `emptied`. */
+function imageStructure(doc: Document, emptied?: string | null): string {
   const body = doc.body.cloneNode(true) as HTMLElement;
   body.querySelectorAll("img").forEach((image, index) => {
     image.replaceWith(`__slide-image-${index}__`);
   });
+  if (emptied) {
+    for (const element of Array.from(
+      body.querySelectorAll(`[${SOURCE_STAMP_ATTR}]`),
+    )) {
+      if (element.getAttribute(SOURCE_STAMP_ATTR) === emptied) {
+        element.replaceChildren();
+      }
+    }
+  }
   return body.innerHTML;
 }
 
@@ -227,28 +237,31 @@ export function swapImageSourcesInPlace(
  * applies the image attribute changes between two renders to the live
  * images, matched by order. Each live image keeps its source stamp, so the
  * edit still merges into the source it started from and carries the new
- * image as one of its changes. False when no image changed or the images no
- * longer line up.
+ * image as one of its changes. False unless images changed and nothing else
+ * did but the edited element's own content, which an upload built on the
+ * edit's last draft carries and the live edit is newer than.
  */
 export function updateLiveImagesUnderEdit(
   root: HTMLElement,
   previousContent: string,
   nextContent: string,
 ): boolean {
-  const previousImages = Array.from(
-    parseFragment(previousContent).body.querySelectorAll("img"),
-  );
-  const nextImages = Array.from(
-    parseFragment(nextContent).body.querySelectorAll("img"),
-  );
+  const previousDoc = parseFragment(previousContent);
+  const nextDoc = parseFragment(nextContent);
+  const previousImages = Array.from(previousDoc.body.querySelectorAll("img"));
+  const nextImages = Array.from(nextDoc.body.querySelectorAll("img"));
   const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  const edited = root
+    .querySelector('[contenteditable="true"]')
+    ?.getAttribute(SOURCE_STAMP_ATTR);
   if (
     nextImages.length === 0 ||
     previousImages.length !== nextImages.length ||
     liveImages.length !== nextImages.length ||
     previousImages.every(
       (image, index) => image.outerHTML === nextImages[index].outerHTML,
-    )
+    ) ||
+    imageStructure(previousDoc, edited) !== imageStructure(nextDoc, edited)
   ) {
     return false;
   }

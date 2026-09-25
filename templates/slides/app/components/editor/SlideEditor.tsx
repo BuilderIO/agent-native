@@ -28,6 +28,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 import { SlideCommentPins } from "@/components/comments/SlideCommentPins";
 import {
@@ -38,6 +39,7 @@ import SlideRenderer, {
   getRenderedSlideSource,
   isRawHtmlSlide,
   SLIDE_CONTENT_REPLACE_EVENT,
+  type SlideContentReplaceDetail,
 } from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
@@ -95,6 +97,7 @@ import {
 } from "@/lib/slide-image-replacement";
 import {
   mergeRenderedEdits,
+  rebaseSlideEdit,
   storedFormOf,
   type RenderedSlideSource,
 } from "@/lib/slide-source-map";
@@ -2105,7 +2108,9 @@ export default function SlideEditor({
     rawOnUpdateSlideRef.current = onUpdateSlide;
   }, [onUpdateSlide]);
   const textSessionRef = useRef<TextEditSession | null>(null);
-  const exitInlineEditRef = useRef<() => string | undefined>(() => undefined);
+  const exitInlineEditRef = useRef<
+    (newer?: SlideContentReplaceDetail) => string | undefined
+  >(() => undefined);
   /**
    * Every other content write commits an open text edit first. The write
    * re-renders the slide from stored HTML, which must not happen under the
@@ -2262,37 +2267,69 @@ export default function SlideEditor({
   /**
    * Ends the open text session and queues the edited slide as a draft. The
    * element is edited in place, so the live canvas under it is serialized.
+   * With `newer`, a newer version of the slide is replacing the canvas: the
+   * edit is saved on top of it, and dropped, loudly, when it changed the
+   * edited text too.
    */
-  const endTextSession = useCallback(() => {
-    if (inlineEditDraftCaptureTimerRef.current !== null) {
-      clearTimeout(inlineEditDraftCaptureTimerRef.current);
-      inlineEditDraftCaptureTimerRef.current = null;
-    }
-    const session = textSessionRef.current;
-    if (!session) return null;
-    textSessionRef.current = null;
-    session.text.end();
-    const element = session.text.element;
-    const { slideContent } = session;
-    let content: string | null = null;
-    if (slideContent.contains(element)) {
-      content = serializeSlideContentHtml(
-        slideContent,
-        getRenderedSlideSource(slideContent),
-      );
-    } else {
-      const error = new Error(
-        "[slides] the edited text left the slide before its edit was saved",
-      );
-      console.error(error);
-      captureError(error, {
-        tags: { area: "slides-save-boundary" },
-        extra: { slideId: session.slideId },
-      });
-    }
-    if (content !== null) persistInlineEditDraft(session.slideId, content);
-    return { content, element, slideId: session.slideId };
-  }, [persistInlineEditDraft, serializeSlideContentHtml]);
+  const endTextSession = useCallback(
+    (newer?: SlideContentReplaceDetail) => {
+      if (inlineEditDraftCaptureTimerRef.current !== null) {
+        clearTimeout(inlineEditDraftCaptureTimerRef.current);
+        inlineEditDraftCaptureTimerRef.current = null;
+      }
+      const session = textSessionRef.current;
+      if (!session) return null;
+      textSessionRef.current = null;
+      session.text.end();
+      const element = session.text.element;
+      const { slideContent } = session;
+      let content: string | null = null;
+      if (slideContent.contains(element)) {
+        const source = getRenderedSlideSource(slideContent);
+        content = serializeSlideContentHtml(slideContent, source);
+        if (content !== null && newer) {
+          const rebased = source
+            ? rebaseSlideEdit(
+                source.stored,
+                source.ranges,
+                content,
+                newer.content,
+              )
+            : null;
+          if (rebased === null) {
+            const error = new Error(
+              "[slides] a newer version of the slide changed the text being edited; the edit was not saved",
+            );
+            console.error(error);
+            captureError(error, {
+              tags: { area: "slides-save-boundary" },
+              extra: { slideId: session.slideId },
+            });
+            toast.error(t("deckEditor.textEditConflictNotSaved"));
+          }
+          content = rebased ?? newer.content;
+          // The newer version is what is stored now: the baseline a no-op
+          // compares against, and what a queued draft settles back to.
+          inlineEditInitialContentRef.current = {
+            slideId: session.slideId,
+            content: newer.content,
+          };
+        }
+      } else {
+        const error = new Error(
+          "[slides] the edited text left the slide before its edit was saved",
+        );
+        console.error(error);
+        captureError(error, {
+          tags: { area: "slides-save-boundary" },
+          extra: { slideId: session.slideId },
+        });
+      }
+      if (content !== null) persistInlineEditDraft(session.slideId, content);
+      return { content, element, slideId: session.slideId };
+    },
+    [persistInlineEditDraft, serializeSlideContentHtml, t],
+  );
 
   const flushInlineEditDraft = useCallback(() => {
     const draft = inlineEditDraftRef.current;
@@ -2656,71 +2693,74 @@ export default function SlideEditor({
   );
 
   /** Exit edit mode, saving changed content without changing its layout. */
-  const exitInlineEdit = useCallback((): string | undefined => {
-    const el = editingElRef.current;
-    if (!el) return;
+  const exitInlineEdit = useCallback(
+    (newer?: SlideContentReplaceDetail): string | undefined => {
+      const el = editingElRef.current;
+      if (!el) return;
 
-    // Selection and freeform promotion are separate operations. Merely ending
-    // text editing must not turn a flow-layout block into an absolutely
-    // positioned object, because that changes its available wrapping width.
-    const slideContent = getSlideContent();
+      // Selection and freeform promotion are separate operations. Merely ending
+      // text editing must not turn a flow-layout block into an absolutely
+      // positioned object, because that changes its available wrapping width.
+      const slideContent = getSlideContent();
 
-    const ended = endTextSession();
-    const slideId = ended?.slideId ?? slide.id;
-    const html = ended ? ended.content : readCurrentSlideContentHtml();
-    const selected = ended?.element ?? el;
-    const selectionTarget = slideContent
-      ? resolveSlideTextSelectionTarget(selected, slideContent)
-      : selected;
-    const selector = getBuilderSelector(selectionTarget);
-    editingElRef.current = null;
-    richTextSelectionRef.current = null;
-    window.getSelection()?.removeAllRanges();
-    const initial = inlineEditInitialContentRef.current;
-    let normalizedContentHash: string | undefined;
-    if (html !== null) {
-      const current = { slideId, content: html };
-      if (shouldPersistInlineEditContent(initial, current)) {
-        const latestDraft = inlineEditDraftRef.current;
-        normalizedContentHash = rawOnUpdateSlideRef.current(
-          { content: html },
-          slideId,
-          shouldPersistInlineEditContent(latestDraft, current)
-            ? undefined
-            : { recordUndoOnly: true },
-        );
+      const ended = endTextSession(newer);
+      const slideId = ended?.slideId ?? slide.id;
+      const html = ended ? ended.content : readCurrentSlideContentHtml();
+      const selected = ended?.element ?? el;
+      const selectionTarget = slideContent
+        ? resolveSlideTextSelectionTarget(selected, slideContent)
+        : selected;
+      const selector = getBuilderSelector(selectionTarget);
+      editingElRef.current = null;
+      richTextSelectionRef.current = null;
+      window.getSelection()?.removeAllRanges();
+      const initial = inlineEditInitialContentRef.current;
+      let normalizedContentHash: string | undefined;
+      if (html !== null) {
+        const current = { slideId, content: html };
+        if (shouldPersistInlineEditContent(initial, current)) {
+          const latestDraft = inlineEditDraftRef.current;
+          normalizedContentHash = rawOnUpdateSlideRef.current(
+            { content: html },
+            slideId,
+            shouldPersistInlineEditContent(latestDraft, current)
+              ? undefined
+              : { recordUndoOnly: true },
+          );
+        }
       }
-    }
-    onInlineEditEnd?.(slideId);
-    inlineEditDraftRef.current = null;
-    inlineEditInitialContentRef.current = null;
-    const escape = slidesCanvasInteractionCore.escape({
-      editingObjectId: "inline-editing",
-      selectedObjectIds: resolveSelectedElement() ? ["selected"] : [],
-    });
-    setEditingEl(null);
-    if (escape.action === "select-object" && selectionTarget && selector) {
-      selectElementForStyling(selectionTarget, selector);
-    } else if (escape.action === "clear-selection") {
-      clearSelectedElement();
-      syncSelectionToAppState(null);
-    } else {
-      syncSelectionToAppState(null);
-    }
-    return (
-      normalizedContentHash ??
-      (html === null ? undefined : hashSlideContent(html))
-    );
-  }, [
-    getSlideContent,
-    readCurrentSlideContentHtml,
-    endTextSession,
-    resolveSelectedElement,
-    selectElementForStyling,
-    slide.id,
-    clearSelectedElement,
-    onInlineEditEnd,
-  ]);
+      onInlineEditEnd?.(slideId);
+      inlineEditDraftRef.current = null;
+      inlineEditInitialContentRef.current = null;
+      const escape = slidesCanvasInteractionCore.escape({
+        editingObjectId: "inline-editing",
+        selectedObjectIds: resolveSelectedElement() ? ["selected"] : [],
+      });
+      setEditingEl(null);
+      if (escape.action === "select-object" && selectionTarget && selector) {
+        selectElementForStyling(selectionTarget, selector);
+      } else if (escape.action === "clear-selection") {
+        clearSelectedElement();
+        syncSelectionToAppState(null);
+      } else {
+        syncSelectionToAppState(null);
+      }
+      return (
+        normalizedContentHash ??
+        (html === null ? undefined : hashSlideContent(html))
+      );
+    },
+    [
+      getSlideContent,
+      readCurrentSlideContentHtml,
+      endTextSession,
+      resolveSelectedElement,
+      selectElementForStyling,
+      slide.id,
+      clearSelectedElement,
+      onInlineEditEnd,
+    ],
+  );
   exitInlineEditRef.current = exitInlineEdit;
 
   const commitInlineEditForAgent = useCallback(async () => {
@@ -2883,8 +2923,10 @@ export default function SlideEditor({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const commit = () => {
-      if (textSessionRef.current) exitInlineEditRef.current();
+    const commit = (event: Event) => {
+      const newer = (event as CustomEvent<SlideContentReplaceDetail | null>)
+        .detail;
+      if (textSessionRef.current) exitInlineEditRef.current(newer ?? undefined);
     };
     container.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
     return () =>
