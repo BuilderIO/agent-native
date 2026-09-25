@@ -618,7 +618,13 @@ export function startInPlaceTextSession(
   );
   const undoStack: Snapshot[] = [];
   const redoStack: Snapshot[] = [];
-  let lastEdit: { kind: EditKind; at: number; boundary: boolean } | null = null;
+  let lastEdit: {
+    kind: EditKind;
+    at: number;
+    boundary: boolean;
+    /** Where the edit left the selection; a run only continues from there. */
+    after: TextOffsets | null;
+  } | null = null;
   let edited = false;
   /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
@@ -641,6 +647,7 @@ export function startInPlaceTextSession(
 
   const notify = () => {
     unscroll();
+    if (lastEdit) lastEdit.after = selectionOffsets();
     options.onInput?.();
   };
 
@@ -761,12 +768,15 @@ export function startInPlaceTextSession(
   function checkpoint(kind: EditKind, boundary = false) {
     edited = true;
     const now = Date.now();
+    const selection = selectionOffsets();
     const coalesce =
       kind !== "command" &&
       lastEdit?.kind === kind &&
       !lastEdit.boundary &&
-      now - lastEdit.at < TYPING_RUN_MS;
-    lastEdit = { kind, at: now, boundary };
+      now - lastEdit.at < TYPING_RUN_MS &&
+      lastEdit.after?.from === selection.from &&
+      lastEdit.after.to === selection.to;
+    lastEdit = { kind, at: now, boundary, after: null };
     if (coalesce) return;
     undoStack.push(snapshot());
     if (undoStack.length > UNDO_LIMIT) undoStack.shift();

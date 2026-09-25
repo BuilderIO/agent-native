@@ -1326,4 +1326,18 @@ describe("in-place text session: review round 2", () => {
     expect(clipboardData.getData("text/html").split(ZWSP)).toHaveLength(2);
     expect(clipboardData.getData("text/plain")).toBe(`A${ZWSP}B`);
   });
+
+  it("starts a new undo step when typing resumes somewhere else", () => {
+    const el = mount('<p id="t">Head</p>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 4);
+    type(el, "ab");
+    caret(el.firstChild!, 0);
+    type(el, "x");
+    expect(el.innerHTML).toBe("xHeadab");
+    session.undo();
+    expect(el.innerHTML).toBe("Headab");
+    session.undo();
+    expect(el.innerHTML).toBe("Head");
+  });
 });
