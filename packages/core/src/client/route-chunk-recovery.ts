@@ -452,17 +452,33 @@ export function installRouteChunkRecovery(
 
   // React Router catches stale route-module import failures and reloads the
   // current URL. Its console message is the only signal exposed before reload.
+  //
+  // `location.reload`/`assign`/`replace` are Unforgeable per the HTML spec —
+  // real browsers throw on any attempt to redefine or reassign them, which
+  // means patchReload()'s override below silently never installs outside of
+  // a mocked `location` in tests. React Router always ends up calling the
+  // real, native reload(), landing back on the current route. So recovery
+  // here cannot depend on intercepting that call, or on winning a same-tick
+  // race between our navigation and React Router's. Persisting the pending
+  // target to sessionStorage is synchronous and completes well before the
+  // native reload actually unloads the document, so the fresh page's next
+  // installRouteChunkRecovery() call can reliably finish the navigation
+  // instead of racing to preempt it.
   const originalError = consoleRef.error.bind(consoleRef);
   try {
     consoleRef.error = (...args: unknown[]) => {
-      // React Router logs before calling location.reload(). In Vite dev the
-      // recovery layer owns the bounded refresh; recovering here as well can
-      // turn a same-route failure into a document replacement loop.
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        // React Router calls location.reload() immediately after this log.
-        // In Vite dev, leave the route at its durable URL and let the patched
-        // reload perform one bounded refresh instead of replaying stale intent.
+        const pendingTarget = getFreshIntendedNavigation(
+          state,
+          win.location.href,
+        );
+        if (pendingTarget) {
+          persistPendingNavigation(win, pendingTarget, Date.now());
+        }
+        // Bonus best-effort: if this isn't the Vite dev case, try navigating
+        // immediately too. Harmless if React Router's native reload() wins
+        // the race — the persisted target above still resumes it next load.
         if (hasViteDevRecovery(win) !== true) {
           recoverToIntendedNavigation(win, state);
         }

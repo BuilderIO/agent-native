@@ -735,6 +735,61 @@ describe("route chunk recovery", () => {
     );
   });
 
+  it("still finishes the interrupted click in dev when the browser will not let reload be patched", () => {
+    // Real browsers make location.reload/assign/replace Unforgeable, so
+    // patchReload()'s override never actually installs outside of a mocked
+    // location. Recovery must not depend on it - this is the scenario that
+    // regressed in practice: only the console.error hook fires reliably.
+    const { fakeWindow, fakeLocation, originalReload, dispatchDocument } =
+      createFakeWindow("https://example.com/home", {
+        viteDevRecovery: true,
+        lockReload: true,
+      });
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const anchor = {
+      tagName: "A",
+      href: "https://example.com/chat/chat-new",
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      parentElement: null,
+    };
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: anchor,
+    } as unknown as MouseEvent);
+
+    fakeWindow.console.error(
+      "Error loading route module `/chat/assets/route.js`, reloading page...",
+    );
+    // patchReload couldn't install (lockReload), so this is the real,
+    // native, unmodified reload - it just reloads the current page.
+    fakeLocation.reload();
+    expect(originalReload).toHaveBeenCalledOnce();
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+
+    // The next page's install (simulating the reload landing) still
+    // finishes the click, because the persist happened synchronously in
+    // the console.error hook rather than depending on the reload override.
+    const reloaded = createFakeWindow("https://example.com/home", {
+      viteDevRecovery: true,
+      lockReload: true,
+      sessionStorage: fakeWindow.sessionStorage,
+    });
+
+    installRouteChunkRecovery(reloaded.fakeWindow);
+
+    expect(reloaded.fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/chat/chat-new",
+    );
+  });
+
   it("does not resume a pending navigation once it has gone stale", () => {
     const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
       "https://example.com/home",
