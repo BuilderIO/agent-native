@@ -581,17 +581,13 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Sender name — fixed width column */}
         <span
+          data-an-mask
           className={cn(
             "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate me-3",
             isUnread
               ? "font-semibold text-foreground"
               : "font-normal text-foreground/90",
           )}
-          title={
-            isMultiAccount && email.accountEmail
-              ? `Account: ${email.accountEmail}`
-              : undefined
-          }
         >
           {senderName}
         </span>
@@ -618,7 +614,10 @@ export const EmailListItem = memo(function EmailListItem({
         )}
 
         {/* Subject + snippet — fills remaining space */}
-        <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
+        <div
+          data-an-mask
+          className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden"
+        >
           <span
             className={cn(
               "text-sm sm:text-[13px] truncate shrink-0 max-w-[75%]",

@@ -319,7 +319,10 @@ function QueueList({
             )}
           >
             <div className="mb-1 flex items-center justify-between gap-2">
-              <span className="truncate text-[13px] font-semibold text-foreground">
+              <span
+                data-an-mask
+                className="truncate text-[13px] font-semibold text-foreground"
+              >
                 {draft.subject || t("mail.draftQueue.noSubject")}
               </span>
               <span
@@ -332,10 +335,12 @@ function QueueList({
               </span>
             </div>
             <p className="truncate text-[12px] text-muted-foreground">
-              {t("mail.draftQueue.toRecipient", { recipient: draft.to })}
+              <span data-an-mask>
+                {t("mail.draftQueue.toRecipient", { recipient: draft.to })}
+              </span>
             </p>
             <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground/55">
-              <span className="truncate">
+              <span data-an-mask className="truncate">
                 {t("mail.draftQueue.fromRequester", {
                   requester: draft.requesterName || draft.requesterEmail,
                 })}

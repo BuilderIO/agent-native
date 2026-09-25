@@ -439,11 +439,17 @@ export function SearchBar({
                 i === selectedIndex && "bg-accent",
               )}
             >
-              <span className="min-w-0 flex-1 truncate text-foreground/90">
+              <span
+                data-an-mask
+                className="min-w-0 flex-1 truncate text-foreground/90"
+              >
                 {highlight(contact.name || contact.email, query.trim())}
               </span>
               {contact.name && (
-                <span className="shrink-0 text-muted-foreground text-xs">
+                <span
+                  data-an-mask
+                  className="shrink-0 text-muted-foreground text-xs"
+                >
                   {highlight(contact.email, query.trim())}
                 </span>
               )}
@@ -482,13 +488,19 @@ export function SearchBar({
                       combinedIndex === selectedIndex && "bg-accent",
                     )}
                   >
-                    <span className="min-w-0 flex-1 truncate text-foreground/90">
+                    <span
+                      data-an-mask
+                      className="min-w-0 flex-1 truncate text-foreground/90"
+                    >
                       {highlight(
                         email.subject || email.from.name,
                         query.trim(),
                       )}
                     </span>
-                    <span className="shrink-0 truncate max-w-[35%] text-muted-foreground text-xs">
+                    <span
+                      data-an-mask
+                      className="shrink-0 truncate max-w-[35%] text-muted-foreground text-xs"
+                    >
                       {email.from.name || email.from.email}
                     </span>
                   </button>

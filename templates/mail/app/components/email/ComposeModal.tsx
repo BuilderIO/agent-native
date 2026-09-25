@@ -857,7 +857,10 @@ export function ComposeModal({
         <div className="flex flex-1 items-center min-w-0 overflow-x-auto hide-scrollbar gap-0.5">
           {drafts.length <= 1 ? (
             /* Single draft: just show the title */
-            <span className="text-sm font-semibold text-foreground px-2 truncate">
+            <span
+              data-an-mask
+              className="text-sm font-semibold text-foreground px-2 truncate"
+            >
               {title}
             </span>
           ) : (
@@ -884,7 +887,9 @@ export function ComposeModal({
                       : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
                   )}
                 >
-                  <span className="truncate">{label}</span>
+                  <span data-an-mask className="truncate">
+                    {label}
+                  </span>
                   <span
                     onClick={(e) => {
                       e.stopPropagation();
