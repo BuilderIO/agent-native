@@ -572,6 +572,19 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
 
 const SAFETY_FINDING_PATTERN =
   /\b(auth|authentication|authorization|credential|secret|api[- ]keys?|api[- ]tokens?|webhook[- ]tokens?|(?:access|refresh|bearer|session|service|signing|oauth|auth)[- ]tokens?|tokens?\s+(?:(?:is|are|was|were)\s+)?(?:exposed|leaked|returned|sent|logged|stolen|disclosed)|passwords?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|oauth|cors|redirects?|open redirect|(?:untrusted|raw|unsafe|unsanitized|unescaped)\s+html|event[- ]handlers?|script(?:s|[- ]tags?|[- ]execution|[- ]injection)|sanitiz(?:e|ers?|ations?|ed|ing))\b/i;
+const UNSAFE_HTML_SINK_FINDING_PATTERN = new RegExp(
+  [
+    String.raw`\b(?:(?:(?:user|attacker)[- ]controlled|untrusted)\s+(?:html|markup|input|content)|(?:user|attacker)\s+input)\b.{0,80}\b(?:innerhtml|dangerouslysetinnerhtml|without\s+(?:proper\s+)?(?:escaping|encoding)|unescaped|(?:execute|run)\w*\b.{0,20}\b(?:javascript|scripts?))\b`,
+    String.raw`\b(?:innerhtml|dangerouslysetinnerhtml)\b.{0,80}\b(?:user|attacker)[- ]controlled\s+(?:html|markup)\b`,
+    String.raw`\bhtml\b.{0,50}\bfrom\s+(?:the\s+)?(?:pr\s+body|user(?:[- ]controlled)?\s+input|(?:an?\s+)?untrusted\s+source)\b.{0,50}\b(?:insert|assign|render)\w*\b.{0,30}\b(?:directly|unescaped)\b`,
+    String.raw`\bhtml\b.{0,50}\b(?:render|insert)\w*\b.{0,20}\bunescaped\b.{0,50}\bfrom\s+(?:an?\s+)?untrusted\s+source\b`,
+    String.raw`\battacker\b.{0,30}\binject\w*\s+(?:html|markup)\b.{0,60}\b(?:dom|(?:execute|run)\w*\b.{0,20}\b(?:javascript|scripts?))\b`,
+    String.raw`\buser\s+input\b.{0,50}\b(?:reflect|insert|render)\w*\b.{0,40}\b(?:dom|html)\b.{0,25}\bwithout\s+(?:encoding|escaping)\b`,
+  ].join("|"),
+  "i",
+);
+const SAFE_HTML_HANDLING_PATTERN =
+  /\b(?:(?:render|insert)\w*\s+safely|safely\s+(?:render|insert)\w*|only\s+after\s+(?:escaping|encoding|sanitiz(?:e|ation)))\b/i;
 const COMPOUND_SAFETY_FINDING_PATTERN =
   /\b(?:auth(?:entication)?\s+bypass|(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|ssrf|rce|sanitiz(?:e|ers?|ations?|ed|ing))(?:['’]s)?\s+vulnerabilit(?:y|ies)|api[- ](?:keys?|tokens?)\s+vulnerabilit(?:y|ies)|(?:xss|csrf|csp)(?:(?:\s*,\s*|\s*,?\s+(?:and|or)\s+)(?:xss|csrf|csp|auth(?:entication)?|authorization)){1,3}\s+vulnerabilit(?:y|ies)|csp\s+(?:and|&)\s+auth(?:entication)?\s+bypass|oauth(?:\s+callback)?\s+redirects?|cors\s+vulnerabilit(?:y|ies)|tenant\s+isolation|access\s+control|privilege\s+escalation)\b/i;
 const NEGATED_SAFETY_TOPIC_PATTERN = String.raw`(?:auth(?:entication|orization)?(?:\s+bypass)?|credential|secret|api[- ]keys?|api[- ]tokens?|webhook[- ]tokens?|(?:access|refresh|bearer|session|service|signing|oauth|auth)[- ]tokens?|tokens?|passwords?|permissions?|access\s+control|privilege\s+escalation|tenant(?:\s+isolation)?|isolation|security|execution|sandbox|payments?|billing|deployment|ssrf|rce|injection|vulnerabilit(?:y|ies)|exploits?|unsafe|bypass|data\s+loss|xss|cross-site\s+scripting|csrf|cross-site\s+request\s+forgery|csp|content[- ]security[- ]policy|oauth(?:\s+callback)?(?:\s+redirect)?|cors|redirects?|open\s+redirect|(?:untrusted|raw|unsafe|unsanitized|unescaped)\s+html|event[- ]handlers?|script(?:s|[- ]tags?|[- ]execution|[- ]injection)|sanitiz(?:e|ers?|ations?|ed|ing))`;
@@ -596,8 +609,15 @@ export function hasActiveCredibleSafetyFinding(
     body
       .split(/(?:[.!?]\s+|;\s*|\r?\n+|\s+(?:but|however|while)\s+)/i)
       .some((sentence) => {
-        const safetyTerms = Array.from(
-          sentence.matchAll(new RegExp(SAFETY_FINDING_PATTERN.source, "gi")),
+        const safeHtmlHandling = SAFE_HTML_HANDLING_PATTERN.test(sentence);
+        const safetyTerms = [
+          ...sentence.matchAll(new RegExp(SAFETY_FINDING_PATTERN.source, "gi")),
+          ...sentence.matchAll(
+            new RegExp(UNSAFE_HTML_SINK_FINDING_PATTERN.source, "gi"),
+          ),
+        ].filter(
+          (term) =>
+            !safeHtmlHandling || !/^(?:untrusted|raw)\s+html$/i.test(term[0]),
         );
         if (safetyTerms.length === 0) return false;
 

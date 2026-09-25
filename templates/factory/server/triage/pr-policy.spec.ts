@@ -299,6 +299,8 @@ describe("pull-request governance", () => {
       "No XSS, CSRF, or authentication vulnerabilities were found.",
       "XSS, CSRF, and authentication vulnerabilities were fixed.",
       "CSP and authorization vulnerabilities were fixed.",
+      "User-controlled HTML is rendered safely into the DOM.",
+      "Untrusted HTML is rendered into the DOM only after escaping.",
       "This change reduces prompt tokens by 500.",
     ]) {
       expect(
@@ -335,6 +337,15 @@ describe("pull-request governance", () => {
       "Token exposed to untrusted callers.",
       "GitHub token leaked to logs.",
       "The user password is sent to the client.",
+      "This renders user-controlled HTML without escaping through innerHTML.",
+      "Untrusted input is assigned to innerHTML.",
+      "The UI uses dangerouslySetInnerHTML with attacker-controlled markup.",
+      "HTML from the PR body is inserted directly into the DOM.",
+      "HTML is rendered unescaped from an untrusted source.",
+      "User-controlled markup can execute JavaScript in the page.",
+      "Attacker can inject markup that executes JavaScript.",
+      "Attacker can inject HTML into the DOM, which executes JavaScript.",
+      "User input is reflected into the DOM without encoding.",
       "Untrusted HTML is rendered without escaping, so scripts can run.",
       "The Markdown renderer permits event-handler attributes.",
       "OAuth callback accepts arbitrary redirect URLs.",
@@ -630,6 +641,21 @@ describe("pull-request governance", () => {
       decidePullRequestGovernance({
         ...shomixPullRequest,
         safetyFindingsClean: false,
+      }).autoApprove,
+    ).toBe(false);
+    const htmlSinkFinding = hasActiveCredibleSafetyFinding(
+      [
+        {
+          state: "commented",
+          body: "Untrusted input is assigned to innerHTML.",
+        },
+      ],
+      [],
+    );
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        safetyFindingsClean: !htmlSinkFinding,
       }).autoApprove,
     ).toBe(false);
     expect(
