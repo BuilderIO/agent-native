@@ -298,6 +298,21 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/review/suggestions/actions/create-resource-suggestion",
   },
   {
+    name: "create-resource-suggestion-proposal",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal",
+  },
+  {
+    name: "get-resource-suggestion-proposal-by-creation-key",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key",
+  },
+  {
+    name: "decide-resource-suggestion-proposal",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal",
+  },
+  {
     name: "update-resource-suggestion",
     specifier:
       "@agent-native/core/review/suggestions/actions/update-resource-suggestion",

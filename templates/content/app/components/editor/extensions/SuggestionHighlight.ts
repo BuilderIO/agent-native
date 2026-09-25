@@ -217,7 +217,7 @@ function buildDecorations(
       );
       decorations.push(
         Decoration.widget(anchor, insertionWidget(spec, active), {
-          key: `${spec.suggestionId}:inserted`,
+          key: `${spec.suggestionId}:inserted:${anchor}`,
           marks: [],
           side: 1,
           ...attrs,

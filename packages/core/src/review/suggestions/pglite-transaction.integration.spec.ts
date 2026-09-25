@@ -18,6 +18,8 @@ import {
   queryReviewComments,
 } from "../store.js";
 import {
+  createResourceSuggestionProposal,
+  decideResourceSuggestionProposal,
   decideResourceSuggestion,
   updateResourceSuggestion,
 } from "./actions.js";
@@ -28,6 +30,7 @@ import {
 import {
   __resetSuggestionTablesForTests,
   ensureSuggestionTables,
+  getSuggestion,
   insertSuggestion,
   listSuggestions,
 } from "./store.js";
@@ -99,6 +102,8 @@ beforeAll(async () => {
       if (typeof after?.markdown !== "string") {
         throw new Error("Test suggestion is missing after.markdown");
       }
+      if (after.markdown === "__fail__")
+        throw new Error("Adapter rejected member");
       await transaction.execute({
         sql: "UPDATE pglite_review_resources SET body = ? WHERE id = ?",
         args: [after.markdown, targetId],
@@ -420,4 +425,173 @@ describe.sequential("suggestion actions on native PGlite transactions", () => {
       ).rows[0]?.value,
     ).toBe("second-committed");
   }, 15_000);
+  it("decides an exact proposal member set atomically and replays the decision", async () => {
+    const key = `proposal-create-${globalThis.crypto.randomUUID()}`;
+    const created = await createResourceSuggestionProposal.run(
+      {
+        resourceType,
+        resourceId,
+        adapterKind: "pglite-review-transaction-adapter",
+        baseRevision,
+        summary: "Two edits",
+        idempotencyKey: key,
+        suggestions: [
+          {
+            summary: "First",
+            operations: [
+              { ...originalOperation, after: { markdown: "First" } },
+            ],
+          },
+          {
+            summary: "Second",
+            operations: [
+              { ...originalOperation, after: { markdown: "Second" } },
+            ],
+          },
+        ],
+      },
+      { userEmail: ownerEmail },
+    );
+    expect(created.suggestions).toHaveLength(2);
+    expect(
+      created.suggestions.every(
+        (suggestion) => suggestion.proposalId === created.proposal.id,
+      ),
+    ).toBe(true);
+    const members = created.suggestions.map((suggestion) => ({
+      id: suggestion.id,
+      observedRevision: suggestion.revision,
+      observedBase: suggestion.baseRevision,
+    }));
+    const decisionKey = `proposal-decision-${globalThis.crypto.randomUUID()}`;
+    await expect(
+      decideResourceSuggestionProposal.run(
+        {
+          proposalId: created.proposal.id,
+          decision: "accepted",
+          idempotencyKey: decisionKey,
+          members: [{ ...members[0]!, observedRevision: 999 }, members[1]!],
+        },
+        { userEmail: ownerEmail },
+      ),
+    ).rejects.toThrow("proposal member changed");
+    expect(
+      (await listSuggestions(resourceType, resourceId))
+        .filter((suggestion) => suggestion.proposalId === created.proposal.id)
+        .map((suggestion) => suggestion.status),
+    ).toEqual(["pending", "pending"]);
+    const appended = await createResourceSuggestionProposal.run(
+      {
+        resourceType,
+        resourceId,
+        adapterKind: "pglite-review-transaction-adapter",
+        baseRevision,
+        summary: "Two edits",
+        proposalId: created.proposal.id,
+        idempotencyKey: `proposal-append-${globalThis.crypto.randomUUID()}`,
+        suggestions: [
+          { summary: "Later edit", operations: [originalOperation] },
+        ],
+      },
+      { userEmail: ownerEmail },
+    );
+    expect(appended.proposal.id).toBe(created.proposal.id);
+    const decided = await decideResourceSuggestionProposal.run(
+      {
+        proposalId: created.proposal.id,
+        decision: "accepted",
+        idempotencyKey: decisionKey,
+        members,
+      },
+      { userEmail: ownerEmail },
+    );
+    expect(decided.suggestions.map((suggestion) => suggestion.status)).toEqual([
+      "accepted",
+      "accepted",
+    ]);
+    const replay = await decideResourceSuggestionProposal.run(
+      {
+        proposalId: created.proposal.id,
+        decision: "accepted",
+        idempotencyKey: decisionKey,
+        members,
+      },
+      { userEmail: ownerEmail },
+    );
+    expect(replay.suggestions.map((suggestion) => suggestion.id)).toEqual(
+      created.suggestions.map((suggestion) => suggestion.id),
+    );
+    expect((await getSuggestion(appended.suggestions[0]!.id))?.status).toBe(
+      "pending",
+    );
+    const [resource] = await getDb()
+      .select({ body: resources.body })
+      .from(resources)
+      .where(eq(resources.id, resourceId));
+    expect(resource?.body).toBe("Second");
+    await getDbExec().execute({
+      sql: "UPDATE pglite_review_resources SET body = ? WHERE id = ?",
+      args: ["Before", resourceId],
+    });
+  });
+  it("rolls back an earlier canonical write when a later member fails", async () => {
+    const created = await createResourceSuggestionProposal.run(
+      {
+        resourceType,
+        resourceId,
+        adapterKind: "pglite-review-transaction-adapter",
+        baseRevision,
+        summary: "Rollback edits",
+        idempotencyKey: `proposal-rollback-create-${globalThis.crypto.randomUUID()}`,
+        suggestions: [
+          {
+            summary: "First",
+            operations: [
+              { ...originalOperation, after: { markdown: "Temporary" } },
+            ],
+          },
+          {
+            summary: "Second",
+            operations: [
+              { ...originalOperation, after: { markdown: "__fail__" } },
+            ],
+          },
+        ],
+      },
+      { userEmail: ownerEmail },
+    );
+    const before = (
+      await getDb()
+        .select({ body: resources.body })
+        .from(resources)
+        .where(eq(resources.id, resourceId))
+    )[0]!.body;
+    await expect(
+      decideResourceSuggestionProposal.run(
+        {
+          proposalId: created.proposal.id,
+          decision: "accepted",
+          idempotencyKey: `proposal-rollback-decide-${globalThis.crypto.randomUUID()}`,
+          members: created.suggestions.map((suggestion) => ({
+            id: suggestion.id,
+            observedRevision: suggestion.revision,
+            observedBase: suggestion.baseRevision,
+          })),
+        },
+        { userEmail: ownerEmail },
+      ),
+    ).rejects.toThrow("Adapter rejected member");
+    const after = (
+      await getDb()
+        .select({ body: resources.body })
+        .from(resources)
+        .where(eq(resources.id, resourceId))
+    )[0]!.body;
+    expect(after).toBe(before);
+    expect(
+      (await listSuggestions(resourceType, resourceId))
+        .filter((suggestion) => suggestion.proposalId === created.proposal.id)
+        .map((suggestion) => suggestion.status),
+    ).toEqual(["pending", "pending"]);
+  });
 });

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { ResourceSuggestion } from "@agent-native/core/review";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -100,6 +101,35 @@ function thread(id: string, resolved = false): CommentThread {
   };
 }
 
+function proposalSuggestion(
+  id: string,
+  status: ResourceSuggestion["status"] = "pending",
+): ResourceSuggestion {
+  return {
+    id,
+    proposalId: "proposal",
+    proposalSummary: "Suggest edits",
+    revision: 1,
+    resourceType: "document",
+    resourceId: "fixture",
+    adapterKind: "markdown",
+    adapterVersion: 1,
+    threadId: `suggestion-${id}`,
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    baseRevision: "base",
+    status,
+    summary: `Edit ${id}`,
+    ownerEmail: "reviewer@example.test",
+    orgId: null,
+    visibility: "private",
+    createdAt: "2026-09-04T12:00:00Z",
+    updatedAt: "2026-09-04T12:00:00Z",
+    metadata: null,
+    operations: [],
+  };
+}
+
 let panel: ReturnType<typeof useCommentPanelSession>;
 let replyDraft: ReturnType<typeof useCommentDraft>;
 function PanelProbe() {
@@ -121,6 +151,7 @@ function SidebarOwner({
     key?: string;
     pending?: boolean;
     onPendingDone?: (threadId?: string) => void;
+    suggestions?: ResourceSuggestion[];
   };
 }) {
   const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
@@ -142,11 +173,13 @@ function SidebarOwner({
       }}
       documentId="fixture"
       threads={threads}
+      suggestions={options.suggestions}
       selectedThreadId={selected}
       currentUserEmail="reviewer@example.test"
       canComment
       canResolve
-      alignToAnchors={false}
+      canDecideSuggestions
+      alignToAnchors={!!options.suggestions}
       forceVisible
       presentation={presentation}
     />
@@ -189,6 +222,7 @@ describe("comment review interactions", () => {
       key?: string;
       pending?: boolean;
       onPendingDone?: (threadId?: string) => void;
+      suggestions?: ResourceSuggestion[];
     } = {},
   ) {
     if (!container) {
@@ -227,6 +261,33 @@ describe("comment review interactions", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
   }
+  it.each(["inline", "history"] as const)(
+    "shows a single-member proposal as a normal suggestion card in %s",
+    (presentation) => {
+      render(null, [], presentation, {
+        suggestions: [proposalSuggestion("one")],
+      });
+      expect(
+        container.querySelector("[data-suggestion-id='one']"),
+      ).not.toBeNull();
+      expect(container.querySelector("[data-suggestion-proposal]")).toBeNull();
+    },
+  );
+
+  it.each(["inline", "history"] as const)(
+    "keeps a multi-member proposal grouped when one edit remains pending in %s",
+    (presentation) => {
+      render(null, [], presentation, {
+        suggestions: [
+          proposalSuggestion("one", "accepted"),
+          proposalSuggestion("two"),
+        ],
+      });
+      expect(
+        container.querySelector("[data-suggestion-proposal='proposal']"),
+      ).not.toBeNull();
+    },
+  );
   it.each([
     ["inline", "one", false],
     ["history", null, false],
