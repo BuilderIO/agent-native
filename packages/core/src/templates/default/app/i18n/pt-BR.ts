@@ -274,6 +274,8 @@ const messages = {
     sharedKeyInEffect: "Uma chave compartilhada está em uso.",
     useOrganizationKey: "Usar chave da organização",
     keyStatusUnavailable: "Não foi possível consultar o status da chave.",
+    saveScopeRoleUnavailable:
+      "Não foi possível carregar sua função na organização, então ainda não é possível salvar chaves.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

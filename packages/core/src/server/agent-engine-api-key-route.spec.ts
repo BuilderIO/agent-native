@@ -140,12 +140,29 @@ describe("agent engine api-key route helpers", () => {
       ok: true,
       key: "OPENAI_API_KEY",
       endpointKey: "OPENAI_BASE_URL",
+      scope: "user",
     });
+    expect(
+      normalizeAgentEngineApiKeyDeletePayload({
+        provider: "anthropic",
+        scope: "org",
+      }),
+    ).toEqual({ ok: true, key: "ANTHROPIC_API_KEY", scope: "org" });
     expect(
       normalizeAgentEngineApiKeyDeletePayload({ provider: "not-a-provider" }),
     ).toMatchObject({
       ok: false,
       statusCode: 400,
+    });
+    expect(
+      normalizeAgentEngineApiKeyDeletePayload({
+        provider: "anthropic",
+        scope: "workspace",
+      }),
+    ).toEqual({
+      ok: false,
+      statusCode: 400,
+      error: 'scope must be "user" or "org"',
     });
   });
 
@@ -440,75 +457,146 @@ describe("agent engine api-key route helpers", () => {
     });
   });
 
-  it("clears a legacy personal row before saving an organization key", async () => {
-    mockGetSession.mockResolvedValue({ email: "owner@example.test" });
-    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "owner" });
-    mockWriteAppSecret.mockClear();
-    mockDeleteAppSecret.mockClear();
-
-    const event = {
-      req: new Request("http://localhost/_agent-native/agent-engine-key", {
-        method: "POST",
-        body: JSON.stringify({
-          provider: "anthropic",
-          apiKey: "sk-ant-example",
-          scope: "org",
-        }),
-        headers: { "content-type": "application/json" },
-      }),
-      res: { headers: new Headers(), status: 200 },
-    };
+  it("saves an org-scope request from a caller with no organization as personal", async () => {
+    mockGetSession.mockResolvedValue({ email: "solo@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: null, role: null });
 
     await expect(
-      createAgentEngineApiKeyHandler()(event as any),
-    ).resolves.toMatchObject({ ok: true, scope: "org" });
-    expect(mockDeleteAppSecret).toHaveBeenCalledWith({
-      key: "ANTHROPIC_API_KEY",
-      scope: "user",
-      scopeId: "owner@example.test",
-    });
-    expect(mockWriteAppSecret).toHaveBeenCalledWith({
-      key: "ANTHROPIC_API_KEY",
-      value: "sk-ant-example",
-      scope: "org",
-      scopeId: "org-1",
+      resolveAgentEngineApiKeyWriteTarget({} as H3Event, "org"),
+    ).resolves.toEqual({
+      ok: true,
+      target: { scope: "user", scopeId: "solo@example.test" },
     });
   });
 
-  it("reports a partial save when the legacy-key cleanup session is unavailable", async () => {
-    mockGetSession
-      .mockResolvedValueOnce({ email: "owner@example.test" })
-      .mockResolvedValueOnce(null);
-    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "owner" });
+  it("does not downgrade an org save when the org context is unreadable", async () => {
+    mockGetSession.mockResolvedValue({ email: "owner@example.test" });
+    mockGetOrgContext.mockRejectedValueOnce(new Error("org_members timeout"));
+
+    await expect(
+      resolveAgentEngineApiKeyWriteTarget({} as H3Event, "org"),
+    ).rejects.toThrow("org_members timeout");
+  });
+
+  it("saves a member's key at personal scope", async () => {
+    mockGetSession.mockResolvedValue({ email: "member@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "member" });
     mockWriteAppSecret.mockClear();
     mockDeleteAppSecret.mockClear();
 
-    const event = {
-      req: new Request("http://localhost/_agent-native/agent-engine-key", {
-        method: "POST",
-        body: JSON.stringify({
-          provider: "anthropic",
-          apiKey: "sk-ant-example",
-          scope: "org",
-        }),
-        headers: { "content-type": "application/json" },
-      }),
-      res: { headers: new Headers(), status: 200 },
-    };
+    const event = keyRequest("POST", {
+      provider: "anthropic",
+      apiKey: "sk-ant-example",
+      scope: "user",
+    });
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({ ok: true, key: "ANTHROPIC_API_KEY", scope: "user" });
+    expect(event.res.status).toBe(200);
+    expect(mockWriteAppSecret).toHaveBeenCalledWith({
+      key: "ANTHROPIC_API_KEY",
+      value: "sk-ant-example",
+      scope: "user",
+      scopeId: "member@example.test",
+    });
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member's organization save", async () => {
+    mockGetSession.mockResolvedValue({ email: "member@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "member" });
+    mockWriteAppSecret.mockClear();
+
+    const event = keyRequest("POST", {
+      provider: "anthropic",
+      apiKey: "sk-ant-example",
+      scope: "org",
+    });
 
     await expect(
       createAgentEngineApiKeyHandler()(event as any),
     ).resolves.toEqual({
-      ok: false,
-      error:
-        "Organization key saved, but the legacy personal key could not be cleared. Retry this save before using the organization key.",
+      error: "Only organization owners and admins can set org-scoped keys",
     });
+    expect(event.res.status).toBe(403);
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("keeps the admin's personal key when saving an organization key", async () => {
+    mockGetSession.mockResolvedValue({ email: "admin@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "admin" });
+    mockWriteAppSecret.mockClear();
+    mockDeleteAppSecret.mockClear();
+
+    await expect(
+      createAgentEngineApiKeyHandler()(
+        keyRequest("POST", {
+          provider: "openai",
+          apiKey: "sk-example",
+          scope: "org",
+        }) as any,
+      ),
+    ).resolves.toMatchObject({ ok: true, scope: "org" });
     expect(mockWriteAppSecret).toHaveBeenCalledWith({
-      key: "ANTHROPIC_API_KEY",
-      value: "sk-ant-example",
+      key: "OPENAI_API_KEY",
+      value: "sk-example",
       scope: "org",
       scopeId: "org-1",
     });
     expect(mockDeleteAppSecret).not.toHaveBeenCalled();
   });
+
+  it("removes an organization key and endpoint for an admin", async () => {
+    mockGetSession.mockResolvedValue({ email: "admin@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "admin" });
+    mockDeleteAppSecret.mockClear();
+
+    await expect(
+      createAgentEngineApiKeyHandler()(
+        keyRequest("DELETE", { provider: "openai", scope: "org" }) as any,
+      ),
+    ).resolves.toEqual({ ok: true, key: "OPENAI_API_KEY", scope: "org" });
+    expect(mockDeleteAppSecret).toHaveBeenCalledTimes(2);
+    expect(mockDeleteAppSecret).toHaveBeenNthCalledWith(1, {
+      key: "OPENAI_API_KEY",
+      scope: "org",
+      scopeId: "org-1",
+    });
+    expect(mockDeleteAppSecret).toHaveBeenNthCalledWith(2, {
+      key: "OPENAI_BASE_URL",
+      scope: "org",
+      scopeId: "org-1",
+    });
+  });
+
+  it("refuses a member's organization key removal", async () => {
+    mockGetSession.mockResolvedValue({ email: "member@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "member" });
+    mockDeleteAppSecret.mockClear();
+
+    const event = keyRequest("DELETE", {
+      provider: "anthropic",
+      scope: "org",
+    });
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      error: "Only organization owners and admins can set org-scoped keys",
+    });
+    expect(event.res.status).toBe(403);
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+  });
 });
+
+function keyRequest(method: "POST" | "DELETE", body: Record<string, unknown>) {
+  return {
+    req: new Request("http://localhost/_agent-native/agent-engine-key", {
+      method,
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+    }),
+    res: { headers: new Headers(), status: 200 },
+  };
+}

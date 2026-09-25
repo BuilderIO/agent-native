@@ -137,6 +137,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "साझा कुंजी उपयोग में है।",
   "agentPanel.useOrganizationKey": "संगठन की कुंजी इस्तेमाल करें",
   "agentPanel.keyStatusUnavailable": "कुंजी की स्थिति उपलब्ध नहीं है।",
+  "agentPanel.saveScopeRoleUnavailable":
+    "आपकी संगठन भूमिका लोड नहीं हो सकी, इसलिए अभी कुंजियाँ सहेजी नहीं जा सकतीं।",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा प्रयास करें।",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT सदस्यता",

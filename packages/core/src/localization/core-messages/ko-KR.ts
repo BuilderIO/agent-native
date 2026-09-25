@@ -139,6 +139,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "공유 키를 사용 중입니다.",
   "agentPanel.useOrganizationKey": "조직 키 사용",
   "agentPanel.keyStatusUnavailable": "키 상태를 확인할 수 없습니다.",
+  "agentPanel.saveScopeRoleUnavailable":
+    "조직 역할을 불러오지 못해 아직 키를 저장할 수 없습니다.",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "이 사이트의 팝업을 허용한 후 다시 시도하세요.",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT 구독",

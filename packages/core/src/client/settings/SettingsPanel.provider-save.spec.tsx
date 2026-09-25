@@ -79,6 +79,8 @@ function createFetchFixture({
   providerSettingsResponse,
   disconnectResponse,
   ollamaModelsResponse,
+  role = "admin",
+  orgMeResponse,
 }: {
   engines?: EngineFixture[] | (() => EngineFixture[]);
   current?: { engine: string; model: string };
@@ -89,6 +91,8 @@ function createFetchFixture({
   providerSettingsResponse?: () => Promise<Response> | Response;
   disconnectResponse?: () => Promise<Response> | Response;
   ollamaModelsResponse?: () => Promise<Response> | Response;
+  role?: "owner" | "admin" | "member" | null;
+  orgMeResponse?: () => Promise<Response> | Response;
 }) {
   const setRequests: Array<Record<string, unknown>> = [];
   const providerSettingsRequests: Array<Record<string, unknown>> = [];
@@ -98,6 +102,17 @@ function createFetchFixture({
       const url = String(input);
       if (url.endsWith("/_agent-native/agent-chat/mode")) {
         return json({ devMode: false, canToggle: false });
+      }
+      if (url.endsWith("/_agent-native/org/me")) {
+        if (orgMeResponse) return orgMeResponse();
+        return json({
+          email: "viewer@example.test",
+          orgId: role ? "org-1" : null,
+          orgName: role ? "Acme" : null,
+          role,
+          icon: null,
+          iconRevision: 0,
+        });
       }
       if (url.includes("/_agent-native/connection-status/builder")) {
         return json({
@@ -598,6 +613,7 @@ describe("AgentSettingsContent provider save", () => {
       setResponse: () => {
         throw new Error("Members cannot change the default model");
       },
+      role: "member",
     });
     const { root } = await renderSettings(fixture.fetchMock);
     expect(hasButton("Disconnect")).toBe(false);
@@ -615,10 +631,105 @@ describe("AgentSettingsContent provider save", () => {
       {
         key: "OPENAI_API_KEY",
         value: "sk-obviously-fake-openai-key",
-        scope: "org",
+        scope: "user",
       },
     ]);
     expect(fixture.setRequests).toHaveLength(0);
+    act(() => root.unmount());
+  });
+
+  it("saves a key personally for a user with no organization", async () => {
+    const fixture = createFetchFixture({
+      envKeys: [
+        { key: "ANTHROPIC_API_KEY", configured: true },
+        { key: "OPENAI_API_KEY", configured: false },
+      ],
+      listResponse: () =>
+        json({
+          engines: [anthropic, openai],
+          current: { engine: "anthropic", model: "claude-sonnet-5" },
+          canUpdateDefault: true,
+        }),
+      setResponse: () => json({ ok: true }),
+      providerSettingsResponse: () =>
+        json({
+          ok: true,
+          key: "OPENAI_API_KEY",
+          scope: "user",
+          defaultModel: {
+            status: "selected",
+            engine: "ai-sdk:openai",
+            model: "gpt-5.4",
+          },
+        }),
+      role: null,
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await chooseOpenAi();
+    const key = document.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    );
+    if (!key) throw new Error("Missing API key input");
+    await changeInput(key, "sk-obviously-fake-openai-key");
+    await click(buttonNamed("Save"));
+
+    expect(fixture.providerSettingsRequests).toEqual([
+      expect.objectContaining({ key: "OPENAI_API_KEY", scope: "user" }),
+    ]);
+    act(() => root.unmount());
+  });
+
+  it("keeps Save off with a retry when the viewer's role can't be read", async () => {
+    let orgMeFails = true;
+    const fixture = createFetchFixture({
+      envKeys: [
+        { key: "ANTHROPIC_API_KEY", configured: true },
+        { key: "OPENAI_API_KEY", configured: false },
+      ],
+      listResponse: () =>
+        json({
+          engines: [anthropic, openai],
+          current: { engine: "anthropic", model: "claude-sonnet-5" },
+          canUpdateDefault: true,
+        }),
+      setResponse: () => json({ ok: true }),
+      orgMeResponse: () =>
+        orgMeFails
+          ? json({ error: "Org context unavailable" }, 500)
+          : json({
+              email: "viewer@example.test",
+              orgId: "org-1",
+              orgName: "Acme",
+              role: "admin",
+              icon: null,
+              iconRevision: 0,
+            }),
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await chooseOpenAi();
+    const key = document.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    );
+    if (!key) throw new Error("Missing API key input");
+    await changeInput(key, "sk-obviously-fake-openai-key");
+
+    expect(buttonNamed("Save").disabled).toBe(true);
+    expect(document.body.textContent).toContain(
+      "Couldn't load your organization role",
+    );
+    await click(buttonNamed("Save"));
+    expect(fixture.providerSettingsRequests).toEqual([]);
+
+    orgMeFails = false;
+    await click(buttonNamed("Retry"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await click(buttonNamed("Save"));
+
+    expect(fixture.providerSettingsRequests).toEqual([
+      expect.objectContaining({ key: "OPENAI_API_KEY", scope: "org" }),
+    ]);
     act(() => root.unmount());
   });
 

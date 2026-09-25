@@ -257,6 +257,8 @@ const messages = {
     sharedKeyInEffect: "目前使用的是共用金鑰。",
     useOrganizationKey: "改用組織金鑰",
     keyStatusUnavailable: "無法取得金鑰狀態。",
+    saveScopeRoleUnavailable:
+      "無法載入你在組織中的角色，因此暫時無法儲存金鑰。",
   },
   share: {
     titleWithResource: "分享「{{title}}」",

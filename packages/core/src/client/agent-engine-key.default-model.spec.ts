@@ -37,6 +37,7 @@ describe("saving a key picks the default model", () => {
       saveAgentEngineProviderSettings({
         provider: "openai",
         apiKey: "sk-obviously-fake",
+        scope: "org",
         defaultModel: { model: " gpt-5.5 " },
       }),
     ).resolves.toEqual({

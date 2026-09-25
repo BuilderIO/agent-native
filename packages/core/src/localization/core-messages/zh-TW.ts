@@ -134,6 +134,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "目前使用的是共用金鑰。",
   "agentPanel.useOrganizationKey": "改用組織金鑰",
   "agentPanel.keyStatusUnavailable": "無法取得金鑰狀態。",
+  "agentPanel.saveScopeRoleUnavailable":
+    "無法載入你在組織中的角色，因此暫時無法儲存金鑰。",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "允許此網站的彈出視窗，然後再試一次。",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT 訂閱",

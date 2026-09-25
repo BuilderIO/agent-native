@@ -121,7 +121,13 @@ vi.mock("../i18n.js", () => ({
 vi.mock("../settings/ProviderSetupForm.js", () => {
   deferredUiModuleLoads.providerSetupForm = true;
   return {
-    AgentProviderSetupForm: ({ onConnected }: { onConnected?: () => void }) => {
+    AgentProviderSetupForm: ({
+      onConnected,
+      scope,
+    }: {
+      onConnected?: () => void;
+      scope?: "user" | "org";
+    }) => {
       const [providerOpen, setProviderOpen] = React.useState(false);
       const [apiKey, setApiKey] = React.useState("");
       return (
@@ -152,7 +158,7 @@ vi.mock("../settings/ProviderSetupForm.js", () => {
                   provider: "anthropic",
                   key: "ANTHROPIC_API_KEY",
                   apiKey,
-                  scope: "org",
+                  ...(scope ? { scope } : {}),
                 });
                 void agentEngineKeyMock.setAgentEngineProvider({
                   provider: "anthropic",
@@ -880,13 +886,14 @@ describe("run recovery surfaces", () => {
       await Promise.resolve();
     });
 
+    // No forced scope: the form saves at organization scope for owners and
+    // admins and personally for members.
     expect(
       agentEngineKeyMock.saveAgentEngineProviderSettings,
     ).toHaveBeenCalledWith({
       provider: "anthropic",
       key: "ANTHROPIC_API_KEY",
       apiKey: "sk-test",
-      scope: "org",
     });
     expect(agentEngineKeyMock.setAgentEngineProvider).toHaveBeenCalledWith({
       provider: "anthropic",

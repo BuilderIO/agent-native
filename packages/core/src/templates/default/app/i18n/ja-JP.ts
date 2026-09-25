@@ -270,6 +270,8 @@ const messages = {
     sharedKeyInEffect: "共有キーを使用しています。",
     useOrganizationKey: "組織のキーを使用",
     keyStatusUnavailable: "キーの状態を取得できません。",
+    saveScopeRoleUnavailable:
+      "組織でのロールを読み込めなかったため、まだキーを保存できません。",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

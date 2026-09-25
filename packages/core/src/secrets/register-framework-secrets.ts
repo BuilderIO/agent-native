@@ -302,6 +302,9 @@ export function registerFrameworkSecrets(): void {
   // The other AI SDK providers the engine can run on. Registering them here
   // is what makes them show up in Settings → API keys, so bringing your own
   // OpenRouter or Gemini key is the same flow as OpenAI or Anthropic.
+  // Every model provider key registers at "user" scope: API keys writes the
+  // same personal row the provider forms save by default, and an owner's or
+  // admin's organization key sits beside it instead of replacing it.
   const modelProviderKeys: {
     key: string;
     label: string;

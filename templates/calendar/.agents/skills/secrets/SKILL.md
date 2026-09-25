@@ -449,6 +449,25 @@ Key resolution falls back from user scope to workspace scope, so users can
 override shared keys without breaking automations that reference workspace
 defaults.
 
+## Model provider keys
+
+Save model provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, the other
+`PROVIDER_ENV_META` keys, and the OpenAI/Ollama endpoints) with
+`saveAgentEngineProviderSettings({ provider, apiKey, scope })`; remove them
+with `deleteAgentEngineProviderSettings({ provider, scope })`.
+
+- `scope` defaults to `"user"`. `"org"` needs an owner or admin; a member gets
+  403. A caller with no organization saves personally either way, and the
+  response's `scope` says which row was written.
+- A personal row and an organization row for the same provider coexist. An
+  organization save never deletes anyone's personal row, and the resolver
+  uses a personal key for its owner only (user before org).
+- Provider forms without a scope picker save at organization scope for owners
+  and admins and personally for everyone else (`useProviderKeySaveScope`).
+  Save stays off until the role is read; a failed read shows a retry and
+  never falls back to a personal save. Every provider key registers at `scope: "user"`, so Settings → API keys
+  writes the same personal row.
+
 ## Dispatch Vault Access
 
 Dispatch workspaces have a vault access policy for workspace app credentials:

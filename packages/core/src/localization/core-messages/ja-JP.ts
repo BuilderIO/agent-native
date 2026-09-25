@@ -144,6 +144,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "共有キーを使用しています。",
   "agentPanel.useOrganizationKey": "組織のキーを使用",
   "agentPanel.keyStatusUnavailable": "キーの状態を取得できません。",
+  "agentPanel.saveScopeRoleUnavailable":
+    "組織でのロールを読み込めなかったため、まだキーを保存できません。",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "このサイトのポップアップを許可してから、もう一度お試しください。",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT サブスクリプション",

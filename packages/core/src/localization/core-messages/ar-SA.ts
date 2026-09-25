@@ -138,6 +138,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "مفتاح مشترك قيد الاستخدام.",
   "agentPanel.useOrganizationKey": "استخدم مفتاح المؤسسة",
   "agentPanel.keyStatusUnavailable": "حالة المفتاح غير متاحة.",
+  "agentPanel.saveScopeRoleUnavailable":
+    "تعذّر تحميل دورك في المؤسسة، لذا لا يمكن حفظ المفاتيح بعد.",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول مرة أخرى.",
   "agentPanel.chatgptSubscriptionTitle": "اشتراك ChatGPT",

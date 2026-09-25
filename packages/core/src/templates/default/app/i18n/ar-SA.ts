@@ -272,6 +272,8 @@ const messages = {
     sharedKeyInEffect: "مفتاح مشترك قيد الاستخدام.",
     useOrganizationKey: "استخدم مفتاح المؤسسة",
     keyStatusUnavailable: "حالة المفتاح غير متاحة.",
+    saveScopeRoleUnavailable:
+      "تعذّر تحميل دورك في المؤسسة، لذا لا يمكن حفظ المفاتيح بعد.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

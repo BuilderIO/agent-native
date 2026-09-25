@@ -265,6 +265,8 @@ const messages = {
     sharedKeyInEffect: "공유 키를 사용 중입니다.",
     useOrganizationKey: "조직 키 사용",
     keyStatusUnavailable: "키 상태를 확인할 수 없습니다.",
+    saveScopeRoleUnavailable:
+      "조직 역할을 불러오지 못해 아직 키를 저장할 수 없습니다.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

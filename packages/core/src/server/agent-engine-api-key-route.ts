@@ -196,17 +196,19 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
   };
 }
 
-export function normalizeAgentEngineApiKeyDeletePayload(
-  body: unknown,
-):
-  | { ok: true; key: string; endpointKey?: string }
+export function normalizeAgentEngineApiKeyDeletePayload(body: unknown):
+  | {
+      ok: true;
+      key: string;
+      endpointKey?: string;
+      scope: AgentEngineApiKeyScope;
+    }
   | { ok: false; statusCode: number; error: string } {
-  const provider =
-    body &&
-    typeof body === "object" &&
-    typeof (body as any).provider === "string"
-      ? (body as any).provider.trim()
-      : "";
+  const raw = (body && typeof body === "object" ? body : {}) as {
+    provider?: unknown;
+    scope?: unknown;
+  };
+  const provider = typeof raw.provider === "string" ? raw.provider.trim() : "";
   const key =
     provider === "ollama"
       ? OLLAMA_BASE_URL_ENV_VAR
@@ -218,10 +220,18 @@ export function normalizeAgentEngineApiKeyDeletePayload(
       error: "Choose a supported agent engine provider.",
     };
   }
+  if (raw.scope != null && raw.scope !== "user" && raw.scope !== "org") {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'scope must be "user" or "org"',
+    };
+  }
   return {
     ok: true,
     key,
     ...(provider === "openai" ? { endpointKey: OPENAI_BASE_URL_ENV_VAR } : {}),
+    scope: raw.scope === "org" ? "org" : "user",
   };
 }
 
@@ -244,9 +254,15 @@ export async function resolveAgentEngineApiKeyWriteTarget(
     };
   }
 
-  const ctx = await getOrgContext(event).catch(() => null);
-  if (!ctx?.orgId) {
-    return { ok: false, statusCode: 400, error: "No active organization" };
+  // Not caught: an unreadable org context must not downgrade an admin's
+  // organization save to a personal one that answers 200.
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) {
+    // Without an organization, the caller's own keys are the only keys.
+    return {
+      ok: true,
+      target: { scope: "user", scopeId: session.email },
+    };
   }
   if (ctx.role !== "owner" && ctx.role !== "admin") {
     return {
@@ -277,29 +293,25 @@ export function createAgentEngineApiKeyHandler() {
         setResponseStatus(event, payload.statusCode);
         return { error: payload.error };
       }
-      let session: Awaited<ReturnType<typeof getSession>> | null = null;
-      try {
-        session = await getSession(event);
-      } catch (error) {
-        console.warn("[agent-engine] could not read session for delete", error);
-      }
-      if (!session?.email) {
-        setResponseStatus(event, 401);
-        return { error: "Authentication required" };
+      const resolved = await resolveAgentEngineApiKeyWriteTarget(
+        event,
+        payload.scope,
+      );
+      if (!resolved.ok) {
+        setResponseStatus(event, resolved.statusCode);
+        return { error: resolved.error };
       }
       await deleteAppSecret({
         key: payload.key,
-        scope: "user",
-        scopeId: session.email,
+        ...resolved.target,
       });
       if (payload.endpointKey) {
         await deleteAppSecret({
           key: payload.endpointKey,
-          scope: "user",
-          scopeId: session.email,
+          ...resolved.target,
         });
       }
-      return { ok: true, key: payload.key, scope: "user" };
+      return { ok: true, key: payload.key, scope: resolved.target.scope };
     }
 
     if (getMethod(event) !== "POST") {
@@ -390,49 +402,9 @@ export function createAgentEngineApiKeyHandler() {
       });
     }
 
-    // Organization keys are the only keys the framework UI creates now. Clear
-    // a legacy personal row after the organization write succeeds, otherwise
-    // the resolver's user-first precedence would keep silently shadowing it.
-    if (resolved.target.scope === "org") {
-      let session: Awaited<ReturnType<typeof getSession>> | null = null;
-      try {
-        session = await getSession(event);
-      } catch (error) {
-        console.warn(
-          "[agent-engine] could not read session for legacy-key cleanup",
-          error,
-        );
-      }
-      if (!session?.email) {
-        setResponseStatus(event, 503);
-        return {
-          ok: false,
-          error:
-            "Organization key saved, but the legacy personal key could not be cleared. Retry this save before using the organization key.",
-        };
-      }
-
-      const personalKeys = new Set([payload.key]);
-      if (payload.key === OPENAI_PROVIDER_KEY) {
-        personalKeys.add(OPENAI_BASE_URL_ENV_VAR);
-      }
-      if (payload.key === OPENAI_BASE_URL_ENV_VAR) {
-        personalKeys.add(OPENAI_PROVIDER_KEY);
-      }
-      if (payload.key === OLLAMA_BASE_URL_ENV_VAR) {
-        personalKeys.add(OLLAMA_BASE_URL_ENV_VAR);
-      }
-      await Promise.all(
-        [...personalKeys].map((key) =>
-          deleteAppSecret({
-            key,
-            scope: "user",
-            scopeId: session.email,
-          }),
-        ),
-      );
-    }
-
+    // Personal and organization rows for one provider coexist: an org save
+    // never touches the caller's personal row, which the resolver keeps using
+    // for them alone (user before org).
     const defaultModel = defaultModelRequest.request
       ? await selectDefaultModelForSavedKey(event, {
           keyScope: resolved.target.scope,

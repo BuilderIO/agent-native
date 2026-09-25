@@ -4,9 +4,10 @@
  * Named client helper for storing a bring-your-own provider key (Anthropic,
  * OpenAI, etc.) so the agent chat can run without a Builder connection or an
  * account. The key is persisted by the framework under the matching provider
- * key (e.g. ANTHROPIC_API_KEY) for the active organization, exactly like the
- * LLM settings panel does - UI code should call this instead of hand-writing
- * a fetch to framework routes.
+ * key (e.g. ANTHROPIC_API_KEY) at the scope the caller picks: personal by
+ * default, or the active organization's for owners and admins, exactly like
+ * the LLM settings panel does - UI code should call this instead of
+ * hand-writing a fetch to framework routes.
  */
 
 import {
@@ -35,12 +36,19 @@ const PROVIDER_ENV_VAR: Partial<Record<AgentEngineProvider, string>> = {
 /** Event other parts of the agent UI listen for to re-check the LLM gate. */
 const CONFIGURED_CHANGED_EVENT = "agent-engine:configured-changed";
 
+/**
+ * Where a provider key is stored. `"user"` is the caller's personal key;
+ * `"org"` is the active organization's (owners and admins only). A caller
+ * with no organization always saves personally.
+ */
+export type AgentEngineKeyScope = "user" | "org";
+
 export interface SaveAgentEngineApiKeyOptions {
   provider?: AgentEngineProvider;
   key?: string;
   apiKey: string;
-  /** @deprecated Agent provider keys are always saved at organization scope. */
-  scope?: "user" | "org";
+  /** Defaults to `"user"`. */
+  scope?: AgentEngineKeyScope;
 }
 
 export interface SaveAgentEngineProviderSettingsOptions {
@@ -49,8 +57,8 @@ export interface SaveAgentEngineProviderSettingsOptions {
   apiKey?: string;
   baseUrl?: string;
   clearBaseUrl?: boolean;
-  /** @deprecated Agent provider keys are always saved at organization scope. */
-  scope?: "user" | "org";
+  /** Defaults to `"user"`. Pass `"org"` only when the caller chose Organization. */
+  scope?: AgentEngineKeyScope;
   /**
    * Also make this provider the default model in the same save when the
    * caller may change it (owners and admins; a user with no organization).
@@ -157,20 +165,38 @@ export async function getAgentEngineProviderKeyStatus(
 export async function deleteAgentEnginePersonalProviderSettings(
   provider: AgentEngineProvider,
 ): Promise<void> {
+  await deleteAgentEngineProviderSettings({ provider });
+}
+
+/**
+ * Remove a provider's stored key (and OpenAI's endpoint override) at one
+ * scope. Removing an organization key needs owner or admin; the server
+ * refuses anyone else.
+ */
+export async function deleteAgentEngineProviderSettings({
+  provider,
+  scope,
+}: {
+  provider: AgentEngineProvider;
+  /** Defaults to `"user"`. */
+  scope?: AgentEngineKeyScope;
+}): Promise<void> {
   const response = await fetch(
     agentNativePath("/_agent-native/agent-engine/api-key"),
     {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ provider }),
+      body: JSON.stringify({ provider, ...(scope ? { scope } : {}) }),
     },
   );
   if (!response.ok) {
     const message = await readProviderSettingsError(response);
     throw new Error(
       message ??
-        `Could not remove your personal key (HTTP ${response.status}).`,
+        (scope === "org"
+          ? `Could not remove the organization key (HTTP ${response.status}).`
+          : `Could not remove your personal key (HTTP ${response.status}).`),
     );
   }
   dispatchConfiguredChanged();
@@ -299,6 +325,7 @@ export async function saveAgentEngineProviderSettings({
   apiKey,
   baseUrl,
   clearBaseUrl,
+  scope,
   defaultModel,
 }: SaveAgentEngineProviderSettingsOptions): Promise<SaveAgentEngineProviderSettingsResult> {
   const trimmed = apiKey?.trim() ?? "";
@@ -324,7 +351,7 @@ export async function saveAgentEngineProviderSettings({
         ...(trimmed ? { value: trimmed } : {}),
         ...(endpoint ? { baseUrl: endpoint } : {}),
         ...(clearBaseUrl ? { clearBaseUrl: true } : {}),
-        scope: "org",
+        scope: scope ?? "user",
         ...(defaultModel
           ? {
               defaultModel: {

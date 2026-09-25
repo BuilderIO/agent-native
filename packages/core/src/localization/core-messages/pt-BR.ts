@@ -146,6 +146,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.useOrganizationKey": "Usar chave da organização",
   "agentPanel.keyStatusUnavailable":
     "Não foi possível consultar o status da chave.",
+  "agentPanel.saveScopeRoleUnavailable":
+    "Não foi possível carregar sua função na organização, então ainda não é possível salvar chaves.",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "Permita pop-ups para este site e tente novamente.",
   "agentPanel.chatgptSubscriptionTitle": "Assinatura do ChatGPT",

@@ -130,6 +130,7 @@ import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { StorageSettingsForm } from "./StorageSettingsForm.js";
 import { UsageSection } from "./UsageSection.js";
+import { useProviderKeySaveScope } from "./use-provider-key-save-scope.js";
 import {
   isPopupClosed,
   POPUP_CLOSED_CONFIRMATION_GRACE_MS,
@@ -1387,6 +1388,11 @@ function LLMSectionInner({
   // owners and admins change the organization's default model.
   const canSelectDefault = engineChanged && canUpdateDefault !== false;
   const keyEntryVisible = !!envVar && !(envConfigured || settingsConfigured);
+  const {
+    scope: keySaveScope,
+    roleUnavailable: keySaveRoleUnavailable,
+    retry: retryKeySaveRole,
+  } = useProviderKeySaveScope();
 
   // Ask the Ollama server itself which models it has pulled, instead of only
   // offering the static suggestion list. Triggered explicitly by the "Find
@@ -1403,12 +1409,13 @@ function LLMSectionInner({
         // persist it immediately so other surfaces reading the saved Ollama
         // endpoint (the chat composer's model picker) don't keep falling back
         // to the localhost default until "Save" is also clicked.
-        if (typedEndpoint) {
+        if (typedEndpoint && keySaveScope) {
           try {
             await saveAgentEngineProviderSettings({
               provider: selectedProvider,
               ...(envVar ? { key: envVar } : {}),
               baseUrl: typedEndpoint,
+              scope: keySaveScope,
             });
             setBaseUrlConfigured(true);
           } catch {
@@ -1431,7 +1438,13 @@ function LLMSectionInner({
   ).map((m) => ({ value: m, label: friendlyModelName(m) }));
 
   const handleSave = async () => {
-    if (!providerSettingsChanged || (!envVar && !isEndpointProvider)) return;
+    if (
+      !keySaveScope ||
+      !providerSettingsChanged ||
+      (!envVar && !isEndpointProvider)
+    ) {
+      return;
+    }
     setSaving(true);
     setProviderSettingsError(null);
     try {
@@ -1442,7 +1455,7 @@ function LLMSectionInner({
         ...(apiKey.trim() ? { apiKey } : {}),
         ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
         ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
-        scope: "org",
+        scope: keySaveScope,
         ...(canSelectDefault
           ? {
               defaultModel: {
@@ -1979,7 +1992,7 @@ function LLMSectionInner({
                               intent="neutral"
                               emphasis="solid"
                               onClick={handleSave}
-                              disabled={saving}
+                              disabled={saving || !keySaveScope}
                               className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
                             >
                               {saving ? (
@@ -2040,6 +2053,7 @@ function LLMSectionInner({
                         }
                         disabled={
                           (!providerSettingsChanged && !canSelectDefault) ||
+                          (providerSettingsChanged && !keySaveScope) ||
                           saving
                         }
                         className={pillButtonClass(isPage, "solid")}
@@ -2160,6 +2174,26 @@ function LLMSectionInner({
                     >
                       Disconnect failed: {disconnectError}
                     </p>
+                  )}
+                  {keySaveRoleUnavailable && (
+                    <div
+                      role="alert"
+                      className={cn(
+                        "flex flex-wrap items-center gap-1.5 text-destructive",
+                        isPage ? "text-xs" : "text-[10px]",
+                      )}
+                    >
+                      <IconAlertCircle size={isPage ? 14 : 10} />
+                      {t("agentPanel.saveScopeRoleUnavailable")}
+                      <Button
+                        intent="neutral"
+                        emphasis="ghost"
+                        onClick={retryKeySaveRole}
+                        className="h-auto px-1 py-0 font-medium text-foreground underline underline-offset-2"
+                      >
+                        {t("agentChat.common.retry")}
+                      </Button>
+                    </div>
                   )}
                   {providerSettingsError && (
                     <div

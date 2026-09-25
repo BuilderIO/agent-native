@@ -261,6 +261,8 @@ const messages = {
     sharedKeyInEffect: "साझा कुंजी उपयोग में है।",
     useOrganizationKey: "संगठन की कुंजी इस्तेमाल करें",
     keyStatusUnavailable: "कुंजी की स्थिति उपलब्ध नहीं है।",
+    saveScopeRoleUnavailable:
+      "आपकी संगठन भूमिका लोड नहीं हो सकी, इसलिए अभी कुंजियाँ सहेजी नहीं जा सकतीं।",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

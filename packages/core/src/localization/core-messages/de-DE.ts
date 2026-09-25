@@ -150,6 +150,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "Ein gemeinsamer Schlüssel wird verwendet.",
   "agentPanel.useOrganizationKey": "Organisationsschlüssel verwenden",
   "agentPanel.keyStatusUnavailable": "Der Schlüsselstatus ist nicht verfügbar.",
+  "agentPanel.saveScopeRoleUnavailable":
+    "Deine Rolle in der Organisation konnte nicht geladen werden, daher können noch keine Schlüssel gespeichert werden.",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "Erlaube Pop-ups für diese Website und versuche es erneut.",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT-Abonnement",

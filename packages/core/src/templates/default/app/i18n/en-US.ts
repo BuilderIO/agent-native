@@ -269,6 +269,8 @@ const messages = {
     sharedKeyInEffect: "A shared key is in effect.",
     useOrganizationKey: "Use organization key",
     keyStatusUnavailable: "Key status is unavailable.",
+    saveScopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

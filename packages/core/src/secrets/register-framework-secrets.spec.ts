@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import { registerFrameworkSecrets } from "./register-framework-secrets.js";
 import { __resetSecretsRegistry, getRequiredSecret } from "./register.js";
 
@@ -116,5 +117,16 @@ describe("framework secret registrations", () => {
       oauthProvider: "salesforce",
       oauthConnectUrl: "/_agent-native/connections/oauth/salesforce/start",
     });
+  });
+
+  it("registers every model provider key at the personal scope the provider forms save by default", () => {
+    registerFrameworkSecrets();
+
+    for (const { envVar } of Object.values(PROVIDER_ENV_META)) {
+      expect(getRequiredSecret(envVar), envVar).toMatchObject({
+        scope: "user",
+        kind: "api-key",
+      });
+    }
   });
 });

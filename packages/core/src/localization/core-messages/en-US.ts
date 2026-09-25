@@ -138,6 +138,8 @@ const messages = {
   "agentPanel.sharedKeyInEffect": "A shared key is in effect.",
   "agentPanel.useOrganizationKey": "Use organization key",
   "agentPanel.keyStatusUnavailable": "Key status is unavailable.",
+  "agentPanel.saveScopeRoleUnavailable":
+    "Couldn't load your organization role, so keys can't be saved yet.",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "Allow pop-ups for this site, then try again.",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT subscription",

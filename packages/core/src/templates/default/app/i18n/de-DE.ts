@@ -274,6 +274,8 @@ const messages = {
     sharedKeyInEffect: "Ein gemeinsamer Schlüssel wird verwendet.",
     useOrganizationKey: "Organisationsschlüssel verwenden",
     keyStatusUnavailable: "Der Schlüsselstatus ist nicht verfügbar.",
+    saveScopeRoleUnavailable:
+      "Deine Rolle in der Organisation konnte nicht geladen werden, daher können noch keine Schlüssel gespeichert werden.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
