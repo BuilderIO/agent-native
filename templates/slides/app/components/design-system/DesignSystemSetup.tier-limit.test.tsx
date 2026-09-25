@@ -124,4 +124,53 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
       .find((button): button is HTMLButtonElement => button !== null);
     expect(codeRow?.getAttribute("aria-disabled")).toBe("false");
   });
+
+  it("places expanded source fields directly below their row", () => {
+    mocks.tierLimit = {
+      status: "ok",
+      plan: "enterprise",
+      current: 1,
+      max: null,
+      atMax: false,
+      codeIndexingAllowed: true,
+    };
+
+    render(<DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />);
+
+    fireEvent.click(
+      screen.getByText("designSystemSetup.otherSources").closest("button")!,
+    );
+    const companyRow = screen
+      .getAllByText("designSystemSetup.companyBrand")
+      .map((node) => node.closest("button"))
+      .find((button): button is HTMLButtonElement => button !== null)!;
+    fireEvent.click(companyRow);
+
+    const companyPanel = document.getElementById(
+      "slides-design-system-brand-source",
+    );
+    expect(companyRow.nextElementSibling).toBe(companyPanel);
+    expect(
+      document.querySelectorAll('[id="slides-design-system-brand-source"]'),
+    ).toHaveLength(1);
+    expect(
+      screen.getByLabelText("designSystemSetup.companyBrand").className,
+    ).toContain("placeholder:text-foreground/60");
+
+    const notesRow = screen
+      .getByText("designSystemSetup.additionalNotes")
+      .closest("button")!;
+    fireEvent.click(notesRow);
+
+    const notesPanel = document.getElementById(
+      "slides-design-system-context-source",
+    );
+    expect(notesRow.nextElementSibling).toBe(notesPanel);
+    expect(
+      screen.getAllByText("designSystemSetup.additionalNotes"),
+    ).toHaveLength(1);
+    expect(
+      screen.getByLabelText("designSystemSetup.additionalNotes").className,
+    ).toContain("placeholder:text-foreground/60");
+  });
 });

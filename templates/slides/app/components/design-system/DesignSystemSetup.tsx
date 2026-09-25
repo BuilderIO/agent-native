@@ -219,6 +219,7 @@ export function DesignSystemSetup({
         framesProcessed: 0,
         totalFrames: 0,
       });
+      setBuilderIndexResult(indexResult);
       pollDecodeJobStatus(jobId, {
         signal: controller.signal,
         onUpdate: (status) => {
@@ -846,7 +847,7 @@ export function DesignSystemSetup({
               ? t("designSystemSetup.editTitle")
               : t("designSystemSetup.newTitle")}
           </DialogTitle>
-          <DialogDescription className="text-muted-foreground">
+          <DialogDescription className="text-foreground/70">
             {editingId
               ? t("designSystemSetup.editDescription")
               : t("designSystemSetup.newDescription")}
@@ -870,7 +871,7 @@ export function DesignSystemSetup({
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
                   placeholder={t("designSystemSetup.companyBrandPlaceholder")}
-                  className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
+                  className="bg-accent border-border text-foreground placeholder:text-foreground/60"
                 />
               </div>
 
@@ -906,10 +907,6 @@ export function DesignSystemSetup({
                       sourcePanel !== "figma" && "hidden",
                     )}
                   >
-                    <Label className="text-foreground/80 flex items-center gap-1.5">
-                      <IconBrandFigma className="w-3.5 h-3.5" />
-                      {t("designSystemSetup.figmaFile")}
-                    </Label>
                     {!builderIndexResult ? (
                       <>
                         <button
@@ -921,12 +918,12 @@ export function DesignSystemSetup({
                           className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                         >
                           {builderIndexing ? (
-                            <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-2 text-xs text-foreground/70">
                               <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
                               {t("designSystemSetup.parsingFigmaFile")}
                             </span>
                           ) : (
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-xs text-foreground/70">
                               {t("designSystemSetup.uploadFigDescription")}
                             </span>
                           )}
@@ -992,6 +989,65 @@ export function DesignSystemSetup({
                           onClick={() => selectOtherSource("brand")}
                           panelId="slides-design-system-brand-source"
                         />
+                        <div
+                          id="slides-design-system-brand-source"
+                          className={cn(
+                            "space-y-4 p-4",
+                            otherSource !== "brand" && "hidden",
+                          )}
+                        >
+                          <div className="space-y-2">
+                            <Input
+                              aria-label={t("designSystemSetup.companyBrand")}
+                              value={companyName}
+                              onChange={(e) => setCompanyName(e.target.value)}
+                              placeholder={t(
+                                "designSystemSetup.companyBrandPlaceholder",
+                              )}
+                              className="bg-accent border-border text-foreground placeholder:text-foreground/60"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-foreground/80 flex items-center gap-1.5">
+                              <IconWorld className="w-3.5 h-3.5" />
+                              {t("designSystemSetup.websiteUrl")}
+                            </Label>
+                            <div className="flex gap-2">
+                              <Input
+                                value={websiteUrl}
+                                onChange={(e) => setWebsiteUrl(e.target.value)}
+                                placeholder={t(
+                                  "designSystemSetup.websitePlaceholder",
+                                )}
+                                className="bg-accent border-border text-foreground placeholder:text-foreground/60"
+                                onBlur={() => {
+                                  const normalized =
+                                    normalizeWebsiteUrlInput(websiteUrl);
+                                  if (normalized) setWebsiteUrl(normalized);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") addWebsiteUrl();
+                                }}
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={addWebsiteUrl}
+                                className="shrink-0 cursor-pointer"
+                              >
+                                {t("designSystemSetup.add")}
+                              </Button>
+                            </div>
+                            <TagList
+                              items={websiteUrls}
+                              onRemove={(i) =>
+                                setWebsiteUrls((p) =>
+                                  p.filter((_, j) => j !== i),
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
                         <SourceAccordionRow
                           className="rounded-none border-0"
                           icon={IconBrandGithub}
@@ -1005,6 +1061,102 @@ export function DesignSystemSetup({
                             "designSystemSetup.codeIndexingEnterpriseOnly",
                           )}
                         />
+                        <div
+                          id="slides-design-system-code-source"
+                          className={cn(
+                            "space-y-2 p-4",
+                            otherSource !== "code" && "hidden",
+                          )}
+                        >
+                          <div className="flex gap-2">
+                            <Input
+                              value={githubUrl}
+                              onChange={(e) => setGithubUrl(e.target.value)}
+                              placeholder="https://github.com/org/repo"
+                              aria-label={t(
+                                "designSystemSetup.githubRepository",
+                              )}
+                              className="bg-accent border-border text-foreground placeholder:text-foreground/60"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") addGithubLink();
+                              }}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={addGithubLink}
+                              className="shrink-0 cursor-pointer"
+                            >
+                              {t("designSystemSetup.add")}
+                            </Button>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <Input
+                              value={githubRef}
+                              onChange={(e) => setGithubRef(e.target.value)}
+                              placeholder={t("designSystemSetup.githubRef")}
+                              aria-label={t("designSystemSetup.githubRef")}
+                              className="bg-accent border-border text-foreground placeholder:text-foreground/60"
+                            />
+                            <Input
+                              value={githubPaths}
+                              onChange={(e) => setGithubPaths(e.target.value)}
+                              placeholder={t("designSystemSetup.githubPaths")}
+                              aria-label={t("designSystemSetup.githubPaths")}
+                              className="bg-accent border-border text-foreground placeholder:text-foreground/60"
+                            />
+                          </div>
+                          <TagList
+                            items={githubLinks.map((l) =>
+                              [l.url, l.ref, l.include?.join(", ")]
+                                .filter(Boolean)
+                                .join(" · "),
+                            )}
+                            onRemove={(i) =>
+                              setGithubLinks((p) => p.filter((_, j) => j !== i))
+                            }
+                          />
+                          <Label className="text-foreground/80 flex items-center gap-1.5">
+                            <IconFolder className="w-3.5 h-3.5" />
+                            {t("designSystemSetup.codeFiles")}
+                          </Label>
+                          <button
+                            type="button"
+                            onClick={() => codeInputRef.current?.click()}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (e.dataTransfer.files)
+                                readTextFiles(
+                                  e.dataTransfer.files,
+                                  setCodeFiles,
+                                );
+                            }}
+                            onDragOver={(e) => e.preventDefault()}
+                            className="w-full cursor-pointer rounded-lg border border-dashed border-border p-4 text-center hover:border-foreground/20"
+                          >
+                            <p className="text-xs text-foreground/70">
+                              {t("designSystemSetup.codeFilesDrop")}
+                            </p>
+                          </button>
+                          <input
+                            ref={codeInputRef}
+                            type="file"
+                            multiple
+                            accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg,.xml,.md,.markdown,.mdx,.txt"
+                            onChange={(e) => {
+                              if (e.target.files)
+                                readTextFiles(e.target.files, setCodeFiles);
+                              e.target.value = "";
+                            }}
+                            className="hidden"
+                          />
+                          <FileList
+                            files={codeFiles}
+                            onRemove={(id) =>
+                              setCodeFiles((p) => p.filter((f) => f.id !== id))
+                            }
+                          />
+                        </div>
                         <SourceAccordionRow
                           className="rounded-none border-0"
                           icon={IconFileDescription}
@@ -1014,18 +1166,135 @@ export function DesignSystemSetup({
                           onClick={() => selectOtherSource("files")}
                           panelId="slides-design-system-file-source"
                         />
-                        {existingSystems.length > 0 && (
-                          <SourceAccordionRow
-                            className="rounded-none border-0"
-                            icon={IconComponents}
-                            title={t("designSystemSetup.forkExisting")}
-                            description={t(
-                              "designSystemSetup.customInstructionsDescription",
-                            )}
-                            expanded={otherSource === "existing"}
-                            onClick={() => selectOtherSource("existing")}
-                            panelId="slides-design-system-existing-source"
+                        <div
+                          id="slides-design-system-file-source"
+                          className={cn(
+                            "space-y-2 p-4",
+                            otherSource !== "files" && "hidden",
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => docInputRef.current?.click()}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (e.dataTransfer.files)
+                                readTextFiles(
+                                  e.dataTransfer.files,
+                                  setDocFiles,
+                                );
+                            }}
+                            onDragOver={(e) => e.preventDefault()}
+                            className="w-full cursor-pointer rounded-lg border border-dashed border-border p-4 text-center hover:border-foreground/20"
+                          >
+                            <p className="text-xs text-foreground/70">
+                              {t("designSystemSetup.documentsDrop")}
+                            </p>
+                          </button>
+                          <input
+                            ref={docInputRef}
+                            type="file"
+                            accept=".pptx,.ppt,.docx,.doc,.pdf,.xlsx,.xls,.md,.markdown,.mdx,.txt"
+                            multiple
+                            onChange={(e) => {
+                              if (e.target.files)
+                                readTextFiles(e.target.files, setDocFiles);
+                              e.target.value = "";
+                            }}
+                            className="hidden"
                           />
+                          <FileList
+                            files={docFiles}
+                            onRemove={(id) =>
+                              setDocFiles((p) => p.filter((f) => f.id !== id))
+                            }
+                          />
+                          <Label className="text-foreground/80 flex items-center gap-1.5">
+                            <IconPhoto className="w-3.5 h-3.5" />
+                            {t("designSystemSetup.visualReferences")}
+                          </Label>
+                          <button
+                            type="button"
+                            onClick={() => imageInputRef.current?.click()}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              addImageFiles(event.dataTransfer.files);
+                            }}
+                            className="w-full cursor-pointer rounded-lg border border-dashed border-border p-4 text-center hover:border-foreground/20"
+                          >
+                            <p className="text-xs text-foreground/70">
+                              {t("designSystemSetup.visualReferencesDrop")}
+                            </p>
+                          </button>
+                          <input
+                            ref={imageInputRef}
+                            type="file"
+                            accept="image/*,.svg"
+                            multiple
+                            onChange={(e) => {
+                              if (e.target.files) addImageFiles(e.target.files);
+                              e.target.value = "";
+                            }}
+                            className="hidden"
+                          />
+                          <FileList
+                            files={imageFiles}
+                            onRemove={(id) =>
+                              setImageFiles((p) => p.filter((f) => f.id !== id))
+                            }
+                          />
+                        </div>
+                        {existingSystems.length > 0 && (
+                          <>
+                            <SourceAccordionRow
+                              className="rounded-none border-0"
+                              icon={IconComponents}
+                              title={t("designSystemSetup.forkExisting")}
+                              description={t(
+                                "designSystemSetup.customInstructionsDescription",
+                              )}
+                              expanded={otherSource === "existing"}
+                              onClick={() => selectOtherSource("existing")}
+                              panelId="slides-design-system-existing-source"
+                            />
+                            <div
+                              id="slides-design-system-existing-source"
+                              className={cn(
+                                "space-y-2 p-4",
+                                otherSource !== "existing" && "hidden",
+                              )}
+                            >
+                              <div className="grid grid-cols-2 gap-2">
+                                {existingSystems
+                                  .filter((s) => s.id !== editingId)
+                                  .map((ds) => (
+                                    <button
+                                      key={ds.id}
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectedSystemId((prev) =>
+                                          prev === ds.id ? "" : ds.id,
+                                        )
+                                      }
+                                      className={`cursor-pointer rounded-lg border p-3 text-left ${
+                                        selectedSystemId === ds.id
+                                          ? "border-primary/40 bg-primary/5"
+                                          : "border-border bg-accent hover:border-foreground/20"
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <IconComponents className="w-3.5 h-3.5 text-muted-foreground" />
+                                        <span className="truncate text-sm text-foreground/80">
+                                          {ds.title}
+                                        </span>
+                                      </div>
+                                    </button>
+                                  ))}
+                              </div>
+                            </div>
+                          </>
                         )}
                         <SourceAccordionRow
                           className="rounded-none border-0"
@@ -1038,302 +1307,45 @@ export function DesignSystemSetup({
                           onClick={() => selectOtherSource("context")}
                           panelId="slides-design-system-context-source"
                         />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Website URL */}
-                  <div
-                    id="slides-design-system-brand-source"
-                    className={cn(
-                      "space-y-4 rounded-lg border border-border bg-card p-4",
-                      otherSource !== "brand" && "hidden",
-                    )}
-                  >
-                    <div className="space-y-2">
-                      <Label className="text-foreground/80">
-                        {t("designSystemSetup.companyBrand")}
-                      </Label>
-                      <Input
-                        value={companyName}
-                        onChange={(e) => setCompanyName(e.target.value)}
-                        placeholder={t(
-                          "designSystemSetup.companyBrandPlaceholder",
-                        )}
-                        className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-foreground/80 flex items-center gap-1.5">
-                        <IconWorld className="w-3.5 h-3.5" />
-                        {t("designSystemSetup.websiteUrl")}
-                      </Label>
-                      <div className="flex gap-2">
-                        <Input
-                          value={websiteUrl}
-                          onChange={(e) => setWebsiteUrl(e.target.value)}
-                          placeholder={t(
-                            "designSystemSetup.websitePlaceholder",
+                        <div
+                          id="slides-design-system-context-source"
+                          className={cn(
+                            "space-y-4 p-4",
+                            otherSource !== "context" && "hidden",
                           )}
-                          className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
-                          onBlur={() => {
-                            const normalized =
-                              normalizeWebsiteUrlInput(websiteUrl);
-                            if (normalized) setWebsiteUrl(normalized);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") addWebsiteUrl();
-                          }}
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={addWebsiteUrl}
-                          className="shrink-0 cursor-pointer"
                         >
-                          {t("designSystemSetup.add")}
-                        </Button>
-                      </div>
-                      <TagList
-                        items={websiteUrls}
-                        onRemove={(i) =>
-                          setWebsiteUrls((p) => p.filter((_, j) => j !== i))
-                        }
-                      />
-                    </div>
-                  </div>
-
-                  {/* GitHub */}
-                  <div
-                    id="slides-design-system-code-source"
-                    className={cn(
-                      "space-y-2 rounded-lg border border-border bg-card p-4",
-                      otherSource !== "code" && "hidden",
-                    )}
-                  >
-                    <Label className="text-foreground/80 flex items-center gap-1.5">
-                      <IconBrandGithub className="w-3.5 h-3.5" />
-                      {t("designSystemSetup.githubRepository")}
-                    </Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={githubUrl}
-                        onChange={(e) => setGithubUrl(e.target.value)}
-                        placeholder="https://github.com/org/repo"
-                        className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") addGithubLink();
-                        }}
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={addGithubLink}
-                        className="shrink-0 cursor-pointer"
-                      >
-                        {t("designSystemSetup.add")}
-                      </Button>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <Input
-                        value={githubRef}
-                        onChange={(e) => setGithubRef(e.target.value)}
-                        placeholder={t("designSystemSetup.githubRef")}
-                        aria-label={t("designSystemSetup.githubRef")}
-                        className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
-                      />
-                      <Input
-                        value={githubPaths}
-                        onChange={(e) => setGithubPaths(e.target.value)}
-                        placeholder={t("designSystemSetup.githubPaths")}
-                        aria-label={t("designSystemSetup.githubPaths")}
-                        className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
-                      />
-                    </div>
-                    <TagList
-                      items={githubLinks.map((l) =>
-                        [l.url, l.ref, l.include?.join(", ")]
-                          .filter(Boolean)
-                          .join(" · "),
-                      )}
-                      onRemove={(i) =>
-                        setGithubLinks((p) => p.filter((_, j) => j !== i))
-                      }
-                    />
-                  </div>
-
-                  {/* Code Files */}
-                  <div
-                    className={cn(
-                      "space-y-2 rounded-lg border border-border bg-card p-4",
-                      otherSource !== "code" && "hidden",
-                    )}
-                  >
-                    <Label className="text-foreground/80 flex items-center gap-1.5">
-                      <IconFolder className="w-3.5 h-3.5" />
-                      {t("designSystemSetup.codeFiles")}
-                    </Label>
-                    <button
-                      onClick={() => codeInputRef.current?.click()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (e.dataTransfer.files)
-                          readTextFiles(e.dataTransfer.files, setCodeFiles);
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
-                    >
-                      <p className="text-xs text-muted-foreground">
-                        {t("designSystemSetup.codeFilesDrop")}
-                      </p>
-                    </button>
-                    <input
-                      ref={codeInputRef}
-                      type="file"
-                      multiple
-                      accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg,.xml,.md,.markdown,.mdx,.txt"
-                      onChange={(e) => {
-                        if (e.target.files)
-                          readTextFiles(e.target.files, setCodeFiles);
-                        e.target.value = "";
-                      }}
-                      className="hidden"
-                    />
-                    <FileList
-                      files={codeFiles}
-                      onRemove={(id) =>
-                        setCodeFiles((p) => p.filter((f) => f.id !== id))
-                      }
-                    />
-                  </div>
-
-                  {/* Documents */}
-                  <div
-                    id="slides-design-system-file-source"
-                    className={cn(
-                      "space-y-2 rounded-lg border border-border bg-card p-4",
-                      otherSource !== "files" && "hidden",
-                    )}
-                  >
-                    <Label className="text-foreground/80 flex items-center gap-1.5">
-                      <IconFileDescription className="w-3.5 h-3.5" />
-                      {t("designSystemSetup.documents")}
-                    </Label>
-                    <button
-                      onClick={() => docInputRef.current?.click()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (e.dataTransfer.files)
-                          readTextFiles(e.dataTransfer.files, setDocFiles);
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
-                    >
-                      <p className="text-xs text-muted-foreground">
-                        {t("designSystemSetup.documentsDrop")}
-                      </p>
-                    </button>
-                    <input
-                      ref={docInputRef}
-                      type="file"
-                      accept=".pptx,.ppt,.docx,.doc,.pdf,.xlsx,.xls,.md,.markdown,.mdx,.txt"
-                      multiple
-                      onChange={(e) => {
-                        if (e.target.files)
-                          readTextFiles(e.target.files, setDocFiles);
-                        e.target.value = "";
-                      }}
-                      className="hidden"
-                    />
-                    <FileList
-                      files={docFiles}
-                      onRemove={(id) =>
-                        setDocFiles((p) => p.filter((f) => f.id !== id))
-                      }
-                    />
-                  </div>
-
-                  {/* Images */}
-                  <div
-                    className={cn(
-                      "space-y-2 rounded-lg border border-border bg-card p-4",
-                      otherSource !== "files" && "hidden",
-                    )}
-                  >
-                    <Label className="text-foreground/80 flex items-center gap-1.5">
-                      <IconPhoto className="w-3.5 h-3.5" />
-                      {t("designSystemSetup.visualReferences")}
-                    </Label>
-                    <button
-                      onClick={() => imageInputRef.current?.click()}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        addImageFiles(event.dataTransfer.files);
-                      }}
-                      className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
-                    >
-                      <p className="text-xs text-muted-foreground">
-                        {t("designSystemSetup.visualReferencesDrop")}
-                      </p>
-                    </button>
-                    <input
-                      ref={imageInputRef}
-                      type="file"
-                      accept="image/*,.svg"
-                      multiple
-                      onChange={(e) => {
-                        if (e.target.files) addImageFiles(e.target.files);
-                        e.target.value = "";
-                      }}
-                      className="hidden"
-                    />
-                    <FileList
-                      files={imageFiles}
-                      onRemove={(id) =>
-                        setImageFiles((p) => p.filter((f) => f.id !== id))
-                      }
-                    />
-                  </div>
-
-                  {/* Fork existing */}
-                  {existingSystems.length > 0 && (
-                    <div
-                      id="slides-design-system-existing-source"
-                      className={cn(
-                        "space-y-2 rounded-lg border border-border bg-card p-4",
-                        otherSource !== "existing" && "hidden",
-                      )}
-                    >
-                      <Label className="text-foreground/80">
-                        {t("designSystemSetup.forkExisting")}
-                      </Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {existingSystems
-                          .filter((s) => s.id !== editingId)
-                          .map((ds) => (
-                            <button
-                              key={ds.id}
-                              onClick={() =>
-                                setSelectedSystemId((prev) =>
-                                  prev === ds.id ? "" : ds.id,
-                                )
+                          <Textarea
+                            aria-label={t("designSystemSetup.additionalNotes")}
+                            value={brandNotes}
+                            onChange={(e) => setBrandNotes(e.target.value)}
+                            placeholder={t(
+                              "designSystemSetup.notesPlaceholder",
+                            )}
+                            rows={3}
+                            className="resize-none bg-accent border-border text-foreground placeholder:text-foreground/60"
+                          />
+                          <div className="space-y-2">
+                            <Label className="text-foreground/80">
+                              {t("designSystemSetup.customInstructions")}
+                            </Label>
+                            <Textarea
+                              value={customInstructions}
+                              onChange={(e) =>
+                                setCustomInstructions(e.target.value)
                               }
-                              className={`text-left p-3 rounded-lg border cursor-pointer ${
-                                selectedSystemId === ds.id
-                                  ? "border-primary/40 bg-primary/5"
-                                  : "border-border bg-accent hover:border-foreground/20"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <IconComponents className="w-3.5 h-3.5 text-muted-foreground" />
-                                <span className="text-sm text-foreground/80 truncate">
-                                  {ds.title}
-                                </span>
-                              </div>
-                            </button>
-                          ))}
+                              placeholder={t(
+                                "designSystemSetup.customInstructionsPlaceholder",
+                              )}
+                              rows={4}
+                              className="resize-none bg-accent border-border text-foreground placeholder:text-foreground/60"
+                            />
+                            <p className="text-[11px] text-foreground/70">
+                              {t(
+                                "designSystemSetup.customInstructionsDescription",
+                              )}
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1342,25 +1354,20 @@ export function DesignSystemSetup({
 
               {/* Brand Notes */}
               <div
-                id="slides-design-system-context-source"
                 className={cn(
                   "space-y-2 rounded-lg border border-border bg-card p-4",
-                  !editingId &&
-                    (sourcePanel !== "other" || otherSource !== "context") &&
-                    "hidden",
+                  !editingId && "hidden",
                 )}
               >
                 <Label className="text-foreground/80">
-                  {editingId
-                    ? t("designSystemSetup.brandNotes")
-                    : t("designSystemSetup.additionalNotes")}
+                  {t("designSystemSetup.brandNotes")}
                 </Label>
                 <Textarea
                   value={brandNotes}
                   onChange={(e) => setBrandNotes(e.target.value)}
                   placeholder={t("designSystemSetup.notesPlaceholder")}
                   rows={3}
-                  className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
+                  className="resize-none bg-accent border-border text-foreground placeholder:text-foreground/60"
                 />
               </div>
 
@@ -1368,9 +1375,7 @@ export function DesignSystemSetup({
               <div
                 className={cn(
                   "space-y-2 rounded-lg border border-border bg-card p-4",
-                  !editingId &&
-                    (sourcePanel !== "other" || otherSource !== "context") &&
-                    "hidden",
+                  !editingId && "hidden",
                 )}
               >
                 <Label className="text-foreground/80">
@@ -1383,9 +1388,9 @@ export function DesignSystemSetup({
                     "designSystemSetup.customInstructionsPlaceholder",
                   )}
                   rows={4}
-                  className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
+                  className="resize-none bg-accent border-border text-foreground placeholder:text-foreground/60"
                 />
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[11px] text-foreground/70">
                   {t("designSystemSetup.customInstructionsDescription")}
                 </p>
               </div>
@@ -1517,7 +1522,7 @@ function SourceAccordionRow({
         <span className="block text-sm font-medium text-foreground/90">
           {title}
         </span>
-        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+        <span className="mt-0.5 block truncate text-xs text-foreground/70">
           {locked ? lockedMessage : description}
         </span>
       </span>
@@ -1745,10 +1750,15 @@ function BuilderIndexPreview({
 }) {
   const t = useT();
   const decodeDone =
-    decodeStatus == null ||
-    Boolean(decodeStatus.branchUrl) ||
-    decodeStatus.status === "complete";
+    decodeStatus == null
+      ? !result.jobId
+      : Boolean(decodeStatus.branchUrl) || decodeStatus.status === "complete";
   const decodeFailed = decodeStatus?.status === "error";
+  const decodeProgress =
+    decodeStatus && decodeStatus.totalFrames > 0
+      ? Math.min(decodeStatus.framesProcessed, decodeStatus.totalFrames) /
+        decodeStatus.totalFrames
+      : null;
   const decodeText = decodeFailed
     ? t("designSystemSetup.decodeFailed", { error: decodeStatus?.error ?? "" })
     : null;
@@ -1762,7 +1772,7 @@ function BuilderIndexPreview({
           <h4 className="text-sm font-medium text-foreground">
             {t("designSystemSetup.builderIndexingStarted")}
           </h4>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-foreground/70">
             {t("designSystemSetup.builderIndexingDescription", {
               title:
                 displayTitle ||
@@ -1776,6 +1786,38 @@ function BuilderIndexPreview({
       {decodeText && (
         <div className="border-t border-border pt-3 text-xs text-destructive">
           {decodeText}
+        </div>
+      )}
+
+      {!decodeDone && !decodeFailed && (
+        <div className="space-y-2 border-t border-border pt-3">
+          <p
+            role="status"
+            className="inline-flex items-center gap-2 text-xs text-foreground/70"
+          >
+            <IconLoader2 className="size-3.5 animate-spin" />
+            {t("designSystemSetup.sourceIndexingDescription")}
+          </p>
+          {decodeProgress !== null && (
+            <div
+              role="progressbar"
+              aria-label={t("designSystemSetup.builderIndexingDescription", {
+                title:
+                  displayTitle ||
+                  result.suggestedTitle ||
+                  t("designSystemSetup.importedBrand"),
+              })}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(decodeProgress * 100)}
+              className="h-1.5 overflow-hidden rounded-full bg-muted"
+            >
+              <div
+                className="h-full bg-primary transition-[width] duration-300"
+                style={{ width: `${decodeProgress * 100}%` }}
+              />
+            </div>
+          )}
         </div>
       )}
 
