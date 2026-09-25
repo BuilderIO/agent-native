@@ -514,10 +514,13 @@ export default defineAction({
       // per-edit breakdown to report.
       let editResults: string[] | undefined;
       const previousContent = String(slide.content ?? "");
-      const validateNextContent = (nextContent: string) => {
+      const validateNextContent = (
+        nextContent: string,
+        styleOnlyBaseline = previousContent,
+      ) => {
         assertNoNewUnresolvedPlaceholders(previousContent, nextContent);
         if (styleOnly) {
-          assertStyleOnlyEdit(previousContent, nextContent);
+          assertStyleOnlyEdit(styleOnlyBaseline, nextContent);
         }
         assertSourceSlidePreserved({
           metadata: sourceImportForDeck(deck.sourceImport),
@@ -544,7 +547,10 @@ export default defineAction({
         const nextContent = styleOnly
           ? patched.content
           : normalizeSlidePadding(patched.content);
-        validateNextContent(nextContent);
+        validateNextContent(
+          nextContent,
+          styleOnly ? sourceContent : previousContent,
+        );
         slide.content = nextContent;
         applied = patched.changed;
         editResults = patched.applied;

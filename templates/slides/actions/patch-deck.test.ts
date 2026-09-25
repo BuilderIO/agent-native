@@ -219,10 +219,22 @@ describe("applyOperation — patch-slide", () => {
     ["inset-block-end", "0", "1px"],
     ["inset-inline-start", "0", "1px"],
     ["inset-inline-end", "0", "1px"],
+    ["font", "16px Arial", "20px Arial"],
+    ["float", "none", "left"],
+    ["clear", "none", "both"],
+    ["inline-size", "100px", "200px"],
+    ["min-inline-size", "100px", "200px"],
+    ["max-inline-size", "100px", "200px"],
+    ["block-size", "100px", "200px"],
+    ["min-block-size", "100px", "200px"],
+    ["max-block-size", "100px", "200px"],
     ["grid-area", "title", "body"],
     ["grid-template-areas", `\"title body\"`, `\"body title\"`],
     ["place-items", "start", "center"],
     ["place-self", "start", "center"],
+    ["translate", "none", "10px"],
+    ["rotate", "0deg", "45deg"],
+    ["scale", "1", "2"],
   ])("rejects styleOnly edits that change %s", (property, before, after) => {
     const source = `<div class="fmd-slide" style='${property}:${before}'><p>Keep this</p></div>`;
     const deck = { slides: [{ id: "s1", content: source }] };
@@ -240,6 +252,32 @@ describe("applyOperation — patch-slide", () => {
     ).toThrow(/protected layout CSS/);
     expect(deck.slides[0].content).toBe(source);
   });
+
+  it.each(["inline", "stylesheet"] as const)(
+    "rejects escaped %s properties that alias protected layout properties",
+    (scope) => {
+      const source =
+        scope === "inline"
+          ? '<div class="fmd-slide" style="padding:10px"><p>Keep this</p></div>'
+          : '<style>.fmd-slide{padding:10px}</style><div class="fmd-slide"><p>Keep this</p></div>';
+      const nextContent =
+        scope === "inline"
+          ? '<div class="fmd-slide" style="p\\61 dding:20px"><p>Keep this</p></div>'
+          : '<style>.fmd-slide{p\\61 dding:20px}</style><div class="fmd-slide"><p>Keep this</p></div>';
+      const deck = { slides: [{ id: "s1", content: source }] };
+
+      expect(() =>
+        applyOperation(deck, {
+          op: "patch-slide",
+          slideId: "s1",
+          fields: { content: nextContent },
+          baseContentHash: hashSlideContent(source),
+          styleOnly: true,
+        }),
+      ).toThrow(/protected layout CSS/);
+      expect(deck.slides[0].content).toBe(source);
+    },
+  );
 
   it.each([
     [
@@ -267,6 +305,11 @@ describe("applyOperation — patch-slide", () => {
       '<style>@supports (display: grid){.fmd-slide{display:grid}}</style><div class="fmd-slide"></div>',
       '<style>@supports (display: flex){.fmd-slide{display:grid}}</style><div class="fmd-slide"></div>',
     ],
+    [
+      "changes declaration-free cascade layer order",
+      '<style>@layer base, theme; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+      '<style>@layer theme, base; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+    ],
   ])("rejects styleOnly CSS that %s", (_name, source, nextContent) => {
     const deck = { slides: [{ id: "s1", content: source }] };
 
@@ -281,6 +324,31 @@ describe("applyOperation — patch-slide", () => {
     ).toThrow(/protected layout CSS/);
     expect(deck.slides[0].content).toBe(source);
   });
+
+  it.each([
+    ["font", "16px Arial", "20px Arial"],
+    ["translate", "none", "10px"],
+    ["rotate", "0deg", "45deg"],
+    ["scale", "1", "2"],
+  ])(
+    "rejects stylesheet %s changes in styleOnly edits",
+    (property, before, after) => {
+      const source = `<style>.fmd-slide { ${property}: ${before}; }</style><div class="fmd-slide"><p>Keep this</p></div>`;
+      const nextContent = `<style>.fmd-slide { ${property}: ${after}; }</style><div class="fmd-slide"><p>Keep this</p></div>`;
+      const deck = { slides: [{ id: "s1", content: source }] };
+
+      expect(() =>
+        applyOperation(deck, {
+          op: "patch-slide",
+          slideId: "s1",
+          fields: { content: nextContent },
+          baseContentHash: hashSlideContent(source),
+          styleOnly: true,
+        }),
+      ).toThrow(/protected layout CSS/);
+      expect(deck.slides[0].content).toBe(source);
+    },
+  );
 
   it.each([
     [

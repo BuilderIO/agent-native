@@ -722,6 +722,33 @@ describe("update-slide", () => {
     );
   });
 
+  it("validates formatted style-only edits against the formatted source", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<style>.fmd-slide { background: #000; }</style><div class="fmd-slide"><p>Headline</p></div>',
+        },
+      ],
+    });
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      format: true,
+      edits: [{ find: "background: #000", replace: "background: #fff" }],
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    const savedContent = JSON.parse(lastUpdateSet!.data as string).slides[0]
+      .content as string;
+    expect(savedContent).toContain("background: #fff");
+    expect(savedContent).toContain("Headline");
+  });
+
   it("does not add default slide padding during a style-only edit", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",

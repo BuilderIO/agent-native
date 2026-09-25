@@ -60,6 +60,7 @@ const protectedStyleProperties = new Set([
   "gap",
   "row-gap",
   "column-gap",
+  "font",
   "font-family",
   "font-size",
   "font-style",
@@ -72,12 +73,20 @@ const protectedStyleProperties = new Set([
   "max-width",
   "min-height",
   "max-height",
+  "inline-size",
+  "min-inline-size",
+  "max-inline-size",
+  "block-size",
+  "min-block-size",
+  "max-block-size",
   "position",
   "z-index",
   "top",
   "right",
   "bottom",
   "left",
+  "float",
+  "clear",
   "inset",
   "inset-block",
   "inset-block-start",
@@ -132,6 +141,9 @@ const protectedStyleProperties = new Set([
   "place-items",
   "place-self",
   "transform",
+  "translate",
+  "rotate",
+  "scale",
   "clip",
   "clip-path",
   "text-indent",
@@ -163,35 +175,74 @@ function protectedStyleInvariant(content: string): string {
   return JSON.stringify(signatures);
 }
 
+function decodeCssIdentifier(identifier: string): string {
+  return identifier.replace(
+    /\\([0-9a-fA-F]{1,6})(?:\r\n|[\t\n\f\r ])?|\\([^\r\n\f])/g,
+    (_escape, hex: string | undefined, character: string | undefined) => {
+      if (hex === undefined) return character ?? "";
+
+      const codePoint = Number.parseInt(hex, 16);
+      return String.fromCodePoint(
+        codePoint === 0 ||
+          codePoint > 0x10ffff ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff)
+          ? 0xfffd
+          : codePoint,
+      );
+    },
+  );
+}
+
+function cssNodeContext(
+  node: postcss.Node | undefined,
+  source: string,
+): string[] {
+  const context = [source];
+  let parent = node;
+  while (parent && parent.type !== "root") {
+    if (parent.type === "rule") {
+      context.unshift(`rule:${(parent as postcss.Rule).selector}`);
+    }
+    if (parent.type === "atrule") {
+      const atRule = parent as postcss.AtRule;
+      context.unshift(`at:${atRule.name}:${atRule.params}`);
+    }
+    parent = parent.parent;
+  }
+  return context;
+}
+
 function appendProtectedCssSignatures(
   css: string,
   source: string,
   signatures: string[],
 ): void {
   const root = postcss.parse(css);
-  root.walkDecls((declaration) => {
-    const property = declaration.prop.startsWith("--")
-      ? declaration.prop
-      : declaration.prop.toLowerCase();
+  root.walk((node) => {
+    if (node.type === "atrule" && node.name.toLowerCase() === "layer") {
+      signatures.push(
+        JSON.stringify([
+          ...cssNodeContext(node, source),
+          `hasBlock:${node.nodes !== undefined}`,
+        ]),
+      );
+    }
+    if (node.type !== "decl") return;
+
+    const decodedProperty = decodeCssIdentifier(node.prop);
+    const property = decodedProperty.startsWith("--")
+      ? decodedProperty
+      : decodedProperty.toLowerCase();
     if (!protectedStyleProperties.has(property) && !property.startsWith("--")) {
       return;
     }
 
-    const context = [source];
-    let parent = declaration.parent;
-    while (parent && parent.type !== "root") {
-      if (parent.type === "rule") context.unshift(`rule:${parent.selector}`);
-      if (parent.type === "atrule") {
-        context.unshift(`at:${parent.name}:${parent.params}`);
-      }
-      parent = parent.parent;
-    }
     signatures.push(
       JSON.stringify([
-        ...context,
+        ...cssNodeContext(node.parent, source),
         property,
-        declaration.value,
-        declaration.important,
+        node.value,
+        node.important,
       ]),
     );
   });
