@@ -1,7 +1,7 @@
 import {
-  getAllSettings,
   getUserSetting,
   listOrgSettings,
+  listSettingsByPrefix,
 } from "@agent-native/core/settings";
 
 import { dashboardCatalogEntries } from "./dashboard-catalog";
@@ -639,20 +639,37 @@ async function listDictionaryEntries(args: {
     entries.push(entry);
   };
 
-  if (args.orgId) {
-    const orgEntries = await listOrgSettings(
-      args.orgId,
-      DATA_DICTIONARY_KEY_PREFIX,
-    );
-    for (const value of Object.values(orgEntries)) collect(value);
-  }
-
   const userPrefix = `u:${args.email}:${DATA_DICTIONARY_KEY_PREFIX}`;
-  const all = await getAllSettings();
-  for (const [key, value] of Object.entries(all)) {
-    if (key.startsWith(userPrefix)) collect(value);
+  const [orgResult, userResult] = await Promise.allSettled([
+    args.orgId
+      ? listOrgSettings(args.orgId, DATA_DICTIONARY_KEY_PREFIX)
+      : Promise.resolve(null),
+    listSettingsByPrefix(userPrefix),
+  ]);
+  if (orgResult.status === "fulfilled" && orgResult.value) {
+    for (const value of Object.values(orgResult.value)) collect(value);
+  } else if (orgResult.status === "rejected") {
+    console.warn(
+      "[analytics-query-catalog] Organization dictionary lookup failed:",
+      orgResult.reason,
+    );
+  }
+  if (userResult.status === "fulfilled") {
+    for (const { value } of userResult.value) collect(value);
+  } else {
+    console.warn(
+      "[analytics-query-catalog] User dictionary lookup failed:",
+      userResult.reason,
+    );
   }
   return entries;
+}
+
+function warnCatalogReadFailure(source: string, error: unknown): void {
+  console.warn(
+    `[analytics-query-catalog] ${source} lookup failed; continuing with available references:`,
+    error,
+  );
 }
 
 function savedDashboardInput(
@@ -677,19 +694,37 @@ export async function searchAnalyticsQueryCatalog(args: {
   orgId: string | null;
   limit: number;
 }): Promise<AnalyticsQueryCatalogCandidate[]> {
-  const [savedSummaries, dictionaryEntries, favoriteIds] = await Promise.all([
-    listDashboardSummaries(
-      { email: args.email, orgId: args.orgId },
-      {
-        kind: "sql",
-        archived: "active",
-        hidden: "visible",
-        includeCatalogMetadata: true,
-      },
-    ),
-    listDictionaryEntries({ email: args.email, orgId: args.orgId }),
-    listFavoriteDashboardIds(args.email),
-  ]);
+  const [summariesResult, dictionaryResult, favoritesResult] =
+    await Promise.allSettled([
+      listDashboardSummaries(
+        { email: args.email, orgId: args.orgId },
+        {
+          kind: "sql",
+          archived: "active",
+          hidden: "visible",
+          includeCatalogMetadata: true,
+        },
+      ),
+      listDictionaryEntries({ email: args.email, orgId: args.orgId }),
+      listFavoriteDashboardIds(args.email),
+    ]);
+  const savedSummaries =
+    summariesResult.status === "fulfilled" ? summariesResult.value : [];
+  const dictionaryEntries =
+    dictionaryResult.status === "fulfilled" ? dictionaryResult.value : [];
+  const favoriteIds =
+    favoritesResult.status === "fulfilled"
+      ? favoritesResult.value
+      : new Set<string>();
+  if (summariesResult.status === "rejected") {
+    warnCatalogReadFailure("Dashboard summary", summariesResult.reason);
+  }
+  if (dictionaryResult.status === "rejected") {
+    warnCatalogReadFailure("Data dictionary", dictionaryResult.reason);
+  }
+  if (favoritesResult.status === "rejected") {
+    warnCatalogReadFailure("Favorite dashboard", favoritesResult.reason);
+  }
   const savedSummaryIds = new Set(
     savedSummaries.map((dashboard) => dashboard.id),
   );
@@ -704,7 +739,10 @@ export async function searchAnalyticsQueryCatalog(args: {
   const savedDashboardsResult = await loadDashboardCatalogDashboards(
     { email: args.email, orgId: args.orgId },
     shortlistedIds,
-  );
+  ).catch((error: unknown) => {
+    warnCatalogReadFailure("Dashboard detail", error);
+    return [];
+  });
   const savedDashboards = new Map(
     savedDashboardsResult.map((dashboard) => [dashboard.id, dashboard]),
   );

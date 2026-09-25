@@ -250,10 +250,13 @@ function cosineSimilarity(left: number[], right: number[]): number | null {
   return dot / Math.sqrt(leftNorm * rightNorm);
 }
 
-async function resolveEmbeddingFamily(): Promise<EmbeddingFamily | null> {
+async function resolveEmbeddingFamily(
+  deadlineAt: number,
+): Promise<EmbeddingFamily | null> {
   const families = await availableEmbeddingFamilies();
-  if (families.length === 0) return null;
+  if (Date.now() >= deadlineAt || families.length === 0) return null;
   const activeSet = await getActiveEmbeddingSet();
+  if (Date.now() >= deadlineAt) return null;
   if (!activeSet) return defaultEmbeddingFamily(families);
   return (
     families.find(
@@ -322,9 +325,10 @@ async function rankWithEmbeddings(
   request: string,
   candidates: AnalyticsQueryCatalogCandidate[],
   shouldCache: () => boolean,
+  deadlineAt: number,
 ): Promise<RankedCandidate[]> {
-  const family = await resolveEmbeddingFamily();
-  if (!family || candidates.length === 0) {
+  const family = await resolveEmbeddingFamily(deadlineAt);
+  if (Date.now() >= deadlineAt || !family || candidates.length === 0) {
     return candidates.map((candidate) => ({ candidate }));
   }
   const contents = candidates.map(candidateEmbeddingSummary);
@@ -462,7 +466,12 @@ export async function retrieveAnalyticsPromptReferences(input: {
   try {
     const semanticRanking = await beforeDeadline(
       () =>
-        rankWithEmbeddings(input.request, searchResults, () => cacheAllowed),
+        rankWithEmbeddings(
+          input.request,
+          searchResults,
+          () => cacheAllowed,
+          deadlineAt,
+        ),
       deadlineAt,
     );
     if (semanticRanking.status === "completed") {

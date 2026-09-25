@@ -261,6 +261,37 @@ describe("retrieveAnalyticsPromptReferences", () => {
     }
   });
 
+  it("does not start embedding requests when family resolution exceeds the deadline", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    mocks.getActiveEmbeddingSet.mockImplementation(async () => {
+      now.mockReturnValue(2_000);
+      return {
+        family: "builder",
+        model: "builder-multimodal-embedding",
+        version: "1",
+        dimensions: 2,
+      };
+    });
+
+    try {
+      const result = await retrieveAnalyticsPromptReferences({
+        request: "How many active users last month?",
+        email: "owner@example.com",
+        orgId: null,
+        deadlineAt: 1_500,
+      });
+
+      expect(mocks.availableEmbeddingFamilies).toHaveBeenCalledOnce();
+      expect(mocks.getActiveEmbeddingSet).toHaveBeenCalledOnce();
+      expect(mocks.embed).not.toHaveBeenCalled();
+      expect(result.jevPromptCandidates[0]?.name).toBe(
+        "Activation health: Activation by cohort",
+      );
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("fails open when catalog retrieval fails", async () => {
     mocks.searchAnalyticsQueryCatalog.mockRejectedValue(
       new Error("catalog unavailable"),
