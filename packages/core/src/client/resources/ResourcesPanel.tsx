@@ -174,6 +174,60 @@ export function slugifyName(value: string): string {
   );
 }
 
+/** Ask the agent to draft a custom agent profile, saved at `scope`. */
+export function requestCustomAgentFromAgent(
+  description: string,
+  scope: ResourceScope,
+): void {
+  const trimmed = description.trim();
+  if (!trimmed) return;
+  sendToAgentChat({
+    message: `Create a custom agent: ${trimmed}`,
+    newTab: true,
+    context: `The user wants a reusable custom sub-agent profile for the workspace. Their description: "${trimmed}"
+
+Create it as a ${scope} resource under "agents/<name>.md" using the \`resources\` tool with \`action: "write"\`.
+
+Requirements:
+1. Derive a hyphen-case file name from the intent
+2. Use YAML frontmatter with:
+   - name
+   - description
+   - model (use "inherit" unless the request clearly needs a different model)
+   - tools (set to "inherit")
+   - delegate-default (set to false)
+3. Put the main operating instructions in the markdown body
+4. Keep it concise and directive, similar to a Claude Code-style custom agent
+
+Template:
+\`\`\`markdown
+---
+name: Design
+description: >-
+  Helps with product and interface design decisions.
+model: inherit
+tools: inherit
+delegate-default: false
+---
+
+# Role
+
+You are a focused design agent.
+
+## Responsibilities
+
+- ...
+
+## Approach
+
+- ...
+\`\`\`
+
+The result should be a reusable agent profile, not a one-off task response.`,
+    submit: true,
+  });
+}
+
 /** Ask the agent to draft a skill from a description, saved at `scope`. */
 export function requestSkillFromAgent(
   description: string,
@@ -259,7 +313,10 @@ function isLocalWorkspaceResource(resource: Resource | null | undefined) {
   }
 }
 
-function buildAgentResourceContent({
+/** Starting body for a custom agent profile written by hand. */
+export const CUSTOM_AGENT_BODY_TEMPLATE = `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`;
+
+export function buildAgentResourceContent({
   name,
   description,
   model,
@@ -344,7 +401,7 @@ function CreateMenu({
   const [agentDescription, setAgentDescription] = useState("");
   const [agentModel, setAgentModel] = useState<string>("inherit");
   const [agentInstructions, setAgentInstructions] = useState(
-    `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`,
+    CUSTOM_AGENT_BODY_TEMPLATE,
   );
   const defaultMcpScope: McpServerScope = personalMcpOnly
     ? "user"
@@ -395,9 +452,7 @@ function CreateMenu({
       setAgentName("");
       setAgentDescription("");
       setAgentModel("inherit");
-      setAgentInstructions(
-        `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`,
-      );
+      setAgentInstructions(CUSTOM_AGENT_BODY_TEMPLATE);
       setSkillUploadSlug("");
       setSkillUploadContent("");
       setSkillUploadFileName("");
@@ -490,55 +545,8 @@ The job will run automatically on the schedule. Make the instructions specific â
   };
 
   const submitAgentPrompt = (text: string = value) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-
-    sendToAgentChat({
-      message: `Create a custom agent: ${trimmed}`,
-      newTab: true,
-      context: `The user wants a reusable custom sub-agent profile for the workspace. Their description: "${trimmed}"
-
-Create it as a ${scope} resource under "agents/<name>.md" using the \`resources\` tool with \`action: "write"\`.
-
-Requirements:
-1. Derive a hyphen-case file name from the intent
-2. Use YAML frontmatter with:
-   - name
-   - description
-   - model (use "inherit" unless the request clearly needs a different model)
-   - tools (set to "inherit")
-   - delegate-default (set to false)
-3. Put the main operating instructions in the markdown body
-4. Keep it concise and directive, similar to a Claude Code-style custom agent
-
-Template:
-\`\`\`markdown
----
-name: Design
-description: >-
-  Helps with product and interface design decisions.
-model: inherit
-tools: inherit
-delegate-default: false
----
-
-# Role
-
-You are a focused design agent.
-
-## Responsibilities
-
-- ...
-
-## Approach
-
-- ...
-\`\`\`
-
-The result should be a reusable agent profile, not a one-off task response.`,
-      submit: true,
-    });
-
+    if (!text.trim()) return;
+    requestCustomAgentFromAgent(text, scope);
     setOpen(false);
     onCreated?.();
   };
@@ -1162,6 +1170,8 @@ export interface ResourcesPanelProps {
   settingsGroups?: readonly ResourceSettingsGroupConfig[];
   /** Receives a function that opens a resource in this panel's editor. */
   openResourceRef?: { current: ((id: string) => void) | null };
+  /** Called when the editor opens or closes, so a page can yield to it. */
+  onEditingChange?: (editing: boolean) => void;
 }
 
 /** Owners, admins, and solo deployments (no organization) edit org resources. */
@@ -1218,6 +1228,7 @@ export function ResourcesPanel({
   mcpIntegrations,
   settingsGroups,
   openResourceRef,
+  onEditingChange,
 }: ResourcesPanelProps = {}) {
   const t = useT();
   const { data: org } = useOrg();
@@ -1442,6 +1453,10 @@ export function ResourcesPanel({
       openResourceRef.current = null;
     };
   }, [openResourceRef]);
+
+  useEffect(() => {
+    onEditingChange?.(isEditing);
+  }, [isEditing, onEditingChange]);
 
   const handleBack = useCallback(() => {
     setSelectedResourceId(null);

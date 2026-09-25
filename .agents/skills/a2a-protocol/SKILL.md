@@ -90,11 +90,12 @@ credentials server-side from the workspace connection or vault. A direct
 `A2AClient` call can pass `cardUrl` and `protocolVersion` while a provider
 adapter is being used, but browser code must never receive the credential.
 
-Four ways to create it, all writing the same row:
+Five ways to create it, all writing the same row:
 
 | Surface | Where |
 | --- | --- |
-| Settings → Manage agent → Connected Agents (A2A) | any app with the settings panel |
+| Settings → Agent → Sub-agents → Connect agent (with the `settings-redesign` flag; owners and admins) | any app with the Settings shell |
+| Settings → Manage agent → Connected Agents (A2A) | any app with the settings panel, flag off |
 | Agent page → Connections | apps mounting `AgentTabsPage` |
 | Dispatch → Agents → Add external agent | workspace dispatch |
 | The agent itself | `resources` tool, `action: "write"`, `--scope shared` |

@@ -129,6 +129,13 @@ describe("legacy settings redirect table", () => {
     ["agent:app-models", { page: "app", anchor: "app-models" }],
     ["agent:background", { page: "infra", anchor: "background" }],
     ["agent:resources:learnings", { page: "memory", anchor: "learnings" }],
+    ["agent:resources:agents", { page: "sub-agents", anchor: "custom-agents" }],
+    [
+      "agent:resources:remote-agents",
+      { page: "sub-agents", anchor: "external-agents" },
+    ],
+    ["agent:agents", { page: "sub-agents", anchor: "external-agents" }],
+    ["agent:directory", { page: "sub-agents", anchor: "external-agents" }],
     ["labs:lab-meetings", { page: "labs", anchor: "lab-meetings" }],
     [
       "experiments:experiment-meetings",
@@ -231,7 +238,7 @@ describe("agent-panel:open-settings sections", () => {
     ["background", { page: "infra", anchor: "background" }],
     ["integrations", { page: "integrations" }],
     ["usage", { page: "usage" }],
-    ["a2a", { page: "sub-agents" }],
+    ["a2a", { page: "sub-agents", anchor: "external-agents" }],
     ["workspace-settings", { page: "org" }],
     ["account", { page: "profile" }],
     ["organization", { page: "org" }],

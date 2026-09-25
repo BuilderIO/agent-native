@@ -242,6 +242,40 @@ const messages: AgentChatTranslation = {
   "agents.directoryRegistryHint":
     "Explora Agent Cards públicas y verifícalas antes de conectar.",
   "agents.directoryBrowse": "Explorar registro",
+  "agents.formName": "Nombre",
+  "agents.formUrl": "URL",
+  "agents.formUrlPlaceholder": "URL (p. ej., http://localhost:8085)",
+  "agents.formDescription": "Descripción",
+  "agents.formDescriptionPlaceholder": "Descripción (opcional)",
+  "agents.formCheck": "Comprobar",
+  "agents.formAdd": "Añadir",
+  "agents.formAddAnyway": "Añadir de todos modos",
+  "agents.formRemove": "Quitar",
+  "agents.formSaveFailed": "No se pudo guardar el agente.",
+  "agents.formAddFailed": "No se pudo añadir el agente.",
+  "agents.checkFailed": "La comprobación falló",
+  "agents.checkFailedStatus": "La comprobación falló ({{status}})",
+  "agents.checkNotReachable": "No accesible",
+  "agents.checkLive": "Activo · {{scheme}}",
+  "agents.checkNoAuthScheme": "no se anuncia ningún esquema de autenticación",
+  "agents.checkTokenRejected":
+    "el par rechazó nuestro token, así que las llamadas devolverán 401 en producción",
+  "agents.checkTokenUnverified": "no se pudo verificar nuestro token",
+  "agents.checkTokenUnverifiedReason":
+    "no se pudo verificar nuestro token ({{reason}})",
+  "agents.checkTokenWorks": "nuestro token funciona",
+  "agents.checkReadsRequireAuth": "las lecturas requieren autenticación",
+  "agents.checkPublicSkills": "habilidades públicas: {{count}}",
+  "agents.unreachableHint":
+    "Puede que la app aún no esté en ejecución. Puedes añadirla igualmente.",
+  "agents.addedOneWay":
+    "Se añadió {{name}} solo en tu lado. El registro es unidireccional, así que {{name}} no conocerá esta app hasta que la añadas allí también.",
+  "agents.openPeerSettings": "Abrir la configuración de {{name}}",
+  "agents.syncSecret": "Sincronizar el secreto con las apps",
+  "agents.noSharedSecret": "Aún no hay un secreto compartido.",
+  "agents.noSharedSecretLink": "Define uno primero en la página Equipo.",
+  "agents.askOwnerSyncSecret":
+    "Pide al propietario del espacio de trabajo que sincronice el secreto compartido.",
   "common.saveFailed": "Error al guardar",
   "common.saveFailedStatus": "Error al guardar ({{status}})",
   "common.saving": "Guardando...",
@@ -1631,6 +1665,41 @@ const messages: AgentChatTranslation = {
     "Solo los propietarios y administradores pueden añadir proveedores de la organización.",
   "settingsModel.whoHintService":
     "Los servicios usan claves de la organización.",
+  "settingsSubAgents.connect": "Conectar agente",
+  "settingsSubAgents.orgApps": "Apps de {{org}}",
+  "settingsSubAgents.workspaceApps": "Apps del espacio de trabajo",
+  "settingsSubAgents.external": "Agentes externos",
+  "settingsSubAgents.custom": "Agentes personalizados",
+  "settingsSubAgents.managedByAdmins": "Gestionado por administradores",
+  "settingsSubAgents.appsEmpty": "Aún no hay apps conectadas.",
+  "settingsSubAgents.externalEmpty":
+    "Conecta Foundry, Gemini Enterprise, Anthropic o cualquier agente A2A.",
+  "settingsSubAgents.browseDirectory": "Explorar directorio",
+  "settingsSubAgents.customEmpty":
+    "Define un agente especializado en el que el agente principal pueda delegar.",
+  "settingsSubAgents.addAgent": "Añadir agente",
+  "settingsSubAgents.describe": "Descríbelo al agente",
+  "settingsSubAgents.describePlaceholder":
+    "Un agente de diseño que critica maquetaciones y sugiere una dirección de UI",
+  "settingsSubAgents.write": "Escríbelo tú",
+  "settingsSubAgents.name": "Nombre",
+  "settingsSubAgents.description": "Descripción",
+  "settingsSubAgents.instructions": "Instrucciones",
+  "settingsSubAgents.loadFailed":
+    "No se pudieron cargar los agentes conectados.",
+  "settingsSubAgents.statusUnreachable": "No accesible",
+  "settingsSubAgents.edit": "Editar",
+  "settingsSubAgents.editTitle": "Editar {{name}}",
+  "settingsSubAgents.removeDescription":
+    "El agente deja de delegar en {{name}} para todos en {{org}}.",
+  "settingsSubAgents.removeDescriptionSolo":
+    "El agente deja de delegar en {{name}}.",
+  "settingsSubAgents.directoryTitle": "Conectar un agente",
+  "settingsSubAgents.anyAgent": "Cualquier agente A2A",
+  "settingsSubAgents.anyAgentHint": "Pega la URL de una tarjeta de agente.",
+  "settingsSubAgents.registryLink": "Explorar el Global A2A Registry",
+  "settingsSubAgents.connectTitle": "Conectar {{name}}",
+  "settingsSubAgents.close": "Cerrar",
 };
 
 export default messages;

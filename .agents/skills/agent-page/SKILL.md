@@ -47,6 +47,26 @@ organization rows for members and Dispatch rows for everyone; the server still
 enforces it. Resource trees refetch on `action` change events, which is how an
 agent's `save-memory` or `resources` write appears without a reload.
 
+Settings › Agent › Sub-agents (`pages/sub-agents.tsx`) is the one place that
+lists every agent the main agent can hand work to, each once:
+
+- **{Org} apps**: first-party apps, from their seeded `remote-agents/<id>.json`
+  manifests plus workspace apps only discovery knows, each "Reachable · {URL}"
+  from the batched `/_agent-native/agents/probe`.
+- **External agents**: every other `remote-agents/` manifest. The header's
+  **Connect agent** (owners and admins) opens the directory dialog: Foundry,
+  Gemini Enterprise, Anthropic Managed Agents, and any A2A agent by URL.
+- **Custom agents**: `agents/*.md` profiles through `ResourcesPanel`
+  `settingsGroups`. Anyone can add a personal one.
+
+Build on `useRemoteAgents()` and the `AgentAddForm` / `AgentEditForm` exports
+of `AgentsSection.tsx`, not a second fetch. `?connect=<a2a|anthropic-managed-agents|manual>`
+and the peer register-back `f_agent*` params still open the connect form, and
+legacy ids (`agent:agents`, `agent:directory`, `agent:resources:agents`,
+`agent:resources:remote-agents`, section `a2a`) redirect to this page. Hidden
+and removed first-party ids (`shared/first-party-agents.ts`) stay unlisted, the
+same rule discovery applies.
+
 ## Mounting In A Template
 
 1. Add an `/agent` route following the template's settings-route pattern

@@ -235,6 +235,40 @@ const messages: AgentChatTranslation = {
   "agents.directoryRegistryHint":
     "公開 Agent Card を参照し、接続前に確認してください。",
   "agents.directoryBrowse": "レジストリを開く",
+  "agents.formName": "名前",
+  "agents.formUrl": "URL",
+  "agents.formUrlPlaceholder": "URL (例: http://localhost:8085)",
+  "agents.formDescription": "説明",
+  "agents.formDescriptionPlaceholder": "説明 (任意)",
+  "agents.formCheck": "確認",
+  "agents.formAdd": "追加",
+  "agents.formAddAnyway": "このまま追加",
+  "agents.formRemove": "削除",
+  "agents.formSaveFailed": "エージェントを保存できませんでした。",
+  "agents.formAddFailed": "エージェントを追加できませんでした。",
+  "agents.checkFailed": "確認に失敗しました",
+  "agents.checkFailedStatus": "確認に失敗しました ({{status}})",
+  "agents.checkNotReachable": "到達できません",
+  "agents.checkLive": "稼働中 · {{scheme}}",
+  "agents.checkNoAuthScheme": "認証スキームが公開されていません",
+  "agents.checkTokenRejected":
+    "相手がこちらのトークンを拒否したため、本番環境では呼び出しが 401 になります",
+  "agents.checkTokenUnverified": "こちらのトークンを検証できませんでした",
+  "agents.checkTokenUnverifiedReason":
+    "こちらのトークンを検証できませんでした ({{reason}})",
+  "agents.checkTokenWorks": "こちらのトークンは有効です",
+  "agents.checkReadsRequireAuth": "読み取りには認証が必要です",
+  "agents.checkPublicSkills": "公開スキル: {{count}}",
+  "agents.unreachableHint":
+    "アプリがまだ起動していない可能性があります。このまま追加することもできます。",
+  "agents.addedOneWay":
+    "{{name}} をこちら側にのみ追加しました。登録は一方向のため、{{name}} 側でもこのアプリを追加するまで、相手はこのアプリを認識しません。",
+  "agents.openPeerSettings": "{{name}} の設定を開く",
+  "agents.syncSecret": "シークレットをアプリに同期",
+  "agents.noSharedSecret": "共有シークレットがまだ設定されていません。",
+  "agents.noSharedSecretLink": "まずチームページで設定してください。",
+  "agents.askOwnerSyncSecret":
+    "ワークスペースのオーナーに共有シークレットの同期を依頼してください。",
   "common.saveFailed": "保存に失敗しました",
   "common.saveFailedStatus": "保存に失敗しました（{{status}}）",
   "common.saving": "保存中...",
@@ -1566,6 +1600,41 @@ const messages: AgentChatTranslation = {
   "settingsModel.whoHintMember":
     "組織のプロバイダーを追加できるのはオーナーと管理者だけです。",
   "settingsModel.whoHintService": "サービスは組織のキーを使います。",
+  "settingsSubAgents.connect": "エージェントを接続",
+  "settingsSubAgents.orgApps": "{{org}} のアプリ",
+  "settingsSubAgents.workspaceApps": "ワークスペースのアプリ",
+  "settingsSubAgents.external": "外部エージェント",
+  "settingsSubAgents.custom": "カスタムエージェント",
+  "settingsSubAgents.managedByAdmins": "管理者が管理",
+  "settingsSubAgents.appsEmpty": "接続済みのアプリはまだありません。",
+  "settingsSubAgents.externalEmpty":
+    "Foundry、Gemini Enterprise、Anthropic、または任意の A2A エージェントを接続します。",
+  "settingsSubAgents.browseDirectory": "ディレクトリを見る",
+  "settingsSubAgents.customEmpty":
+    "メインエージェントが作業を任せられる専用エージェントを定義します。",
+  "settingsSubAgents.addAgent": "エージェントを追加",
+  "settingsSubAgents.describe": "エージェントに説明する",
+  "settingsSubAgents.describePlaceholder":
+    "レイアウトを評価し UI の方向性を提案するデザインエージェント",
+  "settingsSubAgents.write": "自分で書く",
+  "settingsSubAgents.name": "名前",
+  "settingsSubAgents.description": "説明",
+  "settingsSubAgents.instructions": "指示",
+  "settingsSubAgents.loadFailed":
+    "接続済みエージェントを読み込めませんでした。",
+  "settingsSubAgents.statusUnreachable": "接続不可",
+  "settingsSubAgents.edit": "編集",
+  "settingsSubAgents.editTitle": "{{name}} を編集",
+  "settingsSubAgents.removeDescription":
+    "{{org}} の全員について、エージェントは {{name}} に作業を任せなくなります。",
+  "settingsSubAgents.removeDescriptionSolo":
+    "エージェントは {{name}} に作業を任せなくなります。",
+  "settingsSubAgents.directoryTitle": "エージェントを接続",
+  "settingsSubAgents.anyAgent": "任意の A2A エージェント",
+  "settingsSubAgents.anyAgentHint": "エージェントカードの URL を貼り付けます。",
+  "settingsSubAgents.registryLink": "Global A2A Registry を見る",
+  "settingsSubAgents.connectTitle": "{{name}} を接続",
+  "settingsSubAgents.close": "閉じる",
 };
 
 export default messages;

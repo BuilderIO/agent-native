@@ -21,7 +21,15 @@ import {
   IconTopologyRing2,
   IconChevronDown,
 } from "@tabler/icons-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from "react";
 
 import {
   buildOpenRoutePath,
@@ -47,9 +55,11 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { useOrg, useSyncA2ASecret } from "../org/hooks.js";
+import { useChangeVersion } from "../use-change-version.js";
 import { NewKeyMenu, type NewKeyOption } from "./NewKeyMenu.js";
 
-interface AgentInfo {
+/** A registered remote agent: one `remote-agents/<id>.json` manifest. */
+export interface RemoteAgentInfo {
   id: string;
   path: string;
   name: string;
@@ -71,9 +81,12 @@ type HostedAgentAuth =
     };
 
 type HostedAgentAuthType = "none" | HostedAgentAuth["type"];
-type HostedAgentProvider = "a2a" | "anthropic-managed-agents";
+export type HostedAgentProvider = "a2a" | "anthropic-managed-agents";
 
 const ANTHROPIC_MANAGED_AGENT_DEFAULT_URL = "https://api.anthropic.com";
+
+/** The Settings id that opens the Connected agents list and its Add form. */
+export const CONNECTED_AGENTS_SETTINGS_ID = "agent:agents";
 
 function emptyAnthropicManagedAgentKind(): AnthropicManagedAgentsRemoteAgentKind {
   return {
@@ -92,7 +105,7 @@ interface SecretStatusOption {
 }
 
 /** Wire shape of `GET /_agent-native/agents/probe` (single or batched result). */
-interface AgentProbeResult {
+export interface AgentProbeResult {
   url: string;
   reachable: boolean;
   cardStatus?: "reachable" | "auth-rejected" | "no-json-rpc";
@@ -106,7 +119,7 @@ interface AgentProbeResult {
   error?: string;
 }
 
-function probeStatus(
+export function probeStatus(
   result: AgentProbeResult | undefined,
 ): "reachable" | "auth-rejected" | "no-json-rpc" | null {
   if (!result) return null;
@@ -116,13 +129,18 @@ function probeStatus(
   return result.reachable ? "reachable" : null;
 }
 
-function describeSkills(publicSkills: number | undefined): string | null {
+type Translate = ReturnType<typeof useT>;
+
+function describeSkills(
+  publicSkills: number | undefined,
+  t: Translate,
+): string | null {
   if (publicSkills === undefined) return null;
   // An empty public skill list only means the card advertises no anonymous-
   // safe actions — the peer still has authenticated reads/writes. Saying so
   // plainly avoids reading as "this agent can't do anything."
-  if (publicSkills === 0) return "reads require auth";
-  return `${publicSkills} public skill${publicSkills === 1 ? "" : "s"}`;
+  if (publicSkills === 0) return t("agentChat.agents.checkReadsRequireAuth");
+  return t("agentChat.agents.checkPublicSkills", { count: publicSkills });
 }
 
 /** One-line status for the row dot tooltip. */
@@ -140,21 +158,27 @@ function describeProbeTooltip(result: AgentProbeResult): string {
 }
 
 /** Multi-clause status line for the Add popover's Check result. */
-function describeCheckResult(result: AgentProbeResult): string {
+function describeCheckResult(result: AgentProbeResult, t: Translate): string {
   if (!result.reachable) {
-    return result.error ?? "Not reachable";
+    return result.error ?? t("agentChat.agents.checkNotReachable");
   }
   const scheme = result.securitySchemes?.length
     ? result.securitySchemes.join(", ")
-    : "no auth scheme advertised";
+    : t("agentChat.agents.checkNoAuthScheme");
   const authText =
     result.authorized === false
-      ? "the peer rejected our token — calls will 401 in production"
+      ? t("agentChat.agents.checkTokenRejected")
       : result.authorized === undefined
-        ? `couldn't verify our token${result.authError ? ` (${result.authError})` : ""}`
-        : "our token works";
-  const skills = describeSkills(result.publicSkills);
-  return [`Live · ${scheme}`, authText, skills].filter(Boolean).join(" · ");
+        ? result.authError
+          ? t("agentChat.agents.checkTokenUnverifiedReason", {
+              reason: result.authError,
+            })
+          : t("agentChat.agents.checkTokenUnverified")
+        : t("agentChat.agents.checkTokenWorks");
+  const skills = describeSkills(result.publicSkills, t);
+  return [t("agentChat.agents.checkLive", { scheme }), authText, skills]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function normalizeHostedAgentUrl(
@@ -512,19 +536,73 @@ function HostedAgentFields({
   );
 }
 
-function AgentEditPopover({
+/** `compact` fits today's inline popovers; `dialog` fills a Settings dialog. */
+export type AgentFormVariant = "compact" | "dialog";
+
+const AGENT_FORM_CLASSES: Record<
+  AgentFormVariant,
+  {
+    stack: string;
+    field: string;
+    text: string;
+    primary: string;
+    secondary: string;
+    ghost: string;
+    destructive: string;
+    footer: string;
+  }
+> = {
+  compact: {
+    stack: "flex flex-col gap-1.5",
+    field:
+      "w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent",
+    text: "text-[10px]",
+    primary:
+      "cursor-pointer rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40",
+    secondary:
+      "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40",
+    ghost:
+      "cursor-pointer rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground",
+    destructive:
+      "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10",
+    footer: "pt-0.5",
+  },
+  dialog: {
+    stack: "flex flex-col gap-2.5",
+    field:
+      "h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+    text: "text-xs",
+    primary:
+      "inline-flex h-8 cursor-pointer items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50",
+    secondary:
+      "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-3 text-sm text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-50",
+    ghost:
+      "inline-flex h-8 cursor-pointer items-center justify-center rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+    destructive:
+      "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm text-destructive hover:bg-destructive/10",
+    footer: "pt-2",
+  },
+};
+
+/** Edit one registered agent: name, endpoint, description, hosted auth. */
+export function AgentEditForm({
   agent,
   credentialOptions,
   onSave,
   onDelete,
   onClose,
+  variant = "compact",
 }: {
-  agent: AgentInfo;
+  agent: RemoteAgentInfo;
   credentialOptions: NewKeyOption[];
-  onSave: (agent: AgentInfo) => Promise<void> | void;
-  onDelete: (id: string) => void;
+  onSave: (agent: RemoteAgentInfo) => Promise<void> | void;
+  /** Omit to hide Remove (the caller offers it elsewhere). */
+  onDelete?: (id: string) => void;
   onClose: () => void;
+  variant?: AgentFormVariant;
 }) {
+  const t = useT();
+  const classes = AGENT_FORM_CLASSES[variant];
   const [name, setName] = useState(agent.name);
   const [url, setUrl] = useState(agent.url);
   const [description, setDescription] = useState(agent.description ?? "");
@@ -532,21 +610,6 @@ function AgentEditPopover({
   const [auth, setAuth] = useState<HostedAgentAuth | undefined>(agent.auth);
   const [kind, setKind] = useState<RemoteAgentKind | undefined>(agent.kind);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (isRadixPortalTarget(e.target)) return;
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node)
-      ) {
-        onClose();
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [onClose]);
 
   const handleSave = async () => {
     if (
@@ -567,91 +630,127 @@ function AgentEditPopover({
       setSaveError(null);
     } catch (error) {
       setSaveError(
-        error instanceof Error ? error.message : "Could not save agent",
+        error instanceof Error
+          ? error.message
+          : t("agentChat.agents.formSaveFailed"),
       );
     }
   };
 
+  // A dialog owns Escape itself; the inline popover closes on it here.
+  const onFieldKeyDown = (e: ReactKeyboardEvent) => {
+    if (e.key === "Enter") void handleSave();
+    if (e.key === "Escape" && variant === "compact") onClose();
+  };
+
+  return (
+    <div className={classes.stack}>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={onFieldKeyDown}
+        className={classes.field}
+        placeholder={t("agentChat.agents.formName")}
+        aria-label={t("agentChat.agents.formName")}
+      />
+      {kind?.provider !== "anthropic-managed-agents" && (
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={onFieldKeyDown}
+          className={classes.field}
+          placeholder={t("agentChat.agents.formUrlPlaceholder")}
+          aria-label={t("agentChat.agents.formUrl")}
+        />
+      )}
+      <input
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onKeyDown={onFieldKeyDown}
+        className={classes.field}
+        placeholder={t("agentChat.agents.formDescriptionPlaceholder")}
+        aria-label={t("agentChat.agents.formDescription")}
+      />
+      <HostedAgentFields
+        url={url}
+        onUrlChange={setUrl}
+        cardUrl={cardUrl}
+        onCardUrlChange={setCardUrl}
+        auth={auth}
+        onAuthChange={setAuth}
+        kind={kind}
+        onKindChange={setKind}
+        credentialOptions={credentialOptions}
+      />
+      {saveError && (
+        <p className={`${classes.text} text-destructive`}>{saveError}</p>
+      )}
+      <div className={`flex items-center justify-between ${classes.footer}`}>
+        {onDelete ? (
+          <button
+            type="button"
+            onClick={() => onDelete(agent.id)}
+            className={classes.destructive}
+          >
+            <IconTrash size={variant === "compact" ? 10 : 14} />
+            {t("agentChat.agents.formRemove")}
+          </button>
+        ) : (
+          <span />
+        )}
+        <div className="flex gap-1">
+          <button type="button" onClick={onClose} className={classes.ghost}>
+            {t("agentChat.common.cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={
+              !name.trim() ||
+              (!url.trim() && kind?.provider !== "anthropic-managed-agents")
+            }
+            className={classes.primary}
+          >
+            {t("agentChat.common.save")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Closes on an outside click, ignoring clicks inside Radix portals. */
+function useCloseOnOutsideClick(
+  ref: RefObject<HTMLDivElement | null>,
+  onClose: () => void,
+) {
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (isRadixPortalTarget(e.target)) return;
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [onClose, ref]);
+}
+
+function AgentEditPopover(props: {
+  agent: RemoteAgentInfo;
+  credentialOptions: NewKeyOption[];
+  onSave: (agent: RemoteAgentInfo) => Promise<void> | void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const popoverRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideClick(popoverRef, props.onClose);
   return (
     <div
       ref={popoverRef}
       className="absolute end-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
     >
-      <div className="flex flex-col gap-1.5">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void handleSave();
-            if (e.key === "Escape") onClose();
-          }}
-          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-          placeholder="Name"
-        />
-        {kind?.provider !== "anthropic-managed-agents" && (
-          <input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleSave();
-              if (e.key === "Escape") onClose();
-            }}
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-            placeholder="URL (e.g. http://localhost:8085)"
-          />
-        )}
-        <input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void handleSave();
-            if (e.key === "Escape") onClose();
-          }}
-          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-          placeholder="Description (optional)"
-        />
-        <HostedAgentFields
-          url={url}
-          onUrlChange={setUrl}
-          cardUrl={cardUrl}
-          onCardUrlChange={setCardUrl}
-          auth={auth}
-          onAuthChange={setAuth}
-          kind={kind}
-          onKindChange={setKind}
-          credentialOptions={credentialOptions}
-        />
-        {saveError && (
-          <p className="text-[10px] text-destructive">{saveError}</p>
-        )}
-        <div className="flex items-center justify-between pt-0.5">
-          <button
-            onClick={() => onDelete(agent.id)}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-red-900/20"
-          >
-            <IconTrash size={10} />
-            Remove
-          </button>
-          <div className="flex gap-1">
-            <button
-              onClick={onClose}
-              className="rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => void handleSave()}
-              disabled={
-                !name.trim() ||
-                (!url.trim() && kind?.provider !== "anthropic-managed-agents")
-              }
-              className="rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      </div>
+      <AgentEditForm {...props} />
     </div>
   );
 }
@@ -673,13 +772,15 @@ interface AddedAgentInfo {
  * popover, prefilled with THIS app's own name/url/description, via the
  * existing `/_agent-native/open` route's `f_*` filter-forwarding (the only
  * non-reserved params the open route echoes onto the redirect URL instead of
- * only stashing them server-side for `navigate` polling). No new endpoint. */
+ * only stashing them server-side for `navigate` polling). No new endpoint.
+ * `agent:agents` is the one id both today's tabbed Settings and the Settings
+ * shell (Sub-agents) open with the Add form mounted. */
 function buildPeerRegisterBackLink(peerUrl: string): string {
   const selfUrl = `${window.location.origin}${appBasePath()}`;
   const selfName = document.title.trim() || window.location.hostname;
   const openPath = buildOpenRoutePath({
     view: "settings",
-    to: buildSettingsRoute(STANDARD_SETTINGS_TABS.agent),
+    to: buildSettingsRoute(CONNECTED_AGENTS_SETTINGS_ID),
     params: {
       f_agentName: selfName,
       f_agentUrl: selfUrl,
@@ -688,7 +789,30 @@ function buildPeerRegisterBackLink(peerUrl: string): string {
   return `${peerUrl.replace(/\/+$/, "")}${openPath}`;
 }
 
-function AgentAddPopover({
+export type AgentAddHandler = (
+  name: string,
+  url: string,
+  description: string,
+  cardUrl: string,
+  auth?: HostedAgentAuth,
+  kind?: RemoteAgentKind,
+) => Promise<boolean>;
+
+interface AgentAddFormProps {
+  initialName?: string;
+  initialUrl?: string;
+  initialDescription?: string;
+  initialProvider?: HostedAgentProvider;
+  credentialOptions: NewKeyOption[];
+  secretSet: boolean | undefined;
+  syncSecret: ReturnType<typeof useSyncA2ASecret>;
+  onAdd: AgentAddHandler;
+  onClose: () => void;
+  variant?: AgentFormVariant;
+}
+
+/** Connect a remote agent by URL: check it, name it, and save it. */
+export function AgentAddForm({
   initialName = "",
   initialUrl = "",
   initialDescription = "",
@@ -698,25 +822,11 @@ function AgentAddPopover({
   syncSecret,
   onAdd,
   onClose,
-}: {
-  initialName?: string;
-  initialUrl?: string;
-  initialDescription?: string;
-  initialProvider?: HostedAgentProvider;
-  credentialOptions: NewKeyOption[];
-  secretSet: boolean | undefined;
-  syncSecret: ReturnType<typeof useSyncA2ASecret>;
-  onAdd: (
-    name: string,
-    url: string,
-    description: string,
-    cardUrl: string,
-    auth?: HostedAgentAuth,
-    kind?: RemoteAgentKind,
-  ) => Promise<boolean>;
-  onClose: () => void;
-}) {
+  variant = "compact",
+}: AgentAddFormProps) {
   const t = useT();
+  const classes = AGENT_FORM_CLASSES[variant];
+  const iconSize = variant === "compact" ? 10 : 14;
   const [name, setName] = useState(initialName);
   const [url, setUrl] = useState(
     initialUrl ||
@@ -736,7 +846,6 @@ function AgentAddPopover({
   const [added, setAdded] = useState<AddedAgentInfo | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const urlRef = useRef<HTMLInputElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const t = setTimeout(
@@ -745,20 +854,6 @@ function AgentAddPopover({
     );
     return () => clearTimeout(t);
   }, []);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (isRadixPortalTarget(e.target)) return;
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node)
-      ) {
-        onClose();
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [onClose]);
 
   const handleCheck = useCallback(async () => {
     const trimmedUrl = url.trim();
@@ -825,7 +920,9 @@ function AgentAddPopover({
       if (!res.ok) {
         setCheck({
           status: "error",
-          message: body?.error ?? `Check failed (${res.status})`,
+          message:
+            body?.error ??
+            t("agentChat.agents.checkFailedStatus", { status: res.status }),
         });
         return;
       }
@@ -838,7 +935,10 @@ function AgentAddPopover({
         }
       }
     } catch (err: any) {
-      setCheck({ status: "error", message: err?.message ?? "Check failed" });
+      setCheck({
+        status: "error",
+        message: err?.message ?? t("agentChat.agents.checkFailed"),
+      });
     }
   }, [url, cardUrl, name, description, auth, kind, t]);
 
@@ -874,44 +974,53 @@ function AgentAddPopover({
     } catch (error) {
       setCheck({
         status: "error",
-        message: error instanceof Error ? error.message : "Could not add agent",
+        message:
+          error instanceof Error
+            ? error.message
+            : t("agentChat.agents.formAddFailed"),
       });
     }
   };
 
+  // A dialog owns Escape itself; the inline popover closes on it here.
+  const closeOnEscape = (e: ReactKeyboardEvent) => {
+    if (e.key === "Escape" && variant === "compact") onClose();
+  };
+
   if (added) {
     return (
-      <div
-        ref={popoverRef}
-        className="absolute end-0 top-full z-50 mt-1 w-72 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
-      >
-        <div className="flex flex-col gap-1.5">
-          <p className="text-[10px] leading-relaxed text-muted-foreground">
-            Added {added.name} on your side only — registration is one-way, so
-            it won&apos;t know about this app until it&apos;s added there too.
-          </p>
-          {added.provider === "a2a" ? (
-            <a
-              href={buildPeerRegisterBackLink(added.url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex cursor-pointer items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground no-underline hover:bg-accent/80"
-            >
-              <IconExternalLink size={10} />
-              Open {added.name}&apos;s settings
-            </a>
-          ) : (
-            <p className="text-[10px] text-primary">
-              {t("agentChat.agents.managedAgentSaved")}
-            </p>
-          )}
-          <button
-            onClick={onClose}
-            className="cursor-pointer rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+      <div className={classes.stack}>
+        <p className={`${classes.text} leading-relaxed text-muted-foreground`}>
+          {t("agentChat.agents.addedOneWay", { name: added.name })}
+        </p>
+        {added.provider === "a2a" ? (
+          <a
+            href={buildPeerRegisterBackLink(added.url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={
+              variant === "compact"
+                ? "inline-flex cursor-pointer items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground no-underline hover:bg-accent/80"
+                : `${classes.secondary} justify-center no-underline`
+            }
           >
-            Dismiss
-          </button>
-        </div>
+            <IconExternalLink size={iconSize} />
+            {t("agentChat.agents.openPeerSettings", { name: added.name })}
+          </a>
+        ) : (
+          <p className={`${classes.text} text-primary`}>
+            {t("agentChat.agents.managedAgentSaved")}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className={
+            variant === "compact" ? classes.ghost : `${classes.ghost} self-end`
+          }
+        >
+          {t("agentChat.common.dismiss")}
+        </button>
       </div>
     );
   }
@@ -919,188 +1028,193 @@ function AgentAddPopover({
   const result = check.status === "done" ? check.result : null;
   const unreachable = result ? !result.reachable : false;
   const unauthorized = result ? result.authorized === false : false;
+  const checkButton = (
+    <ToolkitButtonBase
+      type="button"
+      variant="outline"
+      onClick={handleCheck}
+      disabled={!url.trim() || check.status === "checking"}
+      className={classes.secondary}
+    >
+      {check.status === "checking" ? (
+        <IconLoader2 size={iconSize} className="animate-spin" />
+      ) : (
+        t("agentChat.agents.formCheck")
+      )}
+    </ToolkitButtonBase>
+  );
 
+  return (
+    <div className={classes.stack}>
+      {kind?.provider !== "anthropic-managed-agents" && (
+        <div className="flex gap-1">
+          <input
+            ref={urlRef}
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              setCheck({ status: "idle" });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleCheck();
+              closeOnEscape(e);
+            }}
+            className={`${classes.field} flex-1`}
+            placeholder={t("agentChat.agents.formUrlPlaceholder")}
+            aria-label={t("agentChat.agents.formUrl")}
+          />
+          {checkButton}
+        </div>
+      )}
+      {kind?.provider === "anthropic-managed-agents" && (
+        <div className="flex justify-end">{checkButton}</div>
+      )}
+
+      {check.status === "error" && (
+        <p
+          className={`flex items-start gap-1 ${classes.text} text-destructive`}
+        >
+          <IconAlertTriangle size={11} className="mt-px shrink-0" />
+          {check.message}
+        </p>
+      )}
+      {result && (
+        <div
+          className={`flex items-start gap-1 ${classes.text} ${
+            unreachable || unauthorized
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-primary"
+          }`}
+        >
+          {unreachable || unauthorized ? (
+            <IconAlertTriangle size={11} className="mt-px shrink-0" />
+          ) : (
+            <IconCheck size={11} className="mt-px shrink-0" />
+          )}
+          <span className="leading-relaxed">
+            {describeCheckResult(result, t)}
+            {unreachable && (
+              <span className="block">
+                {t("agentChat.agents.unreachableHint")}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+      {unauthorized &&
+        (secretSet === true ? (
+          <button
+            type="button"
+            onClick={() => syncSecret.mutate(undefined)}
+            disabled={syncSecret.isPending}
+            className={`${classes.secondary} self-start`}
+          >
+            {syncSecret.isPending ? (
+              <IconLoader2 size={iconSize} className="animate-spin" />
+            ) : (
+              <IconRefresh size={iconSize} />
+            )}
+            {t("agentChat.agents.syncSecret")}
+          </button>
+        ) : (
+          <p className={`${classes.text} text-muted-foreground`}>
+            {secretSet === false ? (
+              <>
+                {t("agentChat.agents.noSharedSecret")}{" "}
+                <a
+                  href={appMountedPath(
+                    buildSettingsRoute(STANDARD_SETTINGS_TABS.team),
+                    STANDARD_APP_ROUTES.settings,
+                  )}
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  {t("agentChat.agents.noSharedSecretLink")}
+                </a>
+              </>
+            ) : (
+              t("agentChat.agents.askOwnerSyncSecret")
+            )}
+          </p>
+        ))}
+
+      <input
+        ref={nameRef}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void handleAdd();
+          closeOnEscape(e);
+        }}
+        className={classes.field}
+        placeholder={t("agentChat.agents.formName")}
+        aria-label={t("agentChat.agents.formName")}
+      />
+      <input
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void handleAdd();
+          closeOnEscape(e);
+        }}
+        className={classes.field}
+        placeholder={t("agentChat.agents.formDescriptionPlaceholder")}
+        aria-label={t("agentChat.agents.formDescription")}
+      />
+      <HostedAgentFields
+        url={url}
+        onUrlChange={(value) => {
+          setUrl(value);
+          setCheck({ status: "idle" });
+        }}
+        cardUrl={cardUrl}
+        onCardUrlChange={(value) => {
+          setCardUrl(value);
+          setCheck({ status: "idle" });
+        }}
+        auth={auth}
+        onAuthChange={(value) => {
+          setAuth(value);
+          setCheck({ status: "idle" });
+        }}
+        kind={kind}
+        onKindChange={(value) => {
+          setKind(value);
+          setCheck({ status: "idle" });
+        }}
+        credentialOptions={credentialOptions}
+        openOnMount={Boolean(initialProvider)}
+      />
+      <div className={`flex justify-end gap-1 ${classes.footer}`}>
+        <button type="button" onClick={onClose} className={classes.ghost}>
+          {t("agentChat.common.cancel")}
+        </button>
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={
+            !name.trim() ||
+            (!url.trim() && kind?.provider !== "anthropic-managed-agents")
+          }
+          className={classes.primary}
+        >
+          {unreachable
+            ? t("agentChat.agents.formAddAnyway")
+            : t("agentChat.agents.formAdd")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AgentAddPopover(props: AgentAddFormProps) {
+  const popoverRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideClick(popoverRef, props.onClose);
   return (
     <div
       ref={popoverRef}
       className="absolute end-0 top-full z-50 mt-1 w-72 rounded-lg border border-border bg-popover p-2.5 shadow-lg"
     >
-      <div className="flex flex-col gap-1.5">
-        {kind?.provider !== "anthropic-managed-agents" && (
-          <div className="flex gap-1">
-            <input
-              ref={urlRef}
-              value={url}
-              onChange={(e) => {
-                setUrl(e.target.value);
-                setCheck({ status: "idle" });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleCheck();
-                if (e.key === "Escape") onClose();
-              }}
-              className="w-full flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-              placeholder="URL (e.g. http://localhost:8085)"
-            />
-            <ToolkitButtonBase
-              type="button"
-              variant="outline"
-              onClick={handleCheck}
-              disabled={!url.trim() || check.status === "checking"}
-              className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
-            >
-              {check.status === "checking" ? (
-                <IconLoader2 size={10} className="animate-spin" />
-              ) : (
-                "Check"
-              )}
-            </ToolkitButtonBase>
-          </div>
-        )}
-        {kind?.provider === "anthropic-managed-agents" && (
-          <div className="flex justify-end">
-            <ToolkitButtonBase
-              type="button"
-              variant="outline"
-              onClick={handleCheck}
-              disabled={!url.trim() || check.status === "checking"}
-              className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
-            >
-              {check.status === "checking" ? (
-                <IconLoader2 size={10} className="animate-spin" />
-              ) : (
-                "Check"
-              )}
-            </ToolkitButtonBase>
-          </div>
-        )}
-
-        {check.status === "error" && (
-          <p className="flex items-start gap-1 text-[10px] text-destructive">
-            <IconAlertTriangle size={11} className="mt-px shrink-0" />
-            {check.message}
-          </p>
-        )}
-        {result && (
-          <div
-            className={`flex items-start gap-1 text-[10px] ${
-              unreachable || unauthorized
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-primary"
-            }`}
-          >
-            {unreachable || unauthorized ? (
-              <IconAlertTriangle size={11} className="mt-px shrink-0" />
-            ) : (
-              <IconCheck size={11} className="mt-px shrink-0" />
-            )}
-            <span className="leading-relaxed">
-              {describeCheckResult(result)}
-              {unreachable &&
-                " — the app may just not be running yet; you can still add it."}
-            </span>
-          </div>
-        )}
-        {unauthorized &&
-          (secretSet === true ? (
-            <button
-              onClick={() => syncSecret.mutate(undefined)}
-              disabled={syncSecret.isPending}
-              className="inline-flex cursor-pointer items-center gap-1 self-start rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
-            >
-              {syncSecret.isPending ? (
-                <IconLoader2 size={10} className="animate-spin" />
-              ) : (
-                <IconRefresh size={10} />
-              )}
-              Sync secret to apps
-            </button>
-          ) : (
-            <p className="text-[10px] text-muted-foreground">
-              {secretSet === false ? (
-                <>
-                  No shared secret set yet —{" "}
-                  <a
-                    href={appMountedPath(
-                      buildSettingsRoute(STANDARD_SETTINGS_TABS.team),
-                      STANDARD_APP_ROUTES.settings,
-                    )}
-                    className="underline underline-offset-2 hover:text-foreground"
-                  >
-                    set one on the Team page
-                  </a>{" "}
-                  first.
-                </>
-              ) : (
-                "Ask your workspace owner to sync the shared secret."
-              )}
-            </p>
-          ))}
-
-        <input
-          ref={nameRef}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void handleAdd();
-            if (e.key === "Escape") onClose();
-          }}
-          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-          placeholder="Name"
-        />
-        <input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void handleAdd();
-            if (e.key === "Escape") onClose();
-          }}
-          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-          placeholder="Description (optional)"
-        />
-        <HostedAgentFields
-          url={url}
-          onUrlChange={(value) => {
-            setUrl(value);
-            setCheck({ status: "idle" });
-          }}
-          cardUrl={cardUrl}
-          onCardUrlChange={(value) => {
-            setCardUrl(value);
-            setCheck({ status: "idle" });
-          }}
-          auth={auth}
-          onAuthChange={(value) => {
-            setAuth(value);
-            setCheck({ status: "idle" });
-          }}
-          kind={kind}
-          onKindChange={(value) => {
-            setKind(value);
-            setCheck({ status: "idle" });
-          }}
-          credentialOptions={credentialOptions}
-          openOnMount={Boolean(initialProvider)}
-        />
-        <div className="flex justify-end gap-1 pt-0.5">
-          <button
-            onClick={onClose}
-            className="cursor-pointer rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleAdd}
-            disabled={
-              !name.trim() ||
-              (!url.trim() && kind?.provider !== "anthropic-managed-agents")
-            }
-            className="cursor-pointer rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
-          >
-            {unreachable ? "Add anyway" : "Add"}
-          </button>
-        </div>
-      </div>
+      <AgentAddForm {...props} />
     </div>
   );
 }
@@ -1215,107 +1329,152 @@ const PREFILL_PARAMS = [
   "f_agentDescription",
 ] as const;
 
-export function AgentsSection() {
+/** What a `?connect=` or peer "register back" deep link asked to open. */
+export interface AgentConnectRequest {
+  /** Absent for `?connect=manual` and register-back links. */
+  provider?: HostedAgentProvider;
+  prefill?: { name: string; url: string; description: string };
+}
+
+/**
+ * Reads the connect deep link from the current URL. `?connect=` comes from
+ * the Agent directory; `f_agent*` from a peer's register-back link (see
+ * buildPeerRegisterBackLink), which the open route echoes onto the URL.
+ * `strip` also removes those params, so a reload does not reopen the form.
+ */
+export function readAgentConnectRequest({
+  strip = true,
+}: { strip?: boolean } = {}): AgentConnectRequest | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const connect = params.get("connect");
+  let request: AgentConnectRequest | null =
+    connect === "a2a" || connect === "anthropic-managed-agents"
+      ? { provider: connect }
+      : connect === "manual"
+        ? {}
+        : null;
+  const url = params.get("f_agentUrl");
+  if (url) {
+    request = {
+      ...request,
+      prefill: {
+        name: params.get("f_agentName") ?? "",
+        url,
+        description: params.get("f_agentDescription") ?? "",
+      },
+    };
+  }
+  if (strip) stripAgentConnectParams();
+  return request;
+}
+
+/**
+ * Removes the connect deep-link params from the URL. The Settings shell
+ * rewrites a legacy link to its page's path keeping the query, so a page
+ * there strips only once the viewer is done with the form.
+ */
+export function stripAgentConnectParams(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const connect = params.get("connect");
+  const url = params.get("f_agentUrl");
+  if (!connect && !url) return;
+  params.delete("connect");
+  if (url) for (const key of PREFILL_PARAMS) params.delete(key);
+  const query = params.toString();
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
+  );
+}
+
+/**
+ * Owners and admins write the shared `remote-agents/` manifests; so does
+ * anyone in a solo deployment. The resources route enforces the same rule.
+ */
+export function canManageSharedAgents(
+  orgQuery: Pick<ReturnType<typeof useOrg>, "data" | "isLoading" | "isError">,
+): boolean {
+  const org = orgQuery.data;
+  return (
+    !orgQuery.isLoading &&
+    !orgQuery.isError &&
+    (!org?.orgId || org.role === "owner" || org.role === "admin")
+  );
+}
+
+export interface RemoteAgentsState {
+  agents: RemoteAgentInfo[];
+  /** `error` means the list could not be read, not that it is empty. */
+  status: "loading" | "ready" | "error";
+  /**
+   * Batched probe results keyed by lowercase agent id; `null` until the probe
+   * answers. A row absent from a loaded map was never probed.
+   */
+  probeById: Map<string, AgentProbeResult> | null;
+  probeFailed: boolean;
+  credentialOptions: NewKeyOption[];
+  add: AgentAddHandler;
+  /** Throws with a readable message when the save is refused. */
+  save: (agent: RemoteAgentInfo) => Promise<void>;
+  /** Resolves false when the delete failed and the row was restored. */
+  remove: (resourceId: string) => Promise<boolean>;
+}
+
+/**
+ * The registered remote agents (`remote-agents/<id>.json`, including the
+ * seeded first-party apps), with optimistic add, save, and remove. Refetches
+ * when the agent writes resources, so a `resources` write shows up live.
+ */
+export function useRemoteAgents(): RemoteAgentsState {
   const t = useT();
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editingAgent, setEditingAgent] = useState<string | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
-  const [prefill, setPrefill] = useState<{
-    name: string;
-    url: string;
-    description: string;
-  } | null>(null);
-  const [connectProvider, setConnectProvider] = useState<
-    HostedAgentProvider | undefined
-  >();
+  const [agents, setAgents] = useState<RemoteAgentInfo[]>([]);
+  const [status, setStatus] = useState<RemoteAgentsState["status"]>("loading");
   const [probeById, setProbeById] = useState<Map<
     string,
     AgentProbeResult
   > | null>(null);
-  const [credentialOptions, setCredentialOptions] = useState<NewKeyOption[]>(
-    [],
-  );
+  const [probeFailed, setProbeFailed] = useState(false);
+  const [savedSecrets, setSavedSecrets] = useState<SecretStatusOption[]>([]);
+  const agentWrites = useChangeVersion("action");
 
-  const orgQuery = useOrg();
-  const { data: org } = orgQuery;
-  const syncSecret = useSyncA2ASecret();
-  const canManageSharedAgents =
-    !orgQuery.isLoading &&
-    !orgQuery.isError &&
-    (!org?.orgId || org.role === "owner" || org.role === "admin");
-
+  // The secrets list loads once; labels are applied at render so a new `t`
+  // never refetches it.
   useEffect(() => {
     let cancelled = false;
     fetch(agentNativePath("/_agent-native/secrets"))
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
         if (cancelled || !Array.isArray(data)) return;
-        const options = (data as SecretStatusOption[])
-          .filter(
+        setSavedSecrets(
+          (data as SecretStatusOption[]).filter(
             (secret) =>
               secret.status === "set" &&
               secret.source !== "env" &&
               typeof secret.key === "string" &&
               typeof secret.label === "string",
-          )
-          .map((secret) => ({
-            key: secret.key,
-            label: secret.label,
-            hint:
-              secret.source === "vault"
-                ? t("agentChat.agents.vault")
-                : undefined,
-          }));
-        setCredentialOptions(options);
+          ),
+        );
       })
       .catch(() => {
-        if (!cancelled) setCredentialOptions([]);
+        if (!cancelled) setSavedSecrets([]);
       });
     return () => {
       cancelled = true;
     };
-  }, [t]);
-
-  // Landing from a peer's "register back" deep link (see
-  // buildPeerRegisterBackLink): the open route only echoes `f_*` params onto
-  // the redirect URL, so read those here and open the Add popover prefilled.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const provider = params.get("connect");
-    if (provider === "a2a" || provider === "anthropic-managed-agents") {
-      setConnectProvider(provider);
-      setShowAdd(true);
-    } else if (provider === "manual") {
-      setConnectProvider(undefined);
-      setShowAdd(true);
-    }
-    if (provider) {
-      params.delete("connect");
-      const query = params.toString();
-      window.history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
-      );
-    }
-    const url = params.get("f_agentUrl");
-    if (!url) return;
-    setPrefill({
-      name: params.get("f_agentName") ?? "",
-      url,
-      description: params.get("f_agentDescription") ?? "",
-    });
-    setShowAdd(true);
-    for (const key of PREFILL_PARAMS) params.delete(key);
-    const query = params.toString();
-    window.history.replaceState(
-      null,
-      "",
-      `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
-    );
   }, []);
+  const credentialOptions = useMemo<NewKeyOption[]>(
+    () =>
+      savedSecrets.map((secret) => ({
+        key: secret.key,
+        label: secret.label,
+        hint:
+          secret.source === "vault" ? t("agentChat.agents.vault") : undefined,
+      })),
+    [savedSecrets, t],
+  );
 
   // One batched probe for the whole list — cheap liveness dots, not one
   // request per row. A row absent from the results (never returned) stays
@@ -1325,7 +1484,11 @@ export function AgentsSection() {
     fetch(agentNativePath("/_agent-native/agents/probe"))
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (cancelled || !data) return;
+        if (cancelled) return;
+        if (!data) {
+          setProbeFailed(true);
+          return;
+        }
         const results = Array.isArray(data.results)
           ? (data.results as Array<AgentProbeResult & { id: string }>)
           : [];
@@ -1334,7 +1497,7 @@ export function AgentsSection() {
         setProbeById(map);
       })
       .catch(() => {
-        if (!cancelled) setProbeById(new Map());
+        if (!cancelled) setProbeFailed(true);
       });
     return () => {
       cancelled = true;
@@ -1346,7 +1509,10 @@ export function AgentsSection() {
       const res = await fetch(
         agentNativePath("/_agent-native/resources?scope=all"),
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        setStatus("error");
+        return;
+      }
       const data = await res.json();
       // Migrating a remote agent to the canonical `remote-agents/` prefix
       // leaves the legacy `agents/` row in place (resources/store.ts), so
@@ -1365,7 +1531,7 @@ export function AgentsSection() {
       }
       const agentResources = [...byAgentId.values()];
       const parsed = await Promise.all(
-        agentResources.map(async (r): Promise<AgentInfo | null> => {
+        agentResources.map(async (r): Promise<RemoteAgentInfo | null> => {
           try {
             const detail = await fetch(
               agentNativePath(`/_agent-native/resources/${r.id}`),
@@ -1413,24 +1579,27 @@ export function AgentsSection() {
           }
         }),
       );
-      setAgents(parsed.filter((agent): agent is AgentInfo => agent !== null));
-    } finally {
-      setLoading(false);
+      setAgents(
+        parsed.filter((agent): agent is RemoteAgentInfo => agent !== null),
+      );
+      setStatus("ready");
+    } catch {
+      setStatus("error");
     }
   }, []);
 
   useEffect(() => {
     void fetchAgents();
-  }, [fetchAgents]);
+  }, [agentWrites, fetchAgents]);
 
-  const handleAdd = async (
-    name: string,
-    url: string,
-    description: string,
-    cardUrl: string,
-    auth?: HostedAgentAuth,
-    kind?: RemoteAgentKind,
-  ): Promise<boolean> => {
+  const add: AgentAddHandler = async (
+    name,
+    url,
+    description,
+    cardUrl,
+    auth,
+    kind,
+  ) => {
     const normalizedKind = kind ? parseRemoteAgentKind(kind) : undefined;
     if (kind && !normalizedKind) {
       throw new Error(t("agentChat.agents.managedAgentIncomplete"));
@@ -1461,7 +1630,7 @@ export function AgentsSection() {
       throw new Error(t("agentChat.agents.invalidUrl"));
     }
     const id = name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-    const optimisticAgent: AgentInfo = {
+    const optimisticAgent: RemoteAgentInfo = {
       id: `optimistic-${id}`,
       path: remoteAgentResourcePath(id),
       name,
@@ -1516,14 +1685,14 @@ export function AgentsSection() {
       setAgents(previousAgents);
       throw error;
     }
-    // Deliberately don't close the popover here — a successful add shows a
+    // Deliberately don't close the form here — a successful add shows a
     // follow-up state (registration is one-way; the peer doesn't know
     // about us yet) that the user dismisses explicitly.
     void fetchAgents();
     return true;
   };
 
-  const handleSave = async (agent: AgentInfo) => {
+  const save = async (agent: RemoteAgentInfo) => {
     const normalizedKind = agent.kind
       ? parseRemoteAgentKind(agent.kind)
       : undefined;
@@ -1607,7 +1776,6 @@ export function AgentsSection() {
           body?.error ?? body?.message ?? `Save failed (${res.status})`,
         );
       }
-      setEditingAgent(null);
       void fetchAgents();
     } catch (error) {
       setAgents(previousAgents);
@@ -1615,32 +1783,81 @@ export function AgentsSection() {
     }
   };
 
-  const handleDelete = async (agentId: string) => {
+  const remove = async (resourceId: string): Promise<boolean> => {
     const previousAgents = agents;
-    setAgents((current) => current.filter((agent) => agent.id !== agentId));
+    setAgents((current) => current.filter((agent) => agent.id !== resourceId));
     try {
       const res = await fetch(
-        agentNativePath(`/_agent-native/resources/${agentId}`),
+        agentNativePath(`/_agent-native/resources/${resourceId}`),
         {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
         },
       );
       if (res.ok) {
-        setEditingAgent(null);
         void fetchAgents();
-      } else {
-        setAgents(previousAgents);
+        return true;
       }
+      setAgents(previousAgents);
+      return false;
     } catch {
       setAgents(previousAgents);
+      return false;
     }
+  };
+
+  return {
+    agents,
+    status,
+    probeById,
+    probeFailed,
+    credentialOptions,
+    add,
+    save,
+    remove,
+  };
+}
+
+export function AgentsSection() {
+  const t = useT();
+  const { agents, status, probeById, credentialOptions, add, save, remove } =
+    useRemoteAgents();
+  const loading = status === "loading";
+  const [editingAgent, setEditingAgent] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [prefill, setPrefill] = useState<AgentConnectRequest["prefill"] | null>(
+    null,
+  );
+  const [connectProvider, setConnectProvider] = useState<
+    HostedAgentProvider | undefined
+  >();
+
+  const orgQuery = useOrg();
+  const { data: org } = orgQuery;
+  const syncSecret = useSyncA2ASecret();
+  const canManage = canManageSharedAgents(orgQuery);
+
+  useEffect(() => {
+    const request = readAgentConnectRequest();
+    if (!request) return;
+    setConnectProvider(request.provider);
+    setPrefill(request.prefill ?? null);
+    setShowAdd(true);
+  }, []);
+
+  const handleSave = async (agent: RemoteAgentInfo) => {
+    await save(agent);
+    setEditingAgent(null);
+  };
+
+  const handleDelete = async (agentId: string) => {
+    if (await remove(agentId)) setEditingAgent(null);
   };
 
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
-        {canManageSharedAgents ? (
+        {canManage ? (
           <div className="relative">
             <button
               onClick={() => {
@@ -1661,7 +1878,7 @@ export function AgentsSection() {
                 credentialOptions={credentialOptions}
                 secretSet={org?.a2aSecretSet}
                 syncSecret={syncSecret}
-                onAdd={handleAdd}
+                onAdd={add}
                 onClose={() => {
                   setShowAdd(false);
                   setPrefill(null);
@@ -1690,6 +1907,10 @@ export function AgentsSection() {
           <Skeleton className="h-6 w-full bg-muted/50" />
           <Skeleton className="h-6 w-3/4 bg-muted/50" />
         </div>
+      ) : status === "error" ? (
+        <p role="alert" className="text-xs text-destructive">
+          {t("agentChat.settingsSubAgents.loadFailed")}
+        </p>
       ) : agents.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-border/70 bg-card px-5 py-8 text-center">
           <span className="mb-2 flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -1701,7 +1922,7 @@ export function AgentsSection() {
           <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
             Connect an A2A agent to delegate work from chat.
           </p>
-          {canManageSharedAgents ? (
+          {canManage ? (
             <button
               onClick={() => setShowAdd(true)}
               className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
@@ -1780,7 +2001,7 @@ export function AgentsSection() {
                         </span>
                       );
                     })()}
-                    {canManageSharedAgents ? (
+                    {canManage ? (
                       <button
                         onClick={() => {
                           setEditingAgent(
@@ -1794,7 +2015,7 @@ export function AgentsSection() {
                       </button>
                     ) : null}
                   </div>
-                  {canManageSharedAgents && editingAgent === agent.id && (
+                  {canManage && editingAgent === agent.id && (
                     <AgentEditPopover
                       agent={agent}
                       credentialOptions={credentialOptions}

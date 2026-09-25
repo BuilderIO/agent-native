@@ -228,6 +228,39 @@ const messages: AgentChatTranslation = {
   "agents.directoryRegistryHint":
     "공개 Agent Card를 찾아 연결하기 전에 확인하세요.",
   "agents.directoryBrowse": "레지스트리 찾아보기",
+  "agents.formName": "이름",
+  "agents.formUrl": "URL",
+  "agents.formUrlPlaceholder": "URL (예: http://localhost:8085)",
+  "agents.formDescription": "설명",
+  "agents.formDescriptionPlaceholder": "설명 (선택 사항)",
+  "agents.formCheck": "확인",
+  "agents.formAdd": "추가",
+  "agents.formAddAnyway": "그래도 추가",
+  "agents.formRemove": "제거",
+  "agents.formSaveFailed": "에이전트를 저장할 수 없습니다.",
+  "agents.formAddFailed": "에이전트를 추가할 수 없습니다.",
+  "agents.checkFailed": "확인 실패",
+  "agents.checkFailedStatus": "확인 실패 ({{status}})",
+  "agents.checkNotReachable": "연결할 수 없음",
+  "agents.checkLive": "활성 · {{scheme}}",
+  "agents.checkNoAuthScheme": "공개된 인증 스킴 없음",
+  "agents.checkTokenRejected":
+    "상대가 토큰을 거부했으므로 프로덕션에서 호출이 401을 반환합니다",
+  "agents.checkTokenUnverified": "토큰을 확인할 수 없음",
+  "agents.checkTokenUnverifiedReason": "토큰을 확인할 수 없음 ({{reason}})",
+  "agents.checkTokenWorks": "토큰이 작동함",
+  "agents.checkReadsRequireAuth": "읽기에 인증 필요",
+  "agents.checkPublicSkills": "공개 스킬: {{count}}",
+  "agents.unreachableHint":
+    "앱이 아직 실행 중이 아닐 수 있습니다. 그래도 추가할 수 있습니다.",
+  "agents.addedOneWay":
+    "{{name}}을(를) 이쪽에만 추가했습니다. 등록은 단방향이므로 {{name}}에서도 이 앱을 추가해야 상대가 이 앱을 인식합니다.",
+  "agents.openPeerSettings": "{{name}} 설정 열기",
+  "agents.syncSecret": "앱에 시크릿 동기화",
+  "agents.noSharedSecret": "아직 공유 시크릿이 설정되지 않았습니다.",
+  "agents.noSharedSecretLink": "먼저 팀 페이지에서 설정하세요.",
+  "agents.askOwnerSyncSecret":
+    "워크스페이스 소유자에게 공유 시크릿 동기화를 요청하세요.",
   "common.saveFailed": "저장 실패",
   "common.saveFailedStatus": "저장 실패({{status}})",
   "common.saving": "저장 중...",
@@ -1532,6 +1565,40 @@ const messages: AgentChatTranslation = {
   "settingsModel.whoHintMember":
     "소유자와 관리자만 조직 공급자를 추가할 수 있습니다.",
   "settingsModel.whoHintService": "서비스는 조직 키를 사용합니다.",
+  "settingsSubAgents.connect": "에이전트 연결",
+  "settingsSubAgents.orgApps": "{{org}} 앱",
+  "settingsSubAgents.workspaceApps": "워크스페이스 앱",
+  "settingsSubAgents.external": "외부 에이전트",
+  "settingsSubAgents.custom": "사용자 지정 에이전트",
+  "settingsSubAgents.managedByAdmins": "관리자가 관리",
+  "settingsSubAgents.appsEmpty": "아직 연결된 앱이 없습니다.",
+  "settingsSubAgents.externalEmpty":
+    "Foundry, Gemini Enterprise, Anthropic 또는 모든 A2A 에이전트를 연결하세요.",
+  "settingsSubAgents.browseDirectory": "디렉터리 둘러보기",
+  "settingsSubAgents.customEmpty":
+    "메인 에이전트가 작업을 맡길 수 있는 전문 에이전트를 정의하세요.",
+  "settingsSubAgents.addAgent": "에이전트 추가",
+  "settingsSubAgents.describe": "에이전트에게 설명하기",
+  "settingsSubAgents.describePlaceholder":
+    "레이아웃을 평가하고 UI 방향을 제안하는 디자인 에이전트",
+  "settingsSubAgents.write": "직접 작성하기",
+  "settingsSubAgents.name": "이름",
+  "settingsSubAgents.description": "설명",
+  "settingsSubAgents.instructions": "지침",
+  "settingsSubAgents.loadFailed": "연결된 에이전트를 불러오지 못했습니다.",
+  "settingsSubAgents.statusUnreachable": "연결할 수 없음",
+  "settingsSubAgents.edit": "편집",
+  "settingsSubAgents.editTitle": "{{name}} 편집",
+  "settingsSubAgents.removeDescription":
+    "{{org}}의 모든 사용자에 대해 에이전트가 더 이상 {{name}}에 작업을 맡기지 않습니다.",
+  "settingsSubAgents.removeDescriptionSolo":
+    "에이전트가 더 이상 {{name}}에 작업을 맡기지 않습니다.",
+  "settingsSubAgents.directoryTitle": "에이전트 연결",
+  "settingsSubAgents.anyAgent": "모든 A2A 에이전트",
+  "settingsSubAgents.anyAgentHint": "에이전트 카드 URL을 붙여넣으세요.",
+  "settingsSubAgents.registryLink": "Global A2A Registry 둘러보기",
+  "settingsSubAgents.connectTitle": "{{name}} 연결",
+  "settingsSubAgents.close": "닫기",
 };
 
 export default messages;

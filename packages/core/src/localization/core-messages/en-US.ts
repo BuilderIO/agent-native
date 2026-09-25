@@ -228,6 +228,39 @@ const messages = {
   "agents.directoryRegistryHint":
     "Browse public Agent Cards, then verify before connecting.",
   "agents.directoryBrowse": "Browse registry",
+  "agents.formName": "Name",
+  "agents.formUrl": "URL",
+  "agents.formUrlPlaceholder": "URL (e.g. http://localhost:8085)",
+  "agents.formDescription": "Description",
+  "agents.formDescriptionPlaceholder": "Description (optional)",
+  "agents.formCheck": "Check",
+  "agents.formAdd": "Add",
+  "agents.formAddAnyway": "Add anyway",
+  "agents.formRemove": "Remove",
+  "agents.formSaveFailed": "Couldn't save the agent.",
+  "agents.formAddFailed": "Couldn't add the agent.",
+  "agents.checkFailed": "Check failed",
+  "agents.checkFailedStatus": "Check failed ({{status}})",
+  "agents.checkNotReachable": "Not reachable",
+  "agents.checkLive": "Live · {{scheme}}",
+  "agents.checkNoAuthScheme": "no auth scheme advertised",
+  "agents.checkTokenRejected":
+    "the peer rejected our token, so calls will return 401 in production",
+  "agents.checkTokenUnverified": "couldn't verify our token",
+  "agents.checkTokenUnverifiedReason": "couldn't verify our token ({{reason}})",
+  "agents.checkTokenWorks": "our token works",
+  "agents.checkReadsRequireAuth": "reads require auth",
+  "agents.checkPublicSkills": "public skills: {{count}}",
+  "agents.unreachableHint":
+    "The app may not be running yet. You can still add it.",
+  "agents.addedOneWay":
+    "Added {{name}} on your side only. Registration is one-way, so {{name}} won't know about this app until you add it there too.",
+  "agents.openPeerSettings": "Open {{name}} settings",
+  "agents.syncSecret": "Sync secret to apps",
+  "agents.noSharedSecret": "No shared secret set yet.",
+  "agents.noSharedSecretLink": "Set one on the Team page first.",
+  "agents.askOwnerSyncSecret":
+    "Ask your workspace owner to sync the shared secret.",
   "common.saveFailed": "Save failed",
   "common.saveFailedStatus": "Save failed ({{status}})",
   "common.saving": "Saving...",
@@ -1545,6 +1578,40 @@ const messages = {
   "settingsModel.whoHintMember":
     "Only owners and admins can add organization providers.",
   "settingsModel.whoHintService": "Services use organization keys.",
+  "settingsSubAgents.connect": "Connect agent",
+  "settingsSubAgents.orgApps": "{{org}} apps",
+  "settingsSubAgents.workspaceApps": "Workspace apps",
+  "settingsSubAgents.external": "External agents",
+  "settingsSubAgents.custom": "Custom agents",
+  "settingsSubAgents.managedByAdmins": "Managed by admins",
+  "settingsSubAgents.appsEmpty": "No apps connected yet.",
+  "settingsSubAgents.externalEmpty":
+    "Connect Foundry, Gemini Enterprise, Anthropic, or any A2A agent.",
+  "settingsSubAgents.browseDirectory": "Browse directory",
+  "settingsSubAgents.customEmpty":
+    "Define a focused agent the main agent can delegate to.",
+  "settingsSubAgents.addAgent": "Add agent",
+  "settingsSubAgents.describe": "Describe it to the agent",
+  "settingsSubAgents.describePlaceholder":
+    "A design agent that critiques layouts and suggests UI direction",
+  "settingsSubAgents.write": "Write it yourself",
+  "settingsSubAgents.name": "Name",
+  "settingsSubAgents.description": "Description",
+  "settingsSubAgents.instructions": "Instructions",
+  "settingsSubAgents.loadFailed": "Couldn't load connected agents.",
+  "settingsSubAgents.statusUnreachable": "Unreachable",
+  "settingsSubAgents.edit": "Edit",
+  "settingsSubAgents.editTitle": "Edit {{name}}",
+  "settingsSubAgents.removeDescription":
+    "The agent stops delegating to {{name}} for everyone in {{org}}.",
+  "settingsSubAgents.removeDescriptionSolo":
+    "The agent stops delegating to {{name}}.",
+  "settingsSubAgents.directoryTitle": "Connect an agent",
+  "settingsSubAgents.anyAgent": "Any A2A agent",
+  "settingsSubAgents.anyAgentHint": "Paste an agent card URL.",
+  "settingsSubAgents.registryLink": "Browse the Global A2A Registry",
+  "settingsSubAgents.connectTitle": "Connect {{name}}",
+  "settingsSubAgents.close": "Close",
 } as const;
 
 export default messages;

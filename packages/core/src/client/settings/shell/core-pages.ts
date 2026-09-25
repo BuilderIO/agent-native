@@ -267,6 +267,34 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
       "agent:resources:remote-agents",
     ],
     keywords: "sub-agents custom agents remote agents a2a directory delegate",
+    searchEntries: [
+      {
+        id: "workspace-apps",
+        labelKey: "agentChat.settingsSubAgents.workspaceApps",
+        keywords: "apps first-party workspace a2a reachable",
+        anchor: "workspace-apps",
+      },
+      {
+        id: "external-agents",
+        labelKey: "agentChat.settingsSubAgents.external",
+        keywords:
+          "a2a connected agents remote agents foundry gemini anthropic managed",
+        anchor: "external-agents",
+      },
+      {
+        id: "custom-agents",
+        labelKey: "agentChat.settingsSubAgents.custom",
+        keywords: "custom agents profiles delegate add agent",
+        anchor: "custom-agents",
+      },
+      {
+        id: "agent-directory",
+        labelKey: "agentChat.agents.directoryTab",
+        keywords:
+          "agent directory connect agent providers registry foundry gemini anthropic a2a",
+        anchor: "external-agents",
+      },
+    ],
   }),
   defineSettingsPage({
     id: "org",

@@ -82,10 +82,12 @@ export function ResourceSettingsPage({
   view,
   groups,
   openResourceRef,
+  onEditingChange,
 }: {
   view: ResourceView;
   groups: readonly ResourceSettingsGroupConfig[];
   openResourceRef: OpenResourceRef;
+  onEditingChange?: (editing: boolean) => void;
 }) {
   return (
     <ResourcesPanel
@@ -95,6 +97,7 @@ export function ResourceSettingsPage({
       scope="personal"
       settingsGroups={groups}
       openResourceRef={openResourceRef}
+      onEditingChange={onEditingChange}
     />
   );
 }

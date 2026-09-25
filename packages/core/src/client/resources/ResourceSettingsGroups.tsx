@@ -293,7 +293,7 @@ export function ResourceSettingsGroups({
   );
 }
 
-function ReadOnlyNote({ label, hint }: { label: string; hint: string }) {
+export function ReadOnlyNote({ label, hint }: { label: string; hint: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -419,7 +419,7 @@ function ResourceSettingsRow({
   );
 }
 
-function EmptyRow({
+export function EmptyRow({
   icon: RowIcon,
   text,
   action,
@@ -451,7 +451,7 @@ function EmptyRow({
 
 const SKELETON_LABEL_WIDTHS = ["w-40", "w-28"] as const;
 
-function ResourceRowsSkeleton() {
+export function ResourceRowsSkeleton() {
   const t = useT();
   return (
     <div
