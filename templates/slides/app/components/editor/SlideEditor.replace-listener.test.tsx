@@ -174,6 +174,32 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     ).toBe("https://cdn.test/new.png");
   });
 
+  it("keeps typing after its persisted draft echoes back into the open edit", async () => {
+    const { draft, edited, onUpdateSlide, rerender } = await editWithDraft();
+    rerender(draft);
+
+    expect(edited.getAttribute("contenteditable")).toBe("true");
+    expect(
+      getRenderedSlideSource(
+        document.querySelector<HTMLElement>(".slide-content")!,
+      )?.stored,
+    ).toBe(draft);
+
+    (edited.firstChild as Text).data = "Caption typed more";
+    fireEvent.input(edited);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+
+    const drafts = onUpdateSlide.mock.calls
+      .filter(
+        ([, , options]) =>
+          (options as { preserveLocalState?: boolean } | undefined)
+            ?.preserveLocalState,
+      )
+      .map(([updates]) => updates.content);
+    expect(drafts.at(-1)).toContain("Caption typed more");
+    expect(edited.getAttribute("contenteditable")).toBe("true");
+  });
+
   it("ends an edit whose text another writer changed along with an image", async () => {
     const { draft, edited, onUpdateSlide, registerUpload, rerender } =
       await editWithDraft();

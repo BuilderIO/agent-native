@@ -247,6 +247,7 @@ interface Snapshot extends TextOffsets {
 interface PastedLine {
   fragment: DocumentFragment;
   lists: readonly HTMLElement[];
+  sourceItem: HTMLElement | null;
 }
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -547,24 +548,36 @@ function pastedHtmlLines(html: string): PastedLine[] {
   const template = document.createElement("template");
   template.innerHTML = html;
   const lines: PastedLine[] = [];
-  const collect = (parent: Node, lists: readonly HTMLElement[]) => {
+  const collect = (
+    parent: Node,
+    lists: readonly HTMLElement[],
+    sourceItem: HTMLElement | null = null,
+  ) => {
     let line: PastedLine | null = null;
     for (const child of Array.from(parent.childNodes)) {
       if (child instanceof HTMLElement && BLOCK_TAGS.has(child.tagName)) {
         line = null;
         const list = child.tagName === "UL" || child.tagName === "OL";
-        collect(child, list ? [...lists, child] : lists);
+        collect(
+          child,
+          list ? [...lists, child] : lists,
+          child.tagName === "LI" ? child : sourceItem,
+        );
         continue;
       }
       if (!line) {
         if (child instanceof Text && !child.data.trim()) continue;
-        line = { fragment: document.createDocumentFragment(), lists };
+        line = {
+          fragment: document.createDocumentFragment(),
+          lists,
+          sourceItem,
+        };
         lines.push(line);
       }
       appendPastedNode(child, line.fragment);
     }
   };
-  collect(template.content, []);
+  collect(template.content, [], null);
   for (const { fragment } of lines) {
     if (fragment.lastChild instanceof HTMLBRElement) {
       fragment.lastChild.remove();
@@ -577,7 +590,7 @@ function plainTextLines(text: string): PastedLine[] {
   return text.split(/\r\n|\r|\n/).map((line) => {
     const fragment = document.createDocumentFragment();
     if (line) fragment.append(line);
-    return { fragment, lists: [] };
+    return { fragment, lists: [], sourceItem: null };
   });
 }
 
@@ -605,7 +618,8 @@ function pastedListLike(source: HTMLElement): HTMLElement {
 function pastedLists(lines: PastedLine[]): DocumentFragment {
   const lists = document.createDocumentFragment();
   const open: { from: HTMLElement; list: HTMLElement }[] = [];
-  for (const { fragment, lists: from } of lines) {
+  const copiedItems = new WeakSet<HTMLElement>();
+  for (const { fragment, lists: from, sourceItem } of lines) {
     let depth = 0;
     while (depth < open.length && open[depth].from === from[depth]) {
       depth += 1;
@@ -626,6 +640,11 @@ function pastedLists(lines: PastedLine[]): DocumentFragment {
       open.push({ from: source, list });
     }
     const item = document.createElement("li");
+    if (sourceItem && !copiedItems.has(sourceItem)) {
+      copiedItems.add(sourceItem);
+      const value = sourceItem.getAttribute("value");
+      if (value !== null) item.setAttribute("value", value);
+    }
     item.append(fragment);
     open[open.length - 1].list.append(item);
   }

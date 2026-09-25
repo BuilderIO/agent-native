@@ -1402,6 +1402,21 @@ describe("in-place text session: review round 3", () => {
     expect(list.style.listStyleType).toBe("lower-alpha");
   });
 
+  it("keeps pasted ordered list item value overrides", () => {
+    const el = mount('<div id="t">Intro</div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Intro"), 5);
+    paste(el, {
+      "text/html": '<ol start="3"><li value="8">Eight</li><li>Nine</li></ol>',
+      "text/plain": "Eight\nNine",
+    });
+    session.end();
+    const [first, second] = Array.from(el.querySelectorAll("li"));
+    expect(el.querySelector("ol")?.getAttribute("start")).toBe("3");
+    expect(first.getAttribute("value")).toBe("8");
+    expect(second.hasAttribute("value")).toBe(false);
+  });
+
   it("keeps a pasted ordered sub-list ordered inside a bullet item", () => {
     const el = mount('<ul id="t"><li>One</li></ul>');
     session = startInPlaceTextSession(el);

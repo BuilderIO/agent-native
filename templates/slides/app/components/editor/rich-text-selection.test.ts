@@ -400,6 +400,28 @@ describe("review round 3", () => {
     expect(block.textContent).toBe("Hello world");
   });
 
+  it("removes a strike drawn by a partly selected ancestor, keeping it on the rest", () => {
+    const block = editable(
+      '<span id="s" style="text-decoration-line: line-through; text-decoration-style: wavy; text-decoration-color: red;">Hello world</span>',
+    );
+    const text = block.querySelector("#s")!.firstChild as Text;
+    rangeFor(text, 6, text, 11);
+    toggleInlineTextFormat(block, "strike");
+    const textNodes = Array.from(block.querySelectorAll("*"))
+      .flatMap((element) => Array.from(element.childNodes))
+      .filter((node): node is Text => node instanceof Text);
+    const hello = textNodes.find((node) => node.data === "Hello ")!;
+    const world = textNodes.find((node) => node.data === "world")!;
+
+    expect(drawsLine(world, block, "line-through")).toBeNull();
+    const kept = drawsLine(hello, block, "line-through")!;
+    expect(kept).not.toBeNull();
+    expect(getComputedStyle(kept).textDecorationStyle).toBe("wavy");
+    expect(getComputedStyle(kept).textDecorationColor).toBe("red");
+    expect(block.querySelectorAll("#s")).toHaveLength(1);
+    expect(block.textContent).toBe("Hello world");
+  });
+
   it("strips element identity from clipboard HTML but keeps its look", () => {
     const html = normalizeSlideClipboardHtml(
       '<p id="a">x<span id="b" data-slide-object-id="c" class="k" style="color: red">y</span></p>',

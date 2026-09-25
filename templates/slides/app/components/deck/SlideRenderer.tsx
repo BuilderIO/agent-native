@@ -868,6 +868,42 @@ function loadImportedFonts(hrefs: string[]) {
 }
 
 const renderedSlideSources = new WeakMap<HTMLElement, RenderedSlideSource>();
+const pendingSlideEditDrafts = new WeakMap<
+  HTMLElement,
+  Array<{ nonce: string; content: string }>
+>();
+const MAX_PENDING_SLIDE_EDIT_DRAFTS = 8;
+
+// ponytail: cap delayed echoes at 8 drafts per canvas; raise it only if ordering proves insufficient.
+export function noteSlideEditDraft(
+  root: HTMLElement,
+  nonce: string,
+  content: string,
+) {
+  const drafts = pendingSlideEditDrafts.get(root) ?? [];
+  const duplicate = drafts.findIndex(
+    (draft) => draft.nonce === nonce && draft.content === content,
+  );
+  if (duplicate !== -1) drafts.splice(duplicate, 1);
+  drafts.push({ nonce, content });
+  if (drafts.length > MAX_PENDING_SLIDE_EDIT_DRAFTS) drafts.shift();
+  pendingSlideEditDrafts.set(root, drafts);
+}
+
+function consumeSlideEditDraft(
+  root: HTMLElement,
+  nonce: string,
+  content: string,
+) {
+  const drafts = pendingSlideEditDrafts.get(root);
+  const index =
+    drafts?.findIndex(
+      (draft) => draft.nonce === nonce && draft.content === content,
+    ) ?? -1;
+  if (!drafts || index < 0) return false;
+  drafts.splice(index, 1);
+  return true;
+}
 
 /**
  * What a stamped `.slide-content` root was rendered from. Undefined for roots
@@ -992,7 +1028,17 @@ function RawSlideHtmlContent({
     const root = contentRef.current;
     if (!root) return;
     if (renderedHtmlRef.current !== html) {
-      const sameSlide = getRenderedSlideSource(root)?.nonce === source?.nonce;
+      const currentSource = getRenderedSlideSource(root);
+      const sameSlide = currentSource?.nonce === source?.nonce;
+      const isEditorDraftEcho =
+        sameSlide &&
+        source &&
+        consumeSlideEditDraft(root, source.nonce, source.stored);
+      if (isEditorDraftEcho && source && root.querySelector(EDITING_SELECTOR)) {
+        renderedHtmlRef.current = html;
+        registerRenderedSlideSource(root, source);
+        return;
+      }
       const uploadProvenance = source
         ? takeSlideImageUploadProvenance(slideId, source.stored)
         : null;

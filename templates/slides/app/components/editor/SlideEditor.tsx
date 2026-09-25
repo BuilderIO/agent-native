@@ -38,6 +38,7 @@ import {
 import SlideRenderer, {
   getRenderedSlideSource,
   isRawHtmlSlide,
+  noteSlideEditDraft,
   SLIDE_CONTENT_REPLACE_EVENT,
   type SlideContentReplaceDetail,
 } from "@/components/deck/SlideRenderer";
@@ -2227,6 +2228,12 @@ export default function SlideEditor({
       if (
         inlineEditDraftNeedsPersistence(previous, next, initialForComparison)
       ) {
+        const slideContent =
+          containerRef.current?.querySelector<HTMLElement>(".slide-content");
+        const source = slideContent && getRenderedSlideSource(slideContent);
+        if (slideContent && source?.nonce.endsWith(`.${slideId}`)) {
+          noteSlideEditDraft(slideContent, source.nonce, content);
+        }
         rawOnUpdateSlideRef.current({ content }, slideId, {
           preserveLocalState: true,
         });
