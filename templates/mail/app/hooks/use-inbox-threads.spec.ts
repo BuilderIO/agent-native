@@ -123,25 +123,38 @@ describe("shared inbox overview snapshots", () => {
       total,
       unread,
     });
-    const overviewTabs = [tab("important", 4, 3), tab("automated", 36, 8)];
+    const overview = {
+      tabs: [tab("important", 4, 3), tab("automated", 36, 8)],
+      clientSnapshotId: 4,
+    };
     const base = {
       activeTabId: "important",
       tabs: [tab("important", 2, 2), tab("automated", 36, 8)],
+      clientSnapshotId: 4,
     };
     const projected = {
       activeTabId: "important",
       tabs: [tab("important", 1, 1), tab("automated", 36, 8)],
+      clientSnapshotId: 4,
     };
 
+    expect(mergeOptimisticInboxTabCounts(overview, base, projected)).toEqual([
+      tab("important", 3, 2),
+      tab("automated", 36, 8),
+    ]);
     expect(
-      mergeOptimisticInboxTabCounts(overviewTabs, base, projected),
-    ).toEqual([tab("important", 3, 2), tab("automated", 36, 8)]);
-    expect(
-      mergeOptimisticInboxTabCounts(overviewTabs, base, {
+      mergeOptimisticInboxTabCounts(overview, base, {
         ...projected,
         activeTabId: "automated",
       }),
-    ).toBe(overviewTabs);
+    ).toBe(overview.tabs);
+    expect(
+      mergeOptimisticInboxTabCounts(
+        { ...overview, clientSnapshotId: 5 },
+        { ...base, clientSnapshotId: 3 },
+        { ...projected, clientSnapshotId: 3 },
+      ),
+    ).toBe(overview.tabs);
   });
 });
 

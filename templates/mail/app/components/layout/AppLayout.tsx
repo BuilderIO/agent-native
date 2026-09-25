@@ -581,14 +581,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data);
   const inboxTabs = useMemo(() => {
     const tabs = inboxMetadata?.tabs ?? [];
-    if (
-      !inboxOverview.data ||
-      inboxThreads.isPlaceholderData ||
-      inboxRawPage?.clientSnapshotId !== inboxThreads.data?.clientSnapshotId
-    ) {
+    if (!inboxOverview.data || inboxThreads.isPlaceholderData) {
       return tabs;
     }
-    return mergeOptimisticInboxTabCounts(tabs, inboxRawPage, inboxThreads.data);
+    return mergeOptimisticInboxTabCounts(
+      inboxOverview.data,
+      inboxRawPage,
+      inboxThreads.data,
+    );
   }, [
     inboxMetadata?.tabs,
     inboxOverview.data,

@@ -30,25 +30,36 @@ export type InboxOverview = Pick<
   "tabs" | "syncing" | "accounts" | "labels"
 > & { clientSnapshotId: number };
 
+type InboxPageCountSnapshot = Pick<
+  ListInboxThreadsResult,
+  "activeTabId" | "tabs"
+> & { clientSnapshotId: number };
+
 export function mergeOptimisticInboxTabCounts(
-  overviewTabs: ListInboxThreadsResult["tabs"],
-  base: Pick<ListInboxThreadsResult, "activeTabId" | "tabs"> | undefined,
-  projected: Pick<ListInboxThreadsResult, "activeTabId" | "tabs"> | undefined,
+  overview: Pick<InboxOverview, "tabs" | "clientSnapshotId">,
+  base: InboxPageCountSnapshot | undefined,
+  projected: InboxPageCountSnapshot | undefined,
 ) {
-  if (!base || !projected || base.activeTabId !== projected.activeTabId) {
-    return overviewTabs;
+  if (
+    !base ||
+    !projected ||
+    base.clientSnapshotId !== overview.clientSnapshotId ||
+    projected.clientSnapshotId !== overview.clientSnapshotId ||
+    base.activeTabId !== projected.activeTabId
+  ) {
+    return overview.tabs;
   }
   const baseTab = base.tabs.find((tab) => tab.id === base.activeTabId);
   const projectedTab = projected.tabs.find(
     (tab) => tab.id === projected.activeTabId,
   );
-  if (!baseTab || !projectedTab) return overviewTabs;
+  if (!baseTab || !projectedTab) return overview.tabs;
 
   const totalDelta = projectedTab.total - baseTab.total;
   const unreadDelta = projectedTab.unread - baseTab.unread;
-  if (totalDelta === 0 && unreadDelta === 0) return overviewTabs;
+  if (totalDelta === 0 && unreadDelta === 0) return overview.tabs;
 
-  return overviewTabs.map((tab) =>
+  return overview.tabs.map((tab) =>
     tab.id === projectedTab.id
       ? {
           ...tab,
