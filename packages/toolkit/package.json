@@ -414,12 +414,19 @@
     "@types/culori": "^4.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "react-router": "^8.1.0",
     "typescript-7": "catalog:",
     "vitest": "catalog:"
   },
   "peerDependencies": {
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router": ">=8"
+  },
+  "peerDependenciesMeta": {
+    "react-router": {
+      "optional": true
+    }
   },
   "agentNativeEjectManifest": "agent-native.eject.json"
 }

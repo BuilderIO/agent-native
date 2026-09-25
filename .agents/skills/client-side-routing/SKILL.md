@@ -67,6 +67,17 @@ export default function Settings() {
 
 If a page needs per-route data (e.g. sidebar highlighting the active document), derive it inside the layout from `useParams()` / `useLocation()` — don't pass it as a prop through every route file.
 
+## Nav Links Must Prefetch
+
+Use `AppNavLink` (`@agent-native/toolkit/app-shell`) for every nav link, not
+React Router's own `NavLink`. In dev, the *first* click to a route Vite hasn't
+bundled yet can lose a race against Vite's on-demand dependency discovery —
+React Router treats that as fatal and reloads the whole page, landing back
+where you started. `AppNavLink` defaults `prefetch` to `"intent"`, which starts
+loading the route module on hover/focus instead of on click, so by the time
+someone clicks, the module is already resolved. It's a drop-in replacement —
+same props, same behavior — just with that one default changed.
+
 ## Chat-First Routes
 
 If `/` is a full-page chat such as `AgentChatHome`, keep the app shell mounted
