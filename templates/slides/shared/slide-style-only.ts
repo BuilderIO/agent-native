@@ -60,6 +60,11 @@ const protectedStyleProperties = new Set([
   "gap",
   "row-gap",
   "column-gap",
+  "columns",
+  "column-count",
+  "column-width",
+  "column-fill",
+  "column-span",
   "font",
   "font-family",
   "font-size",
@@ -67,6 +72,10 @@ const protectedStyleProperties = new Set([
   "font-weight",
   "line-height",
   "letter-spacing",
+  "syntax",
+  "inherits",
+  "initial-value",
+  "src",
   "width",
   "height",
   "min-width",
@@ -87,6 +96,11 @@ const protectedStyleProperties = new Set([
   "left",
   "float",
   "clear",
+  "break-before",
+  "break-after",
+  "break-inside",
+  "orphans",
+  "widows",
   "inset",
   "inset-block",
   "inset-block-start",
@@ -151,6 +165,21 @@ const protectedStyleProperties = new Set([
   "aspect-ratio",
   "object-fit",
   "object-position",
+  "contain",
+  "contain-intrinsic-size",
+  "contain-intrinsic-width",
+  "contain-intrinsic-height",
+  "contain-intrinsic-block-size",
+  "contain-intrinsic-inline-size",
+  "content-visibility",
+  "container-name",
+  "container-type",
+  "offset",
+  "offset-path",
+  "offset-distance",
+  "offset-position",
+  "offset-anchor",
+  "offset-rotate",
 ]);
 
 function protectedStyleInvariant(content: string): string {
@@ -193,6 +222,17 @@ function decodeCssIdentifier(identifier: string): string {
   );
 }
 
+function isProtectedStyleProperty(property: string): boolean {
+  const unprefixed = property.replace(/^-(?:webkit|moz|ms|o)-/, "");
+  return (
+    protectedStyleProperties.has(unprefixed) ||
+    unprefixed.startsWith("--") ||
+    unprefixed.startsWith("font-") ||
+    unprefixed === "animation" ||
+    unprefixed.startsWith("animation-")
+  );
+}
+
 function cssNodeContext(
   node: postcss.Node | undefined,
   source: string,
@@ -219,13 +259,16 @@ function appendProtectedCssSignatures(
 ): void {
   const root = postcss.parse(css);
   root.walk((node) => {
-    if (node.type === "atrule" && node.name.toLowerCase() === "layer") {
+    if (node.type === "atrule") {
       signatures.push(
         JSON.stringify([
-          ...cssNodeContext(node, source),
+          ...cssNodeContext(node.parent, source),
+          `at:${node.name}`,
+          node.params,
           `hasBlock:${node.nodes !== undefined}`,
         ]),
       );
+      return;
     }
     if (node.type !== "decl") return;
 
@@ -233,9 +276,7 @@ function appendProtectedCssSignatures(
     const property = decodedProperty.startsWith("--")
       ? decodedProperty
       : decodedProperty.toLowerCase();
-    if (!protectedStyleProperties.has(property) && !property.startsWith("--")) {
-      return;
-    }
+    if (!isProtectedStyleProperty(property)) return;
 
     signatures.push(
       JSON.stringify([

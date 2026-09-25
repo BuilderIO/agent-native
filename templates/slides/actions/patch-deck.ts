@@ -10,7 +10,10 @@
  * Agent actions (update-slide, add-slide, etc.) continue to use their own
  * dedicated actions which also use the same per-deck lock.
  */
-import { AgentActionStopError } from "@agent-native/core";
+import {
+  AgentActionStopError,
+  isActionContractError,
+} from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -33,6 +36,7 @@ import {
   deckVersionChatContextFromAction,
   deckVersionContentSignature,
 } from "../server/lib/deck-versions.js";
+import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
@@ -474,6 +478,7 @@ export function applyOperation(
   options?: {
     clearLayoutWarningDismissal?: boolean;
     sourceContentHashes?: ReadonlyMap<string, string>;
+    styleOnlyBaseline?: string;
   },
 ): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -506,7 +511,10 @@ export function applyOperation(
           ? fields.content
           : normalizeSlidePadding(fields.content);
         if (op.styleOnly) {
-          assertStyleOnlyEdit(String(slide.content ?? ""), nextContent);
+          assertStyleOnlyEdit(
+            options?.styleOnlyBaseline ?? String(slide.content ?? ""),
+            nextContent,
+          );
         }
         slide.content = nextContent;
       }
@@ -1070,10 +1078,36 @@ export default defineAction({
           (deck.slides as Array<{ id?: string }>).some(
             (slide) => slide.id === op.slideId,
           );
-        const operationChangedStructure = applyOperation(deck, op, {
-          clearLayoutWarningDismissal: isAgentCaller,
-          sourceContentHashes,
-        });
+        let operationChangedStructure: boolean;
+        try {
+          operationChangedStructure = applyOperation(deck, op, {
+            clearLayoutWarningDismissal: isAgentCaller,
+            sourceContentHashes,
+          });
+        } catch (error) {
+          if (
+            op.op !== "patch-slide" ||
+            !op.styleOnly ||
+            !isActionContractError(error) ||
+            ![
+              "style_only_slide_structure_changed",
+              "style_only_slide_layout_changed",
+            ].includes(error.errorCode)
+          ) {
+            throw error;
+          }
+          const slide = (
+            deck.slides as Array<{ id: string; content?: unknown }>
+          ).find((entry) => entry.id === op.slideId);
+          const styleOnlyBaseline = await formatSlideHtml(
+            String(slide?.content ?? ""),
+          );
+          operationChangedStructure = applyOperation(deck, op, {
+            clearLayoutWarningDismissal: isAgentCaller,
+            sourceContentHashes,
+            styleOnlyBaseline,
+          });
+        }
         structuralOperationApplied ||= operationChangedStructure;
         if (
           existedBeforeDelete &&
