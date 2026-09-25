@@ -501,6 +501,39 @@ describe("preloadJevTools", () => {
     });
   });
 
+  it("aborts tool ranking when its shared deadline expires", async () => {
+    const initialTools = [tool("tool-search", "Find tools")];
+    let requestSignal: AbortSignal | undefined;
+    systemOne.mockImplementation(
+      (_request: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          requestSignal = options?.signal;
+          requestSignal?.addEventListener(
+            "abort",
+            () => reject(requestSignal?.reason),
+            { once: true },
+          );
+        }),
+    );
+
+    const result = await preloadJevTools({
+      personalApiKey: "personal-jev-key",
+      request: "Search customer records",
+      deadlineAt: Date.now() + 75,
+      registry: {
+        "search-customers": action("Search customer records"),
+      },
+      initialTools,
+      availableTools: [
+        ...initialTools,
+        tool("search-customers", "Search customer records"),
+      ],
+    });
+
+    expect(result).toBe(initialTools);
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
   it("prefers the Builder proxy outside production when Builder auth is available", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
     vi.stubGlobal(

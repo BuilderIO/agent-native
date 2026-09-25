@@ -406,6 +406,7 @@ export async function preloadJevTools(
       : options.deadlineAt - Date.now(),
   );
   if (remaining <= 0) return options.initialTools;
+  const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const selectedNames = await Promise.race([
     rankJevCandidates({
@@ -423,9 +424,14 @@ export async function preloadJevTools(
       question:
         "Which tools should be loaded into the agent context first for this task? Pick the most useful tool; probabilities may be used to keep a small ranked shortlist.",
       limit: prefetchLimit,
+      signal: controller.signal,
+      timeoutMs: remaining,
     }),
     new Promise<string[]>((resolve) => {
-      timeout = setTimeout(() => resolve([]), remaining);
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve([]);
+      }, remaining);
     }),
   ]);
   if (timeout) clearTimeout(timeout);
