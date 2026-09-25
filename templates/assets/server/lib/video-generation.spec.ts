@@ -132,6 +132,39 @@ describe("Builder video generation", () => {
     expect(mocks.getGeminiApiKey).not.toHaveBeenCalled();
   });
 
+  it("recovers an ambiguous Builder start with the same idempotency key", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init: RequestInit) => {
+        if (fetchMock.mock.calls.length === 1)
+          throw new TypeError("fetch failed");
+        if (fetchMock.mock.calls.length === 2) {
+          return Response.json(
+            {
+              code: "request_in_progress",
+              generationId: "vid_recovered",
+            },
+            { status: 409 },
+          );
+        }
+        return Response.json({ id: "vid_recovered" });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(startVideoGeneration(baseInput)).resolves.toEqual({
+      provider: "builder",
+      generationId: "vid_recovered",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      fetchMock.mock.calls.map(
+        ([, init]) =>
+          (JSON.parse(String(init?.body)) as { idempotencyKey: string })
+            .idempotencyKey,
+      ),
+    ).toEqual(["assets-run-123", "assets-run-123"]);
+  });
+
   it("keeps the Gemini-key path for workspaces without Builder access", async () => {
     mocks.resolveBuilderGatewayAuth.mockResolvedValue(null);
     const fetchMock = vi.fn(async () =>

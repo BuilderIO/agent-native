@@ -221,52 +221,82 @@ export async function startVideoGeneration(input: {
   }
 
   const baseUrl = getBuilderVideoGenerationBaseUrl().replace(/\/$/, "");
-  const response = await fetch(`${baseUrl}/generations`, {
-    method: "POST",
-    headers: {
-      Authorization: auth.authorization,
-      ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
-      ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
-      "Content-Type": "application/json",
+  const headers = {
+    Authorization: auth.authorization,
+    ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+    ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
+    "Content-Type": "application/json",
+  };
+  const requestBody = JSON.stringify({
+    idempotencyKey: input.runId,
+    prompt: input.compiledPrompt,
+    model: input.model,
+    aspectRatio: input.aspectRatio,
+    durationSeconds: input.durationSeconds,
+    resolution: input.resolution,
+    negativePrompt: input.negativePrompt || undefined,
+    enhancePrompt: input.enhancePrompt ?? true,
+    generateAudio: input.generateAudio ?? true,
+    ...(input.sourceImage
+      ? {
+          sourceImage: {
+            id: input.sourceImage.id,
+            role: "source",
+            mimeType: input.sourceImage.mimeType,
+            data: input.sourceImage.data,
+          },
+        }
+      : {
+          references: (input.referenceImages ?? []).slice(0, 3).map((ref) => ({
+            id: ref.id,
+            role: ref.role === "style_reference" ? "style" : "asset",
+            mimeType: ref.mimeType,
+            data: ref.data,
+          })),
+        }),
+    source: {
+      appId: input.callerAppId || "assets",
+      feature: "video-generation",
+      resourceId: input.libraryId,
     },
-    body: JSON.stringify({
-      idempotencyKey: input.runId,
-      prompt: input.compiledPrompt,
-      model: input.model,
-      aspectRatio: input.aspectRatio,
-      durationSeconds: input.durationSeconds,
-      resolution: input.resolution,
-      negativePrompt: input.negativePrompt || undefined,
-      enhancePrompt: input.enhancePrompt ?? true,
-      generateAudio: input.generateAudio ?? true,
-      ...(input.sourceImage
-        ? {
-            sourceImage: {
-              id: input.sourceImage.id,
-              role: "source",
-              mimeType: input.sourceImage.mimeType,
-              data: input.sourceImage.data,
-            },
-          }
-        : {
-            references: (input.referenceImages ?? [])
-              .slice(0, 3)
-              .map((ref) => ({
-                id: ref.id,
-                role: ref.role === "style_reference" ? "style" : "asset",
-                mimeType: ref.mimeType,
-                data: ref.data,
-              })),
-          }),
-      source: {
-        appId: input.callerAppId || "assets",
-        feature: "video-generation",
-        resourceId: input.libraryId,
-      },
-      metadata: { runId: input.runId },
-    }),
-    signal: AbortSignal.timeout(45_000),
+    metadata: { runId: input.runId },
   });
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+    }
+    try {
+      response = await fetch(`${baseUrl}/generations`, {
+        method: "POST",
+        headers,
+        body: requestBody,
+        signal: AbortSignal.timeout(45_000),
+      });
+    } catch (error) {
+      if (!isRetryableTransportError(error) || attempt === 2) throw error;
+      continue;
+    }
+    if (response.status === 409) {
+      const body = (await response.clone().json()) as {
+        code?: unknown;
+        generationId?: unknown;
+      } | null;
+      if (
+        body?.code === "request_in_progress" &&
+        typeof body.generationId === "string"
+      ) {
+        return { provider: "builder", generationId: body.generationId };
+      }
+      if (body?.code === "request_in_progress" && attempt < 2) continue;
+    }
+    break;
+  }
+  if (!response) {
+    throw new RetryableVideoGenerationError(
+      "Builder video generation start could not be confirmed.",
+    );
+  }
   if (!response.ok) {
     // coercion-ok: the status is still reported when the provider body is unreadable.
     const body = await response.text().catch(() => "");
