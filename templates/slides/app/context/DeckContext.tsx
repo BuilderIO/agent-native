@@ -502,6 +502,10 @@ const pendingPersistedResultHandlers = new Map<
   PendingPersistedResultHandler[]
 >();
 const slideLocalWriteSequences = new Map<string, Map<string, number>>();
+// The content of the last content write handed to the network, per deck and
+// slide. A queued draft may only be dropped when nothing newer than the
+// committed content was sent before it.
+const sentSlideContent = new Map<string, Map<string, string>>();
 
 // Bumped on every local write enqueued for a deck. A deck read that spans a
 // local write is stale for that deck no matter what the pending state looks
@@ -864,6 +868,14 @@ function drainPendingDeckOps(
 
   const ops = pendingOpsQueue.get(deckId) ?? [];
   pendingOpsQueue.delete(deckId);
+  for (const op of ops) {
+    if (op.op !== "patch-slide" || typeof op.fields.content !== "string") {
+      continue;
+    }
+    const sent = sentSlideContent.get(deckId) ?? new Map<string, string>();
+    sent.set(op.slideId, op.fields.content);
+    sentSlideContent.set(deckId, sent);
+  }
   const persistedResultHandlers =
     pendingPersistedResultHandlers.get(deckId) ?? [];
   pendingPersistedResultHandlers.delete(deckId);
@@ -1069,6 +1081,36 @@ function enqueueDeckOp(
     pendingSaves.set(deckId, timer);
     notifySaveListeners();
   }
+}
+
+/**
+ * Settles a queued content write for a slide against an editor draft that is
+ * back at the committed content. A queued draft is dropped when the server
+ * holds the committed content: coalescing the revert into it would send a
+ * write that changes nothing. Returns false when the revert must still be
+ * sent, to undo a draft that already left the queue.
+ */
+function settleQueuedContentDraft(
+  deckId: string,
+  slideId: string,
+  committedContent: string,
+): boolean {
+  const queue = pendingOpsQueue.get(deckId);
+  const last = queue?.[queue.length - 1];
+  if (
+    !queue ||
+    last?.op !== "patch-slide" ||
+    last.slideId !== slideId ||
+    Object.keys(last.fields).length !== 1 ||
+    typeof last.fields.content !== "string"
+  ) {
+    return false;
+  }
+  if (last.fields.content === committedContent) return true;
+  const sent = sentSlideContent.get(deckId)?.get(slideId);
+  if (sent !== undefined && sent !== committedContent) return false;
+  queue.pop();
+  return true;
 }
 
 /**
@@ -3722,6 +3764,17 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         normalizedUpdates = { ...updates, content };
       }
       const storedContent = normalizedUpdates.content;
+      // Drafts leave local state alone, so it still holds the committed
+      // content; a draft typed back to it (type, then delete) writes nothing.
+      if (
+        options?.preserveLocalState &&
+        Object.keys(normalizedUpdates).length === 1 &&
+        storedContent !== undefined &&
+        storedContent === previousSlide?.content &&
+        settleQueuedContentDraft(deckId, slideId, storedContent)
+      ) {
+        return storedContent;
+      }
       const optimisticSlideFitChange =
         !options?.preserveLocalState &&
         !options?.recordUndoOnly &&

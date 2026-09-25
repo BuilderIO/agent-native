@@ -1096,6 +1096,25 @@ function MermaidHtmlContent({
   );
 }
 
+/**
+ * Whether a slide renders its stored content as raw HTML (the fmd-slide
+ * contract) rather than as Markdown. The editor gates in-place text editing
+ * on this, so the two must never disagree.
+ */
+export function isRawHtmlSlide(slide: Pick<Slide, "content" | "layout">) {
+  const content = typeof slide.content === "string" ? slide.content : "";
+  const trimmedContent = content.trimStart();
+  const isConvertedMarkdownImage =
+    /^<img\b\s+data-markdown-image(?:\s*=\s*(?:"true"|'true'|true))?(?:\s|>)/i.test(
+      trimmedContent,
+    );
+  return (
+    content.includes('class="fmd-slide"') ||
+    (trimmedContent.startsWith("<") && !isConvertedMarkdownImage) ||
+    ["blank", "section", "statement", "full-image"].includes(slide.layout)
+  );
+}
+
 /** Core slide rendering at the deck's aspect-ratio resolution - used by both thumbnails and presentation */
 export function SlideInner({
   slide,
@@ -1265,18 +1284,8 @@ export function SlideInner({
     </div>
   );
 
-  // Slides with fmd-slide markup carry their layout in the raw HTML contract;
-  // render them as-is so supported semantic classes and inline styles survive.
   const content = typeof slide.content === "string" ? slide.content : "";
-  const trimmedContent = content.trimStart();
-  const isConvertedMarkdownImage =
-    /^<img\b\s+data-markdown-image(?:\s*=\s*(?:"true"|'true'|true))?(?:\s|>)/i.test(
-      trimmedContent,
-    );
-  const isRawHtml =
-    content.includes('class="fmd-slide"') ||
-    (trimmedContent.startsWith("<") && !isConvertedMarkdownImage) ||
-    ["blank", "section", "statement", "full-image"].includes(slide.layout);
+  const isRawHtml = isRawHtmlSlide(slide);
 
   if (!isRawHtml && slide.layout === "two-column") {
     const parts = content.split("---");

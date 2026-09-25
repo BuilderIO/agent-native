@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   computeSlideFitTransform,
   getRenderedSlideSource,
+  isRawHtmlSlide,
   prepareImportedFonts,
   resolveImportedFont,
   slideDeclaresTextColor,
@@ -157,6 +158,28 @@ describe("computeSlideFitTransform", () => {
       verticalOverflow: 0,
       horizontalOverflow: 0,
     });
+  });
+});
+
+describe("isRawHtmlSlide", () => {
+  it("treats any stored markup as raw HTML, whatever its layout", () => {
+    // Imported PPTX slides carry extra classes and the `content` layout; the
+    // editor once disagreed with the renderer here and refused to edit them.
+    expect(
+      isRawHtmlSlide({
+        content: '<div class="fmd-slide fmd-imported-pptx"><div>Hi</div></div>',
+        layout: "content",
+      }),
+    ).toBe(true);
+    expect(
+      isRawHtmlSlide({ content: "# Title\n\n- one", layout: "content" }),
+    ).toBe(false);
+    expect(
+      isRawHtmlSlide({
+        content: '<img data-markdown-image src="https://cdn.test/a.png">',
+        layout: "content",
+      }),
+    ).toBe(false);
   });
 });
 

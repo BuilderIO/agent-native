@@ -696,6 +696,35 @@ describe("DeckContext deck creation persistence", () => {
       expect(patchContents(fetchMock)).toEqual([]);
     });
 
+    it("still reverts a draft that already left the queue", async () => {
+      const { fetchMock, result } = await openStyledDeck("draft-revert-deck");
+      const typed = styled.replace("Before", "Beforex");
+      const typedMore = styled.replace("Before", "Beforexy");
+      const draft = (content: string) =>
+        result.current.updateSlide(
+          "draft-revert-deck",
+          "slide-1",
+          { content },
+          { preserveLocalState: true },
+        );
+      act(() => {
+        draft(typed);
+      });
+      await act(async () => {
+        await result.current.flushDeckSave("draft-revert-deck");
+      });
+      // The server now holds the first draft; dropping the queued second one
+      // would leave it there.
+      act(() => {
+        draft(typedMore);
+        draft(styled);
+      });
+      await act(async () => {
+        await result.current.flushDeckSave("draft-revert-deck");
+      });
+      expect(patchContents(fetchMock)).toEqual([typed, styled]);
+    });
+
     it("pads the slide root only when the write changed it", async () => {
       const { fetchMock, result } = await openStyledDeck("padding-deck");
       const edited = styled.replace("Before", "After");
@@ -1267,7 +1296,7 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
-  it("persists the latest inline draft when the user reverts before debounce", async () => {
+  it("sends nothing when the user reverts an inline draft before debounce", async () => {
     window.history.pushState({}, "", "/deck/inline-revert-deck");
     const { fetchMock, setAccessibleDeck } = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });
@@ -1318,14 +1347,8 @@ describe("DeckContext deck creation persistence", () => {
       }
       return actionCallBody(init).deckId === "inline-revert-deck";
     });
-    expect(patchCalls).toHaveLength(1);
-    expect(actionCallBody(patchCalls[0]?.[1])).toMatchObject({
-      operations: [
-        {
-          fields: { content: "<div>Original</div>" },
-        },
-      ],
-    });
+    // The typed draft never left the queue, so the revert has nothing to undo.
+    expect(patchCalls).toHaveLength(0);
   });
 
   it("records one undo entry when an inline draft commits", async () => {
