@@ -588,6 +588,13 @@ export function isResvgRuntimeUnavailableError(error: unknown): boolean {
   );
 }
 
+// Keep a single reference to the ~450 KB background data URL: the server
+// bundler inlines string constants at each use site, so a second direct
+// reference duplicates the whole payload in every serverless function.
+function backgroundImageTag(): string {
+  return `<image x="0" y="0" width="${WIDTH}" height="${HEIGHT}" href="${AGENT_NATIVE_OG_BACKGROUND_DATA_URL}" preserveAspectRatio="xMidYMid slice"/>`;
+}
+
 function monoTextWidth(value: string, fontSize: number, tracking: number) {
   const length = [...value].length;
   return (
@@ -691,7 +698,7 @@ function renderPresentationOgImageSvg(
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <title>${escapeSvg(appLabel)} - Agent-Native preview</title>
-  <image x="0" y="0" width="${WIDTH}" height="${HEIGHT}" href="${AGENT_NATIVE_OG_BACKGROUND_DATA_URL}" preserveAspectRatio="xMidYMid slice"/>
+  ${backgroundImageTag()}
   <g transform="translate(${CONTENT_X} ${brandCenterY - markHeight / 2}) scale(${Number(markScale.toFixed(4))})">${LOGO_MARK}</g>
   ${textBlock({
     lines: [appLabel],
@@ -788,7 +795,7 @@ export function renderAgentNativeOgImageSvg(
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <title>${escapeSvg(title)}${mode === "agent-native" ? " - Agent-Native preview" : " preview"}</title>
-  <image x="0" y="0" width="${WIDTH}" height="${HEIGHT}" href="${AGENT_NATIVE_OG_BACKGROUND_DATA_URL}" preserveAspectRatio="xMidYMid slice"/>
+  ${backgroundImageTag()}
   ${logo ? `<g transform="translate(80 116) scale(0.94)">${logo}</g>` : ""}
   <g>
     ${textBlock({
