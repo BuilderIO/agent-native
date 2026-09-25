@@ -376,6 +376,7 @@ export function InboxPage() {
     setSortMode(mode);
     try {
       localStorage.setItem("mail-sort-mode", mode);
+      // coercion-ok: server preference remains available when browser storage is restricted.
     } catch {
       // The server preference remains available when browser storage is restricted.
     }

@@ -21,6 +21,19 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@/components/onboarding/AiInboxSetup", () => ({
   AiInboxSetup: () => null,
+  TAG_SUGGESTIONS: [
+    [
+      "receipts",
+      "mail.sort.aiSetupTagReceipts",
+      "mail.sort.aiSetupPromptReceipts",
+    ],
+    [
+      "updates",
+      "mail.sort.aiSetupTagUpdates",
+      "mail.sort.aiSetupPromptUpdates",
+    ],
+    ["github", "mail.sort.aiSetupTagGitHub", "mail.sort.aiSetupPromptGitHub"],
+  ],
 }));
 
 vi.mock("@/components/ui/tooltip", () => ({
@@ -75,6 +88,10 @@ vi.mock("@/hooks/use-emails", () => ({
   useUpdateSettings: () => ({ mutateAsync: vi.fn() }),
 }));
 
+vi.mock("@/hooks/use-google-auth", () => ({
+  useGoogleAuthStatus: () => ({ data: { accounts: [] } }),
+}));
+
 import { AiFilterSection } from "./AiFilterSection";
 
 describe("AiFilterSection prompt blur saves", () => {
@@ -101,6 +118,33 @@ describe("AiFilterSection prompt blur saves", () => {
       expect(mocks.createRule).not.toHaveBeenCalled();
       expect(mocks.updateRule).not.toHaveBeenCalled();
       expect(mocks.deleteRule).not.toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupRunAgain" }),
+    ).toBeNull();
+  });
+
+  it("adds a suggested tag from one click", async () => {
+    render(<AiFilterSection />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupTagReceipts" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.createRule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          condition: "mail.sort.aiSetupPromptReceipts",
+          actions: [
+            {
+              type: "label",
+              labelName: "mail.sort.aiSetupTagReceipts",
+            },
+          ],
+          kind: "ai-filter",
+          domain: "mail",
+        }),
+      );
     });
   });
 });

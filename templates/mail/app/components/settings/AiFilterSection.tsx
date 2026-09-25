@@ -12,7 +12,10 @@ import type { DragEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
+import {
+  AiInboxSetup,
+  TAG_SUGGESTIONS,
+} from "@/components/onboarding/AiInboxSetup";
 import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +34,7 @@ import {
   useUpdateAutomation,
 } from "@/hooks/use-automations";
 import { useLabels, useSettings, useUpdateSettings } from "@/hooks/use-emails";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 
 type RuleMode = "tag" | "important" | "archive" | "spam";
 type PromptMode = Exclude<RuleMode, "tag">;
@@ -169,6 +173,7 @@ export function AiFilterSection() {
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const { data: settings } = useSettings();
   const { data: labels = [] } = useLabels();
+  const googleStatus = useGoogleAuthStatus();
   const updateSettings = useManageAiFilter();
   const updatePreferences = useUpdateSettings();
   const createRule = useCreateAutomation();
@@ -179,6 +184,9 @@ export function AiFilterSection() {
   const [newTagName, setNewTagName] = useState("");
   const [newTagPrompt, setNewTagPrompt] = useState("");
   const [savingNewTag, setSavingNewTag] = useState(false);
+  const [savingSuggestedTag, setSavingSuggestedTag] = useState<string | null>(
+    null,
+  );
   const [setupAgainOpen, setSetupAgainOpen] = useState(false);
   const [promptDrafts, setPromptDrafts] = useState<Record<PromptMode, string>>({
     important: "",
@@ -361,6 +369,31 @@ export function AiFilterSection() {
     }
   };
 
+  const saveSuggestedTag = async (nameKey: string, promptKey: string) => {
+    if (savingSuggestedTag) return;
+    const name = t(nameKey);
+    const condition = t(promptKey);
+    setSavingSuggestedTag(nameKey);
+    try {
+      await createRule.mutateAsync({
+        name: `AI tag: ${condition.slice(0, 72)}`,
+        condition,
+        actions: [{ type: "label", labelName: name }],
+        kind: "ai-filter",
+        domain: "mail",
+      });
+      await pinLabel(name);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("mail.aiFilter.instructionFailed"),
+      );
+    } finally {
+      setSavingSuggestedTag(null);
+    }
+  };
+
   const updateTag = async (
     rule: AutomationRule,
     nameDraft: string,
@@ -505,50 +538,85 @@ export function AiFilterSection() {
             </Button>
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-border/50">
-            {tagRules.map((rule) => (
-              <AiTagRow
-                key={rule.id}
-                rule={rule}
-                expanded={expandedTagId === rule.id}
-                onToggle={() =>
-                  setExpandedTagId((current) =>
-                    current === rule.id ? null : rule.id,
-                  )
-                }
-                onSave={(currentRule, name, condition) =>
-                  void updateTag(currentRule, name, condition)
-                }
-                onDelete={removeTag}
-                onDrop={(event, targetId) => {
-                  event.preventDefault();
-                  void reorderTags(
-                    event.dataTransfer.getData("text/plain"),
-                    targetId,
-                  );
-                }}
+          {tagRules.length > 0 ? (
+            <div className="overflow-hidden rounded-lg border border-border/50">
+              {tagRules.map((rule) => (
+                <AiTagRow
+                  key={rule.id}
+                  rule={rule}
+                  expanded={expandedTagId === rule.id}
+                  onToggle={() =>
+                    setExpandedTagId((current) =>
+                      current === rule.id ? null : rule.id,
+                    )
+                  }
+                  onSave={(currentRule, name, condition) =>
+                    void updateTag(currentRule, name, condition)
+                  }
+                  onDelete={removeTag}
+                  onDrop={(event, targetId) => {
+                    event.preventDefault();
+                    void reorderTags(
+                      event.dataTransfer.getData("text/plain"),
+                      targetId,
+                    );
+                  }}
+                />
+              ))}
+              {newTagOpen && (
+                <div className="space-y-3 bg-muted/20 p-3">
+                  <Input
+                    autoFocus
+                    value={newTagName}
+                    onChange={(event) => setNewTagName(event.target.value)}
+                    onBlur={() => void saveNewTag()}
+                    aria-label={t("mail.aiFilter.tagNamePlaceholder")}
+                    placeholder={t("mail.aiFilter.tagNamePlaceholder")}
+                  />
+                  <AiRulePromptField
+                    value={newTagPrompt}
+                    onChange={setNewTagPrompt}
+                    onBlur={() => void saveNewTag()}
+                    label={t("mail.aiFilter.tagPlaceholder")}
+                    placeholder={t("mail.aiFilter.tagPlaceholder")}
+                  />
+                </div>
+              )}
+            </div>
+          ) : newTagOpen ? (
+            <div className="space-y-3">
+              <Input
+                autoFocus
+                value={newTagName}
+                onChange={(event) => setNewTagName(event.target.value)}
+                onBlur={() => void saveNewTag()}
+                aria-label={t("mail.aiFilter.tagNamePlaceholder")}
+                placeholder={t("mail.aiFilter.tagNamePlaceholder")}
               />
-            ))}
-            {newTagOpen && (
-              <div className="space-y-3 bg-muted/20 p-3">
-                <Input
-                  autoFocus
-                  value={newTagName}
-                  onChange={(event) => setNewTagName(event.target.value)}
-                  onBlur={() => void saveNewTag()}
-                  aria-label={t("mail.aiFilter.tagNamePlaceholder")}
-                  placeholder={t("mail.aiFilter.tagNamePlaceholder")}
-                />
-                <AiRulePromptField
-                  value={newTagPrompt}
-                  onChange={setNewTagPrompt}
-                  onBlur={() => void saveNewTag()}
-                  label={t("mail.aiFilter.tagPlaceholder")}
-                  placeholder={t("mail.aiFilter.tagPlaceholder")}
-                />
-              </div>
-            )}
-          </div>
+              <AiRulePromptField
+                value={newTagPrompt}
+                onChange={setNewTagPrompt}
+                onBlur={() => void saveNewTag()}
+                label={t("mail.aiFilter.tagPlaceholder")}
+                placeholder={t("mail.aiFilter.tagPlaceholder")}
+              />
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {TAG_SUGGESTIONS.slice(0, 3).map(([, nameKey, promptKey]) => (
+                <Button
+                  key={nameKey}
+                  variant="outline"
+                  size="sm"
+                  disabled={savingSuggestedTag !== null}
+                  onClick={() => void saveSuggestedTag(nameKey, promptKey)}
+                >
+                  <IconPlus className="size-3.5" />
+                  {t(nameKey)}
+                </Button>
+              ))}
+            </div>
+          )}
         </section>
 
         {PROMPT_MODES.map((mode) => (
@@ -588,14 +656,16 @@ export function AiFilterSection() {
             />
           </section>
         ))}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 px-2 text-xs text-muted-foreground"
-          onClick={() => setSetupAgainOpen(true)}
-        >
-          {t("mail.sort.aiSetupRunAgain")}
-        </Button>
+        {(googleStatus.data?.accounts.length ?? 0) > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-xs text-muted-foreground"
+            onClick={() => setSetupAgainOpen(true)}
+          >
+            {t("mail.sort.aiSetupRunAgain")}
+          </Button>
+        )}
       </div>
       <AiInboxSetup
         forceOpen={setupAgainOpen}

@@ -153,6 +153,7 @@ function wasMailChatOpen(): boolean {
     return (
       localStorage.getItem("agent-native.mail-chat.sidebar-open") === "true"
     );
+    // coercion-ok: unreadable saved panel state defaults closed, especially on mobile.
   } catch {
     return false;
   }

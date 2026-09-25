@@ -730,6 +730,7 @@ export function EmailList({
             const shownCount = Number(localStorage.getItem(key) ?? 0);
             showSuggestion = shownCount < totalVotes;
             if (showSuggestion) localStorage.setItem(key, String(totalVotes));
+            // coercion-ok: feedback was saved server-side; this only tracks a local reminder.
           } catch {
             // Feedback is saved server-side even when browser storage is unavailable.
           }

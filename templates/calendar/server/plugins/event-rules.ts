@@ -163,6 +163,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
   );
   const rules = settings.eventRules ?? {};
   if (!Object.values(rules).some((rule) => rule?.trim())) return;
+  // coercion-ok: null means this owner has not recorded a sweep cursor yet.
   const runtime = ((await getUserSetting(owner, RUNTIME_KEY)) ?? {}) as Runtime;
   if (runtime.lastSweepAt && Date.now() - runtime.lastSweepAt < INTERVAL_MS)
     return;

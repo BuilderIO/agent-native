@@ -77,7 +77,6 @@ Read the relevant skill before deeper work:
 | `manage-email-rules` / `trigger-automations` | Inbox automation rules. |
 | `get-ai-filter` / `apply-ai-filter` | Reversible AI filtering, feedback, and learned instructions. |
 | `get-ai-priority` | Optional Jev Priority sort; requires Jev access. |
-| `record-ai-priority-feedback` | Save an important/not-important correction for one email; Priority uses it as an explicit score override. |
 | `respond-calendar-invite` | Accept/decline/tentative an invite. |
 | `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Drafting preferences, including Send + Mark Done. |
 | `manage-snippets` | Saved reply snippets. |

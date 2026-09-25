@@ -18,7 +18,7 @@ import { useAutomations, useCreateAutomation } from "@/hooks/use-automations";
 import { useLabels, useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 
-const TAG_SUGGESTIONS = [
+export const TAG_SUGGESTIONS = [
   [
     "receipts",
     "mail.sort.aiSetupTagReceipts",
