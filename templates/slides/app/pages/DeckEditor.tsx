@@ -48,7 +48,10 @@ import {
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
-import SlideRenderer from "@/components/deck/SlideRenderer";
+import SlideRenderer, {
+  getRenderedSlideSource,
+  renderRawSlideHtml,
+} from "@/components/deck/SlideRenderer";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
@@ -161,17 +164,21 @@ import {
 import { slideCommentAnchorFromRange } from "@/lib/slide-comment-anchor";
 import {
   applyOptimisticImagePreview,
+  captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
+  discardSlideImageUploadProvenance,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   insertDroppedImageIntoSlideHtml,
   prefetchImage,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
+  registerSlideImageUploadProvenance,
   stripOptimisticImagePreviews,
   updateImageFitInSlideHtml,
   type ImageObjectPosition,
   type OptimisticImagePreview,
+  type SlideImageUploadProvenance,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
@@ -189,6 +196,33 @@ type PendingImagePreview = OptimisticImagePreview & {
 type PendingImagePreviewUpdate =
   | PendingImagePreview[]
   | ((current: PendingImagePreview[]) => PendingImagePreview[]);
+
+function captureImageUploadEdit(
+  slideId: string,
+  sourceContent: string,
+): SlideImageUploadProvenance | null {
+  const canvas = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-main-slide-canvas='true']"),
+  ).find((candidate) =>
+    Array.from(
+      candidate.querySelectorAll<HTMLElement>("[data-slide-canvas]"),
+    ).some(
+      (slideCanvas) =>
+        slideCanvas.getAttribute("data-slide-canvas") === slideId,
+    ),
+  );
+  const root = canvas?.querySelector<HTMLElement>(".slide-content");
+  const source = root ? getRenderedSlideSource(root) : undefined;
+  const scopeId = root?.getAttribute("data-slide-content-scope");
+  if (!root || !scopeId || !source?.nonce.endsWith(`.${slideId}`)) {
+    return null;
+  }
+  const sourceSnapshot = renderRawSlideHtml(sourceContent, {
+    scopeSelector: `[data-slide-content-scope="${scopeId}"]`,
+    stampNonce: source.nonce,
+  });
+  return captureSlideImageUploadProvenance(root, sourceSnapshot.html);
+}
 
 type CommentComposerAnchor = SlideCommentAnchor | Range;
 
@@ -1720,9 +1754,21 @@ export default function DeckEditor() {
       file: File,
       position?: SlideImageDropPosition,
     ) => {
-      if (!id || !currentSlideRef.current) return;
-      const targetSlideId = currentSlideRef.current.id;
+      const startingSlide = currentSlideRef.current;
+      if (!id || !startingSlide) return;
+      const targetSlideId = startingSlide.id;
       const previewSrc = URL.createObjectURL(file);
+      const sourceContentAtUploadStart =
+        latestSlideContentRef.current.get(targetSlideId) ??
+        startingSlide.content;
+      const previewProvenance = captureImageUploadEdit(
+        targetSlideId,
+        startingSlide.content,
+      );
+      const uploadProvenance = captureImageUploadEdit(
+        targetSlideId,
+        sourceContentAtUploadStart,
+      );
       const initialPreview: PendingImagePreview = {
         slideId: targetSlideId,
         previewSrc,
@@ -1740,6 +1786,23 @@ export default function DeckEditor() {
         ),
         initialPreview,
       ]);
+      // The preview's render takes this snapshot long before the upload ends;
+      // however the upload ends, one still untaken is stale.
+      let registeredPreviewContent: string | null = null;
+      if (previewProvenance) {
+        const previewContent = pendingImagePreviewsRef.current
+          .filter((preview) => preview.slideId === targetSlideId)
+          .reduce(
+            (content, preview) => applyOptimisticImagePreview(content, preview),
+            startingSlide.content,
+          );
+        registerSlideImageUploadProvenance(
+          targetSlideId,
+          previewContent,
+          previewProvenance,
+        );
+        registeredPreviewContent = previewContent;
+      }
       const clearPreview = () => {
         updatePendingImagePreviews((current) =>
           current.filter((preview) => preview.previewSrc !== previewSrc),
@@ -1799,6 +1862,14 @@ export default function DeckEditor() {
         }
         latestSlideContentRef.current.set(targetSlideId, updatedContent);
         if (updatedContent !== targetContent) {
+          // Only a write renders, so only a write's snapshot is ever taken.
+          if (uploadProvenance) {
+            registerSlideImageUploadProvenance(
+              targetSlideId,
+              updatedContent,
+              uploadProvenance,
+            );
+          }
           updateSlideContent(targetSlide.id, updatedContent);
         }
         trackEvent("media_added", {
@@ -1816,6 +1887,13 @@ export default function DeckEditor() {
               ? error.message
               : t("deckEditor.imageUploadError"),
         });
+      } finally {
+        if (registeredPreviewContent !== null) {
+          discardSlideImageUploadProvenance(
+            targetSlideId,
+            registeredPreviewContent,
+          );
+        }
       }
     },
     [

@@ -719,6 +719,8 @@ const messages = {
     leaveWithoutSaving: "الخروج دون حفظ",
     editorMarkupNotSaved:
       "لم يتم حفظ هذا التعديل لأنه كان سيضيف ترميز المحرر إلى الشريحة.",
+    textEditConflictNotSaved:
+      "لم يتم حفظ تعديل النص لأن النص نفسه تم تغييره في مكان آخر في الوقت نفسه.",
   },
   designSystemSetup: {
     importedBrand: "علامة تجارية مستوردة",

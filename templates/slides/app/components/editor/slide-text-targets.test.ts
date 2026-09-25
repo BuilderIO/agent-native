@@ -10,6 +10,7 @@ import {
   isSlideCanvasShortcutTarget,
   isSlideTextEditingTarget,
   isTextLeaf,
+  preventSlideLinkNavigation,
   resolveRichTextEditingBlock,
   resolveSlideTextSelectionTarget,
   shouldStampBuilderId,
@@ -239,6 +240,84 @@ describe("slide text targets", () => {
     expect(findSmartBlock(metric, root)).toBe(metric);
   });
 
+  it("never makes a grid of class-styled cards one edit root", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <style>
+        .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+        .card { background: #131316; border: 1px solid #26262b; padding: 16px; }
+      </style>
+      <div class="fmd-slide">
+        <div class="cards">
+          <div class="card"><div class="label">ARR</div><div class="value">$412,800</div></div>
+          <div class="card"><div class="label">Renewal</div><div class="value">12/15/26</div></div>
+          <div class="card"><div class="label">Segment</div><div class="value">Strategic</div></div>
+        </div>
+      </div>
+    `;
+    document.body.append(root);
+    const cards = root.querySelector<HTMLElement>(".cards")!;
+    const [first] = Array.from(root.querySelectorAll<HTMLElement>(".card"));
+    const value = first.querySelector<HTMLElement>(".value")!;
+
+    expect(findSmartBlock(value, root)).toBe(value);
+    // A press in the gap between the cards, or on a card's padding.
+    expect(findSmartBlock(cards, root)).toBeNull();
+    const block = findSmartBlock(first, root);
+    expect(block === null || first.contains(block)).toBe(true);
+    root.remove();
+  });
+
+  it("still edits a single painted panel of paragraphs as one", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <style>.panel { background: #131316; border-radius: 8px; }</style>
+      <div class="fmd-slide">
+        <div class="panel"><p id="one">First paragraph</p><p>Second paragraph</p></div>
+      </div>
+    `;
+    document.body.append(root);
+    const panel = root.querySelector<HTMLElement>(".panel")!;
+    const paragraph = root.querySelector<HTMLElement>("#one")!;
+    expect(findSmartBlock(panel, root)).toBe(panel);
+    expect(findSmartBlock(paragraph, root)).toBe(paragraph);
+    root.remove();
+  });
+
+  it("keeps a click on a slide link from opening it, but not a link in editor chrome", () => {
+    document.body.innerHTML = `
+      <div data-main-slide-canvas="true">
+        <div class="slide-content"><p>Read <a href="/report" target="_blank"><b>the report</b></a></p></div>
+        <a id="chrome" href="/help">Help</a>
+      </div>
+    `;
+    const canvas = document.querySelector<HTMLElement>(
+      "[data-main-slide-canvas]",
+    )!;
+    canvas.addEventListener("click", preventSlideLinkNavigation, true);
+    canvas.addEventListener("auxclick", preventSlideLinkNavigation, true);
+    const click = (
+      target: Element,
+      type = "click",
+      init: MouseEventInit = {},
+    ) => {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    const run = document.querySelector("b")!;
+    expect(click(run)).toBe(true);
+    expect(click(run, "click", { metaKey: true })).toBe(true);
+    expect(click(run, "auxclick", { button: 1 })).toBe(true);
+    expect(click(document.querySelector("p")!)).toBe(false);
+    expect(click(document.querySelector("#chrome")!)).toBe(false);
+    document.body.innerHTML = "";
+  });
+
   it("does not treat the autofit renderer shell as editable text", () => {
     const root = document.createElement("div");
     root.innerHTML = `
@@ -373,6 +452,16 @@ describe("slide text targets", () => {
 
     expect(isRichTextBlock(block)).toBe(true);
     expect(findSmartBlock(divider, root)).toBe(block);
+  });
+
+  it("keeps a heading emptied to a line break enterable", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><h1 style="position:absolute;left:40px;top:20px;font-size:48px"><br></h1></div>';
+    const heading = root.querySelector("h1") as HTMLElement;
+
+    expect(isRichTextBlock(heading)).toBe(true);
+    expect(findSmartBlock(heading, root)).toBe(heading);
   });
 
   it("does not rewrite unsupported h5 and h6 headings", () => {
