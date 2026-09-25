@@ -36,6 +36,8 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 작업 공간 빌드는 각 앱의 Nitro `vercel` 출력물을 루트 `.vercel/output`으로 복사하고, 각 함수에 고유한 마운트 경로 환경을 부여하며, 앱을 `/<app-id>`에서 제공하는 라우트 설정을 작성합니다.
 
+여러 앱을 빌드하나요? `agent-native.config.ts`에서 `deployment.workspace.buildConcurrency: "auto"`를 설정하면 병렬로 빌드됩니다. Vercel의 표준 빌드 머신(4코어, 8GB)에서는 한 번에 두 개씩 실행됩니다. [워크스페이스 배포](/docs/workspace-deployment)를 참고하세요.
+
 ## 다음 단계
 
 - [**Deployment**](/docs/deployment) — 첫 프로덕션 배포 전에 영구 데이터베이스와 프리셋을 선택하세요

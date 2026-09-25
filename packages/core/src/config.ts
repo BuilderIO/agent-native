@@ -88,6 +88,12 @@ export interface AgentNativeWorkspaceDeploymentConfig {
   authMode?: AgentNativeWorkspaceAuthMode;
   /** Whether the workspace root redirects to the first app or renders a directory. Defaults to redirect. */
   rootPage?: AgentNativeWorkspaceRootPage;
+  /**
+   * App builds `agent-native deploy` runs at once. Defaults to 1; `"auto"`
+   * sizes the pool to the builder's cores and memory. `--concurrency` and
+   * `AGENT_NATIVE_DEPLOY_CONCURRENCY` override it.
+   */
+  buildConcurrency?: number | "auto";
 }
 
 export interface AgentNativeDiagnosticsConfig {
@@ -228,6 +234,11 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   { path: ["deployment", "workspace", "appsDirectory"], kind: "string" },
   { path: ["deployment", "workspace", "authMode"], kind: "string" },
   { path: ["deployment", "workspace", "rootPage"], kind: "string" },
+  {
+    path: ["deployment", "workspace", "buildConcurrency"],
+    kind: "string",
+    aliases: ["AGENT_NATIVE_DEPLOY_CONCURRENCY"],
+  },
   { path: ["diagnostics"], kind: "object" },
   { path: ["diagnostics", "failOnBuild"], kind: "boolean" },
   { path: ["instructions"], kind: "object" },
@@ -889,6 +900,10 @@ function normalizeDeploymentConfig(
     const appsDirectory = workspace.appsDirectory;
     const authMode = workspace.authMode;
     const rootPage = workspace.rootPage;
+    const buildConcurrency = normalizeBuildConcurrency(
+      workspace.buildConcurrency,
+      `${source}.workspace.buildConcurrency`,
+    );
     if (appsDirectory !== undefined && typeof appsDirectory !== "string") {
       throw new Error(`${source}.workspace.appsDirectory must be a string`);
     }
@@ -921,6 +936,7 @@ function normalizeDeploymentConfig(
           }),
       ...(authMode === undefined ? {} : { authMode }),
       ...(rootPage === undefined ? {} : { rootPage }),
+      ...(buildConcurrency === undefined ? {} : { buildConcurrency }),
     };
   }
 
@@ -1061,6 +1077,21 @@ function mergeHarnessSettings(
           ])),
     ],
   };
+}
+
+// Environment values arrive as strings, so "4" is accepted alongside 4.
+export function normalizeBuildConcurrency(
+  value: unknown,
+  source: string,
+): number | "auto" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "auto") return "auto";
+  const parsed =
+    typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  if (typeof parsed !== "number" || !Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${source} must be a positive integer or "auto"`);
+  }
+  return parsed;
 }
 
 function normalizeRelativeFilePath(value: string, source: string): string {

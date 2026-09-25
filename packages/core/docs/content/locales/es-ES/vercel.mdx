@@ -36,6 +36,8 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 La compilación del espacio de trabajo copia la salida `vercel` de Nitro de cada aplicación en la raíz `.vercel/output`, le da a cada función su propio entorno de ruta de montaje, y escribe la configuración de rutas que sirve las aplicaciones en `/<app-id>`.
 
+¿Compilas varias apps? Define `deployment.workspace.buildConcurrency: "auto"` en `agent-native.config.ts` para compilarlas en paralelo; en la máquina de compilación estándar de Vercel (4 núcleos, 8 GB) se ejecutan dos a la vez. Consulta [Despliegue del espacio de trabajo](/docs/workspace-deployment).
+
 ## Qué sigue
 
 - [**Implementación**](/docs/deployment) — elige una base de datos persistente y un ajuste preestablecido antes de tu primera implementación en producción

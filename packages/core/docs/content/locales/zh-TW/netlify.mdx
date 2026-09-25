@@ -38,6 +38,8 @@ npx @agent-native/core@latest deploy --preset netlify
 
 工作區建置會將靜態資源寫入 `dist/_workspace_static/` 下，並將每個應用程式路由到自己的 Netlify function，且不強制進行資源重新導向，因此像 `/mail/assets/...` 這樣的檔案會先以靜態方式提供，之後伺服器 function 才會處理應用程式路由。
 
+需要建置多個應用程式？在 `agent-native.config.ts` 中設定 `deployment.workspace.buildConcurrency: "auto"`，即可依建置機器的 CPU 核心數與記憶體平行建置。請參閱[工作區部署](/docs/workspace-deployment)。
+
 ## Keep-warm 與縮減至零資料庫 {#netlify-keep-warm}
 
 啟用後，Netlify 建置會產生一個排程 function，**每分鐘**請求一次 `/_agent-native/health`。這會讓伺服器 function 及其資料庫保持喚醒狀態，因此閒置一段時間之後的下一位訪客不需要承受冷啟動（在 Neon 上是 1 到 5 秒）。

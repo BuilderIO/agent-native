@@ -29,7 +29,10 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
-import type { AgentNativeWorkspaceRootPage } from "../config.js";
+import {
+  normalizeBuildConcurrency,
+  type AgentNativeWorkspaceRootPage,
+} from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -171,9 +174,10 @@ export interface WorkspaceDeployOptions {
   /** Target preset. Defaults to `cloudflare_pages`. */
   preset?: WorkspaceDeployPreset;
   /**
-   * Maximum number of app builds to run at once. Defaults to 1. `"auto"` sizes
-   * the pool to the machine's cores and memory. Also read from
-   * `--concurrency <n|auto>` and `AGENT_NATIVE_DEPLOY_CONCURRENCY`.
+   * Maximum number of app builds to run at once. Overrides `--concurrency`,
+   * `AGENT_NATIVE_DEPLOY_CONCURRENCY`, and
+   * `deployment.workspace.buildConcurrency`. Defaults to 1; `"auto"` sizes the
+   * pool to the machine's cores and memory.
    */
   concurrency?: number | "auto";
   /** @internal Override process execution in tests. */
@@ -186,6 +190,11 @@ interface PreparedAppBuild {
   app: string;
   preset: WorkspaceDeployPreset;
   env: NodeJS.ProcessEnv;
+}
+
+interface AppBuildTiming {
+  app: string;
+  ms: number;
 }
 
 type RunAppBuild = (
@@ -265,16 +274,23 @@ export async function runWorkspaceDeploy(
   );
 
   const execFile = opts.execFile ?? execFileSync;
-  const concurrency = resolveBuildConcurrency(opts.concurrency, rawArgs);
+  const concurrency = resolveBuildConcurrency(
+    opts.concurrency,
+    rawArgs,
+    config.deployment?.workspace?.buildConcurrency,
+  );
+  const timings: AppBuildTiming[] = [];
   if (concurrency > 1) {
     const builds = apps.map((app) =>
       prepareAppBuild(appsDir, app, preset, workspaceApps, workspaceAuthMode),
     );
-    await runAppBuildsConcurrently(
-      workspaceRoot,
-      builds,
-      concurrency,
-      opts.runAppBuild ?? runAppBuildProcess,
+    timings.push(
+      ...(await runAppBuildsConcurrently(
+        workspaceRoot,
+        builds,
+        concurrency,
+        opts.runAppBuild ?? runAppBuildProcess,
+      )),
     );
   }
   for (const app of apps) {
@@ -287,11 +303,13 @@ export async function runWorkspaceDeploy(
         workspaceAuthMode,
       );
       logAppBuildStart(build);
+      const started = Date.now();
       execFile("pnpm", ["--filter", app, "build"], {
         cwd: workspaceRoot,
         env: build.env,
         stdio: "inherit",
       });
+      timings.push({ app, ms: Date.now() - started });
     }
     // Outputs are assembled one app at a time, in app order, even when builds
     // ran concurrently: the copy steps write shared routing and function
@@ -307,6 +325,7 @@ export async function runWorkspaceDeploy(
       workspaceAuthMode,
     );
   }
+  logAppBuildTimings(timings, concurrency);
   writeWorkspaceAppManifests(
     workspaceRoot,
     distDir,
@@ -447,10 +466,11 @@ async function runAppBuildsConcurrently(
   builds: PreparedAppBuild[],
   concurrency: number,
   runAppBuild: RunAppBuild,
-): Promise<void> {
+): Promise<AppBuildTiming[]> {
   console.log(
     `[workspace-deploy] Running up to ${concurrency} app builds at once`,
   );
+  const timings: AppBuildTiming[] = [];
   const failures: { app: string; error: unknown }[] = [];
   let next = 0;
   const worker = async () => {
@@ -459,8 +479,10 @@ async function runAppBuildsConcurrently(
     while (next < builds.length && failures.length === 0) {
       const build = builds[next++];
       logAppBuildStart(build);
+      const started = Date.now();
       try {
         await runAppBuild(build, workspaceRoot);
+        timings.push({ app: build.app, ms: Date.now() - started });
       } catch (error) {
         failures.push({ app: build.app, error });
       }
@@ -480,6 +502,23 @@ async function runAppBuildsConcurrently(
       `${failures.length} app build(s) failed (${details}). Builds not yet started were skipped.`,
     );
   }
+  return timings;
+}
+
+function logAppBuildTimings(
+  timings: AppBuildTiming[],
+  concurrency: number,
+): void {
+  if (timings.length === 0) return;
+  const slowest = timings.reduce((a, b) => (b.ms > a.ms ? b : a));
+  const total = timings.reduce((sum, t) => sum + t.ms, 0);
+  console.log(
+    `[workspace-deploy] Built ${timings.length} app(s): ${formatSeconds(total)} of build time at concurrency ${concurrency}; slowest ${slowest.app} (${formatSeconds(slowest.ms)})`,
+  );
+}
+
+function formatSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function runAppBuildProcess(
@@ -500,11 +539,17 @@ function runAppBuildProcess(
         resolve();
         return;
       }
+      // The kernel OOM killer sends SIGKILL (exit 137); with builds running
+      // side by side that almost always means too many at once.
+      const oomHint =
+        signal === "SIGKILL" || code === 137
+          ? " (likely out of memory: lower --concurrency)"
+          : "";
       reject(
         new Error(
           signal
-            ? `pnpm --filter ${build.app} build was killed by ${signal}`
-            : `pnpm --filter ${build.app} build exited with code ${code}`,
+            ? `pnpm --filter ${build.app} build was killed by ${signal}${oomHint}`
+            : `pnpm --filter ${build.app} build exited with code ${code}${oomHint}`,
         ),
       );
     });
@@ -2158,20 +2203,17 @@ function parseConcurrencyArg(args: string[]): string | null {
 function resolveBuildConcurrency(
   optionConcurrency: number | "auto" | undefined,
   args: string[],
+  configConcurrency: number | "auto" | undefined,
 ): number {
-  const raw =
-    optionConcurrency ??
-    parseConcurrencyArg(args) ??
-    process.env.AGENT_NATIVE_DEPLOY_CONCURRENCY?.trim();
-  if (raw === undefined || raw === "") return 1;
-  if (raw === "auto") return autoBuildConcurrency();
-  const value = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isInteger(value) || value < 1) {
-    throw new Error(
-      `Invalid build concurrency "${raw}". Use a positive integer or "auto".`,
-    );
-  }
-  return value;
+  const flag = parseConcurrencyArg(args);
+  const value =
+    normalizeBuildConcurrency(optionConcurrency, "concurrency") ??
+    (flag === null
+      ? undefined
+      : normalizeBuildConcurrency(flag, "--concurrency")) ??
+    configConcurrency;
+  if (value === undefined) return 1;
+  return value === "auto" ? autoBuildConcurrency() : value;
 }
 
 // Measured peak per concurrent app build (Vite client + SSR, then Nitro) is

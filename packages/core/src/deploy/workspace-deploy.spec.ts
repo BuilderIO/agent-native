@@ -1881,6 +1881,54 @@ describe("workspace deploy build concurrency", () => {
     expect(builds.maxInFlight()).toBe(2);
   });
 
+  it("reads deployment.workspace.buildConcurrency from agent-native config", async () => {
+    for (const app of ["dispatch", "mail", "plan"]) {
+      makeWorkspaceApp(tmpDir, app);
+    }
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      "export default { deployment: { workspace: { buildConcurrency: 3 } } };\n",
+    );
+    const builds = trackedBuilds();
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=vercel", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+      runAppBuild: builds.runAppBuild,
+    });
+    expect(builds.maxInFlight()).toBe(3);
+
+    // The flag overrides the config file.
+    const flagged = trackedBuilds();
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=vercel", "--build-only", "--concurrency=1"],
+      execFile: execFile as typeof execFileSync,
+      runAppBuild: flagged.runAppBuild,
+    });
+    expect(flagged.runAppBuild).not.toHaveBeenCalled();
+  });
+
+  it("logs a timing summary for concurrent builds", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only", "--concurrency=2"],
+        execFile: execFile as typeof execFileSync,
+        runAppBuild: trackedBuilds().runAppBuild,
+      });
+      expect(log.mock.calls.flat().join("\n")).toMatch(
+        /Built 2 app\(s\): [\d.]+s of build time at concurrency 2; slowest (dispatch|starter)/,
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("names the failed build and skips builds that had not started", async () => {
     for (const app of ["dispatch", "mail", "plan"]) {
       makeWorkspaceApp(tmpDir, app);
@@ -1949,7 +1997,7 @@ describe("workspace deploy build concurrency", () => {
         args: ["--preset=vercel", "--build-only", "--concurrency=0"],
         execFile: execFile as typeof execFileSync,
       }),
-    ).rejects.toThrow('Invalid build concurrency "0"');
+    ).rejects.toThrow('--concurrency must be a positive integer or "auto"');
   });
 });
 

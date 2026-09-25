@@ -38,6 +38,8 @@ npx @agent-native/core@latest deploy --preset netlify
 
 这个工作区构建会把静态资源写在 `dist/_workspace_static/` 下,并把每个应用路由到自己的 Netlify 函数,不做强制的资源重定向,因此像 `/mail/assets/...` 这样的文件会在服务器函数处理应用路由之前就以静态方式提供。
 
+需要构建多个应用？在 `agent-native.config.ts` 中设置 `deployment.workspace.buildConcurrency: "auto"`，即可根据构建机器的 CPU 核心数和内存并行构建。请参阅[工作区部署](/docs/workspace-deployment)。
+
 ## Keep-warm 与缩容到零的数据库 {#netlify-keep-warm}
 
 启用后,Netlify 构建会生成一个计划函数,**每分钟**请求一次 `/_agent-native/health`。这会让服务器函数及其数据库保持温热,使空闲一段时间后的下一位访问者不必承担冷启动(在 Neon 上是 1 到 5 秒)。

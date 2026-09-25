@@ -36,6 +36,8 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 कार्यस्थान build हर ऐप के Nitro `vercel` output को root `.vercel/output` में copy करता है, हर function को अपना खुद का mount-path environment देता है, और वह route config लिखता है जो ऐप्स को `/<app-id>` पर serve करता है।
 
+कई ऐप बिल्ड कर रहे हैं? उन्हें समानांतर में बिल्ड करने के लिए `agent-native.config.ts` में `deployment.workspace.buildConcurrency: "auto"` सेट करें; Vercel की स्टैंडर्ड बिल्ड मशीन (4 कोर, 8 GB) पर एक साथ दो बिल्ड चलते हैं। [वर्कस्पेस डिप्लॉयमेंट](/docs/workspace-deployment) देखें।
+
 ## आगे क्या है
 
 - [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें

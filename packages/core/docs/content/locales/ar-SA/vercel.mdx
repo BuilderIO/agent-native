@@ -36,6 +36,8 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ينسخ بناء مساحة العمل مخرجات `vercel` الخاصة بـ Nitro لكل تطبيق إلى `.vercel/output` الجذر، ويمنح كل دالة بيئة مسار تثبيت خاصة بها، ويكتب تكوين المسارات الذي يخدم التطبيقات على `/<app-id>`.
 
+هل تبني عدة تطبيقات؟ اضبط `deployment.workspace.buildConcurrency: "auto"` في `agent-native.config.ts` لبنائها بالتوازي؛ على جهاز البناء القياسي في Vercel (4 أنوية، 8 غيغابايت) يعني ذلك بناء تطبيقين في آنٍ واحد. راجع [نشر مساحة العمل](/docs/workspace-deployment).
+
 ## ما هي الخطوة التالية
 
 - [**النشر**](/docs/deployment) — اختر قاعدة بيانات دائمة وإعدادًا مسبقًا قبل أول عملية نشر إنتاجي
