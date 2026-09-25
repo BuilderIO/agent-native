@@ -13,11 +13,20 @@ import { FirstRunOnboarding } from "./FirstRunOnboarding.js";
 const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
+  routePathname: "/",
   trackOnboardingEvent: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
 }));
+
+vi.mock("react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router")>();
+  return {
+    ...actual,
+    useLocation: () => ({ pathname: mocks.routePathname }),
+  };
+});
 
 vi.mock("./use-onboarding.js", () => ({
   trackOnboardingEvent: mocks.trackOnboardingEvent,
@@ -42,6 +51,7 @@ describe("FirstRunOnboarding", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
+    mocks.routePathname = "/";
     mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.useBuilderConnectFlow.mockReset();
     mocks.trackOnboardingEvent.mockReset();
@@ -118,6 +128,8 @@ describe("FirstRunOnboarding", () => {
       node.remove();
     });
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    window.history.replaceState(null, "", "/");
   });
 
   it("renders nothing while an ineligible member's status is resolving", () => {
@@ -1424,9 +1436,39 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.pathname).toBe("/settings/agent/llm");
+    expect(window.location.pathname).toBe("/settings/keys");
     expect(mocks.completeFirstRun).toHaveBeenCalled();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("keeps the API key destination inside the live mount omitted by the workspace manifest", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    window.history.replaceState(null, "", "/dispatch/");
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/dispatch/settings/keys");
   });
 
   it("keeps the choice screen visible when completion fails", async () => {
