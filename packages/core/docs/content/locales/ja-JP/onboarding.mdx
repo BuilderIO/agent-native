@@ -243,6 +243,7 @@ isComplete: async () => {
 | `form`             | `{ fields, writeScope? }`                             | 環境変数 (キー、シークレット、URL) を収集する                       |
 | `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)                              |
 | `agent-task`       | `{ prompt }`                                          | 対応するエージェント チャットにプロンプトを送信します               |
+| `file-storage`     | -                                                     | 共有の S3 互換ストレージフォームを表示します                        |
 
 `primary: true` フラグは、メソッドをそのステップの大きな CTA としてマークします。
 セットアップ パスを表示する必要がある場合は、`badge: "soon"` と `disabled: true` を使用します

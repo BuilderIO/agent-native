@@ -808,6 +808,47 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder 計費以外的供應商使用量或舊呼叫",
   "usage.providerSpendToday": "今日其他或未分類的使用量：{{amount}}",
   "usage.driverCreditsAndUsd": "Builder 點數 / USD",
+  "settings.storage.provider": "供應商",
+  "settings.storage.providerOther": "其他相容 S3 的服務",
+  "settings.storage.endpoint": "端點 URL",
+  "settings.storage.bucket": "儲存貯體",
+  "settings.storage.accessKeyId": "存取金鑰 ID",
+  "settings.storage.secretAccessKey": "秘密存取金鑰",
+  "settings.storage.region": "區域",
+  "settings.storage.publicUrl": "公開 URL",
+  "settings.storage.optional": "選填",
+  "settings.storage.saved": "已儲存",
+  "settings.storage.hintAws": "使用儲存貯體所在區域的端點。",
+  "settings.storage.hintR2": "可在 R2 儲存貯體的設定中找到。",
+  "settings.storage.hintSupabase": "可在專案的 Storage 設定中找到。",
+  "settings.storage.hintOther":
+    "MinIO、Backblaze B2、Wasabi 和 DigitalOcean Spaces 也能使用。",
+  "settings.storage.save": "儲存",
+  "settings.storage.saving": "正在儲存…",
+  "settings.storage.cancel": "取消",
+  "settings.storage.clear": "清除憑證",
+  "settings.storage.clearing": "正在清除…",
+  "settings.storage.clearTitle": "要清除儲存憑證嗎？",
+  "settings.storage.clearBuilder": "新上傳的檔案會存入 Builder.io 儲存空間。",
+  "settings.storage.clearNoFallback": "在重新設定儲存空間之前，上傳會失敗。",
+  "settings.storage.clearExisting": "現有檔案會保留在 {{bucket}} 中。",
+  "settings.storage.clearExistingGeneric": "現有檔案會保留在你的儲存貯體中。",
+  "settings.storage.missing": "請先填寫端點、儲存貯體和金鑰。",
+  "settings.storage.missingPublicUrl":
+    "請先填寫端點、儲存貯體、金鑰和公開 URL。",
+  "settings.storage.invalidUrl": "請使用以 https:// 或 http:// 開頭的 URL。",
+  "settings.storage.invalidBucket":
+    "儲存貯體名稱只能包含字母、數字、點、連字號和底線。",
+  "settings.storage.savedNotice":
+    "檔案儲存空間已儲存。新上傳的檔案會存入 {{bucket}}。",
+  "settings.storage.cleared": "儲存憑證已清除。",
+  "settings.storage.clearedBuilder":
+    "儲存憑證已清除。新上傳的檔案會存入 Builder.io。",
+  "settings.storage.saveFailed": "無法儲存檔案儲存空間。",
+  "settings.storage.clearFailed": "無法清除儲存憑證。",
+  "settings.storage.loadFailed": "無法載入檔案儲存空間設定。",
+  "settings.storage.retry": "重試",
+  "settings.storage.adminOnly": "只有組織擁有者和管理員可以變更檔案儲存空間。",
 };
 
 export default messages;

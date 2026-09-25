@@ -868,6 +868,51 @@ const messages: AgentChatTranslation = {
     "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
   "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
   "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
+  "settings.storage.provider": "المزوّد",
+  "settings.storage.providerOther": "خدمة أخرى متوافقة مع S3",
+  "settings.storage.endpoint": "عنوان URL لنقطة النهاية",
+  "settings.storage.bucket": "الحاوية",
+  "settings.storage.accessKeyId": "معرّف مفتاح الوصول",
+  "settings.storage.secretAccessKey": "مفتاح الوصول السري",
+  "settings.storage.region": "المنطقة",
+  "settings.storage.publicUrl": "عنوان URL العام",
+  "settings.storage.optional": "اختياري",
+  "settings.storage.saved": "محفوظ",
+  "settings.storage.hintAws": "استخدم نقطة النهاية الخاصة بمنطقة حاويتك.",
+  "settings.storage.hintR2": "ستجده في إعدادات حاوية R2.",
+  "settings.storage.hintSupabase": "ستجده في إعدادات Storage لمشروعك.",
+  "settings.storage.hintOther":
+    "تعمل أيضًا MinIO وBackblaze B2 وWasabi وDigitalOcean Spaces.",
+  "settings.storage.save": "حفظ",
+  "settings.storage.saving": "جارٍ الحفظ…",
+  "settings.storage.cancel": "إلغاء",
+  "settings.storage.clear": "مسح بيانات الاعتماد",
+  "settings.storage.clearing": "جارٍ المسح…",
+  "settings.storage.clearTitle": "هل تريد مسح بيانات اعتماد التخزين؟",
+  "settings.storage.clearBuilder":
+    "ستذهب الملفات الجديدة إلى تخزين Builder.io.",
+  "settings.storage.clearNoFallback":
+    "ستفشل عمليات الرفع حتى تُعِد التخزين مرة أخرى.",
+  "settings.storage.clearExisting": "تبقى الملفات الحالية في {{bucket}}.",
+  "settings.storage.clearExistingGeneric": "تبقى الملفات الحالية في حاويتك.",
+  "settings.storage.missing": "املأ نقطة النهاية والحاوية والمفاتيح أولًا.",
+  "settings.storage.missingPublicUrl":
+    "املأ نقطة النهاية والحاوية والمفاتيح وعنوان URL العام أولًا.",
+  "settings.storage.invalidUrl":
+    "استخدم عنوان URL يبدأ بـ https:// أو http://.",
+  "settings.storage.invalidBucket":
+    "تتكوّن أسماء الحاويات من أحرف وأرقام ونقاط وشرطات وشرطات سفلية.",
+  "settings.storage.savedNotice":
+    "تم حفظ تخزين الملفات. ستذهب الملفات الجديدة إلى {{bucket}}.",
+  "settings.storage.cleared": "تم مسح بيانات اعتماد التخزين.",
+  "settings.storage.clearedBuilder":
+    "تم مسح بيانات اعتماد التخزين. ستذهب الملفات الجديدة إلى Builder.io.",
+  "settings.storage.saveFailed": "تعذّر حفظ تخزين الملفات.",
+  "settings.storage.clearFailed": "تعذّر مسح بيانات اعتماد التخزين.",
+  "settings.storage.loadFailed": "تعذّر تحميل إعدادات تخزين الملفات.",
+  "settings.storage.retry": "إعادة المحاولة",
+  "settings.storage.adminOnly":
+    "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير تخزين الملفات.",
 };
 
 export default messages;

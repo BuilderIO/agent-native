@@ -126,6 +126,8 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 该框架已经内置了一个适用于 S3 兼容存储（AWS S3、Cloudflare R2、MinIO 等）的提供程序。您可以通过环境变量，或通过侧边栏的引导清单来连接它，无需编写任何代码。参见[引导设置](/docs/onboarding)。
 
+设置、引导清单和 Clips 的 Video storage 显示的都是同一个存储表单。它将 `S3_*` 的值保存为工作区密钥，只有组织所有者和管理员可以保存或清除它们。除非已注册的 `s3` 提供程序设置了 `publicBaseUrlOptional: true`，否则 Public URL 为必填项（Clips 设置了它，因为它通过签名请求读回录制内容）。**Clear credentials** 会先请求确认，然后删除所有已保存的存储密钥。现有文件会保留在存储桶中。智能体通过 `get-file-storage` 和 `manage-file-storage` 操作完成同样的事。
+
 只有在需要接入不同类型的后端时，才需要注册自定义提供程序。下面的示例通过 `fetch()` 调用一个通用的 HTTP API 来完成上传：
 
 ```ts filename="server/plugins/file-upload.ts"

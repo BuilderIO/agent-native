@@ -855,6 +855,57 @@ const messages: AgentChatTranslation = {
     "Builder 請求対象外のプロバイダー利用または過去の呼び出し",
   "usage.providerSpendToday": "本日のその他または未分類の利用額: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder クレジット / USD",
+  "settings.storage.provider": "プロバイダー",
+  "settings.storage.providerOther": "その他の S3 互換サービス",
+  "settings.storage.endpoint": "エンドポイント URL",
+  "settings.storage.bucket": "バケット",
+  "settings.storage.accessKeyId": "アクセスキー ID",
+  "settings.storage.secretAccessKey": "シークレットアクセスキー",
+  "settings.storage.region": "リージョン",
+  "settings.storage.publicUrl": "公開 URL",
+  "settings.storage.optional": "任意",
+  "settings.storage.saved": "保存済み",
+  "settings.storage.hintAws":
+    "バケットのリージョンのエンドポイントを使用します。",
+  "settings.storage.hintR2": "R2 バケットの設定で確認できます。",
+  "settings.storage.hintSupabase":
+    "プロジェクトの Storage 設定で確認できます。",
+  "settings.storage.hintOther":
+    "MinIO、Backblaze B2、Wasabi、DigitalOcean Spaces も使えます。",
+  "settings.storage.save": "保存",
+  "settings.storage.saving": "保存中…",
+  "settings.storage.cancel": "キャンセル",
+  "settings.storage.clear": "認証情報を消去",
+  "settings.storage.clearing": "消去中…",
+  "settings.storage.clearTitle": "ストレージの認証情報を消去しますか？",
+  "settings.storage.clearBuilder":
+    "新しいアップロードは Builder.io のストレージに保存されます。",
+  "settings.storage.clearNoFallback":
+    "ストレージを再設定するまで、アップロードは失敗します。",
+  "settings.storage.clearExisting": "既存のファイルは {{bucket}} に残ります。",
+  "settings.storage.clearExistingGeneric":
+    "既存のファイルはバケットに残ります。",
+  "settings.storage.missing":
+    "先にエンドポイント、バケット、キーを入力してください。",
+  "settings.storage.missingPublicUrl":
+    "先にエンドポイント、バケット、キー、公開 URL を入力してください。",
+  "settings.storage.invalidUrl":
+    "https:// または http:// で始まる URL を使用してください。",
+  "settings.storage.invalidBucket":
+    "バケット名に使えるのは英数字、ドット、ハイフン、アンダースコアです。",
+  "settings.storage.savedNotice":
+    "ファイルストレージを保存しました。新しいアップロードは {{bucket}} に保存されます。",
+  "settings.storage.cleared": "ストレージの認証情報を消去しました。",
+  "settings.storage.clearedBuilder":
+    "ストレージの認証情報を消去しました。新しいアップロードは Builder.io に保存されます。",
+  "settings.storage.saveFailed": "ファイルストレージを保存できませんでした。",
+  "settings.storage.clearFailed":
+    "ストレージの認証情報を消去できませんでした。",
+  "settings.storage.loadFailed":
+    "ファイルストレージの設定を読み込めませんでした。",
+  "settings.storage.retry": "再試行",
+  "settings.storage.adminOnly":
+    "ファイルストレージを変更できるのは組織のオーナーと管理者だけです。",
 };
 
 export default messages;

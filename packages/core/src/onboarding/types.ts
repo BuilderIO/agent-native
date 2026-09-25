@@ -60,6 +60,13 @@ export type OnboardingMethod =
   | (OnboardingMethodBase & {
       kind: "agent-task";
       payload: { prompt: string };
+    })
+  | (OnboardingMethodBase & {
+      /**
+       * Renders the shared S3-compatible storage form
+       * (`StorageSettingsForm`), which saves through `manage-file-storage`.
+       */
+      kind: "file-storage";
     });
 
 export interface OnboardingStep {

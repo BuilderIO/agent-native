@@ -47,47 +47,10 @@ export default async (nitroApp: any): Promise<void> => {
       },
       {
         id: "s3",
-        kind: "form",
+        kind: "file-storage",
         label: "Use S3-compatible storage",
         description:
-          "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, or any S3-compatible service.",
-        payload: {
-          writeScope: "workspace",
-          saveTo: "scoped-secrets",
-          secretDescription: "Clips S3-compatible storage",
-          fields: [
-            {
-              key: "S3_ENDPOINT",
-              label: "Endpoint URL",
-              placeholder: "https://s3.us-east-1.amazonaws.com",
-            },
-            {
-              key: "S3_BUCKET",
-              label: "Bucket name",
-              placeholder: "my-clips-bucket",
-            },
-            {
-              key: "S3_ACCESS_KEY_ID",
-              label: "Access key ID",
-              placeholder: "AKIA...",
-            },
-            {
-              key: "S3_SECRET_ACCESS_KEY",
-              label: "Secret access key",
-              secret: true,
-            },
-            {
-              key: "S3_REGION",
-              label: "Region (optional)",
-              placeholder: "us-east-1",
-            },
-            {
-              key: "S3_PUBLIC_BASE_URL",
-              label: "Public base URL (optional)",
-              placeholder: "https://cdn.example.com",
-            },
-          ],
-        },
+          "AWS S3, Cloudflare R2, Supabase Storage, MinIO, or any S3-compatible service.",
       },
     ],
     isComplete: hasRequestVideoStorage,

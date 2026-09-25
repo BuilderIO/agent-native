@@ -846,6 +846,52 @@ const messages = {
     "Provider or older calls outside Builder billing",
   "usage.providerSpendToday": "Other or unclassified usage: {{amount}} today",
   "usage.driverCreditsAndUsd": "Builder credits / USD",
+  "settings.storage.provider": "Provider",
+  "settings.storage.providerOther": "Other S3-compatible",
+  "settings.storage.endpoint": "Endpoint URL",
+  "settings.storage.bucket": "Bucket",
+  "settings.storage.accessKeyId": "Access key ID",
+  "settings.storage.secretAccessKey": "Secret access key",
+  "settings.storage.region": "Region",
+  "settings.storage.publicUrl": "Public URL",
+  "settings.storage.optional": "Optional",
+  "settings.storage.saved": "Saved",
+  "settings.storage.hintAws": "Use your bucket's region endpoint.",
+  "settings.storage.hintR2": "Find it in your R2 bucket's settings.",
+  "settings.storage.hintSupabase":
+    "Find it in your project's Storage settings.",
+  "settings.storage.hintOther":
+    "MinIO, Backblaze B2, Wasabi, and DigitalOcean Spaces work too.",
+  "settings.storage.save": "Save",
+  "settings.storage.saving": "Saving…",
+  "settings.storage.cancel": "Cancel",
+  "settings.storage.clear": "Clear credentials",
+  "settings.storage.clearing": "Clearing…",
+  "settings.storage.clearTitle": "Clear storage credentials?",
+  "settings.storage.clearBuilder": "New uploads go to Builder.io storage.",
+  "settings.storage.clearNoFallback":
+    "Uploads fail until you set up storage again.",
+  "settings.storage.clearExisting": "Existing files stay in {{bucket}}.",
+  "settings.storage.clearExistingGeneric":
+    "Existing files stay in your bucket.",
+  "settings.storage.missing": "Fill in the endpoint, bucket, and keys first.",
+  "settings.storage.missingPublicUrl":
+    "Fill in the endpoint, bucket, keys, and public URL first.",
+  "settings.storage.invalidUrl":
+    "Use a URL that starts with https:// or http://.",
+  "settings.storage.invalidBucket":
+    "Bucket names use letters, numbers, dots, dashes, and underscores.",
+  "settings.storage.savedNotice":
+    "File storage saved. New uploads go to {{bucket}}.",
+  "settings.storage.cleared": "Storage credentials cleared.",
+  "settings.storage.clearedBuilder":
+    "Storage credentials cleared. New uploads go to Builder.io.",
+  "settings.storage.saveFailed": "Could not save file storage.",
+  "settings.storage.clearFailed": "Could not clear storage credentials.",
+  "settings.storage.loadFailed": "Could not load file storage settings.",
+  "settings.storage.retry": "Retry",
+  "settings.storage.adminOnly":
+    "Only organization owners and admins can change file storage.",
 } as const;
 
 export default messages;

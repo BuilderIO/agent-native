@@ -902,6 +902,60 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Autre utilisation ou non classée aujourd’hui : {{amount}}",
   "usage.driverCreditsAndUsd": "Crédits Builder / USD",
+  "settings.storage.provider": "Fournisseur",
+  "settings.storage.providerOther": "Autre compatible S3",
+  "settings.storage.endpoint": "URL du point de terminaison",
+  "settings.storage.bucket": "Bucket",
+  "settings.storage.accessKeyId": "ID de clé d'accès",
+  "settings.storage.secretAccessKey": "Clé d'accès secrète",
+  "settings.storage.region": "Région",
+  "settings.storage.publicUrl": "URL publique",
+  "settings.storage.optional": "Facultatif",
+  "settings.storage.saved": "Enregistrée",
+  "settings.storage.hintAws":
+    "Utilisez le point de terminaison de la région de votre bucket.",
+  "settings.storage.hintR2":
+    "Vous le trouverez dans les paramètres de votre bucket R2.",
+  "settings.storage.hintSupabase":
+    "Vous le trouverez dans les paramètres Storage de votre projet.",
+  "settings.storage.hintOther":
+    "MinIO, Backblaze B2, Wasabi et DigitalOcean Spaces fonctionnent aussi.",
+  "settings.storage.save": "Enregistrer",
+  "settings.storage.saving": "Enregistrement…",
+  "settings.storage.cancel": "Annuler",
+  "settings.storage.clear": "Effacer les identifiants",
+  "settings.storage.clearing": "Effacement…",
+  "settings.storage.clearTitle": "Effacer les identifiants de stockage ?",
+  "settings.storage.clearBuilder":
+    "Les nouveaux envois iront dans le stockage Builder.io.",
+  "settings.storage.clearNoFallback":
+    "Les envois échoueront tant que le stockage ne sera pas reconfiguré.",
+  "settings.storage.clearExisting":
+    "Les fichiers existants restent dans {{bucket}}.",
+  "settings.storage.clearExistingGeneric":
+    "Les fichiers existants restent dans votre bucket.",
+  "settings.storage.missing":
+    "Renseignez d'abord le point de terminaison, le bucket et les clés.",
+  "settings.storage.missingPublicUrl":
+    "Renseignez d'abord le point de terminaison, le bucket, les clés et l'URL publique.",
+  "settings.storage.invalidUrl":
+    "Utilisez une URL qui commence par https:// ou http://.",
+  "settings.storage.invalidBucket":
+    "Les noms de bucket utilisent des lettres, des chiffres, des points, des tirets et des traits de soulignement.",
+  "settings.storage.savedNotice":
+    "Stockage des fichiers enregistré. Les nouveaux envois iront dans {{bucket}}.",
+  "settings.storage.cleared": "Identifiants de stockage effacés.",
+  "settings.storage.clearedBuilder":
+    "Identifiants de stockage effacés. Les nouveaux envois iront dans Builder.io.",
+  "settings.storage.saveFailed":
+    "Impossible d'enregistrer le stockage des fichiers.",
+  "settings.storage.clearFailed":
+    "Impossible d'effacer les identifiants de stockage.",
+  "settings.storage.loadFailed":
+    "Impossible de charger les paramètres de stockage des fichiers.",
+  "settings.storage.retry": "Réessayer",
+  "settings.storage.adminOnly":
+    "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier le stockage des fichiers.",
 };
 
 export default messages;

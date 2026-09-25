@@ -62,6 +62,13 @@ registerOnboardingStep({
 
 See `packages/core/docs/content/onboarding.md` for method kinds and built-in steps.
 
+For S3-compatible file storage, declare a `kind: "file-storage"` method instead
+of a `form` with `S3_*` fields. It renders the shared `StorageSettingsForm`,
+which saves through the `manage-file-storage` action (owners and admins only),
+so onboarding, Settings, and templates cannot drift into different rules. A
+provider that serves files without a public URL sets
+`publicBaseUrlOptional: true` on its `FileUploadProvider`.
+
 ## Related Skills
 
 - `adding-a-feature` — The four-area checklist; onboarding is often part of a new integration

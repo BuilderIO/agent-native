@@ -115,6 +115,14 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/file-upload/actions/upload-image",
   },
   {
+    name: "get-file-storage",
+    specifier: "@agent-native/core/file-upload/actions/get-file-storage",
+  },
+  {
+    name: "manage-file-storage",
+    specifier: "@agent-native/core/file-upload/actions/manage-file-storage",
+  },
+  {
     name: "list-workspace-user-groups",
     specifier:
       "@agent-native/core/workspace-connections/actions/list-workspace-user-groups",

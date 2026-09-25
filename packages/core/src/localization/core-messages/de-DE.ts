@@ -895,6 +895,58 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Sonstige oder nicht zugeordnete Nutzung heute: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder-Credits / USD",
+  "settings.storage.provider": "Anbieter",
+  "settings.storage.providerOther": "Anderer S3-kompatibler Dienst",
+  "settings.storage.endpoint": "Endpunkt-URL",
+  "settings.storage.bucket": "Bucket",
+  "settings.storage.accessKeyId": "Zugriffsschlüssel-ID",
+  "settings.storage.secretAccessKey": "Geheimer Zugriffsschlüssel",
+  "settings.storage.region": "Region",
+  "settings.storage.publicUrl": "Öffentliche URL",
+  "settings.storage.optional": "Optional",
+  "settings.storage.saved": "Gespeichert",
+  "settings.storage.hintAws": "Verwende den Regions-Endpunkt deines Buckets.",
+  "settings.storage.hintR2":
+    "Du findest ihn in den Einstellungen deines R2-Buckets.",
+  "settings.storage.hintSupabase":
+    "Du findest ihn in den Storage-Einstellungen deines Projekts.",
+  "settings.storage.hintOther":
+    "MinIO, Backblaze B2, Wasabi und DigitalOcean Spaces funktionieren auch.",
+  "settings.storage.save": "Speichern",
+  "settings.storage.saving": "Wird gespeichert…",
+  "settings.storage.cancel": "Abbrechen",
+  "settings.storage.clear": "Zugangsdaten löschen",
+  "settings.storage.clearing": "Wird gelöscht…",
+  "settings.storage.clearTitle": "Speicher-Zugangsdaten löschen?",
+  "settings.storage.clearBuilder":
+    "Neue Uploads gehen in den Builder.io-Speicher.",
+  "settings.storage.clearNoFallback":
+    "Uploads schlagen fehl, bis du wieder einen Speicher einrichtest.",
+  "settings.storage.clearExisting": "Vorhandene Dateien bleiben in {{bucket}}.",
+  "settings.storage.clearExistingGeneric":
+    "Vorhandene Dateien bleiben in deinem Bucket.",
+  "settings.storage.missing":
+    "Fülle zuerst Endpunkt, Bucket und Schlüssel aus.",
+  "settings.storage.missingPublicUrl":
+    "Fülle zuerst Endpunkt, Bucket, Schlüssel und öffentliche URL aus.",
+  "settings.storage.invalidUrl":
+    "Verwende eine URL, die mit https:// oder http:// beginnt.",
+  "settings.storage.invalidBucket":
+    "Bucket-Namen bestehen aus Buchstaben, Ziffern, Punkten, Bindestrichen und Unterstrichen.",
+  "settings.storage.savedNotice":
+    "Dateispeicher gespeichert. Neue Uploads gehen in {{bucket}}.",
+  "settings.storage.cleared": "Speicher-Zugangsdaten gelöscht.",
+  "settings.storage.clearedBuilder":
+    "Speicher-Zugangsdaten gelöscht. Neue Uploads gehen zu Builder.io.",
+  "settings.storage.saveFailed":
+    "Dateispeicher konnte nicht gespeichert werden.",
+  "settings.storage.clearFailed":
+    "Speicher-Zugangsdaten konnten nicht gelöscht werden.",
+  "settings.storage.loadFailed":
+    "Dateispeicher-Einstellungen konnten nicht geladen werden.",
+  "settings.storage.retry": "Erneut versuchen",
+  "settings.storage.adminOnly":
+    "Nur Inhaber und Admins der Organisation können den Dateispeicher ändern.",
 };
 
 export default messages;

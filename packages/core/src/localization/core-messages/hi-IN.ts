@@ -834,6 +834,50 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder बिलिंग से बाहर प्रदाता या पुराने कॉल",
   "usage.providerSpendToday": "आज का अन्य या अवर्गीकृत उपयोग: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder क्रेडिट / USD",
+  "settings.storage.provider": "प्रदाता",
+  "settings.storage.providerOther": "अन्य S3-संगत सेवा",
+  "settings.storage.endpoint": "एंडपॉइंट URL",
+  "settings.storage.bucket": "बकेट",
+  "settings.storage.accessKeyId": "एक्सेस की ID",
+  "settings.storage.secretAccessKey": "सीक्रेट एक्सेस की",
+  "settings.storage.region": "क्षेत्र",
+  "settings.storage.publicUrl": "सार्वजनिक URL",
+  "settings.storage.optional": "वैकल्पिक",
+  "settings.storage.saved": "सेव है",
+  "settings.storage.hintAws": "अपने बकेट के क्षेत्र का एंडपॉइंट इस्तेमाल करें।",
+  "settings.storage.hintR2": "यह आपके R2 बकेट की सेटिंग में मिलेगा।",
+  "settings.storage.hintSupabase": "यह आपके प्रोजेक्ट की Storage सेटिंग में मिलेगा।",
+  "settings.storage.hintOther":
+    "MinIO, Backblaze B2, Wasabi और DigitalOcean Spaces भी काम करते हैं।",
+  "settings.storage.save": "सेव करें",
+  "settings.storage.saving": "सेव हो रहा है…",
+  "settings.storage.cancel": "रद्द करें",
+  "settings.storage.clear": "क्रेडेंशियल साफ़ करें",
+  "settings.storage.clearing": "साफ़ हो रहा है…",
+  "settings.storage.clearTitle": "स्टोरेज क्रेडेंशियल साफ़ करें?",
+  "settings.storage.clearBuilder": "नए अपलोड Builder.io स्टोरेज में जाएंगे।",
+  "settings.storage.clearNoFallback":
+    "जब तक आप स्टोरेज फिर से सेट नहीं करते, अपलोड विफल होंगे।",
+  "settings.storage.clearExisting": "मौजूदा फ़ाइलें {{bucket}} में रहेंगी।",
+  "settings.storage.clearExistingGeneric": "मौजूदा फ़ाइलें आपके बकेट में रहेंगी।",
+  "settings.storage.missing": "पहले एंडपॉइंट, बकेट और कीज़ भरें।",
+  "settings.storage.missingPublicUrl":
+    "पहले एंडपॉइंट, बकेट, कीज़ और सार्वजनिक URL भरें।",
+  "settings.storage.invalidUrl":
+    "ऐसा URL इस्तेमाल करें जो https:// या http:// से शुरू हो।",
+  "settings.storage.invalidBucket":
+    "बकेट के नाम में अक्षर, संख्याएं, बिंदु, डैश और अंडरस्कोर होते हैं।",
+  "settings.storage.savedNotice":
+    "फ़ाइल स्टोरेज सेव हो गया। नए अपलोड {{bucket}} में जाएंगे।",
+  "settings.storage.cleared": "स्टोरेज क्रेडेंशियल साफ़ हो गए।",
+  "settings.storage.clearedBuilder":
+    "स्टोरेज क्रेडेंशियल साफ़ हो गए। नए अपलोड Builder.io में जाएंगे।",
+  "settings.storage.saveFailed": "फ़ाइल स्टोरेज सेव नहीं हो सका।",
+  "settings.storage.clearFailed": "स्टोरेज क्रेडेंशियल साफ़ नहीं हो सके।",
+  "settings.storage.loadFailed": "फ़ाइल स्टोरेज सेटिंग लोड नहीं हो सकीं।",
+  "settings.storage.retry": "फिर से कोशिश करें",
+  "settings.storage.adminOnly":
+    "सिर्फ़ संगठन के मालिक और एडमिन फ़ाइल स्टोरेज बदल सकते हैं।",
 };
 
 export default messages;

@@ -123,15 +123,9 @@ describe("default onboarding steps", () => {
       kind: "builder-cli-auth",
       payload: { scope: "llm" },
     });
-    expect(step.methods[1]).toMatchObject({
-      kind: "form",
-      payload: {
-        saveTo: "scoped-secrets",
-        fields: expect.arrayContaining([
-          expect.objectContaining({ key: "S3_PUBLIC_BASE_URL" }),
-        ]),
-      },
-    });
+    // The custom path renders the shared storage form, not a generic key form.
+    expect(step.methods[1]).toMatchObject({ kind: "file-storage" });
+    expect(step.methods[1]).not.toHaveProperty("payload");
   });
 
   it("completes GitHub repository setup from local token env when allowed", async () => {

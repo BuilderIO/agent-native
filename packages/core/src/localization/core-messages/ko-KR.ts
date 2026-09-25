@@ -839,6 +839,52 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder 청구 외 제공업체 사용 또는 이전 호출",
   "usage.providerSpendToday": "오늘 기타 또는 분류되지 않은 사용량: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder 크레딧 / USD",
+  "settings.storage.provider": "제공업체",
+  "settings.storage.providerOther": "기타 S3 호환 서비스",
+  "settings.storage.endpoint": "엔드포인트 URL",
+  "settings.storage.bucket": "버킷",
+  "settings.storage.accessKeyId": "액세스 키 ID",
+  "settings.storage.secretAccessKey": "비밀 액세스 키",
+  "settings.storage.region": "리전",
+  "settings.storage.publicUrl": "공개 URL",
+  "settings.storage.optional": "선택 사항",
+  "settings.storage.saved": "저장됨",
+  "settings.storage.hintAws": "버킷 리전의 엔드포인트를 사용하세요.",
+  "settings.storage.hintR2": "R2 버킷 설정에서 확인할 수 있습니다.",
+  "settings.storage.hintSupabase":
+    "프로젝트의 Storage 설정에서 확인할 수 있습니다.",
+  "settings.storage.hintOther":
+    "MinIO, Backblaze B2, Wasabi, DigitalOcean Spaces도 사용할 수 있습니다.",
+  "settings.storage.save": "저장",
+  "settings.storage.saving": "저장 중…",
+  "settings.storage.cancel": "취소",
+  "settings.storage.clear": "자격 증명 지우기",
+  "settings.storage.clearing": "지우는 중…",
+  "settings.storage.clearTitle": "스토리지 자격 증명을 지울까요?",
+  "settings.storage.clearBuilder":
+    "새 업로드는 Builder.io 스토리지에 저장됩니다.",
+  "settings.storage.clearNoFallback":
+    "스토리지를 다시 설정할 때까지 업로드가 실패합니다.",
+  "settings.storage.clearExisting": "기존 파일은 {{bucket}}에 남아 있습니다.",
+  "settings.storage.clearExistingGeneric": "기존 파일은 버킷에 남아 있습니다.",
+  "settings.storage.missing": "먼저 엔드포인트, 버킷, 키를 입력하세요.",
+  "settings.storage.missingPublicUrl":
+    "먼저 엔드포인트, 버킷, 키, 공개 URL을 입력하세요.",
+  "settings.storage.invalidUrl":
+    "https:// 또는 http://로 시작하는 URL을 사용하세요.",
+  "settings.storage.invalidBucket":
+    "버킷 이름에는 문자, 숫자, 점, 하이픈, 밑줄만 사용할 수 있습니다.",
+  "settings.storage.savedNotice":
+    "파일 스토리지를 저장했습니다. 새 업로드는 {{bucket}}에 저장됩니다.",
+  "settings.storage.cleared": "스토리지 자격 증명을 지웠습니다.",
+  "settings.storage.clearedBuilder":
+    "스토리지 자격 증명을 지웠습니다. 새 업로드는 Builder.io에 저장됩니다.",
+  "settings.storage.saveFailed": "파일 스토리지를 저장할 수 없습니다.",
+  "settings.storage.clearFailed": "스토리지 자격 증명을 지울 수 없습니다.",
+  "settings.storage.loadFailed": "파일 스토리지 설정을 불러올 수 없습니다.",
+  "settings.storage.retry": "다시 시도",
+  "settings.storage.adminOnly":
+    "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
 };
 
 export default messages;

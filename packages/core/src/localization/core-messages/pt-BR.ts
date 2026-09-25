@@ -887,6 +887,59 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Uso adicional ou não classificado hoje: {{amount}}",
   "usage.driverCreditsAndUsd": "Créditos do Builder / USD",
+  "settings.storage.provider": "Provedor",
+  "settings.storage.providerOther": "Outro compatível com S3",
+  "settings.storage.endpoint": "URL do endpoint",
+  "settings.storage.bucket": "Bucket",
+  "settings.storage.accessKeyId": "ID da chave de acesso",
+  "settings.storage.secretAccessKey": "Chave de acesso secreta",
+  "settings.storage.region": "Região",
+  "settings.storage.publicUrl": "URL pública",
+  "settings.storage.optional": "Opcional",
+  "settings.storage.saved": "Salva",
+  "settings.storage.hintAws": "Use o endpoint da região do seu bucket.",
+  "settings.storage.hintR2":
+    "Você encontra nas configurações do seu bucket do R2.",
+  "settings.storage.hintSupabase":
+    "Você encontra nas configurações de Storage do seu projeto.",
+  "settings.storage.hintOther":
+    "MinIO, Backblaze B2, Wasabi e DigitalOcean Spaces também funcionam.",
+  "settings.storage.save": "Salvar",
+  "settings.storage.saving": "Salvando…",
+  "settings.storage.cancel": "Cancelar",
+  "settings.storage.clear": "Limpar credenciais",
+  "settings.storage.clearing": "Limpando…",
+  "settings.storage.clearTitle": "Limpar credenciais de armazenamento?",
+  "settings.storage.clearBuilder":
+    "Novos envios vão para o armazenamento do Builder.io.",
+  "settings.storage.clearNoFallback":
+    "Os envios falham até você configurar o armazenamento de novo.",
+  "settings.storage.clearExisting":
+    "Os arquivos existentes ficam em {{bucket}}.",
+  "settings.storage.clearExistingGeneric":
+    "Os arquivos existentes ficam no seu bucket.",
+  "settings.storage.missing":
+    "Preencha primeiro o endpoint, o bucket e as chaves.",
+  "settings.storage.missingPublicUrl":
+    "Preencha primeiro o endpoint, o bucket, as chaves e a URL pública.",
+  "settings.storage.invalidUrl":
+    "Use uma URL que comece com https:// ou http://.",
+  "settings.storage.invalidBucket":
+    "Nomes de bucket usam letras, números, pontos, hifens e sublinhados.",
+  "settings.storage.savedNotice":
+    "Armazenamento de arquivos salvo. Novos envios vão para {{bucket}}.",
+  "settings.storage.cleared": "Credenciais de armazenamento limpas.",
+  "settings.storage.clearedBuilder":
+    "Credenciais de armazenamento limpas. Novos envios vão para o Builder.io.",
+  "settings.storage.saveFailed":
+    "Não foi possível salvar o armazenamento de arquivos.",
+  "settings.storage.clearFailed":
+    "Não foi possível limpar as credenciais de armazenamento.",
+  "settings.storage.loadFailed":
+    "Não foi possível carregar as configurações de armazenamento de arquivos.",
+  "settings.storage.retry": "Tentar novamente",
+  "settings.storage.adminOnly":
+    "Somente proprietários e administradores da organização podem alterar o armazenamento de arquivos.",
 };
 
 export default messages;

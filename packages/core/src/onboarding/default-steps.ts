@@ -451,47 +451,10 @@ const fileStorageStep: OnboardingStep = {
     },
     {
       id: "s3",
-      kind: "form",
+      kind: "file-storage",
       label: "Use custom storage keys",
       description:
-        "Connect AWS S3, Cloudflare R2, MinIO, or another S3-compatible bucket with a stable public base URL.",
-      payload: {
-        writeScope: "workspace",
-        saveTo: "scoped-secrets",
-        secretDescription: "S3-compatible object storage for file uploads",
-        fields: [
-          {
-            key: "S3_ENDPOINT",
-            label: "Endpoint URL",
-            placeholder: "https://s3.us-east-1.amazonaws.com",
-          },
-          {
-            key: "S3_BUCKET",
-            label: "Bucket name",
-            placeholder: "my-uploads-bucket",
-          },
-          {
-            key: "S3_ACCESS_KEY_ID",
-            label: "Access key ID",
-            placeholder: "AKIA...",
-          },
-          {
-            key: "S3_SECRET_ACCESS_KEY",
-            label: "Secret access key",
-            secret: true,
-          },
-          {
-            key: "S3_REGION",
-            label: "Region",
-            placeholder: "auto",
-          },
-          {
-            key: "S3_PUBLIC_BASE_URL",
-            label: "Public base URL",
-            placeholder: "https://cdn.example.com",
-          },
-        ],
-      },
+        "Connect Amazon S3, Cloudflare R2, Supabase Storage, or another S3-compatible bucket.",
     },
   ],
   isComplete: async () =>

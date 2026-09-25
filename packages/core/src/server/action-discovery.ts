@@ -669,6 +669,14 @@ export async function mergeCoreSharingActions(
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
+      "get-file-storage",
+      () => import("../file-upload/actions/get-file-storage.js"),
+    ],
+    [
+      "manage-file-storage",
+      () => import("../file-upload/actions/manage-file-storage.js"),
+    ],
+    [
       "list-workspace-user-groups",
       () =>
         import("../workspace-connections/actions/list-workspace-user-groups.js"),

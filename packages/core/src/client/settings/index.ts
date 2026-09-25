@@ -49,6 +49,10 @@ export {
 } from "./NewKeyMenu.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";
 export {
+  StorageSettingsForm,
+  type StorageSettingsFormProps,
+} from "./StorageSettingsForm.js";
+export {
   SettingsGroup,
   SettingsRow,
   type SettingsGroupProps,

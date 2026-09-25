@@ -895,6 +895,59 @@ const messages: AgentChatTranslation = {
     "Uso de proveedores o llamadas antiguas fuera de la facturación de Builder",
   "usage.providerSpendToday": "Uso adicional o sin clasificar hoy: {{amount}}",
   "usage.driverCreditsAndUsd": "Créditos de Builder / USD",
+  "settings.storage.provider": "Proveedor",
+  "settings.storage.providerOther": "Otro compatible con S3",
+  "settings.storage.endpoint": "URL del endpoint",
+  "settings.storage.bucket": "Bucket",
+  "settings.storage.accessKeyId": "ID de clave de acceso",
+  "settings.storage.secretAccessKey": "Clave de acceso secreta",
+  "settings.storage.region": "Región",
+  "settings.storage.publicUrl": "URL pública",
+  "settings.storage.optional": "Opcional",
+  "settings.storage.saved": "Guardada",
+  "settings.storage.hintAws": "Usa el endpoint de la región de tu bucket.",
+  "settings.storage.hintR2":
+    "Lo encontrarás en la configuración de tu bucket de R2.",
+  "settings.storage.hintSupabase":
+    "Lo encontrarás en la configuración de Storage de tu proyecto.",
+  "settings.storage.hintOther":
+    "También funcionan MinIO, Backblaze B2, Wasabi y DigitalOcean Spaces.",
+  "settings.storage.save": "Guardar",
+  "settings.storage.saving": "Guardando…",
+  "settings.storage.cancel": "Cancelar",
+  "settings.storage.clear": "Borrar credenciales",
+  "settings.storage.clearing": "Borrando…",
+  "settings.storage.clearTitle": "¿Borrar las credenciales de almacenamiento?",
+  "settings.storage.clearBuilder":
+    "Las nuevas subidas irán al almacenamiento de Builder.io.",
+  "settings.storage.clearNoFallback":
+    "Las subidas fallarán hasta que vuelvas a configurar el almacenamiento.",
+  "settings.storage.clearExisting":
+    "Los archivos existentes se quedan en {{bucket}}.",
+  "settings.storage.clearExistingGeneric":
+    "Los archivos existentes se quedan en tu bucket.",
+  "settings.storage.missing":
+    "Primero completa el endpoint, el bucket y las claves.",
+  "settings.storage.missingPublicUrl":
+    "Primero completa el endpoint, el bucket, las claves y la URL pública.",
+  "settings.storage.invalidUrl":
+    "Usa una URL que empiece por https:// o http://.",
+  "settings.storage.invalidBucket":
+    "Los nombres de bucket usan letras, números, puntos, guiones y guiones bajos.",
+  "settings.storage.savedNotice":
+    "Almacenamiento de archivos guardado. Las nuevas subidas irán a {{bucket}}.",
+  "settings.storage.cleared": "Credenciales de almacenamiento borradas.",
+  "settings.storage.clearedBuilder":
+    "Credenciales de almacenamiento borradas. Las nuevas subidas irán a Builder.io.",
+  "settings.storage.saveFailed":
+    "No se pudo guardar el almacenamiento de archivos.",
+  "settings.storage.clearFailed":
+    "No se pudieron borrar las credenciales de almacenamiento.",
+  "settings.storage.loadFailed":
+    "No se pudo cargar la configuración del almacenamiento de archivos.",
+  "settings.storage.retry": "Reintentar",
+  "settings.storage.adminOnly":
+    "Solo los propietarios y administradores de la organización pueden cambiar el almacenamiento de archivos.",
 };
 
 export default messages;

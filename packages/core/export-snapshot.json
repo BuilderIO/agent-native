@@ -178,6 +178,12 @@
     "./file-upload/actions/upload-image": [
       "dist/file-upload/actions/upload-image.js"
     ],
+    "./file-upload/actions/get-file-storage": [
+      "dist/file-upload/actions/get-file-storage.js"
+    ],
+    "./file-upload/actions/manage-file-storage": [
+      "dist/file-upload/actions/manage-file-storage.js"
+    ],
     "./guards": ["dist/guards/index.d.ts", "dist/guards/index.js"],
     "./history": ["dist/history/index.js"],
     "./history/actions/create-resource-version": [

@@ -118,7 +118,6 @@ import { AutomationsSection } from "./AutomationsSection.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
-import { FileStorageSettingsForm } from "./FileStorageSettingsForm.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import {
@@ -129,6 +128,7 @@ import {
 } from "./SettingsSection.js";
 import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
+import { StorageSettingsForm } from "./StorageSettingsForm.js";
 import { UsageSection } from "./UsageSection.js";
 import {
   isPopupClosed,
@@ -3990,7 +3990,7 @@ function SettingsPanelContent({
                         ) : undefined
                       }
                     >
-                      <FileStorageSettingsForm />
+                      <StorageSettingsForm />
                     </ManualSetupCard>
                   </div>
                 }
@@ -4238,7 +4238,7 @@ function SettingsPanelContent({
                 })}
                 dim={connected}
               >
-                <FileStorageSettingsForm />
+                <StorageSettingsForm />
               </ManualSetupCard>
             </div>
           </SettingsSection>
