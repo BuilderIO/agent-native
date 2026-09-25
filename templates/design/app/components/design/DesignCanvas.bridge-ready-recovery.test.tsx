@@ -116,6 +116,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
             previewToken="ready-recovery-preview-token"
+            liveEditCapability="ready-recovery-live-edit-capability"
             runtimeStructureInsertRequest={insertRequest}
             runtimeStructureRollbackRequest={rollbackRequest}
             runtimeStructureTargetTransactionId={targetTransactionId}
@@ -439,6 +440,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
           previewToken="ready-recovery-preview-token"
+          liveEditCapability="ready-recovery-live-edit-capability"
           // The editor supplies this only after insert ack while the source
           // delete request is still awaiting its own ack.
           runtimeStructureTargetTransactionId="move-reload"
@@ -537,6 +539,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
             previewToken="snapshot-refresh-preview-token"
+            liveEditCapability="snapshot-refresh-live-edit-capability"
             zoom={100}
             deviceFrame="none"
             editMode
@@ -643,6 +646,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
           previewToken="runtime-insert-ack-preview-token"
+          liveEditCapability="runtime-insert-ack-live-edit-capability"
           runtimeStructureInsertRequest={{
             requestId: 1,
             screenId: "screen-live",
@@ -797,6 +801,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
             previewToken="style-probe-preview-token"
+            liveEditCapability="style-probe-live-edit-capability"
             pendingStylePreviewPatches={pendingStylePreviewPatches}
             zoom={100}
             deviceFrame="none"
@@ -1007,6 +1012,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
           previewToken="silent-frame-preview-token"
+          liveEditCapability="silent-frame-live-edit-capability"
           zoom={100}
           deviceFrame="none"
           editMode
