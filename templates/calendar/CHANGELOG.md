@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-25
+
+### Added
+
+- Add Jev invitation rules for auto-accept, auto-decline, and auto-hide with automation status.
+
 ## 2026-09-24
 
 ### Fixed

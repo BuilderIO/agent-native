@@ -2302,6 +2302,36 @@ describe("calendar RSVP updates", () => {
     );
   });
 
+  it("restores an automatic RSVP to needsAction", async () => {
+    await rsvpEvent(
+      "event-1",
+      "needsAction",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      "single",
+      undefined,
+      "all",
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "needsAction",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "all" },
+    );
+  });
+
   it("sends an empty comment so an RSVP note can be cleared", async () => {
     await rsvpEvent(
       "event-1",

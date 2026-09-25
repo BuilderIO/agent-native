@@ -59,6 +59,7 @@ import { toast } from "sonner";
 import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -147,6 +148,25 @@ const ACCOUNT_POLL_INTERVAL_MS = 2000;
 // Bounds the account-status poll so a hung fetch can't leave the in-flight
 // guard stuck and stall the interval forever.
 const ACCOUNT_POLL_ABORT_MS = Math.max(10_000, ACCOUNT_POLL_INTERVAL_MS * 4);
+
+function wasMailChatOpen(): boolean {
+  try {
+    if (window.matchMedia("(max-width: 767px)").matches) return false;
+    return (
+      localStorage.getItem("agent-native.mail-chat.sidebar-open") === "true"
+    );
+    // coercion-ok: unreadable saved panel state defaults closed, especially on mobile.
+  } catch {
+    return false;
+  }
+}
+
+function mailChatOpenStorageKey(): string {
+  return typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 767px)").matches
+    ? "mail-chat-mobile"
+    : "mail-chat";
+}
 
 function AccountAvatar({
   email,
@@ -331,7 +351,9 @@ export function AppLayout({ children }: AppLayoutProps) {
     <AgentSidebar
       browserTabId={getBrowserTabId()}
       position="right"
-      defaultOpen={false}
+      disableChatShortcut
+      defaultOpen={typeof window !== "undefined" && wasMailChatOpen()}
+      openStorageKey={mailChatOpenStorageKey()}
       agentPageHref="/settings/agent"
       emptyStateText={t("agent.emptyState")}
       suggestions={[
@@ -1511,7 +1533,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   className="w-60 max-w-[calc(100vw-2rem)] p-0"
                 >
                   <Link
-                    to="/settings?section=ai-filter"
+                    to="/settings?section=ai-filter#tags"
                     onClick={() => setTabSettingsOpen(false)}
                     className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/50"
                   >
@@ -1527,6 +1549,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
                     combinedInbox={combineInbox}
+                    showSplitInbox={accounts.length > 1}
                     allTabVisible={showAllTab}
                     savedFilters={savedFilters}
                     labelAliases={labelAliases}
@@ -2335,6 +2358,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           setSnoozeOverride(null);
         }}
       />
+      <AiInboxSetup />
     </AccountFilterContext.Provider>
   );
 }
@@ -2648,6 +2672,7 @@ function TabSettingsPopover({
   labelDisplayNames,
   pinnedLabels,
   combinedInbox,
+  showSplitInbox,
   allTabVisible,
   savedFilters,
   labelAliases,
@@ -2664,6 +2689,7 @@ function TabSettingsPopover({
   labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
   combinedInbox: boolean;
+  showSplitInbox: boolean;
   allTabVisible: boolean;
   savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
@@ -2678,7 +2704,9 @@ function TabSettingsPopover({
   const t = useT();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const q = search.toLowerCase();
+  const searchEnabled =
+    systemViews.length + userLabels.length + savedFilters.length > 10;
+  const q = searchEnabled ? search.toLowerCase() : "";
 
   const filteredViews = search
     ? systemViews.filter((v) => t(v.labelKey).toLowerCase().includes(q))
@@ -2742,205 +2770,208 @@ function TabSettingsPopover({
 
   return (
     <>
-      {/* Search */}
-      <div className="px-2 py-1.5 border-b border-border/30">
-        <input
-          autoFocus
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder={t("mail.search.placeholder")}
-          className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
-        />
-      </div>
+      {searchEnabled && (
+        <div className="px-2 py-1.5 border-b border-border/30">
+          <input
+            autoFocus
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder={t("mail.search.placeholder")}
+            className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
+          />
+        </div>
+      )}
 
-      <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
-        <label
-          htmlFor="combined-inbox-toggle"
-          className="text-[13px] text-foreground"
-        >
-          {t("mail.tabSettings.combinedInbox")}
-        </label>
-        <Switch
-          id="combined-inbox-toggle"
-          checked={combinedInbox}
-          onCheckedChange={onCombinedInboxChange}
-        />
-      </div>
+      <div
+        className={cn(combinedInbox && "opacity-40")}
+        aria-disabled={combinedInbox}
+        inert={combinedInbox}
+      >
+        <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
+          <label
+            htmlFor="all-inbox-tab-toggle"
+            className="text-[13px] text-foreground"
+          >
+            {t("mail.tabSettings.allTab")}
+          </label>
+          <Switch
+            id="all-inbox-tab-toggle"
+            checked={allTabVisible}
+            onCheckedChange={onAllTabChange}
+          />
+        </div>
 
-      <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
-        <label
-          htmlFor="all-inbox-tab-toggle"
-          className="text-[13px] text-foreground"
-        >
-          {t("mail.tabSettings.allTab")}
-        </label>
-        <Switch
-          id="all-inbox-tab-toggle"
-          checked={allTabVisible}
-          onCheckedChange={onAllTabChange}
-        />
-      </div>
-
-      <div className="max-h-72 overflow-y-auto">
-        {noResults && (
-          <p className="px-3 py-3 text-[12px] text-muted-foreground/50">
-            {t("mail.search.noMatches")}
-          </p>
-        )}
-
-        {/* System views */}
-        {showViews && (
-          <div>
-            <p className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">
-              {t("mail.tabSettings.views")}
+        <div className="max-h-72 overflow-y-auto">
+          {noResults && (
+            <p className="px-3 py-3 text-[12px] text-muted-foreground/50">
+              {t("mail.search.noMatches")}
             </p>
-            {filteredViews.map((v) => (
-              <CheckboxRow
-                key={v.id}
-                checked={pinnedLabels.includes(v.id)}
-                label={t(v.labelKey)}
-                onToggle={() => onToggle(v.id)}
-              />
-            ))}
-          </div>
-        )}
+          )}
 
-        {/* Query-backed tabs saved from the search bar */}
-        {showSavedFilters && (
-          <div>
-            <p
-              className={cn(
-                "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
-                showViews && "border-t border-border/20 mt-1",
-              )}
-            >
-              {t("mail.tabSettings.savedFilters")}
-            </p>
-            {filteredSavedFilters.map((filter) => (
-              <CheckboxRow
-                key={filter.id}
-                checked
-                label={filter.name}
-                onToggle={() => onRemoveFilter(filter.id)}
-              />
-            ))}
-          </div>
-        )}
+          {/* System views */}
+          {showViews && (
+            <div>
+              <p className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">
+                {t("mail.tabSettings.views")}
+              </p>
+              {filteredViews.map((v) => (
+                <CheckboxRow
+                  key={v.id}
+                  checked={pinnedLabels.includes(v.id)}
+                  label={t(v.labelKey)}
+                  onToggle={() => onToggle(v.id)}
+                />
+              ))}
+            </div>
+          )}
 
-        {/* Gmail categories */}
-        {showCategories && (
-          <div>
-            <p
-              className={cn(
-                "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
-                showViews && "border-t border-border/20 mt-1",
-              )}
-            >
-              {t("mail.tabSettings.categories")}
-            </p>
-            {filteredCategories.map((cat) => (
-              <CheckboxRow
-                key={cat.id}
-                checked={pinnedLabels.includes(cat.id)}
-                label={cat.name}
-                onToggle={() => onToggle(cat.id)}
-              />
-            ))}
-          </div>
-        )}
+          {/* Query-backed tabs saved from the search bar */}
+          {showSavedFilters && (
+            <div>
+              <p
+                className={cn(
+                  "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
+                  showViews && "border-t border-border/20 mt-1",
+                )}
+              >
+                {t("mail.tabSettings.savedFilters")}
+              </p>
+              {filteredSavedFilters.map((filter) => (
+                <CheckboxRow
+                  key={filter.id}
+                  checked
+                  label={filter.name}
+                  onToggle={() => onRemoveFilter(filter.id)}
+                />
+              ))}
+            </div>
+          )}
 
-        {/* User labels */}
-        {showLabels && (
-          <div>
-            <p
-              className={cn(
-                "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
-                (showViews || showCategories) &&
-                  "border-t border-border/20 mt-1",
-              )}
-            >
-              {t("mail.views.labels")}
-            </p>
-            {labelRows.map(({ label, depth, displayName: leafName }) => {
-              const isPinned = pinnedLabels.includes(label.id);
-              const isEditing = editingId === label.id;
-              const alias = labelAliases[label.id];
-              const displayName =
-                alias || labelDisplayNames.get(label.id) || leafName;
+          {/* Gmail categories */}
+          {showCategories && (
+            <div>
+              <p
+                className={cn(
+                  "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
+                  showViews && "border-t border-border/20 mt-1",
+                )}
+              >
+                {t("mail.tabSettings.categories")}
+              </p>
+              {filteredCategories.map((cat) => (
+                <CheckboxRow
+                  key={cat.id}
+                  checked={pinnedLabels.includes(cat.id)}
+                  label={cat.name}
+                  onToggle={() => onToggle(cat.id)}
+                />
+              ))}
+            </div>
+          )}
 
-              return (
-                <div key={label.id} className="group flex items-center">
-                  <div className="flex-1 min-w-0">
-                    {isEditing ? (
-                      <div
-                        className="flex items-center gap-1 px-3 py-1"
-                        style={
-                          depth
-                            ? { paddingInlineStart: 12 + depth * 12 }
-                            : undefined
-                        }
-                      >
-                        <input
-                          autoFocus
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
+          {/* User labels */}
+          {showLabels && (
+            <div>
+              <p
+                className={cn(
+                  "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
+                  (showViews || showCategories) &&
+                    "border-t border-border/20 mt-1",
+                )}
+              >
+                {t("mail.views.labels")}
+              </p>
+              {labelRows.map(({ label, depth, displayName: leafName }) => {
+                const isPinned = pinnedLabels.includes(label.id);
+                const isEditing = editingId === label.id;
+                const alias = labelAliases[label.id];
+                const displayName =
+                  alias || labelDisplayNames.get(label.id) || leafName;
+
+                return (
+                  <div key={label.id} className="group flex items-center">
+                    <div className="flex-1 min-w-0">
+                      {isEditing ? (
+                        <div
+                          className="flex items-center gap-1 px-3 py-1"
+                          style={
+                            depth
+                              ? { paddingInlineStart: 12 + depth * 12 }
+                              : undefined
+                          }
+                        >
+                          <input
+                            autoFocus
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                onRename(label.id, editValue.trim());
+                                setEditingId(null);
+                              }
+                              if (e.key === "Escape") setEditingId(null);
+                            }}
+                            onBlur={() => {
                               onRename(label.id, editValue.trim());
                               setEditingId(null);
+                            }}
+                            className="flex-1 bg-transparent text-[13px] text-foreground outline-none border-b border-primary/50 px-0 py-0.5"
+                            placeholder={
+                              labelDisplayNames.get(label.id) || leafName
                             }
-                            if (e.key === "Escape") setEditingId(null);
-                          }}
-                          onBlur={() => {
-                            onRename(label.id, editValue.trim());
-                            setEditingId(null);
-                          }}
-                          className="flex-1 bg-transparent text-[13px] text-foreground outline-none border-b border-primary/50 px-0 py-0.5"
-                          placeholder={
-                            labelDisplayNames.get(label.id) || leafName
-                          }
+                          />
+                        </div>
+                      ) : (
+                        <CheckboxRow
+                          checked={isPinned}
+                          label={displayName}
+                          color={label.color}
+                          indent={depth * 12}
+                          onToggle={() => onToggle(label.id)}
                         />
-                      </div>
-                    ) : (
-                      <CheckboxRow
-                        checked={isPinned}
-                        label={displayName}
-                        color={label.color}
-                        indent={depth * 12}
-                        onToggle={() => onToggle(label.id)}
-                      />
+                      )}
+                    </div>
+                    {isPinned && !isEditing && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => {
+                              setEditingId(label.id);
+                              setEditValue(alias || "");
+                            }}
+                            className="shrink-0 me-2 px-1 py-0.5 text-[10px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 rounded hover:bg-accent/50"
+                          >
+                            {t("mail.tabSettings.rename")}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("mail.tabSettings.renameTab")}
+                        </TooltipContent>
+                      </Tooltip>
                     )}
                   </div>
-                  {isPinned && !isEditing && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => {
-                            setEditingId(label.id);
-                            setEditValue(alias || "");
-                          }}
-                          className="shrink-0 me-2 px-1 py-0.5 text-[10px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 rounded hover:bg-accent/50"
-                        >
-                          {t("mail.tabSettings.rename")}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("mail.tabSettings.renameTab")}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="px-3 py-1.5 border-t border-border/30">
-        <p className="text-[11px] text-muted-foreground/40">
-          {t("mail.tabSettings.help")}
-        </p>
-      </div>
+      {showSplitInbox && (
+        <div className="flex items-center justify-between border-t border-border/30 px-3 py-2">
+          <label
+            htmlFor="split-inbox-toggle"
+            className="text-[13px] text-foreground"
+          >
+            {t("mail.tabSettings.splitInbox")}
+          </label>
+          <Switch
+            id="split-inbox-toggle"
+            checked={!combinedInbox}
+            onCheckedChange={(checked) => onCombinedInboxChange(!checked)}
+          />
+        </div>
+      )}
     </>
   );
 }

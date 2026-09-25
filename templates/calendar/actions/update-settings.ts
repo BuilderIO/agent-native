@@ -31,6 +31,14 @@ export default defineAction({
       .enum(["sunday", "monday"])
       .optional()
       .describe("First day shown in calendar weeks"),
+    eventRules: z
+      .object({
+        accept: z.string().max(2000).optional(),
+        decline: z.string().max(2000).optional(),
+        hide: z.string().max(2000).optional(),
+      })
+      .optional()
+      .describe("Jev rules for new calendar invitations"),
   }),
   run: async (args) => {
     const email = getRequestUserEmail();

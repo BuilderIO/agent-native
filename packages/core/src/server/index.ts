@@ -762,6 +762,16 @@ export {
   type EmailCta,
 } from "./email-template.js";
 export {
+  hasRecurringSweepHandler,
+  registerRecurringSweepHandler,
+  runRecurringSweepHandlers,
+  type RecurringSweepHandler,
+} from "../jobs/sweep-hooks.js";
+export {
+  scheduledTriggerAvailability,
+  type ScheduledTriggerAvailability,
+} from "./agent-chat/recurring-jobs-runtime.js";
+export {
   getAppProductionUrl,
   getFirstPartyProdUrl,
   resolveAppRuntimeUrl,

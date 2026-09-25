@@ -197,7 +197,7 @@ describe("AppLayout inbox tab bar", () => {
     expect(focusHook).toContain("focusTarget.focus({ preventScroll: true })");
   });
 
-  it("uses the tab cog to persist and apply the combined inbox preference", () => {
+  it("uses the tab cog to persist the split inbox preference", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
@@ -211,10 +211,12 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("!isInboxScopedAppLabel(activeLabel)");
     expect(source).toContain("resolveDefaultMailHref({");
     expect(source).toContain("if (combineInbox) return [];");
+    expect(source).toContain("showSplitInbox={accounts.length > 1}");
+    expect(source).toContain("{showSplitInbox && (");
     expect(source).toContain(
-      '<Switch\n          id="combined-inbox-toggle"\n          checked={combinedInbox}\n          onCheckedChange={onCombinedInboxChange}',
+      '<Switch\n            id="split-inbox-toggle"\n            checked={!combinedInbox}\n            onCheckedChange={(checked) => onCombinedInboxChange(!checked)}',
     );
-    expect(source).toContain('t("mail.tabSettings.combinedInbox")');
+    expect(source).toContain('t("mail.tabSettings.splitInbox")');
   });
 
   it("routes saved searches through the Gmail query path", () => {
