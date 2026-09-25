@@ -58,16 +58,22 @@ import {
   type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import {
+  useFeatureFlagState,
+  type FeatureFlagState,
+} from "@agent-native/core/client/feature-flags";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { RunsTray } from "@agent-native/core/client/progress";
+import { isSettingsPathname } from "@agent-native/core/client/settings";
 import {
   AppSidebarFooter,
   AppSidebarHeader,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -349,6 +355,21 @@ export function isElectronEmbeddedSearch(search: string): boolean {
 
 export function shouldAutoCollapseDispatchSidebar(pathname: string): boolean {
   return localDispatchPath(pathname).startsWith("/apps/");
+}
+
+/**
+ * The redesigned Settings brings its own navigation, header, and agent
+ * toggle, so it renders full width. While the flag loads it shows the
+ * shell's skeleton, which needs the same frame.
+ */
+export function isRedesignedSettingsPath(
+  pathname: string,
+  settingsRedesign: FeatureFlagState,
+): boolean {
+  return (
+    isSettingsPathname(localDispatchPath(pathname)) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading")
+  );
 }
 
 function chatFirstPrimaryTabForPath(
@@ -1389,6 +1410,10 @@ export function Layout({
   );
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
+  const isRedesignedSettingsRoute = isRedesignedSettingsPath(
+    location.pathname,
+    useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key),
+  );
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
@@ -2266,7 +2291,10 @@ export function Layout({
     );
   }
 
-  const showAgentControls = !isChatRoute && !pageOwnsToolbar(localPathname);
+  const showAgentControls =
+    !isChatRoute &&
+    !isRedesignedSettingsRoute &&
+    !pageOwnsToolbar(localPathname);
   function openAskAgentFullscreen() {
     focusAgentChat();
     navigateWithAgentChatViewTransition(
@@ -2488,46 +2516,48 @@ export function Layout({
     <DispatchExtensionsContext.Provider value={extensions}>
       <HeaderActionsProvider>
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-          <aside
-            data-collapsed={sidebarCollapsed ? "true" : "false"}
-            className={cn(
-              "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-              sidebarCollapsed ? "w-14" : "w-[260px]",
-            )}
-          >
-            <NavContent
-              extensions={extensions}
-              brandName={brandName}
-              brandIcon={brandIcon}
-              chatFirstMode={chatFirstMode}
-              chatFirstEmbedded={chatFirstEmbedded}
-              collapsed={sidebarCollapsed}
-              chatFirstAppLayout={chatFirstAppLayout}
-              onChatFirstAppLayoutChange={persistChatFirstAppLayout}
-              chatFirstApps={chatFirstAppItems}
-              chatFirstAppsLoading={chatFirstAppsQuery.isLoading}
-              chatFirstAppsError={
-                chatFirstAppsQuery.isError
-                  ? chatFirstCopy("appsLoadError")
-                  : null
-              }
-              chatFirstActiveAppId={chatFirstActiveAppId}
-              chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
-              onChatFirstNewChat={() => {
-                closeChatFirstSessionWatch();
-                chatFirstSurfaceTabsStore.closeAll();
-                setChatFirstSurfacePanelOpen(false);
-              }}
-              onChatFirstAppOpen={(app) => {
-                if (isDispatchWorkspaceAppId(app.id)) return;
-                setSidebarCollapsed(true);
-                openChatFirstApp(app);
-              }}
-              onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
-              collapsible
-              onCollapsedChange={setSidebarCollapsed}
-            />
-          </aside>
+          {isRedesignedSettingsRoute ? null : (
+            <aside
+              data-collapsed={sidebarCollapsed ? "true" : "false"}
+              className={cn(
+                "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
+                sidebarCollapsed ? "w-14" : "w-[260px]",
+              )}
+            >
+              <NavContent
+                extensions={extensions}
+                brandName={brandName}
+                brandIcon={brandIcon}
+                chatFirstMode={chatFirstMode}
+                chatFirstEmbedded={chatFirstEmbedded}
+                collapsed={sidebarCollapsed}
+                chatFirstAppLayout={chatFirstAppLayout}
+                onChatFirstAppLayoutChange={persistChatFirstAppLayout}
+                chatFirstApps={chatFirstAppItems}
+                chatFirstAppsLoading={chatFirstAppsQuery.isLoading}
+                chatFirstAppsError={
+                  chatFirstAppsQuery.isError
+                    ? chatFirstCopy("appsLoadError")
+                    : null
+                }
+                chatFirstActiveAppId={chatFirstActiveAppId}
+                chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
+                onChatFirstNewChat={() => {
+                  closeChatFirstSessionWatch();
+                  chatFirstSurfaceTabsStore.closeAll();
+                  setChatFirstSurfacePanelOpen(false);
+                }}
+                onChatFirstAppOpen={(app) => {
+                  if (isDispatchWorkspaceAppId(app.id)) return;
+                  setSidebarCollapsed(true);
+                  openChatFirstApp(app);
+                }}
+                onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
+                collapsible
+                onCollapsedChange={setSidebarCollapsed}
+              />
+            </aside>
+          )}
 
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetContent
