@@ -388,7 +388,7 @@
   background: color-mix(
     in srgb,
     hsl(var(--secondary)) 72%,
-    hsl(var(--background))
+    color-mix(in srgb, hsl(var(--card)) 97%, hsl(var(--foreground)) 3%)
   );
   box-shadow: none;
 }
