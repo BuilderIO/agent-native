@@ -168,6 +168,14 @@ const SAFE_LINK = /^(https?:|mailto:)/i;
  */
 const PASTE_STYLE_PROPERTY =
   /^(color|font(-.+)?|text-decoration(-.+)?|letter-spacing|word-spacing|text-transform|vertical-align)$/;
+/** An `<ol type>` restated as CSS, which preflight's `list-style: none` beats otherwise. */
+const ORDERED_TYPE_MARKER: Record<string, string> = {
+  "1": "decimal",
+  a: "lower-alpha",
+  A: "upper-alpha",
+  i: "lower-roman",
+  I: "upper-roman",
+};
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
 const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
 const UNDO_LIMIT = 100;
@@ -567,6 +575,22 @@ function plainTextLines(text: string): PastedLine[] {
   });
 }
 
+/** A slide list like a pasted one: its kind, marker, and numbering. */
+function pastedListLike(source: HTMLElement): HTMLElement {
+  const ordered = source.tagName === "OL";
+  const list = createSlideList(document, ordered ? "ordered" : "bullet");
+  if (!ordered) return list;
+  const marker =
+    source.style.getPropertyValue("list-style-type") ||
+    ORDERED_TYPE_MARKER[source.getAttribute("type") ?? ""];
+  if (marker) list.style.setProperty("list-style-type", marker);
+  for (const name of ["start", "reversed", "type"]) {
+    const value = source.getAttribute(name);
+    if (value !== null) list.setAttribute(name, value);
+  }
+  return list;
+}
+
 /**
  * Pasted list lines as the lists they came from, nested the way they were:
  * a line opens a new list wherever its pasted list differs from the one open
@@ -583,10 +607,7 @@ function pastedLists(lines: PastedLine[]): DocumentFragment {
     open.length = depth;
     while (open.length < from.length) {
       const source = from[open.length];
-      const list = createSlideList(
-        document,
-        source.tagName === "OL" ? "ordered" : "bullet",
-      );
+      const list = pastedListLike(source);
       const parent = open[open.length - 1]?.list;
       if (parent) {
         (
@@ -1353,6 +1374,16 @@ export function startInPlaceTextSession(
         if (current && target > 0) {
           while (depth < target && keepingSelection(() => indent(current))) {
             depth += 1;
+            // A sub-list this line opened is the pasted one, not the host's.
+            const list = current.parentElement!;
+            if (list.childElementCount === 1) {
+              const like = pastedListLike(line.lists[depth - 1]);
+              keepingSelection(() => {
+                list.replaceWith(like);
+                like.append(current);
+                return true;
+              });
+            }
           }
           while (depth > target && keepingSelection(() => outdent(current))) {
             depth -= 1;
@@ -1690,6 +1721,35 @@ export function startInPlaceTextSession(
       keptZwsp.push(...Array<boolean>(count).fill(author));
       if (!author) copy.data = copy.data.replaceAll(ZERO_WIDTH_SPACE, "");
     });
+    // Items copied across a list are that list, numbered from the first one.
+    const common = range.commonAncestorContainer;
+    if (
+      common instanceof HTMLElement &&
+      (common.tagName === "UL" || common.tagName === "OL")
+    ) {
+      const list = common.cloneNode(false) as HTMLElement;
+      stripCopiedIdentity(list);
+      if (common.tagName === "OL") {
+        const items = Array.from(common.children).filter(
+          (child) => child.tagName === "LI",
+        );
+        const index = items.findIndex((item) => range.intersectsNode(item));
+        const reversed = common.hasAttribute("reversed");
+        const start = Number.parseInt(common.getAttribute("start") ?? "", 10);
+        // An unparsable start is no start, as the browser renders it.
+        const first = Number.isNaN(start)
+          ? reversed
+            ? items.length
+            : 1
+          : start;
+        const number = reversed ? first - index : first + index;
+        if (number !== 1 || !Number.isNaN(start)) {
+          list.setAttribute("start", String(number));
+        }
+      }
+      list.append(...Array.from(holder.childNodes));
+      holder.append(list);
+    }
     const html = normalizeSlideClipboardHtml(holder.innerHTML);
     if (html !== null) data.setData("text/html", html);
     let zwsp = 0;

@@ -1412,8 +1412,11 @@ describe("in-place text session: review round 3", () => {
     });
     session.end();
     expect(el.innerHTML).toMatch(
-      /^<li>OneTwo<ol start="4" style="[^"]*decimal[^"]*"><li>Sub<\/li><\/ol><\/li>$/,
+      /^<li>OneTwo<ol [^>]*><li>Sub<\/li><\/ol><\/li>$/,
     );
+    const sub = el.querySelector("ol")!;
+    expect(sub.getAttribute("start")).toBe("4");
+    expect(sub.style.listStyleType).toBe("decimal");
   });
 
   it("copies items across an ordered list as that list, numbered from the first copied item", () => {

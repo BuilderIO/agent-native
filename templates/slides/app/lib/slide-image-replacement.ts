@@ -1,6 +1,7 @@
 import { SOURCE_STAMP_ATTR } from "./slide-source-map";
 
 const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
+const MAX_PENDING_SLIDE_IMAGE_UPLOADS = 16;
 
 interface ReplaceOptions {
   alt?: string;
@@ -45,6 +46,29 @@ const pendingSlideImageUploads = new Map<
   string,
   Map<string, SlideImageUploadProvenance | null>
 >();
+let pendingSlideImageUploadCount = 0;
+
+function trimPendingSlideImageUploads(): void {
+  // ponytail: FIFO cap of 16 hints; use upload IDs if simultaneous uploads outgrow it.
+  while (pendingSlideImageUploadCount > MAX_PENDING_SLIDE_IMAGE_UPLOADS) {
+    const firstSlide = pendingSlideImageUploads.entries().next().value;
+    if (!firstSlide) {
+      pendingSlideImageUploadCount = 0;
+      return;
+    }
+
+    const [slideId, contentSnapshots] = firstSlide;
+    const firstContent = contentSnapshots.keys().next().value;
+    if (firstContent === undefined) {
+      pendingSlideImageUploads.delete(slideId);
+      continue;
+    }
+
+    contentSnapshots.delete(firstContent);
+    pendingSlideImageUploadCount -= 1;
+    if (contentSnapshots.size === 0) pendingSlideImageUploads.delete(slideId);
+  }
+}
 
 export function registerSlideImageUploadProvenance(
   slideId: string,
@@ -58,6 +82,8 @@ export function registerSlideImageUploadProvenance(
   }
   if (!contentSnapshots.has(content)) {
     contentSnapshots.set(content, provenance);
+    pendingSlideImageUploadCount += 1;
+    trimPendingSlideImageUploads();
     return;
   }
 
@@ -79,7 +105,7 @@ export function takeSlideImageUploadProvenance(
 ): SlideImageUploadProvenance | null {
   const contentSnapshots = pendingSlideImageUploads.get(slideId);
   const provenance = contentSnapshots?.get(content) ?? null;
-  contentSnapshots?.delete(content);
+  if (contentSnapshots?.delete(content)) pendingSlideImageUploadCount -= 1;
   if (contentSnapshots?.size === 0) pendingSlideImageUploads.delete(slideId);
   return provenance;
 }
