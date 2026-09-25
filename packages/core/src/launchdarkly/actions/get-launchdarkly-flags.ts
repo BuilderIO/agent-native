@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { getLaunchDarklyVariation } from "../evaluate.js";
+import { isLaunchDarklyFlagEnabled } from "../evaluate.js";
 
 /** Keeps one call from fanning out into an unbounded number of evaluations. */
 const MAX_KEYS = 50;
@@ -22,7 +22,7 @@ export default defineAction({
         async (key) =>
           [
             key,
-            await getLaunchDarklyVariation(key, actor, defaultValue),
+            await isLaunchDarklyFlagEnabled(key, actor, defaultValue),
           ] as const,
       ),
     );

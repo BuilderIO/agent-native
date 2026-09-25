@@ -401,6 +401,8 @@ function findClosingDoubleQuote(value: string): number {
   return -1;
 }
 
+const FLEET_WIDE_ENV_KEY_SET = new Set(FLEET_WIDE_ENV_KEYS);
+
 function loadTemplateEnv(template: string, sources: string[]) {
   const values = new Map<string, string>(DEFAULT_HOSTED_TEMPLATE_ENV);
   const foundSources: string[] = [];
@@ -413,14 +415,16 @@ function loadTemplateEnv(template: string, sources: string[]) {
     const relativePath = path.relative(REPO_ROOT, filePath);
     foundSources.push(relativePath);
     for (const [key, value] of parseEnvFile(filePath)) {
+      // Fleet-wide keys are shell-only (see FLEET_WIDE_ENV_KEYS below): a
+      // template file's value for one of them is never eligible, so it can't
+      // sync a stale or developer-local credential when the shell key is
+      // simply unset.
+      if (FLEET_WIDE_ENV_KEY_SET.has(key)) continue;
       values.set(key, value);
       sourcesByKey.set(key, [...(sourcesByKey.get(key) ?? []), relativePath]);
     }
   }
 
-  // Applied after template sources so a fleet-wide credential (the same
-  // value for every hosted site) always wins over a stale or developer-local
-  // value committed to a template .env file.
   for (const key of FLEET_WIDE_ENV_KEYS) {
     const value = process.env[key];
     if (value) values.set(key, value);

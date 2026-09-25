@@ -4,21 +4,21 @@ vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
 }));
 
-const getLaunchDarklyVariationMock = vi.fn();
+const isLaunchDarklyFlagEnabledMock = vi.fn();
 vi.mock("../evaluate.js", () => ({
-  getLaunchDarklyVariation: (...args: unknown[]) =>
-    getLaunchDarklyVariationMock(...args),
+  isLaunchDarklyFlagEnabled: (...args: unknown[]) =>
+    isLaunchDarklyFlagEnabledMock(...args),
 }));
 
 const action = (await import("./get-launchdarkly-flags.js")).default;
 
 beforeEach(() => {
-  getLaunchDarklyVariationMock.mockReset();
+  isLaunchDarklyFlagEnabledMock.mockReset();
 });
 
 describe("get-launchdarkly-flags action", () => {
   it("evaluates each requested key for the caller's identity", async () => {
-    getLaunchDarklyVariationMock.mockImplementation(
+    isLaunchDarklyFlagEnabledMock.mockImplementation(
       async (key: string) => key === "new-editor",
     );
 
@@ -30,7 +30,7 @@ describe("get-launchdarkly-flags action", () => {
     expect(result).toEqual({
       flags: { "new-editor": true, "beta-export": false },
     });
-    expect(getLaunchDarklyVariationMock).toHaveBeenCalledWith(
+    expect(isLaunchDarklyFlagEnabledMock).toHaveBeenCalledWith(
       "new-editor",
       { userEmail: "ada@example.com", orgId: "org-1" },
       false,
@@ -38,14 +38,14 @@ describe("get-launchdarkly-flags action", () => {
   });
 
   it("passes a custom defaultValue through to every evaluation", async () => {
-    getLaunchDarklyVariationMock.mockResolvedValue(true);
+    isLaunchDarklyFlagEnabledMock.mockResolvedValue(true);
 
     await action.run(
       { keys: ["new-editor"], defaultValue: true },
       { caller: "frontend" },
     );
 
-    expect(getLaunchDarklyVariationMock).toHaveBeenCalledWith(
+    expect(isLaunchDarklyFlagEnabledMock).toHaveBeenCalledWith(
       "new-editor",
       { userEmail: undefined, orgId: undefined },
       true,
@@ -53,13 +53,13 @@ describe("get-launchdarkly-flags action", () => {
   });
 
   it("de-duplicates repeated keys into a single evaluation", async () => {
-    getLaunchDarklyVariationMock.mockResolvedValue(false);
+    isLaunchDarklyFlagEnabledMock.mockResolvedValue(false);
 
     await action.run(
       { keys: ["new-editor", "new-editor"] },
       { caller: "frontend" },
     );
 
-    expect(getLaunchDarklyVariationMock).toHaveBeenCalledTimes(1);
+    expect(isLaunchDarklyFlagEnabledMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -62,21 +62,25 @@ export function getLaunchDarklyClient(): Promise<LaunchDarkly.LDClient | null> {
 
   const client = LaunchDarkly.init(sdkKey);
   state[CLIENT_KEY] = client;
-  state[INIT_KEY] = withTimeout(client.waitForInitialization(), INIT_TIMEOUT_MS)
-    .then(() => client)
-    .catch((error: unknown) => {
+
+  // `variation()`/`boolVariation()` already answer with the caller's default
+  // before the client finishes initializing, so callers never need to block
+  // on `waitForInitialization()` here — doing so would add up to
+  // INIT_TIMEOUT_MS of latency to the very first flag read in the process.
+  // This only logs a slow first connection; it never changes what an
+  // evaluation call returns.
+  withTimeout(client.waitForInitialization(), INIT_TIMEOUT_MS).catch(
+    (error: unknown) => {
       console.warn(
-        `[launchdarkly] client did not confirm initialization within ${INIT_TIMEOUT_MS}ms; evaluating against its caller-supplied default until it connects.`,
+        `[launchdarkly] client did not confirm initialization within ${INIT_TIMEOUT_MS}ms; evaluating against callers' defaults until it connects.`,
         error,
       );
-      // Return the client anyway rather than `null`: the SDK keeps retrying
-      // in the background regardless of this timeout, `variation()` already
-      // answers with the caller's default before the client is ready, and
-      // caching `null` here would leave every flag stuck on its default for
-      // the rest of the process even after a transient outage recovers.
-      return client;
-    });
-  return state[INIT_KEY];
+    },
+  );
+
+  const resolved = Promise.resolve(client);
+  state[INIT_KEY] = resolved;
+  return resolved;
 }
 
 // Test-only — production code has no reason to tear this down mid-process.
