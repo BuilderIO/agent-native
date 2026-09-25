@@ -433,4 +433,7 @@ disposition.
 
 ## Cleanup
 
-No watcher or lease cleanup is needed. Verify the PR's final state.
+No watcher or lease is created by this workflow. If a pre-existing heartbeat
+targets this task after the PR reaches a terminal state, pause it using the
+full-definition read/update/verify rule in Setup; leave other automations
+untouched. Verify the PR's final state.
