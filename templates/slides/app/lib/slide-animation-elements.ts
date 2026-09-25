@@ -1,0 +1,434 @@
+import type { AnimationType } from "@/context/DeckContext";
+
+export interface ParsedAnimationElement {
+  index: number;
+  path: number[];
+  preview: string;
+}
+
+export interface AnimationTarget {
+  elementIndex: number;
+  elementPath?: number[];
+  byParagraph?: boolean;
+  id?: string;
+}
+
+export interface SelectedAnimationTarget {
+  elementIndex: number;
+  elementPath: number[];
+  preview: string;
+}
+
+export interface ResolvedAnimationTarget<
+  T extends AnimationTarget = AnimationTarget,
+> {
+  target: T;
+  element: Element;
+  key: string;
+}
+
+export type AnimationTargetResolutionIssueCode =
+  | "missing-target"
+  | "duplicate-target";
+
+export interface AnimationTargetResolutionIssue<
+  T extends AnimationTarget = AnimationTarget,
+> {
+  animationIndex: number;
+  code: AnimationTargetResolutionIssueCode;
+  target: T;
+  key?: string;
+  preview?: string;
+}
+
+export interface AnimationTargetResolution<
+  T extends AnimationTarget = AnimationTarget,
+> {
+  resolved: ResolvedAnimationTarget<T>[] | null;
+  issue: AnimationTargetResolutionIssue<T> | null;
+}
+
+const INLINE_TAGS = new Set([
+  "a",
+  "abbr",
+  "b",
+  "br",
+  "code",
+  "em",
+  "i",
+  "mark",
+  "small",
+  "span",
+  "strong",
+  "sub",
+  "sup",
+  "u",
+]);
+
+const SKIPPED_TAGS = new Set(["script", "style", "template"]);
+
+function normalizeText(text: string | null | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+function hasOwnText(element: Element): boolean {
+  return Array.from(element.childNodes).some(
+    (node) =>
+      node.nodeType === Node.TEXT_NODE && normalizeText(node.textContent),
+  );
+}
+
+function hasVisualStyle(element: Element): boolean {
+  const style = element.getAttribute("style") ?? "";
+  return /(?:^|;)\s*(background(?:-color)?|border|box-shadow|width|height|min-width|min-height)\s*:/i.test(
+    style,
+  );
+}
+
+function hasMeaningfulContent(element: Element): boolean {
+  if (SKIPPED_TAGS.has(element.tagName.toLowerCase())) return false;
+  return (
+    normalizeText(element.textContent).length > 0 ||
+    hasVisualStyle(element) ||
+    element.matches("img,svg,video,canvas,table,.fmd-img-placeholder") ||
+    !!element.querySelector("img,svg,video,canvas,table,.fmd-img-placeholder")
+  );
+}
+
+function shouldKeepAsSingleElement(element: Element): boolean {
+  const tagName = element.tagName.toLowerCase();
+
+  if (SKIPPED_TAGS.has(tagName)) return false;
+  if (
+    element.matches(
+      "img,svg,video,canvas,table,.fmd-img-placeholder,h1,h2,h3,h4,h5,h6,p,li,blockquote,pre",
+    )
+  ) {
+    return true;
+  }
+
+  const children = Array.from(element.children).filter(
+    (child) => !SKIPPED_TAGS.has(child.tagName.toLowerCase()),
+  );
+  if (children.length === 0) return hasMeaningfulContent(element);
+  if (hasOwnText(element)) return true;
+
+  // Rows composed of inline fragments, like bullet-dot + text spans, should
+  // animate as one visual unit instead of exposing punctuation as a target.
+  return children.every((child) =>
+    INLINE_TAGS.has(child.tagName.toLowerCase()),
+  );
+}
+
+function collectAnimationElements(
+  parent: Element,
+  parentPath: number[],
+  elements: ParsedAnimationElement[],
+) {
+  getPersistedChildren(parent).forEach((child, childIndex) => {
+    if (SKIPPED_TAGS.has(child.tagName.toLowerCase())) return;
+
+    const path = [...parentPath, childIndex];
+    if (shouldKeepAsSingleElement(child)) {
+      if (hasMeaningfulContent(child)) {
+        elements.push({
+          index: elements.length,
+          path,
+          preview: getElementPreview(child, `Element ${elements.length + 1}`),
+        });
+      }
+      return;
+    }
+
+    const before = elements.length;
+    collectAnimationElements(child, path, elements);
+    if (elements.length === before && hasMeaningfulContent(child)) {
+      elements.push({
+        index: elements.length,
+        path,
+        preview: getElementPreview(child, `Element ${elements.length + 1}`),
+      });
+    }
+  });
+}
+
+export function animationElementKey(path: number[]): string {
+  return path.join(".");
+}
+
+export function findLegacyAnimationContainer(root: Element): Element | null {
+  const marked = root.querySelector(".fmd-animation-container");
+  if (marked && marked.children.length >= 1) return marked;
+
+  const children = Array.from(root.children);
+  for (let i = children.length - 1; i >= 0; i--) {
+    if (children[i].children.length >= 2) return children[i];
+  }
+  return null;
+}
+
+export function getElementPreview(element: Element, fallback: string): string {
+  const text = normalizeText(element.textContent);
+  if (text) return text.slice(0, 50);
+
+  const ariaLabel = element.getAttribute("aria-label");
+  if (ariaLabel) return normalizeText(ariaLabel).slice(0, 50);
+
+  const alt = element.getAttribute("alt");
+  if (alt) return normalizeText(alt).slice(0, 50);
+
+  return fallback;
+}
+
+export function getElementPath(
+  root: Element,
+  target: Element,
+): number[] | null {
+  const path: number[] = [];
+  let current: Element | null = target;
+
+  while (current && current !== root) {
+    const parent: HTMLElement | null = current.parentElement;
+    if (!parent) return null;
+    const index = Array.from(parent.children).indexOf(current);
+    if (index === -1) return null;
+    path.unshift(index);
+    current = parent;
+  }
+
+  return current === root ? path : null;
+}
+
+function getPersistedChildren(parent: Element): Element[] {
+  const children: Element[] = [];
+  const append = (child: Element) => {
+    if (child.classList.contains("fmd-layout-spacer")) return;
+    if (child.hasAttribute("data-fmd-autofit-content")) {
+      Array.from(child.children).forEach(append);
+      return;
+    }
+    children.push(child);
+  };
+
+  Array.from(parent.children).forEach(append);
+  return children;
+}
+
+/**
+ * Resolve a live editor node against the HTML that will be persisted. The
+ * editor's AutoFit layer is transparent in saved markup, so paths through it
+ * must be flattened before animation metadata is written.
+ */
+export function getPersistedElementPath(
+  root: Element,
+  target: Element,
+): number[] | null {
+  if (root === target) return [];
+
+  const findPath = (parent: Element, parentPath: number[]): number[] | null => {
+    for (const [persistedIndex, child] of getPersistedChildren(
+      parent,
+    ).entries()) {
+      const path = [...parentPath, persistedIndex];
+      if (child === target) return path;
+      const nestedPath = findPath(child, path);
+      if (nestedPath) return nestedPath;
+    }
+    return null;
+  };
+
+  return findPath(root, []);
+}
+
+export function resolveElementPath(
+  root: Element,
+  path: number[],
+): Element | null {
+  let current: Element | null = root;
+
+  for (const index of path) {
+    if (!current) return null;
+    const next: Element | null = getPersistedChildren(current)[index] ?? null;
+    if (!next) return null;
+    current = next;
+  }
+
+  return current;
+}
+
+export function parseSlideAnimationElements(
+  html: string,
+): ParsedAnimationElement[] {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const root = doc.querySelector(".fmd-slide");
+  if (!root) return [];
+
+  const elements: ParsedAnimationElement[] = [];
+  collectAnimationElements(root, [], elements);
+  return elements;
+}
+
+export function resolveSlideAnimationElement(
+  root: Element,
+  target: AnimationTarget,
+): Element | null {
+  if (Array.isArray(target.elementPath)) {
+    // A supplied path is the identity of the target. Falling back to a
+    // legacy index after it goes stale can animate a different element while
+    // leaving the intended element visible.
+    return target.elementPath.length > 0
+      ? resolveElementPath(root, target.elementPath)
+      : null;
+  }
+
+  const legacyContainer = findLegacyAnimationContainer(root);
+  return legacyContainer?.children.item(target.elementIndex) ?? null;
+}
+
+/**
+ * Resolve an ordered animation list as one validated unit. A null result
+ * means the list cannot be rendered faithfully - a missing or duplicate
+ * target must not become a phantom click step in the presentation player.
+ */
+export function resolveSlideAnimationTargets<T extends AnimationTarget>(
+  root: Element,
+  targets: readonly T[],
+): ResolvedAnimationTarget<T>[] | null {
+  return resolveSlideAnimationTargetsWithDiagnostics(root, targets).resolved;
+}
+
+export function expandByParagraphAnimations<T extends AnimationTarget>(
+  root: Element,
+  animations: readonly T[],
+): T[] | null {
+  const resolved = resolveSlideAnimationTargets(root, animations);
+  if (!resolved) return null;
+
+  const expanded: T[] = [];
+  for (const { target, element } of resolved) {
+    if (!target.byParagraph) {
+      expanded.push(target);
+      continue;
+    }
+
+    const textObject = element.closest(".fmd-pptx-text");
+    const paragraphs = textObject
+      ? Array.from(textObject.querySelectorAll("p[data-pptx-paragraph]"))
+      : [];
+    if (paragraphs.length < 2) {
+      expanded.push(target);
+      continue;
+    }
+
+    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+      const elementPath = getPersistedElementPath(root, paragraph);
+      if (!elementPath) return null;
+      expanded.push({
+        ...target,
+        id: target.id ? `${target.id}-paragraph-${paragraphIndex}` : undefined,
+        elementIndex: paragraphIndex,
+        elementPath,
+        byParagraph: false,
+      });
+    }
+  }
+  return expanded;
+}
+
+export function getElementAnimationValue(type: AnimationType): string {
+  switch (type) {
+    case "appear":
+      return "elem-appear 100ms ease both";
+    case "fade":
+      return "elem-appear 400ms ease both";
+    case "slide-up":
+      return "elem-slide-up 300ms cubic-bezier(0.25,0.46,0.45,0.94) both";
+    case "zoom":
+      return "elem-zoom 300ms cubic-bezier(0.25,0.46,0.45,0.94) both";
+  }
+}
+
+export function resolveSlideAnimationTargetsWithDiagnostics<
+  T extends AnimationTarget,
+>(root: Element, targets: readonly T[]): AnimationTargetResolution<T> {
+  const seen = new Set<string>();
+  const resolved: ResolvedAnimationTarget<T>[] = [];
+
+  for (const [animationIndex, target] of targets.entries()) {
+    const element = resolveSlideAnimationElement(root, target);
+    if (!element) {
+      return {
+        resolved: null,
+        issue: {
+          animationIndex,
+          code: "missing-target",
+          target,
+        },
+      };
+    }
+    const path = getPersistedElementPath(root, element);
+    if (!path) {
+      return {
+        resolved: null,
+        issue: {
+          animationIndex,
+          code: "missing-target",
+          target,
+          preview: getElementPreview(
+            element,
+            `Element ${target.elementIndex + 1}`,
+          ),
+        },
+      };
+    }
+    const key = animationElementKey(path);
+    if (seen.has(key)) {
+      return {
+        resolved: null,
+        issue: {
+          animationIndex,
+          code: "duplicate-target",
+          target,
+          key,
+          preview: getElementPreview(
+            element,
+            `Element ${target.elementIndex + 1}`,
+          ),
+        },
+      };
+    }
+    seen.add(key);
+    resolved.push({ target, element, key });
+  }
+
+  return { resolved, issue: null };
+}
+
+export function getSlideAnimationTargetKey(
+  html: string,
+  target: AnimationTarget,
+): string | null {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const root = doc.querySelector(".fmd-slide");
+  if (!root) return null;
+
+  const element = resolveSlideAnimationElement(root, target);
+  if (!element) return null;
+
+  const path = getPersistedElementPath(root, element);
+  return path ? animationElementKey(path) : null;
+}
+
+export function getSlideAnimationTargetPreview(
+  html: string,
+  target: AnimationTarget,
+): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const root = doc.querySelector(".fmd-slide");
+  if (!root) return `Element ${target.elementIndex + 1}`;
+
+  const element = resolveSlideAnimationElement(root, target);
+  return element
+    ? getElementPreview(element, `Element ${target.elementIndex + 1}`)
+    : `Element ${target.elementIndex + 1}`;
+}

@@ -1,0 +1,276 @@
+---
+title: "Calendrier : Fonctionnalités"
+description: "Toutes les fonctionnalités principales de Calendrier, y compris les vues, la disponibilité, la recherche de créneaux et les liens de réservation, avec les étapes de configuration pour chacune."
+---
+
+# Fonctionnalités
+
+Toutes les fonctionnalités principales de Calendrier : comment elles fonctionnent, et comment les configurer. Consultez
+[Calendrier](/docs/template-calendar) pour la vue d'ensemble et
+[Parler à l'agent](/docs/template-calendar-agent) pour la liste complète des
+invites.
+
+## Vues du calendrier
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd033f1071872452687ea570ed2ab6da3?alt=media&token=c6318aee-94cc-4898-be16-32b8fbf4fb2f&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Une brève visite guidée de la vue du calendrier."
+  caption="Une visite guidée de la vue du calendrier, y compris l'affichage du calendrier d'une autre personne et l'ajout d'événements."
+  autoplay={true}
+  loop={true}
+/>
+
+Basculez entre la vue jour, semaine et mois depuis la barre d'outils. Chaque vue lit
+votre véritable Google Calendar connecté. Rien n'est mis en cache ni synthétique.
+
+- **Plusieurs comptes** s'affichent dans la même grille, avec un code couleur, si vous connectez
+  plus d'un compte Google (travail + personnel).
+- **Les flux ICS/`webcal://` en lecture seule** couvrent des éléments comme les jours fériés de
+  l'entreprise, un programme de conférence ou le calendrier public d'un coéquipier. Ils se mêlent à
+  la même vue avec leur propre couleur, bien que vous ne puissiez pas modifier les événements qui
+  proviennent d'un flux.
+- **Superposer le calendrier d'un coéquipier** pour que ses événements s'affichent aux côtés des vôtres,
+  chacun dans sa propre couleur. Cela aide quand un manager doit vérifier l'emploi du temps d'un
+  subordonné direct.
+- **Les fuseaux horaires des participants** affichent l'heure de début locale d'un invité quand Google la
+  rapporte, ou depuis une substitution enregistrée par invité quand ce n'est pas le cas.
+- **Les lieux de travail** (domicile, bureau, ailleurs) s'affichent comme un véritable statut, et non
+  comme un événement générique sur toute la journée, et ne bloquent jamais votre disponibilité. **Les
+  événements récurrents** sont pris en charge de bout en bout. Modifiez une seule occurrence ou toute la
+  série.
+
+<Callout tone="warning">
+
+Si une partie de votre emploi du temps ne se charge pas, que ce soit parce que le jeton d'un compte a
+expiré ou que l'URL d'un flux expire, l'application vous indique quelle source a échoué au lieu de
+simplement afficher une journée vide. Un calendrier vide et une connexion défaillante se distinguent
+volontairement, pour que vous ne confondiez jamais « rien n'a chargé » avec « rien n'est
+programmé ».
+
+</Callout>
+
+<Steps>
+
+### Connecter votre calendrier
+
+Ouvrez **Paramètres**, cliquez sur **Connecter Google Calendar**, et approuvez. Connectez
+d'autres comptes de la même manière si vous voulez superposer personnel et professionnel.
+
+### S'abonner à un flux en lecture seule
+
+Dans **Paramètres → Calendriers externes**, collez une URL ICS ou `webcal://`.
+
+### Superposer le calendrier d'un coéquipier
+
+Demandez à l'agent « Ajoute le calendrier de Priya à ma vue en bleu », ou ajoutez-le depuis
+**Paramètres → Superpositions**.
+
+</Steps>
+
+## Trouver un créneau
+
+Demandez à l'agent de trouver un créneau et il vérifie votre disponibilité et vos véritables
+événements Google Calendar. Quand vous nommez d'autres personnes, il vérifie aussi leur
+statut libre/occupé, puis propose des créneaux concrets. Une fois que vous en choisissez un, l'agent
+le réserve directement sur Google Calendar.
+
+Quand vous planifiez avec quelqu'un de nouveau, cherchez par nom ou par e-mail plutôt que de
+saisir une adresse exacte. Calendrier cherche dans vos contacts Google ainsi que dans votre
+annuaire Workspace, si bien que vous pouvez demander « qui est Dana chez Acme » ou « trouve des
+personnes nommées Priya » et obtenir de vraies correspondances à choisir.
+
+<Diagram id="doc-block-calendar3" title="De la disponibilité à un événement réservé" summary="L'agent combine vos règles de disponibilité, vos événements existants et (quand vous les nommez) le statut libre/occupé des autres participants avant de proposer des créneaux.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Votre disponibilité<br /><small class="diagram-muted"
+        >heures hebdomadaires, tampon, préavis</small
+      >
+    </div>
+    <div class="diagram-box">
+      Événements existants<br /><small class="diagram-muted"
+        >Google Calendar, en direct</small
+      >
+    </div>
+    <div class="diagram-box">
+      Statut libre/occupé des participants<br /><small class="diagram-muted"
+        >quand vous nommez des personnes</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Trouver un créneau</span
+    ><small class="diagram-muted">créneaux candidats</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Vous en choisissez un</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Événement créé sur Google Calendar</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<Steps>
+
+### Demander un créneau
+
+« Trouve un créneau d'une heure la semaine prochaine avec Sam et Priya. »
+
+### En choisir un
+
+L'agent propose des créneaux concrets. Choisissez-en un dans le chat, ou parmi les
+options suggérées dans l'interface.
+
+### C'est réservé
+
+L'agent crée l'événement directement sur Google Calendar et il apparaît dans
+votre vue immédiatement.
+
+</Steps>
+
+## Liens de réservation
+
+Les liens de réservation sont des pages publiques où n'importe qui peut choisir un créneau et le réserver
+directement sur votre calendrier. C'est la partie style Calendly de Calendrier : configurez des
+types de réunion, la disponibilité dont ils dépendent, et suivez qui réserve.
+
+### Types de réunion
+
+Un type de réunion est un lien de réservation spécifique, comme « intro de 15 min » ou « démo de
+30 min », chacun avec sa propre durée, ses champs et son choix de conférence.
+
+<Steps>
+
+### Créer un type de réunion
+
+Donnez-lui un titre et une durée (comme « intro de 15 min » à 15 minutes), puis demandez à
+l'agent ou cliquez sur **Nouveau lien de réservation**.
+
+### Ajouter des options
+
+Définissez des durées alternatives pour qu'un visiteur puisse choisir 15, 30 ou 60 minutes sur le
+même lien, des champs personnalisés pour recueillir un nom d'entreprise ou un sujet, un choix de
+conférence (Google Meet, Zoom, ou un lien personnalisé), une couleur, et des co-hôtes
+requis, d'autres personnes qui doivent aussi être libres avant qu'un créneau soit proposé. Quand
+quelqu'un réserve, tout le monde (vous et vos co-hôtes) est invité à l'événement
+Google Calendar résultant.
+
+### Connecter Zoom (facultatif)
+
+Google Meet ne demande aucune configuration. Il s'ajoute de la même façon que toute invitation Google
+Calendar reçoit un lien Meet. Pour Zoom, connectez votre compte une fois depuis
+**Paramètres**. Après cela, tout type de réunion réglé sur Zoom crée une véritable réunion
+Zoom pour chaque nouvelle réservation et joint le lien de participation à la confirmation.
+
+### Le partager
+
+Partagez l'URL publique où vous voulez. Accordez à un coéquipier un accès
+spectateur/éditeur/administrateur depuis le menu **Partager** du lien s'il doit aussi aider à le
+gérer. C'est distinct de l'accès public de réservation, que toute personne disposant de l'URL a
+toujours tant que le lien est actif.
+
+</Steps>
+
+Chaque type de réunion a une URL publique à `/book/{votre-nom-de-reservation}/{slug}`,
+par exemple `/book/steve/30min`. Votre nom de réservation est généré automatiquement
+à partir de votre e-mail la première fois que vous créez un lien, et vous pouvez le changer plus tard
+depuis Paramètres (jusqu'à trois fois tous les 30 jours, puisqu'il fait partie de tout
+lien public que vous avez partagé).
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3dda132ad91b44dfa11c9d4e4b9e1b79?alt=media&token=b25577a1-ef91-48f8-a474-e5a39b246c25&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Vidéo montrant comment créer un nouveau type de réunion de réservation."
+  caption="Vidéo montrant comment créer un nouveau type de réunion de réservation."
+  autoplay={true}
+  loop={true}
+/>
+
+- **Renommer un type de réunion** : changez son slug d'URL à tout moment, par exemple
+  de `/book/steve/into-call` à `/book/steve/intro`. L'ancienne URL continue de
+  fonctionner : les visiteurs qui l'ont encore sont automatiquement redirigés vers la nouvelle,
+  si bien que rien de ce que vous avez déjà partagé ne se casse.
+
+### Disponibilité
+
+La disponibilité est un emploi du temps hebdomadaire : quels jours vous travaillez et quelles heures vous êtes
+disponible chaque jour, plus votre fuseau horaire. En plus de cela, vous pouvez définir un **tampon**
+entre les réunions pour que les réservations bout à bout n'aient pas lieu, un **préavis
+minimum** pour que les gens ne puissent pas vous réserver cinq minutes à l'avance, une **fenêtre
+d'anticipation** pour savoir combien de temps à l'avance les gens peuvent réserver, et une **durée de
+créneau par défaut** pour les nouveaux types de réunion.
+
+L'agent lit le même emploi du temps que l'interface modifie, si bien que « règle mes heures de
+9h à 17h en semaine » et le déplacement des curseurs dans l'onglet Disponibilité produisent le même
+résultat.
+
+<Steps>
+
+### Définir vos heures hebdomadaires
+
+Passez à l'onglet **Disponibilité** et activez les jours et heures où vous êtes
+disponible, par jour si besoin.
+
+### Ajouter un tampon et un préavis
+
+Définissez un **tampon** entre les réunions et une fenêtre de **préavis minimum** pour que
+les gens ne puissent pas vous réserver cinq minutes à l'avance.
+
+### Définir votre fenêtre d'anticipation et la durée de créneau par défaut
+
+Choisissez combien de temps à l'avance les gens peuvent réserver, et la durée par défaut avec
+laquelle les nouveaux types de réunion commencent.
+
+</Steps>
+
+Ou demandez simplement à l'agent : « Bloque mes vendredis après-midi sur ma disponibilité. »
+
+### Réservations
+
+Un visiteur choisit un créneau disponible parmi votre véritable disponibilité, remplit son nom, son
+e-mail, et tout champ personnalisé que vous avez ajouté, puis confirme. Il reçoit une
+confirmation avec un lien privé de gestion. Aucune connexion n'est requise, puisque le
+lien lui-même est la preuve d'identité.
+
+- **Gérer les réservations** : vous (l'hôte) voyez chaque réservation, passée et à
+  venir, filtrée par toutes, confirmées, ou annulées, dans l'onglet **Réservations**.
+- **Reprogrammer ou annuler** : les visiteurs utilisent leur lien de gestion pour se déplacer vers
+  un autre créneau disponible ou annuler complètement, sans avoir besoin de compte. Vous
+  pouvez aussi annuler une réservation vous-même depuis l'onglet **Réservations**.
+
+Ou demandez à l'agent : « Montre-moi les réservations de cette semaine. »
+
+## Et ensuite
+
+- [**Calendrier**](/docs/template-calendar) — la vue d'ensemble et les étapes de démarrage
+- [**Parler à l'agent**](/docs/template-calendar-agent) — chaque invite par tâche, l'état de l'application et les Extensions
+- [**Calendrier dans un espace de travail multi-apps**](/docs/template-calendar-integrations) — les stratégies d'intégration et la connexion à Dispatch
+- [**Guide développeur**](/docs/template-calendar-developers) — les actions et le modèle de données derrière ces fonctionnalités
+- [**Partage**](/docs/sharing) — le modèle de subvention de partage sur lequel s'appuient les liens de réservation

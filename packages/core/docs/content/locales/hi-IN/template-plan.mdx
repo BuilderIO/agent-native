@@ -1,0 +1,256 @@
+---
+title: "Visual Plans"
+description: "Agent-Native Plans आपके कोडिंग एजेंट की योजना को एक संरचित, समीक्षा योग्य दस्तावेज़ में बदल देता है — डायग्राम, वायरफ्रेम, एनोटेटेड कोड, और टिप्पणियां। CLI से एक बार इंस्टॉल करें; जिस किसी के साथ आप कोई योजना साझा करते हैं, वह बिना साइन-अप के अतिथि के रूप में समीक्षा और टिप्पणी कर सकता है।"
+---
+
+# विज़ुअल Plans
+
+Agent-Native Plans कोडिंग एजेंटों के लिए विज़ुअल प्लान मोड है। यह किसी सामान्य
+Codex, Claude Code, Markdown, या चिपकाई गई इम्प्लीमेंटेशन योजना को रिच टेक्स्ट,
+डायग्राम, वायरफ्रेम, एनोटेटेड कोड वॉकथ्रू और फ़ाइल ट्री, टिप्पणियों, और साझा
+करने योग्य लिंक वाली एक संरचित समीक्षा सतह में बदल देता है।
+
+<WireframeBlock id="doc-block-h7x805">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Checkout redesign plan</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Approve</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box' style='display:flex;flex-direction:column;gap:6px;padding:10px'><span class='wf-muted' style='font-size:11px'>Current wireframe</span><div class='wf-box' style='height:14px'></div><div class='wf-box' style='height:28px'></div><div class='wf-box' style='height:28px'></div><div class='wf-box' style='height:18px;width:65%'></div></div><div class='wf-box' style='display:flex;flex-direction:column;gap:6px;padding:10px'><span class='wf-muted' style='font-size:11px'>Proposed wireframe</span><div style='display:flex;gap:6px'><div class='wf-box' style='flex:2;height:54px'></div><div class='wf-box' style='flex:1;height:54px'></div></div><div class='wf-box' style='height:18px;width:40%'></div></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementation plan</strong><div class='wf-box'>Decision: keep existing checkout shell</div><div class='wf-box'>Annotated code walkthrough</div><div class='wf-box'>Open questions</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Pin on primary CTA</div><div class='wf-box'>Question for agent</div><div class='wf-box'>Resolved copy note</div><button class='primary'>Hand back feedback</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+बात दो कमांड तक सिमट आती है। `/visual-plan` एजेंट के कोड लिखने से **पहले** एक
+योजना बनाता है। `/visual-recap` एक ऐसे बदलाव को — जो **पहले ही** हो चुका है,
+यानी कोई PR, कमिट, ब्रांच, या git diff — एक ऊंचाई से देखी गई विज़ुअल कोड
+समीक्षा में बदल देता है। दोनों एक ही समीक्षा सतह खोलते हैं, इसलिए आप दोनों ही
+बार एक जैसे तरीके से एनोटेट करते हैं, टिप्पणी करते हैं, और एजेंट को फीडबैक
+वापस सौंपते हैं।
+
+<Diagram id="doc-block-eoqv08" title="दो कमांड, एक समीक्षा सतह" summary="दोनों कमांड होस्टेड Plan MCP कनेक्टर के माध्यम से उसी एनोटेट-और-टिप्पणी सतह पर प्रकाशित होते हैं।">
+
+```html
+<div class="diagram-plan">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      <span class="diagram-pill accent">/visual-plan</span
+      ><small class="diagram-muted"
+        >कोड से पहले — आर्किटेक्चर, UI, रीफ़ैक्टर</small
+      >
+    </div>
+    <div class="diagram-node">
+      <span class="diagram-pill">/visual-recap</span
+      ><small class="diagram-muted">कोड के बाद — PR, कमिट, ब्रांच, diff</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    Plan MCP कनेक्टर<br /><small class="diagram-muted"
+      >plan.agent-native.com</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    समीक्षा सतह<br /><small class="diagram-muted"
+      >डायग्राम · वायरफ्रेम · एनोटेटेड कोड · टिप्पणियां</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-node">
+    कोडिंग एजेंट<br /><small class="diagram-muted">फीडबैक वापस सौंपा गया</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-plan {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-plan .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-plan .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-plan .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+```
+
+</Diagram>
+
+## यह क्या बदलता है
+
+<Comparison>
+
+### पहले
+
+- एक योजना चैट या किसी Markdown फ़ाइल में प्रोज़ की एक दीवार के रूप में रहती
+  है, और उसकी समीक्षा करने का मतलब है शुरू से आख़िर तक पढ़ना ताकि वह एक
+  पैराग्राफ मिल सके जिससे आप असहमत हैं।
+- फीडबैक किसी Slack थ्रेड या बिखरी हुई टिप्पणियों में होता है, जो योजना से
+  ख़ुद अलग-थलग रहता है।
+- किसी पूरे हो चुके PR की समीक्षा करने का मतलब है यह समझने के लिए कि क्या
+  बदला और क्यों, एक कच्चे diff को लाइन-दर-लाइन पढ़ना।
+
+### बाद में
+
+- योजना डायग्राम, वायरफ्रेम, एनोटेटेड कोड, और एक Open Questions फ़ॉर्म के रूप
+  में रेंडर होती है जिस पर आप सीधे प्रतिक्रिया दे सकते हैं।
+- टिप्पणियां ठीक उसी टेक्स्ट, इमेज, या वायरफ्रेम लोकेशन पर पिन होती हैं, और
+  या तो एजेंट को टारगेट करती हैं या किसी मानव समीक्षक को।
+- `/visual-recap` किसी PR, कमिट, या diff को कच्चे diff के बजाय उसी विज़ुअल
+  समीक्षा में बदल देता है।
+
+</Comparison>
+
+नतीजे को सोर्स-कंट्रोल-फ्रेंडली कॉपी के लिए HTML, Markdown, या JSON के रूप में
+एक्सपोर्ट करें, या लोकल-फ़ाइलें मोड के साथ इसे होस्टेड डेटाबेस से पूरी तरह
+बाहर रखें। इन दोनों को गहराई से समझने के लिए
+[योजनाओं की समीक्षा और टिप्पणी करना](/docs/template-plan-review-workflow) और
+[लोकल-फ़ाइलें मोड और डेस्कटॉप सिंक](/docs/template-plan-local-and-desktop)
+देखें।
+
+## आरंभ करना {#get-started}
+
+<Steps>
+
+### कौशल इंस्टॉल करें {#install}
+
+ज़्यादातर लोग Plan को अपने मौजूदा कोडिंग एजेंट के लिए एक **कौशल** के रूप में
+इंस्टॉल करते हैं, किसी स्कैफोल्डेड ऐप के रूप में नहीं। यह एक कमांड कौशल के
+निर्देश इंस्टॉल करता है, होस्टेड Plans MCP कनेक्टर रजिस्टर करता है, और उसे
+साइन इन करता है:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+यह तीन स्लैश कमांड इंस्टॉल करता है — `/visual-plan`, `/visual-recap`, और
+`/visualize-repo` — साथ ही `https://plan.agent-native.com/mcp` पर `plan` MCP
+कनेक्टर (एक रिमोट टूल सर्वर जिससे आपका एजेंट बात करता है)। पूरे फ़्लैग
+रेफ़रेंस, Claude Code और Codex के लिए प्लगइन/मार्केटप्लेस इंस्टॉल रूट्स, और
+VS Code एक्सटेंशन के लिए,
+[Plan plugin and marketplace → Install routes](/docs/plan-plugin#install)
+देखें।
+
+Plan टेम्पलेट को खुद कस्टमाइज़ करना — इसे सेल्फ-होस्ट करना, या सीधे इसके ऊपर
+बिल्ड करना — एक अलग, सेकेंडरी रास्ता है जिसे
+[Plan को एक्सटेंड करना](/docs/template-plan-developers) में कवर किया गया है।
+ज़्यादातर लोगों को इसकी कभी ज़रूरत नहीं पड़ती।
+
+### अपने एजेंट से वह कमांड पूछें जो काम के लिए सही हो
+
+- "auth फ़्लो बदलने से पहले `/visual-plan` का उपयोग करें।"
+- "मोबाइल और डेस्कटॉप स्टेट्स के साथ नई ऑनबोर्डिंग स्क्रीन के लिए एक
+  `/visual-plan` बनाएं।"
+- "इस PR पर `/visual-recap` चलाएं ताकि मैं पहले बदलाव के आकार की समीक्षा कर
+  सकूं।"
+- "`main` और इस ब्रांच के बीच के diff पर `/visual-recap` का उपयोग करें।"
+- "`/visualize-repo` चलाएं और हमारे पब्लिक API actions और स्कीमा से शुरुआत
+  करें।"
+
+`/visual-plan` काम की ज़रूरत के हिसाब से डायग्राम, वायरफ्रेम, मॉकअप, क्लिक
+करने योग्य प्रोटोटाइप, और एनोटेटेड कोड शामिल करता है। एजेंट पहले कोडबेस का
+निरीक्षण करता है, फिर लौटाया गया लिंक आपके ब्राउज़र या VS Code में समीक्षा UI
+खोलता है।
+
+### अतिथि के रूप में समीक्षा करें, किसी अकाउंट की ज़रूरत नहीं
+
+जिन लोगों के साथ आप कोई योजना साझा करते हैं, उन्हें कुछ भी इंस्टॉल करने की
+ज़रूरत नहीं है। वे Plans एडिटर खोलते हैं और **बिना साइन-अप के बनाते और एडिट
+करते हैं** — वे अतिथि के रूप में काम करते हैं। साइन इन करना सिर्फ़ अपने काम
+को **सेव या साझा** करने के लिए ज़रूरी है, और अगर कोई अतिथि बाद में साइन इन
+करता है, तो अतिथि के रूप में उसने जो भी योजनाएं बनाई हैं, वे सभी उसके अकाउंट
+में **क्लेम** हो जाती हैं।
+
+</Steps>
+
+जब कोई Codex, Claude Code, Markdown, या चिपकाई गई योजना पहले से मौजूद हो, तो
+`/visual-plan` का उपयोग करें; एजेंट उस सोर्स योजना को बनाए रखता है और दोबारा
+शुरू करने के बजाय उससे ज़्यादा समृद्ध समीक्षा सतह बनाता है। अगर पहले पास में
+अब भी कुछ खुले फ़ैसले बाकी हैं, तो एजेंट योजना के नीचे एक **Open Questions**
+फ़ॉर्म जोड़ सकता है — उसका जवाब देकर वापस भेजने से एक रिवीज़न टर्न शुरू हो
+जाता है।
+
+<Callout tone="info">
+
+**अतिथि बनाम साइन-इन, एक नज़र में**
+
+- **अतिथि के रूप में** आप एक साझा लिंक खोल सकते हैं, नई योजना बना सकते हैं,
+  प्रोज़ एडिट कर सकते हैं, और समीक्षा एनोटेशन मोड का उपयोग कर सकते हैं —
+  किसी अकाउंट की ज़रूरत नहीं।
+- **साइन इन करने** से आप इसके अलावा अपनी योजनाओं को स्थायी रूप से सेव कर
+  सकते हैं, किसी योजना को साझा करने योग्य लिंक पर प्रकाशित कर सकते हैं,
+  दूसरों को व्यूअर/एडिटर/एडमिन एक्सेस दे सकते हैं, ऐसी टिप्पणियां पोस्ट कर
+  सकते हैं जो लोगों को ईमेल से सूचित करती हैं, और अपनी मालिकाना योजनाओं को
+  डिलीट या रीस्टोर कर सकते हैं।
+
+</Callout>
+
+## लागत और मॉडल चुनाव
+
+कोई योजना या रीकैप जेनरेट करना आपके कोडिंग एजेंट के LLM के विरुद्ध एक पूरा
+एजेंटिक सेशन चलाता है, न कि कोई हल्का-फुल्का टेम्पलेट फिल — लागत diff या
+योजना के आकार और आपके चुने गए मॉडल के हिसाब से बढ़ती है।
+
+- ऐप का डिफ़ॉल्ट चैट मॉडल GPT-5.6 Luna है। डायरेक्ट Anthropic कनेक्शन Claude
+  Sonnet 5 को अपने डिफ़ॉल्ट के रूप में रखते हैं। **Settings** में कभी भी
+  मॉडल बदलें; Haiku सस्ता Claude विकल्प है।
+- GitHub Action से आने वाले ऑटोमेटेड PR रीकैप इंटरैक्टिव ऐप से अलग चलते हैं
+  और इनके अपने मॉडल और लागत नियंत्रण होते हैं — `VISUAL_RECAP_MODEL`,
+  `VISUAL_RECAP_AGENT`, और `VISUAL_RECAP_REASONING` के लिए
+  [PR विज़ुअल रीकैप](/docs/pr-visual-recap) देखें।
+
+## किसी निजी योजना का एक्सेस मांगना {#request-access}
+
+अगर कोई किसी योजना का ऐसा लिंक खोलता है जिसे देखने की उसके पास परमिशन नहीं
+है, तो Plans सिर्फ़ एक डेड-एंड नहीं दिखाता। पेज उसे बताता है कि योजना निजी है
+और एक **Request access** एक्शन देता है, जो:
+
+- साइन इन होना ज़रूरी है (किसी अतिथि को पहले साइन इन करने के लिए कहा जाता
+  है)।
+- रिक्वेस्ट को योजना के विरुद्ध रिकॉर्ड करता है और, जब डिप्लॉयमेंट में ईमेल
+  कॉन्फ़िगर हो, तो योजना के मालिक को रिक्वेस्ट करने वाले का नाम और योजना
+  खोलने व स्वीकृत होने पर उसे वापस साझा करने का लिंक भेजता है।
+- एक से ज़्यादा बार क्लिक करना सुरक्षित है — Plans पहले जांचता है कि क्या
+  आपके पास पहले से एक्सेस है, इसलिए एक ही व्यक्ति की दूसरी रिक्वेस्ट मालिक
+  को डुप्लिकेट ईमेल से स्पैम नहीं करती।
+
+अगर योजना की विज़िबिलिटी पूरी तरह निजी के बजाय **org** पर सेट है, और आपके
+अकाउंट के पास उस ऑर्गनाइज़ेशन का पहले से एक पेंडिंग इनविटेशन है या कोई ईमेल
+डोमेन उससे मैच करता है, तो Plans रिक्वेस्ट भेजने के बजाय सीधे ऑर्गनाइज़ेशन
+जॉइन करने का ऑफ़र देता है।
+
+<Callout tone="warning">
+
+अगर कोई Plans टूल कभी `needs auth`, `Unauthorized`, या `Session terminated`
+लौटाता है, तो उसे दोबारा कोशिश करते न रहें।
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+के साथ फिर से प्रमाणित करें, या किसी OAuth-सक्षम होस्ट के लिए फिर से `/mcp`
+→ **Authenticate** चलाएं। बाद में एक नया Codex थ्रेड शुरू करें या क्लाइंट
+को रीस्टार्ट/रीलोड करें — टूल रजिस्ट्री बदलाव को केवल एक नए सेशन में ही पिक
+करती है।
+
+</Callout>
+
+## आगे क्या है
+
+- [**योजनाओं की समीक्षा और टिप्पणी करना**](/docs/template-plan-review-workflow) — टिप्पणी के प्रकार, फीडबैक हल करना, साझा करना, और योजनाएं डिलीट करना
+- [**लोकल-फ़ाइलें मोड और डेस्कटॉप सिंक**](/docs/template-plan-local-and-desktop) — योजना की सामग्री को होस्टेड डेटाबेस से बाहर रखें, या उसे किसी फ़ोल्डर में मिरर करें
+- [**इवेंट्स और ऑटोमेशन**](/docs/template-plan-automations) — प्लान इवेंट बस और ऑटोमेशन रेसिपी
+- [**Plan को एक्सटेंड करना**](/docs/template-plan-developers) — Plan को कस्टमाइज़ या सेल्फ-होस्ट करने के लिए डेटा मॉडल, actions, और कस्टम MDX ब्लॉक
+- [**PR विज़ुअल रीकैप**](/docs/pr-visual-recap) — हर पुल रिक्वेस्ट पर ऑटोमैटिकली `/visual-recap` चलाएं
+- [**Plan plugin and marketplace**](/docs/plan-plugin) — Plan कौशल को Claude Code या Codex प्लगइन के रूप में इंस्टॉल करें
+- [**Skills**](/docs/skills-guide) — Agent-Native कौशल कैसे इंस्टॉल करता है
+- [**MCP Clients**](/docs/mcp-clients) — होस्टेड MCP कनेक्टर्स को कॉन्फ़िगर करना
+- [**Templates**](/docs/cloneable-saas) — Cloneable SaaS मॉडल

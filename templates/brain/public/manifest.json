@@ -1,0 +1,7 @@
+{
+  "name": "Brain",
+  "short_name": "Brain",
+  "start_url": "./home",
+  "background_color": "#ffffff",
+  "theme_color": "#111827"
+}

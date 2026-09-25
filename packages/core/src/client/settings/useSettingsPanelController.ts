@@ -1,0 +1,195 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import {
+  ALL_SETTINGS_SECTIONS,
+  SETTINGS_SECTION_IDS,
+  type SettingsSectionId,
+} from "./agent-settings-search.js";
+
+export interface SettingsPanelControllerOptions {
+  sections?: readonly SettingsSectionId[];
+  initialSection?: string | null;
+  sectionRequestKey?: number;
+  onScrollToSection?: (section: SettingsSectionId) => void;
+}
+
+export interface SettingsPanelController {
+  sections: readonly SettingsSectionId[];
+  openSection: SettingsSectionId | null;
+  focusSecretKey: string | undefined;
+  isSectionVisible: (section: SettingsSectionId) => boolean;
+  isSectionOpen: (section: SettingsSectionId) => boolean;
+  toggleSection: (section: SettingsSectionId) => void;
+  openSettingsSection: (
+    section: SettingsSectionId,
+    options?: { scroll?: boolean },
+  ) => void;
+}
+
+export function normalizeSettingsSection(
+  value?: string | null,
+): SettingsSectionId | null {
+  const normalized = value?.replace(/^#/, "").toLowerCase() ?? "";
+  if (!normalized) return null;
+  if (normalized.startsWith("secrets")) return "secrets";
+  if (
+    normalized === "workspace" ||
+    normalized === "workspace-settings" ||
+    normalized === "organization" ||
+    normalized === "org"
+  ) {
+    return "secrets";
+  }
+  if (normalized === "agent-engine") return "llm";
+  if (
+    normalized === "agent-model-defaults" ||
+    normalized === "app-model-defaults" ||
+    normalized === "models"
+  ) {
+    return "app-models";
+  }
+  if (normalized === "agent-limits" || normalized === "loop-settings") {
+    return "limits";
+  }
+  return SETTINGS_SECTION_IDS.has(normalized as SettingsSectionId)
+    ? (normalized as SettingsSectionId)
+    : null;
+}
+
+export function settingsSectionDomId(section: SettingsSectionId): string {
+  return `agent-settings-section-${section}`;
+}
+
+function firstVisibleSection(
+  sections: readonly SettingsSectionId[],
+): SettingsSectionId {
+  if (sections.includes("llm")) return "llm";
+  return sections[0] ?? "llm";
+}
+
+function settingsPathParts(): string[] {
+  if (typeof window === "undefined") return [];
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  const settingsIndex = pathParts.indexOf("settings");
+  return settingsIndex === -1 ? [] : pathParts.slice(settingsIndex + 1);
+}
+
+function secretKeyFromPath(pathParts: readonly string[]): string | undefined {
+  const secretsIndex = pathParts.findIndex(
+    (part) => part.toLowerCase() === "secrets",
+  );
+  if (secretsIndex === -1) return undefined;
+  const key = pathParts.slice(secretsIndex + 1).join("/");
+  return key || undefined;
+}
+
+function initialOpenSection(
+  sections: readonly SettingsSectionId[],
+): SettingsSectionId {
+  const hashSection =
+    typeof window === "undefined"
+      ? null
+      : normalizeSettingsSection(window.location.hash);
+  if (hashSection && sections.includes(hashSection)) return hashSection;
+
+  if (typeof window !== "undefined") {
+    const routeParts = settingsPathParts();
+    for (let index = routeParts.length - 1; index >= 0; index -= 1) {
+      const pathSection = normalizeSettingsSection(routeParts[index]);
+      if (pathSection && sections.includes(pathSection)) return pathSection;
+    }
+  }
+
+  return firstVisibleSection(sections);
+}
+
+export function useSettingsPanelController({
+  sections = ALL_SETTINGS_SECTIONS,
+  initialSection,
+  sectionRequestKey,
+  onScrollToSection,
+}: SettingsPanelControllerOptions = {}): SettingsPanelController {
+  const visibleSections = useMemo(() => new Set(sections), [sections]);
+  const isSectionVisible = useCallback(
+    (section: SettingsSectionId) => visibleSections.has(section),
+    [visibleSections],
+  );
+  const [openSection, setOpenSection] = useState<SettingsSectionId | null>(() =>
+    initialOpenSection(sections),
+  );
+  const [focusSecretKey, setFocusSecretKey] = useState<string>();
+
+  const openSettingsSection = useCallback(
+    (section: SettingsSectionId, options: { scroll?: boolean } = {}) => {
+      setOpenSection(section);
+      if (options.scroll) onScrollToSection?.(section);
+    },
+    [onScrollToSection],
+  );
+
+  const toggleSection = useCallback((section: SettingsSectionId) => {
+    setOpenSection((current) => (current === section ? null : section));
+  }, []);
+
+  const isSectionOpen = useCallback(
+    (section: SettingsSectionId) => openSection === section,
+    [openSection],
+  );
+
+  useEffect(() => {
+    const section = normalizeSettingsSection(initialSection);
+    if (!section || !isSectionVisible(section)) return;
+    if (section !== "secrets") setFocusSecretKey(undefined);
+    openSettingsSection(section, { scroll: true });
+  }, [
+    initialSection,
+    sectionRequestKey,
+    isSectionVisible,
+    openSettingsSection,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleLocationChange = () => {
+      const hash = window.location.hash?.replace(/^#/, "") ?? "";
+      let section = normalizeSettingsSection(hash);
+      const pathParts = settingsPathParts();
+      if (!section) {
+        for (let index = pathParts.length - 1; index >= 0; index -= 1) {
+          const pathSection = normalizeSettingsSection(pathParts[index]);
+          if (pathSection) {
+            section = pathSection;
+            break;
+          }
+        }
+      }
+      if (!section || !isSectionVisible(section)) return;
+      if (hash.startsWith("secrets:") || hash === "secrets") {
+        const key = hash.slice("secrets:".length);
+        setFocusSecretKey(key || undefined);
+      } else if (section === "secrets") {
+        setFocusSecretKey(secretKeyFromPath(pathParts));
+      } else {
+        setFocusSecretKey(undefined);
+      }
+      openSettingsSection(section, { scroll: true });
+    };
+    handleLocationChange();
+    window.addEventListener("hashchange", handleLocationChange);
+    window.addEventListener("popstate", handleLocationChange);
+    return () => {
+      window.removeEventListener("hashchange", handleLocationChange);
+      window.removeEventListener("popstate", handleLocationChange);
+    };
+  }, [isSectionVisible, openSettingsSection]);
+
+  return {
+    sections,
+    openSection,
+    focusSecretKey,
+    isSectionVisible,
+    isSectionOpen,
+    toggleSection,
+    openSettingsSection,
+  };
+}

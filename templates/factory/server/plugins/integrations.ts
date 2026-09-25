@@ -1,0 +1,45 @@
+import crypto from "node:crypto";
+
+import {
+  createIntegrationsPlugin,
+  loadActionsFromStaticRegistry,
+  slackAdapter,
+  type IncomingMessage,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+function fallbackOwner(incoming: IncomingMessage): string {
+  const tenantValue =
+    incoming.platformContext.teamId ??
+    incoming.platformContext.channelId ??
+    incoming.externalThreadId;
+  const tenant =
+    typeof tenantValue === "string" ? tenantValue : JSON.stringify(tenantValue);
+  const digest = crypto
+    .createHash("sha256")
+    .update(`${incoming.platform}:${tenant}:${incoming.senderId ?? ""}`)
+    .digest("hex")
+    .slice(0, 16);
+  return `factory+${digest}@integration.local`;
+}
+
+export default createIntegrationsPlugin({
+  appId: "factory",
+  adapters: [slackAdapter()],
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  resolveOwner: async (incoming) =>
+    incoming.senderVerified && incoming.senderEmail?.trim()
+      ? incoming.senderEmail.trim().toLowerCase()
+      : fallbackOwner(incoming),
+  systemPrompt: `You are the Factory agent responding through Slack.
+
+Use Factory actions to inspect Slack and pull-request evidence, explain decisions,
+record human feedback, and tune rules. Scheduled automations start clear-bug work
+through dispatch-factory-item. Never claim a coding agent, PR, merge, assignment,
+or provider message exists until the returned run state confirms it. If the item
+is protected, incomplete, or unreadable, explain that a human must intervene and
+include the Factory item URL when available.
+
+Keep replies concise and operational.`,
+});

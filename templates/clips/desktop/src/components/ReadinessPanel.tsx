@@ -1,0 +1,237 @@
+import {
+  IconChevronRight,
+  IconChevronDown,
+  IconCircleCheck,
+  IconCircleOff,
+  IconRefresh,
+} from "@tabler/icons-react";
+import { useState, useCallback, useEffect } from "react";
+
+import {
+  permissionStatusForPane,
+  readPermissionStatuses,
+  requestOrOpenPermission,
+  type MacosPrivacyPane,
+  type PermissionStatuses,
+} from "../lib/permission-status";
+import { isMacPlatform, isWindowsPlatform } from "../lib/platform";
+
+type CaptureMode = "screen" | "screen-camera" | "camera";
+
+type ReadinessItem = {
+  label: string;
+  detail: string;
+  pane: MacosPrivacyPane;
+  active: boolean;
+  macosOnly?: boolean;
+};
+
+function readinessItems({
+  mode,
+  cameraOn,
+  micOn,
+  includeFnMonitoring,
+  includeVoicePaste,
+}: {
+  mode: CaptureMode;
+  cameraOn: boolean;
+  micOn: boolean;
+  includeFnMonitoring: boolean;
+  includeVoicePaste: boolean;
+}): ReadinessItem[] {
+  const mac = isMacPlatform();
+  const items: ReadinessItem[] = [
+    {
+      label: "Screen Recording",
+      detail: "Allows Clips to record your screen",
+      pane: "screen",
+      active: mode !== "camera",
+    },
+    {
+      label: "Microphone",
+      detail: "Allows Clips to access your microphone",
+      pane: "microphone",
+      active: micOn,
+    },
+    {
+      label: "Speech Recognition",
+      detail: "Allows Clips to use speech recognition",
+      pane: "speech",
+      active: micOn,
+      macosOnly: true,
+    },
+    {
+      label: "Camera",
+      detail: "Allows Clips to access your camera",
+      pane: "camera",
+      active: mode !== "screen" && cameraOn,
+    },
+    {
+      label: "Accessibility",
+      detail: "Allows Clips to control this device to paste dictated text",
+      pane: "accessibility",
+      active: includeVoicePaste,
+      macosOnly: true,
+    },
+    {
+      label: "Input Monitoring",
+      detail: "Allows Clips to detect the Fn key",
+      pane: "input-monitoring",
+      active: includeFnMonitoring,
+      macosOnly: true,
+    },
+  ];
+
+  return items.filter((item) => item.active && (!item.macosOnly || mac));
+}
+
+export function ReadinessPanel({
+  mode,
+  cameraOn,
+  micOn,
+  includeFnMonitoring,
+  includeVoicePaste,
+  open,
+  onOpenChange,
+  onOpenPermission,
+}: {
+  mode: CaptureMode;
+  cameraOn: boolean;
+  micOn: boolean;
+  includeFnMonitoring: boolean;
+  includeVoicePaste: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onOpenPermission: (pane: MacosPrivacyPane) => void;
+}) {
+  const mac = isMacPlatform();
+  const canOpenPrivacySettings = mac || isWindowsPlatform();
+  const items = readinessItems({
+    mode,
+    cameraOn,
+    micOn,
+    includeFnMonitoring,
+    includeVoicePaste,
+  });
+
+  const [statuses, setStatuses] = useState<PermissionStatuses | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [refreshingPane, setRefreshingPane] = useState<MacosPrivacyPane | null>(
+    null,
+  );
+
+  const checkStatuses = useCallback(async () => {
+    setChecking(true);
+    try {
+      setStatuses(await readPermissionStatuses());
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  const refreshPermissions = useCallback(
+    (pane: MacosPrivacyPane) => {
+      setRefreshingPane(null);
+      window.requestAnimationFrame(() => setRefreshingPane(pane));
+      window.setTimeout(() => {
+        setRefreshingPane((current) => (current === pane ? null : current));
+      }, 450);
+      void checkStatuses();
+    },
+    [checkStatuses],
+  );
+
+  const grantPermission = useCallback(
+    (pane: MacosPrivacyPane) =>
+      requestOrOpenPermission(pane, {
+        onOpenSettings: onOpenPermission,
+        onRecheck: () => void checkStatuses(),
+      }),
+    [checkStatuses, onOpenPermission],
+  );
+
+  useEffect(() => {
+    if (open && !statuses && mac) void checkStatuses();
+  }, [open, statuses, mac, checkStatuses]);
+
+  return (
+    <div className={`readiness ${open ? "readiness-open" : ""}`}>
+      <button
+        type="button"
+        className="readiness-summary"
+        aria-expanded={open}
+        onClick={() => onOpenChange(!open)}
+      >
+        <span className="readiness-title">Permissions</span>
+        <span className="readiness-action">
+          {open ? "Hide" : "Review"}
+          {open ? (
+            <IconChevronDown size={11} stroke={2.5} />
+          ) : (
+            <IconChevronRight size={11} stroke={2.5} />
+          )}
+        </span>
+      </button>
+      {open ? (
+        <div className="readiness-list">
+          {items.length ? (
+            items.map((item) => {
+              const granted = permissionStatusForPane(item.pane, statuses);
+              return (
+                <div className="readiness-item" key={item.pane}>
+                  <div className="readiness-item-copy">
+                    <span className="readiness-item-title">{item.label}</span>
+                    <span className="readiness-item-detail">{item.detail}</span>
+                  </div>
+                  <div className="readiness-item-actions">
+                    {mac ? (
+                      <button
+                        type="button"
+                        className={`readiness-refresh ${refreshingPane === item.pane ? "readiness-refresh-rotating" : ""}`}
+                        onClick={() => refreshPermissions(item.pane)}
+                        disabled={checking}
+                        aria-label="Recheck permissions"
+                        title="Recheck"
+                      >
+                        <IconRefresh size={13} stroke={2} />
+                      </button>
+                    ) : null}
+                    {mac && granted !== null ? (
+                      <span
+                        className={`readiness-status ${granted ? "readiness-status-ok" : "readiness-status-warn"}`}
+                        aria-label={granted ? "Granted" : "Not granted"}
+                      >
+                        {granted ? (
+                          <IconCircleCheck size={16} stroke={2} />
+                        ) : (
+                          <IconCircleOff size={16} stroke={2} />
+                        )}
+                      </span>
+                    ) : null}
+                    {canOpenPrivacySettings ? (
+                      <button
+                        type="button"
+                        className="readiness-open-button"
+                        onClick={() => void grantPermission(item.pane)}
+                      >
+                        Open
+                      </button>
+                    ) : (
+                      <span className="readiness-item-detail">
+                        System prompt
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="readiness-empty">
+              Turn on camera or mic when you need them.
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}

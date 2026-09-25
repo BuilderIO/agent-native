@@ -1,0 +1,94 @@
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, countDistinct, desc, eq, inArray, ne } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { nextBrainSourceSyncAt } from "../server/jobs/sync-sources.js";
+import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
+import { sourceHealthState } from "../server/lib/brain-health.js";
+import { parseJson, serializeSource } from "../server/lib/brain.js";
+import { sourceProviderSchema } from "./_schemas.js";
+
+async function sourceRecordCount(sourceId: string): Promise<number> {
+  const audienceIds = await listAccessibleAudienceIds([sourceId]);
+  if (!audienceIds.length) return 0;
+
+  // Count only — never load the heavy `content` blob of every capture row
+  // just to take `.length`.
+  const [row] = await getDb()
+    .select({ value: countDistinct(schema.brainRawCaptures.id) })
+    .from(schema.brainRawCaptures)
+    .innerJoin(
+      schema.brainCaptureAudiences,
+      eq(schema.brainCaptureAudiences.captureId, schema.brainRawCaptures.id),
+    )
+    .where(
+      and(
+        eq(schema.brainRawCaptures.sourceId, sourceId),
+        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
+      ),
+    );
+  return row?.value ?? 0;
+}
+
+async function latestRun(sourceId: string) {
+  const [run] = await getDb()
+    .select()
+    .from(schema.brainSyncRuns)
+    .where(eq(schema.brainSyncRuns.sourceId, sourceId))
+    .orderBy(desc(schema.brainSyncRuns.startedAt))
+    .limit(1);
+  return run
+    ? {
+        id: run.id,
+        status: run.status,
+        stats: parseJson(run.statsJson, {}),
+        error: run.error,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+      }
+    : null;
+}
+
+export default defineAction({
+  description: "List Brain sources accessible to the current user.",
+  schema: z.object({
+    provider: sourceProviderSchema.optional(),
+    includeArchived: z.coerce.boolean().default(false),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ provider, includeArchived }) => {
+    const clauses = [
+      accessFilter(schema.brainSources, schema.brainSourceShares),
+    ];
+    if (provider) clauses.push(eq(schema.brainSources.provider, provider));
+    if (!includeArchived)
+      clauses.push(ne(schema.brainSources.status, "archived"));
+    const rows = await getDb()
+      .select()
+      .from(schema.brainSources)
+      .where(and(...clauses))
+      .orderBy(desc(schema.brainSources.updatedAt));
+    const nowMs = Date.now();
+    const sources = await Promise.all(
+      rows.map(async (row) => {
+        const latest = await latestRun(row.id);
+        const nextSyncAt = nextBrainSourceSyncAt(row);
+        return {
+          ...serializeSource(row),
+          recordCount: await sourceRecordCount(row.id),
+          latestRun: latest,
+          nextSyncAt,
+          health: sourceHealthState(row, latest, nextSyncAt, nowMs),
+        };
+      }),
+    );
+    return {
+      count: rows.length,
+      sources,
+    };
+  },
+});

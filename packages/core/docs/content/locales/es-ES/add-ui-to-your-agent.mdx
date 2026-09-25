@@ -1,0 +1,49 @@
+---
+title: "Añade una interfaz a tu agente de Microsoft Foundry, Gemini, Anthropic u OpenAI"
+description: "Conecta backends de agentes alojados a un espacio de trabajo Agent-Native mediante A2A o APIs de agentes administrados."
+search: "añadir interfaz agente Foundry Gemini Anthropic OpenAI A2A directorio agentes"
+---
+
+# Añade una interfaz a tu agente
+
+Agent-Native aporta a tu agente un espacio de trabajo para chat, aprobaciones, estado y permisos. El proveedor conserva el razonamiento, las herramientas, el contexto y la ejecución prolongada.
+
+Esta página explica **cómo añadir una interfaz a un agente de Microsoft Foundry, Gemini Enterprise, Anthropic Managed Agents u OpenAI**.
+
+## Elige una conexión {#choose-a-connection-path}
+
+| Backend                  | Conexión en Agent-Native | Configuración                                |
+| ------------------------ | ------------------------ | -------------------------------------------- |
+| Microsoft Foundry        | A2A 1.0                  | URL de Agent Card y secreto de Entra         |
+| Gemini Enterprise        | A2A                      | URL de Agent Card y secreto de Google        |
+| Anthropic Managed Agents | Managed Agents API       | ID de agente, entorno y clave del vault      |
+| OpenAI Agents API        | Punto A2A personalizado  | URL de Agent Card y credencial del proveedor |
+| Cualquier agente A2A     | A2A                      | URL de Agent Card y credenciales opcionales  |
+
+Abre **Settings → Agent → Agent directory** para buscar proveedores. Los botones Connect abren el formulario existente **Connected agents**. Los secretos permanecen en el vault.
+
+## Microsoft Foundry {#microsoft-foundry}
+
+Pega la URL de la tarjeta A2A v1.0 y elige las credenciales de Entra. Para servicio a servicio usa `https://ai.azure.com/.default` y el rol **Foundry Agent Consumer**.
+
+## Gemini Enterprise {#gemini-enterprise}
+
+Pega la URL de tarjeta A2A personalizada y elige el secreto bearer. Agent-Native valida la tarjeta y la interfaz JSON-RPC antes de guardar.
+
+## Anthropic Managed Agents {#anthropic-managed-agents}
+
+Elige **Anthropic Managed Agents**, introduce el ID del agente y del entorno y selecciona la clave API. Las sesiones y aprobaciones de Anthropic aparecen en el chat de Agent-Native.
+
+## Agente A2A personalizado {#custom-a2a}
+
+Usa **Add by URL** para un agente interno o autoalojado. Se validan tarjetas A2A 0.3 y 1.0 y los fallos aparecen como estados claros.
+
+Si no hay streaming, la conexión usa `message/send`.
+
+## Registros {#registries}
+
+Explora la [Global A2A Registry](https://www.a2a-registry.org). Verifica la tarjeta, el host y la autenticación antes de añadir un agente y usar credenciales.
+
+## Capa de interfaz {#ui-layer}
+
+[A2A](/docs/a2a-protocol) transporta la tarea delegada y el espacio de trabajo Agent-Native mantiene el estado del usuario. Consulta [Connected agents](/docs/agent-mentions#mentioning-agents) y [External agents](/docs/external-agents).

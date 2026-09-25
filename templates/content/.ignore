@@ -1,0 +1,3 @@
+# Override .gitignore so the agent can still search/grep/read these files
+# See: https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md#automatic-filtering
+!content/projects/

@@ -1,0 +1,10 @@
+{
+  "name": "next-pages-fixture",
+  "type": "module",
+  "dependencies": {
+    "next": "latest",
+    "openai": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  }
+}

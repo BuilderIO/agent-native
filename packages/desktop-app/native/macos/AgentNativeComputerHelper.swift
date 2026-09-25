@@ -1,0 +1,645 @@
+import AppKit
+import ApplicationServices
+import Foundation
+
+private struct HelperFailure: Error, CustomStringConvertible {
+    let description: String
+}
+
+private final class PhantomCursorView: NSView {
+    static let panelWidth: CGFloat = 70
+    static let panelHeight: CGFloat = 45
+    static let labelGap: CGFloat = 2
+
+    var labelOnLeft = false {
+        didSet { needsDisplay = true }
+    }
+
+    var labelAbove = false {
+        didSet { needsDisplay = true }
+    }
+
+    var pointerOriginX: CGFloat = 1 {
+        didSet { needsDisplay = true }
+    }
+
+    var pointerTipY: CGFloat = 44 {
+        didSet { needsDisplay = true }
+    }
+
+    var preferredLabelWidth: CGFloat {
+        let label = "Agent" as NSString
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+        ]
+        return label.size(withAttributes: attributes).width + 12
+    }
+
+    override var isOpaque: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill()
+
+        let pointerOriginY = pointerTipY - 44
+        let pointer = NSBezierPath()
+        pointer.move(to: NSPoint(x: pointerOriginX, y: pointerOriginY + 44))
+        pointer.line(to: NSPoint(x: pointerOriginX, y: pointerOriginY + 27))
+        pointer.line(to: NSPoint(x: pointerOriginX + 5, y: pointerOriginY + 31))
+        pointer.line(to: NSPoint(x: pointerOriginX + 9, y: pointerOriginY + 24))
+        pointer.line(to: NSPoint(x: pointerOriginX + 12, y: pointerOriginY + 26))
+        pointer.line(to: NSPoint(x: pointerOriginX + 8, y: pointerOriginY + 32))
+        pointer.line(to: NSPoint(x: pointerOriginX + 16, y: pointerOriginY + 32))
+        pointer.close()
+
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.26)
+        shadow.shadowBlurRadius = 1
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        NSGraphicsContext.saveGraphicsState()
+        shadow.set()
+        NSColor(calibratedRed: 0.482, green: 0.380, blue: 1, alpha: 1).setFill()
+        pointer.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.white.setStroke()
+        pointer.lineWidth = 1.1
+        pointer.stroke()
+
+        let label = "Agent" as NSString
+        let labelFont = NSFont.systemFont(ofSize: 12, weight: .regular)
+        let labelAttributes: [NSAttributedString.Key: Any] = [
+            .font: labelFont,
+            .foregroundColor: NSColor.white,
+        ]
+        let labelSize = label.size(withAttributes: labelAttributes)
+        let labelWidth = labelSize.width + 12
+        let labelRect = NSRect(
+            x: labelOnLeft
+                ? max(0, pointerOriginX - labelWidth - PhantomCursorView.labelGap)
+                : 17,
+            y: labelAbove
+                ? min(max(pointerTipY + 2, 0), PhantomCursorView.panelHeight - 20)
+                : 5,
+            width: labelWidth,
+            height: 20
+        )
+        let labelPath = NSBezierPath(roundedRect: labelRect, xRadius: 2, yRadius: 2)
+        NSGraphicsContext.saveGraphicsState()
+        let labelShadow = NSShadow()
+        labelShadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.22)
+        labelShadow.shadowBlurRadius = 2
+        labelShadow.shadowOffset = NSSize(width: 0, height: -1)
+        labelShadow.set()
+        NSColor(calibratedRed: 0.482, green: 0.380, blue: 1, alpha: 1).setFill()
+        labelPath.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        label.draw(
+            at: NSPoint(x: labelRect.minX + 6, y: labelRect.minY + 3),
+            withAttributes: labelAttributes
+        )
+    }
+}
+
+private final class PhantomCursorOverlay {
+    private let visibleDuration: TimeInterval = 1.8
+    private let fadeDuration: TimeInterval = 0.42
+    private var panel: NSPanel?
+    private var fadeTimer: Timer?
+    private var removeTimer: Timer?
+
+    func show(at quartzPoint: CGPoint, click: Bool) {
+        onMain { [self] in
+            guard let placement = placement(for: quartzPoint) else { return }
+            removeTimers()
+
+            let view: PhantomCursorView
+            if let existingView = panel?.contentView as? PhantomCursorView {
+                view = existingView
+            } else {
+                view = PhantomCursorView(
+                    frame: NSRect(
+                        x: 0,
+                        y: 0,
+                        width: PhantomCursorView.panelWidth,
+                        height: PhantomCursorView.panelHeight
+                    )
+                )
+                let nextPanel = NSPanel(
+                    contentRect: view.frame,
+                    styleMask: [.borderless, .nonactivatingPanel],
+                    backing: .buffered,
+                    defer: false
+                )
+                nextPanel.isOpaque = false
+                nextPanel.backgroundColor = .clear
+                nextPanel.hasShadow = false
+                nextPanel.ignoresMouseEvents = true
+                nextPanel.hidesOnDeactivate = false
+                nextPanel.level = .floating
+                nextPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+                nextPanel.contentView = view
+                panel = nextPanel
+            }
+
+            let pointerWidth: CGFloat = 17
+            view.labelOnLeft = placement.appKitPoint.x
+                + pointerWidth
+                + PhantomCursorView.labelGap
+                + view.preferredLabelWidth
+                > placement.screen.frame.maxX
+            view.labelAbove = placement.appKitPoint.y - 44 < placement.screen.frame.minY
+            _ = click
+            let desiredOriginX = view.labelOnLeft
+                ? placement.appKitPoint.x
+                    - view.preferredLabelWidth
+                    - PhantomCursorView.labelGap
+                : placement.appKitPoint.x - 1
+            let originX = min(
+                max(desiredOriginX, placement.screen.frame.minX),
+                placement.screen.frame.maxX - PhantomCursorView.panelWidth
+            )
+            // Keep the arrow tip on the action point. The display clips only
+            // the artwork that naturally extends past a physical edge.
+            view.pointerOriginX = max(placement.appKitPoint.x - originX, 1)
+
+            let desiredOriginY = view.labelAbove
+                ? placement.appKitPoint.y - 22
+                : placement.appKitPoint.y - 44
+            let originY = min(
+                max(desiredOriginY, placement.screen.frame.minY),
+                placement.screen.frame.maxY - PhantomCursorView.panelHeight
+            )
+            view.pointerTipY = min(max(placement.appKitPoint.y - originY, 0), 44)
+            panel?.alphaValue = 1
+            panel?.setFrameOrigin(NSPoint(
+                x: originX,
+                y: originY
+            ))
+            panel?.orderFrontRegardless()
+
+            fadeTimer = Timer.scheduledTimer(withTimeInterval: visibleDuration, repeats: false) { [weak self] _ in
+                self?.fade()
+            }
+        }
+    }
+
+    func hide() {
+        onMain { [self] in
+            removeTimers()
+            panel?.orderOut(nil)
+            panel = nil
+        }
+    }
+
+    private func fade() {
+        guard let panel else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = fadeDuration
+            panel.animator().alphaValue = 0
+        }
+        removeTimer = Timer.scheduledTimer(withTimeInterval: fadeDuration, repeats: false) { [weak self] _ in
+            self?.hide()
+        }
+    }
+
+    private func removeTimers() {
+        fadeTimer?.invalidate()
+        fadeTimer = nil
+        removeTimer?.invalidate()
+        removeTimer = nil
+    }
+
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.sync(execute: work)
+        }
+    }
+
+    private struct CursorPlacement {
+        let appKitPoint: NSPoint
+        let screen: NSScreen
+    }
+
+    private func placement(for quartzPoint: CGPoint) -> CursorPlacement? {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return nil }
+
+        // Accessibility and NSScreen frames are both logical points. Derive a
+        // shared top-left space instead of mixing them with display pixels.
+        let referenceScreen = screens.first(where: {
+            $0.frame.minX == 0 && $0.frame.minY == 0
+        }) ?? screens[0]
+        let referenceTop = referenceScreen.frame.maxY
+        let appKitPoint = NSPoint(x: quartzPoint.x, y: referenceTop - quartzPoint.y)
+        guard let screen = screens.first(where: {
+            $0.frame.insetBy(dx: -0.5, dy: -0.5).contains(appKitPoint)
+        }) else { return nil }
+        return CursorPlacement(appKitPoint: appKitPoint, screen: screen)
+    }
+}
+
+private final class ComputerHelper {
+    private let cursorOverlay = PhantomCursorOverlay()
+    private var snapshotId: String?
+    private var targets: [String: AXUIElement] = [:]
+    private var snapshotBundleId: String?
+    private var snapshotOrigin: String?
+    private var nodeCount = 0
+    private let maxNodes = 500
+    private let maxDepth = 8
+
+    func close() {
+        cursorOverlay.hide()
+    }
+
+    func handle(_ request: [String: Any]) throws -> Any? {
+        guard let command = request["command"] as? String else {
+            throw HelperFailure(description: "Missing command.")
+        }
+        switch command {
+        case "snapshot":
+            return try takeSnapshot()
+        case "mutate":
+            guard
+                let operation = request["operation"] as? [String: Any],
+                let scope = request["expectedScope"] as? [String: Any]
+            else {
+                throw HelperFailure(description: "Mutation requires an operation and scope.")
+            }
+            try mutate(operation, expectedScope: scope)
+            return nil
+        case "releaseAll":
+            releaseAllInputs()
+            cursorOverlay.hide()
+            return nil
+        default:
+            throw HelperFailure(description: "Unsupported command.")
+        }
+    }
+
+    private func takeSnapshot() throws -> [String: Any] {
+        let context = try focusedContext()
+        let id = UUID().uuidString
+        snapshotId = id
+        snapshotBundleId = context.bundleId
+        snapshotOrigin = context.origin
+        targets.removeAll(keepingCapacity: true)
+        nodeCount = 0
+
+        var nodes: [[String: Any]] = []
+        if let focusedWindow = copyElement(context.application, kAXFocusedWindowAttribute as CFString) {
+            nodes.append(snapshotNode(focusedWindow, depth: 0))
+        } else {
+            nodes.append(snapshotNode(context.application, depth: 0))
+        }
+
+        var result: [String: Any] = [
+            "snapshotId": id,
+            "bundleId": context.bundleId,
+            "capturedAt": ISO8601DateFormatter().string(from: Date()),
+            "nodes": nodes,
+        ]
+        if let name = context.applicationName { result["applicationName"] = name }
+        if let origin = context.origin { result["origin"] = origin }
+        return result
+    }
+
+    private func snapshotNode(_ element: AXUIElement, depth: Int) -> [String: Any] {
+        nodeCount += 1
+        let nodeId = String(nodeCount)
+        targets[nodeId] = element
+        let role = copyString(element, kAXRoleAttribute as CFString) ?? "AXUnknown"
+        var node: [String: Any] = ["id": nodeId, "role": role]
+        if let title = copyString(element, kAXTitleAttribute as CFString), !title.isEmpty {
+            node["title"] = truncate(title, limit: 300)
+        }
+        // Password and secure text values never leave the helper.
+        if role != "AXSecureTextField",
+           let value = copyString(element, kAXValueAttribute as CFString),
+           !value.isEmpty {
+            node["value"] = truncate(value, limit: 1_000)
+        }
+        if let frame = frame(of: element) { node["frame"] = frame }
+
+        if depth < maxDepth && nodeCount < maxNodes,
+           let children = copyElements(element, kAXChildrenAttribute as CFString) {
+            var childNodes: [[String: Any]] = []
+            for child in children where nodeCount < maxNodes {
+                childNodes.append(snapshotNode(child, depth: depth + 1))
+            }
+            if !childNodes.isEmpty { node["children"] = childNodes }
+        }
+        return node
+    }
+
+    private func mutate(_ operation: [String: Any], expectedScope: [String: Any]) throws {
+        guard
+            let kind = operation["kind"] as? String,
+            let target = operation["target"] as? [String: Any],
+            let requestedSnapshot = target["snapshotId"] as? String,
+            let nodeId = target["nodeId"] as? String,
+            let requestedBundle = target["bundleId"] as? String,
+            requestedSnapshot == snapshotId,
+            requestedBundle == snapshotBundleId,
+            let element = targets[nodeId]
+        else {
+            throw HelperFailure(description: "Stale or invalid semantic target.")
+        }
+
+        let current = try focusedContext()
+        let allowedBundles = expectedScope["bundleIds"] as? [String] ?? []
+        let allowedOrigins = expectedScope["origins"] as? [String] ?? []
+        guard current.bundleId == requestedBundle, allowedBundles.contains(current.bundleId) else {
+            throw HelperFailure(description: "Focused application is outside the task scope.")
+        }
+
+        let requestedOrigin = canonicalOrigin(target["origin"] as? String)
+        guard requestedOrigin == canonicalOrigin(snapshotOrigin),
+              requestedOrigin == canonicalOrigin(current.origin) else {
+            throw HelperFailure(description: "Focused origin changed after observation.")
+        }
+        if let origin = requestedOrigin, !allowedOrigins.contains(origin) {
+            throw HelperFailure(description: "Focused origin is outside the task scope.")
+        }
+
+        if let expectedRole = target["expectedRole"] as? String {
+            guard copyString(element, kAXRoleAttribute as CFString) == expectedRole else {
+                throw HelperFailure(description: "Semantic target role changed after observation.")
+            }
+        }
+        guard isElementEnabled(element) else {
+            throw HelperFailure(description: "Semantic target is no longer enabled.")
+        }
+
+        if let rect = rect(of: element) {
+            cursorOverlay.show(
+                at: CGPoint(x: rect.midX, y: rect.midY),
+                click: kind == "input.click"
+            )
+        }
+
+        switch kind {
+        case "input.click":
+            try click(element, button: operation["button"] as? String ?? "left")
+        case "input.type":
+            guard let text = operation["text"] as? String else {
+                throw HelperFailure(description: "Typing requires text.")
+            }
+            focus(element)
+            try typeText(text)
+        case "input.key":
+            guard let key = operation["key"] as? String else {
+                throw HelperFailure(description: "Key input requires a key.")
+            }
+            focus(element)
+            try pressKey(key, modifiers: operation["modifiers"] as? [String] ?? [])
+        case "input.scroll":
+            guard let dx = number(operation["deltaX"]), let dy = number(operation["deltaY"]) else {
+                throw HelperFailure(description: "Scroll requires numeric deltas.")
+            }
+            try scroll(element, deltaX: dx, deltaY: dy)
+        default:
+            throw HelperFailure(description: "Unsupported mutation.")
+        }
+    }
+
+    private func click(_ element: AXUIElement, button: String) throws {
+        guard let rect = rect(of: element), rect.width > 0, rect.height > 0 else {
+            throw HelperFailure(description: "Target does not have a clickable frame.")
+        }
+        let point = CGPoint(x: rect.midX, y: rect.midY)
+        let mouseButton: CGMouseButton = button == "right" ? .right : .left
+        let downType: CGEventType = button == "right" ? .rightMouseDown : .leftMouseDown
+        let upType: CGEventType = button == "right" ? .rightMouseUp : .leftMouseUp
+        guard
+            let down = CGEvent(mouseEventSource: nil, mouseType: downType, mouseCursorPosition: point, mouseButton: mouseButton),
+            let up = CGEvent(mouseEventSource: nil, mouseType: upType, mouseCursorPosition: point, mouseButton: mouseButton)
+        else { throw HelperFailure(description: "Could not create mouse events.") }
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+    }
+
+    private func typeText(_ text: String) throws {
+        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
+            throw HelperFailure(description: "Could not create keyboard events.")
+        }
+        let units = Array(text.utf16)
+        down.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+        up.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+    }
+
+    private func pressKey(_ key: String, modifiers: [String]) throws {
+        guard let code = keyCode(key) else {
+            throw HelperFailure(description: "Unsupported key name.")
+        }
+        let flags = modifierFlags(modifiers)
+        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
+            throw HelperFailure(description: "Could not create keyboard events.")
+        }
+        down.flags = flags
+        up.flags = flags
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+    }
+
+    private func scroll(_ element: AXUIElement, deltaX: Int32, deltaY: Int32) throws {
+        guard let rect = rect(of: element) else {
+            throw HelperFailure(description: "Scroll target does not have a frame.")
+        }
+        let point = CGPoint(x: rect.midX, y: rect.midY)
+        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point,
+                mouseButton: .left)?.post(tap: .cghidEventTap)
+        CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                wheel1: deltaY, wheel2: deltaX, wheel3: 0)?.post(tap: .cghidEventTap)
+    }
+
+    private func focus(_ element: AXUIElement) {
+        AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+    }
+
+    private func releaseAllInputs() {
+        let location = CGEvent(source: nil)?.location ?? .zero
+        CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: location,
+                mouseButton: .left)?.post(tap: .cghidEventTap)
+        CGEvent(mouseEventSource: nil, mouseType: .rightMouseUp, mouseCursorPosition: location,
+                mouseButton: .right)?.post(tap: .cghidEventTap)
+        for keyCode: CGKeyCode in [54, 55, 56, 57, 58, 59, 60, 61, 62] {
+            CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)?.post(tap: .cghidEventTap)
+        }
+    }
+
+    private func focusedContext() throws -> (application: AXUIElement, bundleId: String, applicationName: String?, origin: String?) {
+        let system = AXUIElementCreateSystemWide()
+        // The system-wide focused-app attribute can be temporarily unavailable
+        // during WindowServer transitions even when the frontmost app is AX-readable.
+        let application = copyElement(system, kAXFocusedApplicationAttribute as CFString)
+            ?? NSWorkspace.shared.frontmostApplication.map {
+                AXUIElementCreateApplication($0.processIdentifier)
+            }
+        guard let application else {
+            throw HelperFailure(description: "No focused application is available.")
+        }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(application, &pid) == .success,
+              let running = NSRunningApplication(processIdentifier: pid),
+              let bundleId = running.bundleIdentifier else {
+            throw HelperFailure(description: "Could not identify the focused application.")
+        }
+        return (application, bundleId, running.localizedName, originForApplication(application))
+    }
+
+    private func originForApplication(_ application: AXUIElement) -> String? {
+        let candidates = [
+            copyElement(application, kAXFocusedWindowAttribute as CFString),
+            copyElement(application, kAXFocusedUIElementAttribute as CFString),
+        ].compactMap { $0 }
+        for element in candidates {
+            var budget = 120
+            if let origin = findOrigin(element, depth: 0, budget: &budget) { return origin }
+        }
+        return nil
+    }
+
+    private func findOrigin(_ element: AXUIElement, depth: Int, budget: inout Int) -> String? {
+        guard budget > 0, depth < 8 else { return nil }
+        budget -= 1
+        if let value = copyAny(element, kAXURLAttribute as CFString) {
+            if let url = value as? URL, let origin = canonicalOrigin(url.absoluteString) { return origin }
+            if let string = value as? String, let origin = canonicalOrigin(string) { return origin }
+        }
+        for child in copyElements(element, kAXChildrenAttribute as CFString) ?? [] {
+            if let origin = findOrigin(child, depth: depth + 1, budget: &budget) { return origin }
+        }
+        return nil
+    }
+}
+
+private func copyAny(_ element: AXUIElement, _ attribute: CFString) -> AnyObject? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
+    return value
+}
+
+private func copyElement(_ element: AXUIElement, _ attribute: CFString) -> AXUIElement? {
+    guard let value = copyAny(element, attribute),
+          CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+    return unsafeBitCast(value, to: AXUIElement.self)
+}
+
+private func copyElements(_ element: AXUIElement, _ attribute: CFString) -> [AXUIElement]? {
+    copyAny(element, attribute) as? [AXUIElement]
+}
+
+private func copyString(_ element: AXUIElement, _ attribute: CFString) -> String? {
+    if let string = copyAny(element, attribute) as? String { return string }
+    if let number = copyAny(element, attribute) as? NSNumber { return number.stringValue }
+    return nil
+}
+
+private func rect(of element: AXUIElement) -> CGRect? {
+    guard let position = copyAny(element, kAXPositionAttribute as CFString),
+          let size = copyAny(element, kAXSizeAttribute as CFString) else { return nil }
+    var point = CGPoint.zero
+    var dimensions = CGSize.zero
+    guard CFGetTypeID(position) == AXValueGetTypeID(),
+          CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+    let positionValue = unsafeBitCast(position, to: AXValue.self)
+    let sizeValue = unsafeBitCast(size, to: AXValue.self)
+    guard AXValueGetValue(positionValue, .cgPoint, &point),
+          AXValueGetValue(sizeValue, .cgSize, &dimensions) else { return nil }
+    return CGRect(origin: point, size: dimensions)
+}
+
+private func frame(of element: AXUIElement) -> [String: Double]? {
+    guard let rect = rect(of: element) else { return nil }
+    return ["x": rect.origin.x, "y": rect.origin.y, "width": rect.width, "height": rect.height]
+}
+
+private func isElementEnabled(_ element: AXUIElement) -> Bool {
+    guard let value = copyAny(element, kAXEnabledAttribute as CFString) else { return true }
+    return (value as? NSNumber)?.boolValue ?? true
+}
+
+private func canonicalOrigin(_ value: String?) -> String? {
+    guard let value, let components = URLComponents(string: value),
+          let scheme = components.scheme?.lowercased(), let host = components.host?.lowercased() else { return nil }
+    var result = "\(scheme)://\(host)"
+    if let port = components.port { result += ":\(port)" }
+    return result
+}
+
+private func truncate(_ value: String, limit: Int) -> String {
+    value.count <= limit ? value : String(value.prefix(limit))
+}
+
+private func number(_ value: Any?) -> Int32? {
+    (value as? NSNumber)?.int32Value
+}
+
+private func modifierFlags(_ names: [String]) -> CGEventFlags {
+    var flags: CGEventFlags = []
+    for name in names.map({ $0.lowercased() }) {
+        switch name {
+        case "command", "meta": flags.insert(.maskCommand)
+        case "control": flags.insert(.maskControl)
+        case "option", "alt": flags.insert(.maskAlternate)
+        case "shift": flags.insert(.maskShift)
+        default: break
+        }
+    }
+    return flags
+}
+
+private func keyCode(_ name: String) -> CGKeyCode? {
+    let keys: [String: CGKeyCode] = [
+        "enter": 36, "return": 36, "tab": 48, "space": 49, "delete": 51,
+        "escape": 53, "left": 123, "right": 124, "down": 125, "up": 126,
+        "home": 115, "end": 119, "pageup": 116, "pagedown": 121,
+    ]
+    return keys[name.lowercased()]
+}
+
+private let helper = ComputerHelper()
+let application = NSApplication.shared
+application.setActivationPolicy(.accessory)
+DispatchQueue.global(qos: .userInitiated).async {
+    while let line = readLine() {
+        autoreleasepool {
+            var response: [String: Any] = ["ok": false]
+            do {
+                guard let data = line.data(using: .utf8),
+                      let request = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let id = request["id"] as? NSNumber else {
+                    throw HelperFailure(description: "Invalid request envelope.")
+                }
+                response["id"] = id
+                // Accessibility and AppKit must stay on the main thread. The
+                // stdin worker remains serialized while the main run loop
+                // owns every helper operation.
+                let result = try DispatchQueue.main.sync {
+                    try helper.handle(request)
+                }
+                response["ok"] = true
+                if let result { response["result"] = result }
+            } catch {
+                response["error"] = String(describing: error)
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: response),
+               let output = String(data: data, encoding: .utf8) {
+                print(output)
+                fflush(stdout)
+            }
+        }
+    }
+    DispatchQueue.main.async {
+        helper.close()
+        application.terminate(nil)
+    }
+}
+application.run()

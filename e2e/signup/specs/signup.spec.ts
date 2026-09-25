@@ -1,0 +1,243 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+
+import { expect, test, type Page } from "@playwright/test";
+import type { TestInfo } from "@playwright/test";
+
+import { isQaTestEmail } from "../../../packages/core/src/shared/qa-test-email";
+import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
+import {
+  createQaEmail,
+  isMailosaurInconclusiveError,
+  verificationLinkFor,
+  waitForVerificationEmail,
+} from "../lib/mailosaur";
+import { selectedSignupTargets } from "../lib/targets";
+
+interface SessionResult {
+  status: number;
+  body: unknown;
+}
+
+/** Read an authenticated session endpoint with the browser context's cookies. */
+async function readJson(page: Page, path: string): Promise<SessionResult> {
+  const response = await page
+    .context()
+    .request.get(new URL(path, page.url()).toString(), {
+      headers: { Accept: "application/json" },
+      timeout: 60_000,
+    });
+  const raw = await response.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    body = raw;
+  }
+  return { status: response.status(), body };
+}
+
+async function readSession(page: Page) {
+  return readJson(page, "/_agent-native/auth/session");
+}
+
+async function readBetterAuthSession(page: Page) {
+  return readJson(page, "/_agent-native/auth/ba/get-session");
+}
+
+function assertSession(session: SessionResult, email: string, label: string) {
+  expect(
+    session.status,
+    `${label} returned HTTP ${session.status}: ${JSON.stringify(session.body).slice(0, 500)}`,
+  ).toBe(200);
+  expect(
+    (session.body as { email?: unknown }).email,
+    `${label} did not identify the canary account`,
+  ).toBe(email);
+}
+
+function assertBetterAuthSession(
+  session: SessionResult,
+  email: string,
+  label: string,
+) {
+  expect(
+    session.status,
+    `${label} returned HTTP ${session.status}: ${JSON.stringify(session.body).slice(0, 500)}`,
+  ).toBe(200);
+  expect(
+    (session.body as { user?: { email?: unknown } }).user?.email,
+    `${label} did not identify the canary account`,
+  ).toBe(email);
+}
+
+const targets = selectedSignupTargets();
+
+function recordMailosaurInconclusive(
+  testInfo: TestInfo,
+  message: string,
+): void {
+  const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+  mkdirSync(dirname(marker), { recursive: true });
+  writeFileSync(marker, `${message}\n`, "utf8");
+}
+
+for (const target of targets) {
+  test(`${target.environment} ${target.app} completes email signup without a refresh`, async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(360_000);
+    const { errors, thirdParty } = collectAppPageErrors(page, target.origin);
+    const failedRequests: string[] = [];
+    page.on("requestfailed", (request) => {
+      const failure = request.failure()?.errorText ?? "unknown";
+      if (
+        /aborted/i.test(failure) ||
+        !request.url().startsWith(target.origin)
+      ) {
+        return;
+      }
+      failedRequests.push(`${request.url()} (${failure})`);
+    });
+
+    const email = createQaEmail(target.app, target.environment);
+    expect(
+      isQaTestEmail(email),
+      `${email} must be suppressed by tracking`,
+    ).toBe(true);
+    const signInUrl = `${target.origin}/sign-in?signup_e2e=${Date.now()}`;
+    const emailRequestedAt = Date.now() - 5_000;
+    const magicLinkStatuses: number[] = [];
+    page.on("response", (response) => {
+      const request = response.request();
+      if (
+        request.method() === "POST" &&
+        new URL(response.url()).pathname === "/_agent-native/auth/magic-link"
+      ) {
+        magicLinkStatuses.push(response.status());
+      }
+    });
+
+    await test.step("open the real sign-in page", async () => {
+      const response = await page.goto(signInUrl, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(response, `${signInUrl} produced no response`).toBeTruthy();
+      expect(response!.status(), `${signInUrl} returned an error`).toBeLessThan(
+        400,
+      );
+      await renderedText(page, signInUrl);
+      // The form is absent, not hidden, when the server picks password auth —
+      // which it does whenever the deployment has no email provider. Read the
+      // mode the server actually rendered so the failure names the missing env
+      // instead of timing out on a locator.
+      const authData = await page
+        .locator("#agent-native-auth-data")
+        .textContent();
+      const authMode = authData
+        ? (JSON.parse(authData) as { authMode?: string }).authMode
+        : undefined;
+      expect(
+        authMode,
+        `${signInUrl} rendered authMode=${authMode ?? "unknown"}. Magic-link ` +
+          "signup is unavailable because this deployment has no RESEND_API_KEY " +
+          "or SENDGRID_API_KEY (+EMAIL_FROM) configured — fix the site's email " +
+          "provider env, not this assertion.",
+      ).toBe("magic-link");
+      await expect(page.locator("#magic-link-form")).toBeVisible();
+    });
+
+    const message = await test.step("request a fresh magic link", async () => {
+      const emailResult = waitForVerificationEmail(
+        email,
+        emailRequestedAt,
+      ).then(
+        (message) => ({ status: "fulfilled" as const, message }),
+        (error) => ({ status: "rejected" as const, error }),
+      );
+      await page.locator("#m-email").fill(email);
+      await page.locator("#magic-link-submit").click({ noWaitAfter: true });
+      await expect(page.locator("#magic-link-success")).toBeVisible();
+      await expect(page.locator("#magic-link-success-email")).toHaveText(email);
+      expect(
+        magicLinkStatuses,
+        "magic-link request was not observed",
+      ).not.toEqual([]);
+      expect(magicLinkStatuses.at(-1)).toBe(200);
+
+      const result = await emailResult;
+      if (result.status === "rejected") {
+        if (isMailosaurInconclusiveError(result.error)) {
+          recordMailosaurInconclusive(testInfo, result.error.message);
+          testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
+          return null;
+        }
+        throw result.error;
+      }
+      return result.message;
+    });
+    if (!message) return;
+
+    await test.step("use the secure same-origin link from the inbox", async () => {
+      const verificationLink = verificationLinkFor(message, target.origin);
+      const response = await page.goto(verificationLink, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(
+        response,
+        `${target.app} verification produced no response`,
+      ).toBeTruthy();
+      expect(
+        response!.status(),
+        `${target.app} verification returned an error`,
+      ).toBeLessThan(400);
+      expect(new URL(page.url()).origin).toBe(target.origin);
+      expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
+    });
+
+    await test.step("prove the session works before any refresh", async () => {
+      assertSession(
+        await readSession(page),
+        email,
+        `${target.app} immediate session`,
+      );
+      assertBetterAuthSession(
+        await readBetterAuthSession(page),
+        email,
+        `${target.app} immediate Better Auth session`,
+      );
+    });
+
+    await test.step("prove the session survives a browser refresh", async () => {
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect
+        .poll(() => new URL(page.url()).pathname)
+        .not.toMatch(/sign-in|login/i);
+      assertSession(
+        await readSession(page),
+        email,
+        `${target.app} refreshed session`,
+      );
+      assertBetterAuthSession(
+        await readBetterAuthSession(page),
+        email,
+        `${target.app} refreshed Better Auth session`,
+      );
+    });
+
+    if (thirdParty.length > 0) {
+      test.info().annotations.push({
+        type: "third-party-noise",
+        description: [...new Set(thirdParty)].join("; "),
+      });
+    }
+    expect(
+      errors,
+      `${target.origin} threw an uncaught error during signup`,
+    ).toEqual([]);
+    expect(
+      failedRequests,
+      `${target.origin} had failed same-origin requests during signup`,
+    ).toEqual([]);
+  });
+}

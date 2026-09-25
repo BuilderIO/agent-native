@@ -1,0 +1,156 @@
+---
+title: "Apresentações: Funcionalidades"
+description: "Todas as funcionalidades essenciais do Apresentações, incluindo geração de decks, edição, apresentação, comentários, compartilhamento, histórico de versões e sistemas de design, e importação/exportação."
+---
+
+# Funcionalidades
+
+Todas as funcionalidades essenciais do Apresentações: como funcionam e como
+configurá-las. Veja [Apresentações](/docs/template-slides) para a visão geral
+e [Conversar com o Agent](/docs/template-slides-agent) para a lista completa
+de prompts.
+
+## Decks
+
+Tudo sobre criar, editar, apresentar e compartilhar um deck individual.
+
+### Gere um deck a partir de um prompt
+
+<Steps>
+
+### Instrua o agente como instruiria uma pessoa
+
+"Gere um deck de pitch de 10 slides para um serviço de assinatura de café, o público são investidores." Dê a ele um tema, uma duração e um público, e ele molda o esboço em torno deles.
+
+### Assista à construção slide por slide
+
+O agente primeiro planeja o esboço, depois constrói o deck um slide por vez, para que você veja cada um aparecer no editor em vez de esperar que tudo chegue de uma vez.
+
+### Continue refinando na mesma conversa
+
+"Adicione um slide de preços após o slide 3." "Deixe esta seção mais curta." Somente os slides sobre os quais você perguntou mudam.
+
+</Steps>
+
+Todo novo deck usa por padrão uma tela widescreen 16:9. Peça ao agente para mudar para 1:1 (quadrado), 9:16 (vertical, estilo Stories) ou 4:5 (retrato) quando precisar de um formato diferente. Alterá-lo atualiza a tela do editor, o modo de apresentação e a exportação em PDF/PPTX juntos, para que você nunca acabe com uma exportação que não corresponda ao que você construiu.
+
+### Edite slides visualmente
+
+- **Edição de texto in-line.** Clique duas vezes em qualquer texto para editá-lo diretamente no slide.
+- **O menu de bolha.** Clique em um bloco, um título, uma lista com marcadores, uma imagem, para obter opções de formatação rápidas apenas para aquele bloco.
+- **O menu de barra.** Digite `/` para inserir um novo bloco, um título, marcadores, uma tabela, um bloco de código, um espaço reservado para imagem, sem tirar as mãos do teclado.
+- **Reordenação.** Arraste slides na tira de filme para reordená-los; desfazer e refazer funcionam como você esperaria.
+- **Incorporações ricas.** Um slide pode conter um diagrama desenhado à mão ou um gráfico renderizado em tempo real junto com seu texto e suas imagens, não apenas HTML estático.
+
+Selecione um texto em um slide e clique no botão **Revisar com IA** no menu de bolha para entregar ao agente exatamente essa seleção. Ou selecione vários elementos no seu slide e clique em **Enviar para o agente**. Depois, forneça um prompt na janela de chat à direita. Veja [Conversar com o Agent](/docs/template-slides-agent) para saber como funcionam as edições sensíveis à seleção.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F76908237be7744ee8c278c732f872b1b?alt=media&token=26544696-95e2-4b3a-ba55-95c841e6347c&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Uma demonstração de como encontrar os botões Revisar com IA e Enviar para o Agente."
+  caption="Uma demonstração de como encontrar os botões Revisar com IA e Enviar para o Agente."
+  autoplay={true}
+  loop={true}
+/>
+
+### Apresente em tela inteira
+
+Clique em **Apresentar** para abrir o deck em tela inteira. Os controles desaparecem até você mover o mouse, e suas notas do apresentador ficam visíveis só para você. Depois que você começa a apresentar, estes atalhos se aplicam:
+
+| Tecla                | Ação                                        |
+| -------------------- | ------------------------------------------- |
+| `→`, `↓` ou `Espaço` | Próximo slide                               |
+| `←` ou `↑`           | Slide anterior                              |
+| `F`                  | Alternar tela inteira                       |
+| `S`                  | Abrir notas do apresentador em outra janela |
+| `Esc`                | Sair do modo de apresentação                |
+
+### Comente e colabore em tempo real
+
+Abra o painel de **Comentários** na barra de ferramentas para ver e adicionar comentários sobre o slide que você está visualizando. O painel é restrito a esse slide: mude para outro slide e o conteúdo troca para corresponder, então ele nunca mostra os comentários do deck inteiro de uma vez. Selecione um texto primeiro para citá-lo em um novo comentário, ou use a ferramenta **Fixar comentários** da barra de ferramentas para soltar um marcador persistente diretamente sobre um elemento.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F347fc9e8d1ef4404ab4e014419951d9a?alt=media&token=b2485f52-c7ff-4803-a0b5-9db94e549ab8&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Use comentários para colaborar com colegas de equipe."
+  caption="Use comentários para colaborar com colegas de equipe."
+  autoplay={true}
+  loop={true}
+/>
+
+Qualquer pessoa com acesso de edição pode comentar e responder em uma thread. Resolva uma thread depois que ela for tratada. Várias pessoas (e o agente) podem editar o mesmo deck ao mesmo tempo sem sobrescrever as mudanças umas das outras. Veja [Colaboração em tempo real](/docs/real-time-collaboration) para saber como isso funciona por baixo dos panos.
+
+### Compartilhe um deck
+
+Compartilhe um deck da mesma forma que compartilharia qualquer recurso do Agent-Native: mantenha-o privado, compartilhe-o com colegas de equipe específicos como visualizador ou editor, ou gere um link público somente leitura que qualquer pessoa possa abrir sem uma conta. Veja [Compartilhamento](/docs/sharing) para o modelo completo.
+
+### Restaure uma versão anterior
+
+Cada mudança relevante, sua ou do agente, captura um snapshot do deck antes, então nada é jamais perdido silenciosamente. Abra o histórico de versões para ver uma linha do tempo de snapshots anteriores e restaurar qualquer um deles. Restaurar também captura seu próprio snapshot antes, então uma restauração nunca é um beco sem saída.
+
+### Leve decks de e para outros formatos
+
+| Direção  | Formatos                     | O que acontece                                                                                                                                                                       |
+| -------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Importar | PPTX, DOCX, PDF, Google Docs | Convertido em slides editáveis — um PDF ou DOCX se torna um slide por página ou seção, um PPTX mantém sua divisão de slides original e as notas do apresentador.                     |
+| Exportar | PPTX                         | Texto, formas e imagens nativos e editáveis — não uma imagem plana de cada slide.                                                                                                    |
+| Exportar | Google Slides                | O Apresentações gera o mesmo PPTX e entrega a você um link de importação pronto, já que o Google Slides não tem uma importação direta do tipo "abrir esta URL".                      |
+| Exportar | HTML autônomo                | Um único arquivo autocontido com navegação por teclado integrada que você pode hospedar ou enviar por e-mail para qualquer lugar — nenhum aplicativo é necessário para visualizá-lo. |
+
+Trazer um repositório do GitHub, um código-fonte ou uma URL de site é uma funcionalidade diferente de importar o conteúdo de um deck: esses três alimentam a indexação de sistema de design descrita em [Sistemas de Design](#design-systems), e não a importação de conteúdo slide a slide.
+
+## Sistemas de Design {#design-systems}
+
+Um sistema de design é um pacote reutilizável de identidade de marca: cores primárias/de destaque/de fundo, fontes de título e de corpo, espaçamento, logotipos e instruções personalizadas em texto livre ("sempre deixe os rótulos de seção em minúsculas", "nunca use fotos de banco de imagens"). É um recurso separado de qualquer deck específico. Salve um e cada novo deck pode usá-lo em vez de padrões genéricos.
+
+### Adicione um sistema de design
+
+<Steps>
+
+### Abra Sistemas de Design
+
+Na barra lateral, abra **Sistemas de Design** e clique em **Novo sistema de design**.
+
+### Adicione seu material de marca
+
+Preencha o que você tiver: um nome de empresa e um site, um repositório do GitHub, arquivos de código, documentos, imagens de referência ou logotipos, notas ou instruções personalizadas.
+
+### Clique em Continuar para Geração
+
+Isso inicia a construção do seu sistema de design. O que acontece a seguir depende exatamente do que você forneceu.
+
+</Steps>
+
+#### O que acontece a seguir depende da origem
+
+Enviar um arquivo do Figma ou informar apenas um repositório do GitHub constrói o sistema de design imediatamente. Qualquer outra coisa abre o agente na barra lateral para concluí-lo ali. Não há seletor de cores nem seletor de fontes: as cores e fontes da marca sempre vêm de uma fonte que o agente interpreta, ou do que você digita nas notas e instruções personalizadas.
+
+#### Defina um padrão
+
+Marque um sistema de design como seu padrão para que cada novo deck o use automaticamente, ou escolha um explicitamente ao iniciar um novo deck.
+
+### Integração com o Builder
+
+Um arquivo do Figma, um código-fonte ou repositório do GitHub conectado, ou um `design.md` precisa de análise real, então esses passam pelo Builder Design System Intelligence em vez de um palpite local de uma única tentativa.
+
+#### Conecte o Builder
+
+Isso requer uma conta do Builder.io conectada (um nível gratuito está disponível). Se você ainda não conectou uma, o agente solicita que você o faça quando precisar.
+
+#### O Builder permanece a fonte da verdade
+
+O Builder indexa a origem e é o proprietário da documentação, dos tokens extraídos e das orientações de uso resultantes, não o Apresentações. O Apresentações mantém apenas uma referência leve para o resultado localmente, então o agente busca a documentação atual no Builder sempre que aplica o sistema de design.
+
+### Arquivos do Figma
+
+Um arquivo `.fig` é a única origem que começa a ser indexada no momento em que você o solta, sem exigir nenhuma etapa de chat com o agente. Arraste um arquivo para o painel do Figma na caixa de diálogo de configuração, ou clique para procurar um. O Apresentações o envia e inicia um job de indexação do Builder Design System Intelligence imediatamente, e o resultado se torna um sistema de design que você pode aplicar a qualquer deck quando a indexação terminar.
+
+### Aplique e ajuste por deck
+
+Depois que um sistema de design é vinculado a um deck, o painel **Ajustes** oferece sobreposições rápidas em tempo real, uma amostra de cor de destaque, capitalização de título, temperatura do fundo, sem editar diretamente o sistema salvo. Uma mudança que você mantém persiste de volta para o sistema de design.
+
+## Próximos passos
+
+- [**Visão geral do Apresentações**](/docs/template-slides) — voltar ao resumo do aplicativo
+- [**Conversar com o Agent**](/docs/template-slides-agent) — prompts por tarefa e edições sensíveis à seleção
+- [**Apresentações em um workspace com múltiplos apps**](/docs/template-slides-integrations) — estratégias de integração e conexão com o Dispatch
+- [**Guia do desenvolvedor**](/docs/template-slides-developers) — a referência de actions de deck, slide, comentário, versão, sistema de design e importação/exportação
+- [**Assets**](/docs/template-assets) — onde bibliotecas de marca podem viver entre aplicativos

@@ -1,0 +1,64 @@
+---
+title: "Slides: Talk to the Agent"
+description: "What the agent sees in Slides, and useful prompts by task."
+---
+
+# Talk to the Agent
+
+Slides' agent creates, edits, imports, exports, and styles decks through the same actions the UI uses, so anything you can click, you can also ask for. This page covers what it sees automatically and prompts organized by task. It's useful whether you're a day-to-day user or building on top of Slides.
+
+## How the agent sees your screen
+
+The agent always knows which deck is open, which slide you're on, and the full list of slides in that deck. You don't have to say "slide 4," it already knows what's there. When you're mid-edit in the visual editor, it also sees your active selection: the specific element you clicked, the tool you're using, and computed style details, so "make this bigger" acts on the thing you actually selected rather than guessing.
+
+The chat lives in the sidebar for quick back-and-forth. Slides also has a full-page Agent view for longer sessions with more room to work.
+
+### Selection-aware edits
+
+Select text on a slide and click the **Revise with AI** button in the bubble menu, or rubber-band-select one or more elements and click **Send to agent** in the floating chip, to hand the agent exactly what you highlighted. "Make this punchier" or "translate just this" then operates on your selection only, not the whole slide.
+
+## Useful prompts by task
+
+Every prompt below becomes a real action against your actual deck, the same one the UI reads and writes. Here's one worked example:
+
+<Comparison>
+
+### :blue: You ask
+
+"Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
+
+### :green: What happens
+
+The agent plans the outline first, then streams each slide into the editor live as it's built, so you watch the deck take shape instead of waiting for the whole thing to land at once.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Generate
+
+- **"Summarize this PDF as a 6-slide deck."** Attach the PDF and the agent turns it into an editable deck.
+- **"Turn this Google Doc into a deck."** Same idea, starting from a Google Doc instead.
+
+### Edit and restyle
+
+_With a slide open, "this slide" resolves on its own._
+
+- **"Add a pricing slide after slide 3."** The new slide appears in the filmstrip right away.
+- **"Make the title on this slide bigger and change the accent color to green."** The change applies to the open slide live.
+- **"Replace the word 'customers' with 'members' everywhere in this deck."** Every slide updates at once.
+
+### Import and export
+
+- "Import this PPTX and turn each slide into an editable slide here."
+- "Export this deck as PowerPoint."
+- "Get this ready to open in Google Slides."
+
+</Cards>
+
+## What's next
+
+- [**Features**](/docs/template-slides-features) — the editor, design systems, and media these prompts act on
+- [**Slides in a Multi-App Workspace**](/docs/template-slides-integrations) — Creative Context Library submissions and Assets delegation from a cross-app angle
+- [**Developer Guide**](/docs/template-slides-developers) — every action referenced above
+- [**Slides overview**](/docs/template-slides) — back to the app summary

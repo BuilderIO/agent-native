@@ -1,0 +1,63 @@
+---
+title: "Privacidad y derechos sobre los datos"
+description: "Valores predeterminados del framework y responsabilidades del operador para solicitudes de datos de GDPR y CCPA."
+---
+
+# Privacidad y derechos sobre los datos
+
+Agent-Native incluye una superficie para solicitudes de privacidad en los ajustes predeterminados de la cuenta. Una persona con la sesión iniciada puede solicitar una copia de sus datos personales o pedir su eliminación.
+
+Esto es una base de implementación, no asesoramiento jurídico ni una certificación de cumplimiento. La organización que opera la aplicación debe determinar su función legal y publicar los avisos y procesos adecuados para su despliegue.
+
+## Qué pueden hacer los usuarios
+
+Abre **Ajustes > Cuenta > Privacidad y datos** para:
+
+- solicitar una copia de los datos personales para revisar el acceso o la portabilidad,
+- solicitar la eliminación de los datos personales para revisar el borrado,
+- corregir los datos de la cuenta con los controles existentes del perfil y del correo electrónico.
+
+Las solicitudes son duraderas, idempotentes y auditadas. La acción solo guarda el tipo de solicitud, el estado y la fecha. No devuelve una exportación de datos, no acepta el correo o el ID de otra persona y no elimina datos inmediatamente.
+
+## Qué no pueden hacer los agentes
+
+Las solicitudes se envían desde los ajustes de la cuenta. La acción `request-privacy-right` está autenticada, oculta para las herramientas del agente y el descubrimiento MCP/A2A, bloqueada en el puente de herramientas y autorizada solo para el frontend.
+
+La acción principal `offboard-member` tiene el mismo límite exclusivo de la interfaz. Desactivar a un miembro es una operación de organización que transfiere sus filas y revoca el acceso; no es un borrado de cuenta. El borrado de la organización también conserva la confirmación del propietario en la interfaz.
+
+Los avisos de aprobación humana no son un límite de seguridad. Para una acción personalizada que borre datos, revoque identidades, cambie miembros o modifique la autenticación, usa un límite UI-only explícito y deriva la identidad del contexto de solicitud verificado.
+
+## Cumplimiento por el operador
+
+El framework registra la solicitud. El operador del despliegue debe:
+
+1. verificar la identidad y determinar la organización y el alcance legal,
+2. recopilar los datos bajo su control y entregarlos por un canal privado y protegido,
+3. eliminar o anonimizar filas y archivos privados, revocar sesiones y credenciales cuando corresponda y coordinar a proveedores y encargados conectados,
+4. aplicar la política de conservación a copias de seguridad, registros de seguridad y auditoría, prevención de fraude y excepciones documentadas,
+5. registrar la finalización, el cumplimiento parcial o el motivo del bloqueo y comunicar el resultado.
+
+No afirmes que una solicitud está completa porque se eliminó una fila de organización o un ajuste. Los proveedores alojados, archivos subidos, servicios conectados, cachés, copias de seguridad y registros inmutables pueden tener rutas separadas de conservación y eliminación.
+
+## Privacidad predeterminada
+
+Los recursos nuevos que se pueden compartir son privados de forma predeterminada. Los análisis del navegador mantienen desactivada la captura automática del DOM y de la red, y la reproducción de sesiones es opcional y solo para usuarios con sesión iniciada cuando se configura. Estos valores no sustituyen el aviso de privacidad, el análisis de base legal, la política de conservación ni los controles de consentimiento y exclusión.
+
+Si el despliegue vende o comparte información personal, debe ofrecer la exclusión aplicable de CCPA y gestionar Global Privacy Control. El framework no crea un programa de venta o uso compartido.
+
+## Lista de despliegue
+
+- Publicar un aviso de privacidad con categorías, fines, destinatarios, conservación, derechos y contacto.
+- Documentar bases legales, consentimiento, datos sensibles y requisitos de edad.
+- Asignar un responsable y un flujo para solicitudes de acceso, corrección, eliminación, portabilidad, oposición y exclusión.
+- Inventariar tablas, archivos privados, analítica, servicios conectados, correo, cachés, registros, copias y subencargados.
+- Definir verificación, plazos, excepciones de conservación, pruebas de eliminación y apelaciones.
+- Mantener UI-only las acciones de alto impacto y probar que agente, MCP, A2A, CLI, HTTP y puente de herramientas no pueden invocarlas.
+
+## Referencias
+
+- [Texto del GDPR](https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng/)
+- [Comisión Europea: solicitudes individuales](https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/dealing-requests-individuals_en)
+- [Fiscalía General de California: CCPA](https://www.oag.ca.gov/privacy/ccpa)
+- [Reglamentos de CCPA](https://www.oag.ca.gov/privacy/ccpa/regs)
+- [Política de privacidad de Hosted Agent-Native](/privacy)

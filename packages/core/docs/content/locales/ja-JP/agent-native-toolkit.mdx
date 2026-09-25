@@ -1,0 +1,137 @@
+---
+title: "Toolkit"
+description: "再利用可能な基盤、エディタとキャンバス、エージェントのコンテキスト、ガバナンス、ワークスペースのクローム、運用、Toolkit の能力モジュールをまとめた均衡の取れたカタログ。"
+---
+
+<!-- i18n-docs-ignore -->
+
+# Toolkit
+
+Toolkit は、高品質なエージェント型アプリケーションのための、再利用可能で実戦で磨かれた構成要素です。アプリ間で繰り返される難しいプロダクト作業を、人とエージェントのリアルタイムコラボレーション、人とエージェントへの共有、設定、チーム、セットアップ、リソース、履歴、レビュー、オブザーバビリティといった標準的な画面へ変換します。
+
+各キットには、ユーザーが一貫して機能することを期待する UI パターン、アクション契約、アプリ状態の前提、アクセス境界、エージェントから見える振る舞いが含まれます。アプリはドメインモデルと視覚的アイデンティティを引き続き所有します。Toolkit は、共通のプロダクトシステムを、毎回少しずつ異なる形で作り直すのではなく、最初のバージョンから完成したものにします。
+
+<WireframeBlock id="doc-block-toolkits-index">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:grid;grid-template-columns:200px 1fr 280px;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:14px'><div style='display:flex;align-items:center;gap:8px'><div style='width:26px;height:26px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center;font-size:12px;flex:none'>A</div><strong style='flex:1'>Acme</strong><span data-icon='chevronDown'></span></div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='search'></span> Home</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='edit'></span> Documents</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='user'></span> Team</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='settings'></span> Settings</div><div style='flex:1'></div><div style='display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1.4px solid var(--wf-line)'><div style='width:24px;height:24px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><small style='flex:1'>Steve</small><span data-icon='dots'></span></div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><div style='flex:1'></div><div style='display:flex'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><button class='primary'><span data-icon='user'></span> Share</button></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Revenue by month</small><div style='display:flex;align-items:flex-end;gap:10px;height:120px'><div style='flex:1;height:45%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:65%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:55%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:80%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:95%;background:var(--wf-accent);border-radius:4px'></div></div></div><div style='display:flex;gap:10px'><div class='wf-box' style='flex:1'><small class='wf-muted'>ARR</small><br/><strong>$4.2M</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Win rate</small><br/><strong>28%</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Pipeline</small><br/><strong>3.2x</strong></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Agent</strong><div class='wf-box'>Summarize Q3 versus Q2 and flag risks.</div><div class='wf-box' style='background:var(--wf-accent-soft)'>Revenue up 12%. Two pipeline risks flagged.</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><span class='wf-muted'>Ask about this dashboard...</span><div style='display:flex;align-items:center;gap:6px'><span class='wf-pill'>Q3 Forecast</span><span class='wf-pill'>GPT-5</span><div style='flex:1'></div><button class='primary'><span data-icon='send'></span></button></div></div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+<Diagram id="doc-block-toolkits-boundary" title="3 つのレイヤーの関係" summary={"Core はフレームワークの基盤です。Toolkit はオプションの再利用可能なインフラと UI です。Templates は Core 上のオプションのアプリで、多くは Toolkit を利用します。"}>
+
+```html
+<div class="diagram-row">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Core</span><br />
+    アクション、SQL、認証、アプリ状態、アクセスチェック、リアルタイム転送
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Toolkit</span><br />
+    コラボレーション、共有、セットアップ、レビュー、履歴、オブザーバビリティ
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Templates</span><br />
+    ドメインスキーマ、ルート、アクション、ブランディング、専門ワークフロー
+  </div>
+</div>
+```
+
+```css
+.diagram-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.diagram-row .diagram-card {
+  flex: 1 1 210px;
+  padding: 14px;
+}
+.diagram-row .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+Core がフレームワークです。Toolkit はフレームワーク向けの再利用可能な部品を集めたオプションの棚です。Templates は Core 上のオプションのアプリで、Toolkit を利用でき、完全な出発点としてフォークできます。Toolkit や template を使わず Core を直接利用するアプリも作れます。
+
+## カタログ {#catalog}
+
+| 領域                           | 開始地点                                                  | 内容                                                                                    |
+| ------------------------------ | --------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 基盤                           | [UI プリミティブ](/docs/toolkit-ui)                       | 共有コントロール、フック、アプリアダプター、シェルの接続点。                            |
+| エディタとキャンバス           | [エディタとキャンバス](/docs/toolkit-editors-canvases)    | リッチ編集、構造化ブロック、再利用可能なキャンバス制御、Design パターン。               |
+| エージェント体験とコンテキスト | [コンテキストとナレッジ](/docs/toolkit-context-knowledge) | Context X-Ray、リソース、ナレッジ、コンポーザーのコンテキスト、エージェント可視の状態。 |
+| コラボレーションとガバナンス   | [コラボレーション](/docs/toolkit-collaboration)           | 共有、プレゼンス、レビュー、履歴、監査、組織境界。                                      |
+| ワークスペースのクローム       | [アプリクローム](/docs/toolkit-settings)                  | 設定、チーム、セットアップ、ナビゲーション、リソース、エージェント UX。                 |
+| 運用                           | [オブザーバビリティ](/docs/toolkit-observability)         | 利用状況、フィードバック、リプレイ、診断、運用上の可視性。                              |
+| Toolkit 能力モジュール         | [能力パッケージ](/docs/toolkit-capability-packages)       | 必要に応じて導入するドメインパッケージとライフサイクルマニフェスト。                    |
+
+## プロダクトキット {#product-kits}
+
+| キット                                                       | 用途                                                                                                            |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| [共有](/docs/toolkit-sharing)                                | 所有可能なリソース、共有ダイアログ、可視性バッジ、共有アクション、公開／非公開／組織アクセス。                  |
+| [コラボレーション](/docs/toolkit-collaboration)              | リアルタイム編集、プレゼンス、ライブカーソル、最近の編集の強調、共同 undo。                                     |
+| [設定](/docs/toolkit-settings)                               | アプリ設定とエージェント／プロバイダー設定を一つの予測可能な場所にまとめる標準設定ページとタブ。                |
+| [組織とチーム](/docs/toolkit-org-team)                       | チームページ、組織切り替え、招待、組織ドメイン、ロール、アプリ切り替え。                                        |
+| [セットアップと接続](/docs/toolkit-setup-connections)        | オンボーディング、シークレット、ワークスペース接続、OAuth／プロバイダーの準備、Builder 接続（無料プランあり）。 |
+| [コマンドとナビゲーション](/docs/toolkit-command-navigation) | コマンドメニュー、ディープリンク、標準アプリルート、サイドバーとシェルのパターン。                              |
+| [リソース](/docs/toolkit-resources)                          | リソースツリー、エディタ、ファイルピッカー／検索、添付、ローカルファイルモード。                                |
+| [エージェント UX](/docs/toolkit-agent-ux)                    | コンポーザー、モデルピッカー、コンテキストチップ、承認、実行復旧、実行トレイ。                                  |
+| [履歴](/docs/toolkit-history)                                | バージョン履歴、監査ログ、undo／redo、復元、「何が変わったか」の画面。                                          |
+| [コメントとレビュー](/docs/toolkit-comments-review)          | インラインコメント、注釈、メンション、解決済みスレッド、レビュー状態。                                          |
+| [オブザーバビリティ](/docs/toolkit-observability)            | 利用状況、支出、フィードバック、リプレイ、エラー、実行診断。                                                    |
+
+## パッケージの成熟度と所有権 {#package-maturity-and-ownership}
+
+- リッチエディタは **Toolkit** 所有です。移行中は既存の Core import を薄い互換 re-export として維持します。
+- Design は再利用可能な `design-tweaks` を備えた **テンプレートパターン** であり、完全なドロップインエディタやキャンバスではありません。
+- Blocks と Context X-Ray エンジンはこの段階では **Core 所有** のままです。再利用可能な Context X-Ray 表示は Toolkit 所有です。
+- Creative Context、Scheduling、Pinpoint は必要に応じて導入する **Toolkit 能力モジュール** で、個別の npm パッケージとライフサイクルマニフェストを維持します。Dispatch は独立した製品です。
+
+## ダッシュボードキット {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` は、指標・統計カード、テーブル、日付範囲、
+パネルの順序とレイアウト、汎用チャートのための表示専用で eject 可能な単位です。
+アプリが行とコールバックを渡し、このキットはデータ取得、ダッシュボード状態、
+認証情報を保持しません。`@agent-native/core/dashboard-storage` はアプリごとに
+スキーマとアクセス制御を持って生成し、既定の `program` source でアプリの data program を実行します。
+適用する前に `agent-native eject inspect toolkit/dashboard` を実行してください。
+プロバイダーリゾルバーは、接続とクエリポリシーを所有するアプリに置きます。
+
+## 実装の境界 {#implementation-boundary}
+
+キットはまずプロダクト画面です。一部はランタイムに支えられ（`@agent-native/core`）、一部は表示プリミティブ（`@agent-native/toolkit`）で、アプリは通常ローカルアダプターで両方を包みます。必要な振る舞いを所有するパッケージパスを使いつつ、ユーザー向けの設定、コラボレーション、共有、チーム、レビュー、セットアップの体験は、アプリ内でパッケージ境界を見せず、一つの一貫したキットとして設計してください。
+
+## 基盤となる要素 {#foundation-pieces}
+
+- [UI プリミティブ](/docs/toolkit-ui) は `@agent-native/toolkit/ui/*` にある共有の shadcn スタイルプリミティブを扱います。
+- [アプリアダプター](/docs/toolkit-ui#app-adapters) は、アプリがローカルの `@/components/*` アダプターを通して Toolkit の要素を包む方法を示します。
+- [シェルとフック](/docs/toolkit-ui#shell-hooks) はヘッダーアクション、モバイルフック、トースト、小さなアプリシェルヘルパーを扱います。
+- [コンポーネント API](/docs/components) は公開 React export の低レベルなリファレンスです。
+
+## 設計ルール {#design-rule}
+
+アプリ間で振る舞いが繰り返され、ユーザーが標準的に感じることを期待する場合は Toolkit を使います。共有、設定、チーム、コメント、履歴、エージェントの進行状況は、テンプレートごとに少しずつ異なるべきではありません。ドメイン固有のデータ、ワークフロー、ラベル、視覚スタイルはアプリに残します。
+
+## 次のステップ
+
+- [**Toolkit UI プリミティブ**](/docs/toolkit-ui) — 共有プリミティブ、アプリアダプター、シェルフック。
+- [**共有キット**](/docs/toolkit-sharing) — リソース、共有ダイアログ、可視性のためのよい最初のキット。
+- [**テンプレートの作成**](/docs/creating-templates) — テンプレートをエンドツーエンドで作成し、キットの位置を確認します。
+- [**コンポーネント API**](/docs/components) — すべての公開 React export のリファレンス。
+- [**パッケージライフサイクル**](/docs/package-lifecycle) — manifest 駆動の Toolkit 能力モジュールを安全に調査、追加、eject します。
+
+## Kit のカスタマイズと排出 {#customize-or-eject}
+
+公開 API の設定 → 公開プリミティブの合成 → 最小単位の排出 → 共有シームの提案、の順に進めます。`agent-native eject --list` と `agent-native eject inspect <unit>` で調べ、`--apply` を追加する前に `agent-native eject <unit> --app <app>` をプレビューします。
+
+Toolkit マニフェストは、すべての公開エントリポイントを網羅します。アプリはソースと import の書き換えを `agent-native.ejections.json` に記録します。`agent-native eject diff <unit> --app <app>` は差分を表示し、hash と import が未変更の場合だけ `restore` を実行します。First-party unit は remote MCP catalog、workspace connection、provider API definition、messaging adapter、setup/readiness UI、domain package も網羅します。First-party recipe の欠落は release guard を失敗させます。外部 package には add blueprint を出力し、保護された Core contract は公開 extension seam の背後に残します。

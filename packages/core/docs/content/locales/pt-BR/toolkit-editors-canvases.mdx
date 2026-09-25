@@ -1,0 +1,17 @@
+---
+title: "Editores e canvases"
+description: "Escolha superfícies reutilizáveis sem confundir compatibilidade do Core, padrões de template e primitivas do Toolkit."
+---
+
+# Editores e canvases
+
+Editores e canvases são superfícies relacionadas, não um único recurso principal.
+
+| Superfície             | Responsabilidade atual                                                          |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| Editor rico            | Toolkit, com reexportações de compatibilidade pelo Core.                        |
+| Blocos                 | Core nesta fase.                                                                |
+| Design                 | Padrão de template com `design-tweaks`, não um editor completo pronto para uso. |
+| Apresentação de canvas | Composição do Toolkit ou do app.                                                |
+
+Importe o editor de `@agent-native/toolkit/editor`. Os caminhos antigos do Core continuam como reexportações de compatibilidade. Mantenha esquemas, comandos e persistência no app. Os blocos ficam no Core, mas são documentados aqui porque a seção Toolkit é o catálogo de UI reutilizável.

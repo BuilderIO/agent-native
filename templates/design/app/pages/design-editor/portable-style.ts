@@ -1,0 +1,124 @@
+import { resolveLayerNameAttribute } from "@shared/layer-name";
+
+import type {
+  PortableStyleSnapshot,
+  PortableStyleSnapshotNode,
+} from "@/components/design/types";
+
+export function styleHost(element: Element): HTMLElement | SVGElement | null {
+  return element instanceof HTMLElement || element instanceof SVGElement
+    ? element
+    : null;
+}
+
+export function elementAtPortableStylePath(
+  root: Element,
+  node: PortableStyleSnapshotNode,
+): Element | null {
+  let current: Element | null = root;
+  for (const index of node.path) {
+    if (!current || !Number.isInteger(index) || index < 0) return null;
+    current = current.children.item(index);
+  }
+  return current;
+}
+
+const EDITOR_INTERNAL_CSS_VAR_PREFIXES = [
+  "--design-editor-",
+  "--agent-native-editor-chrome-",
+  "--agent-native-",
+];
+
+export function isEditorInternalCssVar(property: string): boolean {
+  return EDITOR_INTERNAL_CSS_VAR_PREFIXES.some((prefix) =>
+    property.startsWith(prefix),
+  );
+}
+
+// The drop/move that carries a portable style snapshot always decides the
+// landed node's placement itself afterward (setRootLayerPosition,
+// setAbsolutePositioningForNodeInHtml, removeAbsolutePositioningFromNodeInHtml).
+// A snapshot that also carries `position` races that placement write: today it
+// happens to apply first and lose, but that's ordering luck, not a contract —
+// and Figma duplicate/cross-screen-move semantics are "same appearance as the
+// source, only position differs", so position was never this snapshot's to
+// carry. Filtered once here so every caller (applyPortableStyleSnapshotToHtml
+// and prepareClonedHtmlLayer's direct call) is protected the same way.
+const DROP_OWNED_STYLE_PROPERTIES = new Set(["position"]);
+
+export function applyPortableStyles(
+  element: Element | null,
+  styles: Record<string, string>,
+) {
+  if (!element) return;
+  const host = styleHost(element);
+  if (!host) return;
+  Object.entries(styles).forEach(([property, value]) => {
+    if (!value) return;
+    if (DROP_OWNED_STYLE_PROPERTIES.has(property)) return;
+    if (property.startsWith("--")) {
+      if (isEditorInternalCssVar(property)) return;
+      host.style.setProperty(property, value);
+      return;
+    }
+    if (property.includes("-")) {
+      host.style.setProperty(property, value);
+      return;
+    }
+    (host.style as any)[property] = value;
+  });
+}
+
+export function applyPortableStyleSnapshotToHtml(
+  content: string,
+  nodeAttrId: string,
+  snapshot?: PortableStyleSnapshot,
+): string {
+  if (typeof window === "undefined" || !snapshot?.nodes?.length) {
+    return content;
+  }
+  // Equal heads do not guarantee equal body/ancestor cascades.
+  // ponytail: inline snapshots may mask later responsive stylesheet rules.
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const root = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
+    );
+    if (!root) return content;
+    let appliedAny = false;
+    snapshot.nodes.forEach((node) => {
+      const target = elementAtPortableStylePath(root, node);
+      if (!target) return;
+      const filteredEntries = Object.entries(node.styles).filter(
+        ([property, value]) =>
+          value &&
+          !isEditorInternalCssVar(property) &&
+          !DROP_OWNED_STYLE_PROPERTIES.has(property),
+      );
+      if (filteredEntries.length === 0) return;
+      applyPortableStyles(target, Object.fromEntries(filteredEntries));
+      appliedAny = true;
+    });
+    if (appliedAny) {
+      const layerName =
+        resolveLayerNameAttribute((attribute) => root.getAttribute(attribute))
+          ?.value ?? "";
+      const nodeId = root.getAttribute("data-agent-native-node-id") || "";
+      const legacyGeneratedGroup =
+        /^an-[a-z0-9]+$/i.test(nodeId) &&
+        /^group(?: \d+)?$/i.test(layerName.trim()) &&
+        root.getAttribute("data-agent-native-preserve-styles") === "true" &&
+        root.getAttribute("data-agent-native-clone-root") !== "true";
+      root.setAttribute("data-agent-native-preserve-styles", "true");
+      if (
+        root.getAttribute("data-agent-native-group-wrapper") !== "true" &&
+        !legacyGeneratedGroup
+      ) {
+        root.setAttribute("data-agent-native-clone-root", "true");
+      }
+    }
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}

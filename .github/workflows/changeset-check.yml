@@ -1,0 +1,58 @@
+name: Changeset check
+
+# Fails the PR if any publishable package's source changed without a
+# corresponding `.changeset/*.md`. The error message lists the missing
+# packages so `/babysit-pr` can add the changeset automatically and
+# unblock the merge.
+#
+# Skipped on the bot-authored "Version Packages" PR — that PR consumes
+# changesets and shouldn't itself need one.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - ".changeset/**"
+      - ".github/workflows/changeset-check.yml"
+      - "scripts/check-changeset.mjs"
+      - "scripts/guard-no-major-changeset.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Require changeset for publishable package changes
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.ref != 'changeset-release/main'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          package_json_file: package.json
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install changeset checker dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter agentnative
+
+      - name: Run changeset check
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-changeset.mjs
+
+      - name: Enforce package bump policy
+        run: node scripts/guard-no-major-changeset.mjs

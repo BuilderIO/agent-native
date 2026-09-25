@@ -1,0 +1,17 @@
+---
+title: "एडिटर्स और कैनवस"
+description: "Core compatibility, template pattern और Toolkit primitives को अलग रखते हुए पुन: उपयोग योग्य surfaces चुनें।"
+---
+
+# एडिटर्स और कैनवस
+
+एडिटर्स और कैनवस जुड़े हुए product surfaces हैं, कोई एक flagship feature नहीं।
+
+| Surface             | वर्तमान ownership                                                 |
+| ------------------- | ----------------------------------------------------------------- |
+| Rich editor         | Toolkit, Core से compatibility re-exports के साथ।                 |
+| Blocks              | इस चरण में Core।                                                  |
+| Design              | `design-tweaks` वाला template pattern, पूर्ण drop-in editor नहीं। |
+| Canvas presentation | Toolkit या app composition।                                       |
+
+Editor को `@agent-native/toolkit/editor` से import करें। पुराने Core paths compatibility re-exports बने रहेंगे। Schema, commands और persistence app में रखें। Blocks Core में रहते हैं, लेकिन Toolkit section reusable UI का catalog है, इसलिए उनकी docs यहाँ colocated हैं।

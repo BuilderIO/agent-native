@@ -1,0 +1,51 @@
+---
+title: "Add a UI to your Microsoft Foundry, Gemini, Anthropic, or OpenAI agent"
+description: "Connect hosted agent backends to an Agent-Native workspace with a small, reviewable UI layer over A2A or managed-agent APIs."
+search: "add a UI to your agent Microsoft Foundry Gemini Enterprise Anthropic Managed Agents OpenAI Agents API A2A registry connect agent backend"
+---
+
+# Add a UI to your agent
+
+Agent-Native gives an existing agent backend a usable workspace: chat, approvals, workflow state, permissions, and a place to render the result. The provider keeps its own reasoning loop, tools, context, and long-running execution. Connect it once, then delegate from the same app as any other agent.
+
+This page is the provider guide for **adding a UI to your Microsoft Foundry, Gemini Enterprise, Anthropic Managed Agents, or OpenAI agent**.
+
+## Choose a connection path {#choose-a-connection-path}
+
+| Backend                  | Connection in Agent-Native           | What you configure                                                       |
+| ------------------------ | ------------------------------------ | ------------------------------------------------------------------------ |
+| Microsoft Foundry        | A2A 1.0                              | Agent Card URL and an Entra bearer or client-credentials secret          |
+| Gemini Enterprise        | A2A                                  | Agent Card URL and a Google bearer secret                                |
+| Anthropic Managed Agents | Managed Agents API                   | Agent ID, environment ID, API base URL, and a vault key                  |
+| OpenAI Agents API        | A2A adapter or a custom A2A endpoint | Agent Card URL and the provider credential                               |
+| Any compatible backend   | A2A                                  | An Agent Card URL and optional bearer or OAuth client-credentials secret |
+
+Open **Settings → Agent → Agent directory** to search the curated providers. Each Connect button opens the existing **Connected agents** form with the correct provider selected. **Add by URL** opens the same form for a custom Agent Card. Credentials stay in the workspace vault; the manifest stores only a reference.
+
+## Add a UI to your Microsoft Foundry agent {#microsoft-foundry}
+
+Foundry exposes an A2A Agent Card at the agent endpoint. Use the v1.0 JSON-RPC card URL, select **A2A**, then choose either a bearer credential or OAuth client credentials. For service-to-service access, request the `https://ai.azure.com/.default` scope and grant the caller the **Foundry Agent Consumer** role at the project or agent scope.
+
+After **Check** reports Reachable, save the agent. The Agent-Native agent can now delegate work over A2A while Foundry keeps its own tools and context.
+
+## Add a UI to your Gemini Enterprise agent {#gemini-enterprise}
+
+Gemini Enterprise agents expose a custom A2A card URL under the assistant agent endpoint. Select **A2A**, paste that card URL, and choose the Google bearer secret from the vault. Agent-Native validates the card and the JSON-RPC interface before saving it.
+
+## Add a UI to your Anthropic Managed Agent {#anthropic-managed-agents}
+
+Select **Anthropic Managed Agents** in the hosted-agent form. Enter the agent ID and environment ID, choose the API key from the vault, and run **Check**. Sessions, streamed messages, and tool-confirmation requests stay in Anthropic; Agent-Native presents the conversation and approval event in its chat surface.
+
+## Add a UI to any A2A agent {#custom-a2a}
+
+Use **Add by URL** for an internal, local, or self-hosted agent. The card can be at `/.well-known/agent-card.json` or a custom URL. Agent-Native supports A2A 0.3 and 1.0 cards, selects the JSON-RPC interface, and falls back to `message/send` when streaming is not advertised. A failed card, rejected credential, or missing JSON-RPC interface is shown as a typed status so a broken connection cannot look successful.
+
+## Find agents in a registry {#registries}
+
+The directory links to the [Global A2A Registry](https://www.a2a-registry.org), a public community catalog. Registry entries are discovery only. Review the Agent Card, verify the host and auth requirements, and explicitly add the agent before any credential is used. Enterprise teams can keep using a cloud provider's private registry, such as Google Cloud's Agent Registry, and paste the resulting card URL into the same form.
+
+Agent-Native does not silently execute a newly discovered public agent. The user remains in control of the connection, credential grant, and per-app enablement.
+
+## How the UI layer fits {#ui-layer}
+
+The integration is intentionally shallow: [A2A](/docs/a2a-protocol) carries the delegated task, while the Agent-Native workspace owns the user-facing state. This lets you start with a clean UI around an existing agent and add richer provider adapters later without changing the chat workflow. See [Connected agents](/docs/agent-mentions#mentioning-agents) for delegation and [External agents](/docs/external-agents) for the reverse direction.
