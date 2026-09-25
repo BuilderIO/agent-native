@@ -1090,7 +1090,6 @@ function ReviewTab({ days }: { days: number }) {
           const answer = review.answer.trim();
           const hasPreview =
             (answer !== "" && !/^[-–—]+$/.test(answer)) ||
-            review.hasInlineApp ||
             Boolean(review.inlineAppTitle) ||
             Boolean(
               review.summary?.artifacts.some(
