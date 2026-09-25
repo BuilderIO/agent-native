@@ -2601,9 +2601,8 @@ function serveExternalEmbedBrowserManifest(
   if (req.method !== "GET" && req.method !== "HEAD") return false;
   // Browsers send Origin even on same-origin module imports. When the page
   // and the manifest share an origin, root-relative URLs already resolve
-  // correctly, and rewriting them from the Host header breaks behind proxies
-  // that rewrite Host (e.g. Fusion's preview proxy sends Host: localhost:8080,
-  // which the browser can't reach).
+  // correctly, and rewriting them from the Host header breaks behind dev
+  // proxies that rewrite Host to an address the browser can't reach.
   if (req.headers["sec-fetch-site"] === "same-origin") return false;
   if (!isMcpEmbedCorsOrigin(String(req.headers.origin ?? ""))) return false;
   if (!isReactRouterBrowserManifestUrl(req.url)) return false;

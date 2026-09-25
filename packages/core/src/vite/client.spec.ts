@@ -996,9 +996,9 @@ describe("dev server mounted path helpers", () => {
   });
 
   it("leaves the browser manifest relative for same-origin requests behind a Host-rewriting proxy", () => {
-    // Fusion's preview: the page and manifest share the preview origin, but
-    // the proxy forwards Host: localhost:8080. Rewriting from Host would point
-    // every route module at the viewer's own localhost.
+    // The page and manifest share a public origin, but the proxy in front of
+    // the dev server forwards Host: localhost:8080. Rewriting from Host would
+    // point every route module at the viewer's own localhost.
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
