@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
@@ -70,7 +71,10 @@ import {
   type Deck,
 } from "@/context/DeckContext";
 import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  clearStartedGenerationAttempt,
+  useAgentGenerating,
+} from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
@@ -882,21 +886,47 @@ export default function Index() {
       return;
     }
     const deckId = deck.id;
+    const generationAttemptId = nanoid();
+    let generationFailureTracked = false;
     const generationSubmitMessageId = nanoid();
+    trackEvent("generation_started", {
+      app_name: "slides",
+      template_name: "slides",
+      generation_attempt_id: generationAttemptId,
+      output_id: deckId,
+      output_type: "deck",
+      source: "new_deck_prompt",
+    });
     setNewDeckPromptOpen(false);
 
     // Leave the grid as soon as the optimistic deck exists. Persistence and
     // agent context hydration can take several seconds, so the editor's
     // generation state is the only useful surface while that work finishes.
     void navigate(
-      `/deck/${deck.id}?generating=1&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
+      `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
       {
         replace: true,
         flushSync: true,
       },
     );
 
-    const recoverFromGenerationSetupFailure = (description: string) => {
+    const recoverFromGenerationSetupFailure = (
+      description: string,
+      failureCode = "setup_failed",
+    ) => {
+      if (!generationFailureTracked) {
+        generationFailureTracked = true;
+        trackEvent("generation_failed", {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: generationAttemptId,
+          output_id: deckId,
+          output_type: "deck",
+          failure_code: failureCode,
+          failure_stage: "setup",
+          source: "new_deck_prompt",
+        });
+      }
       settlePendingDeckAttachments("discard");
       if (
         !savePromptForRetry(prompt, {
@@ -913,6 +943,7 @@ export default function Index() {
       setNewDeckRetryImportedReference(importedReferenceSource);
       setNewDeckRetryAttachments(attachmentsForGeneration);
       setNewDeckRetryModelSelection(modelSelection);
+      clearStartedGenerationAttempt(generationAttemptId, deckId);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
       if (
@@ -1106,6 +1137,7 @@ export default function Index() {
       importedSourceDeck
         ? `The user uploaded a source presentation into target deck (id: "${deckId}") and wants a reliable visual improvement.`
         : `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
+      `The browser owns this deck's generation lifecycle. Its exact generationAttemptId is "${generationAttemptId}". If a tool call for this deck accepts generationAttemptId, pass this exact value unchanged; never create a substitute ID.`,
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       googleDocContext,
       fileContext,
@@ -1145,6 +1177,7 @@ export default function Index() {
         mode: importedSourceDeck ? "source-preserving" : "new",
         targetSlideCount:
           importedSourceDeck?.slideCount ?? requestedSlideCount(trimmedPrompt),
+        generationAttemptId,
       });
     } catch (error) {
       recoverFromGenerationSetupFailure(
@@ -1163,15 +1196,35 @@ export default function Index() {
     ).catch(() => {});
     deleteClientAppState("guided-questions").catch(() => {});
 
-    agentSubmit(createDeckAgentMessage(prompt), context, {
-      newTab: true,
-      reuseEmptyTab: true,
-      openSidebar: true,
-      submitMessageId: generationSubmitMessageId,
-      ...getUploadedImageAgentOptions(filesForGeneration),
-      attachments: attachmentsForGeneration,
-      ...modelSelection,
-    });
+    try {
+      agentSubmit(createDeckAgentMessage(prompt), context, {
+        newTab: true,
+        reuseEmptyTab: true,
+        openSidebar: true,
+        submitMessageId: generationSubmitMessageId,
+        generationAttemptId,
+        generationOutputId: deckId,
+        ...getUploadedImageAgentOptions(filesForGeneration),
+        attachments: attachmentsForGeneration,
+        ...modelSelection,
+      });
+      trackEvent("generation_request_accepted", {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: generationAttemptId,
+        output_id: deckId,
+        output_type: "deck",
+        source: "new_deck_prompt",
+      });
+    } catch (error) {
+      recoverFromGenerationSetupFailure(
+        error instanceof Error
+          ? error.message
+          : t("home.generationStartFailedDescription"),
+        "agent_submit_failed",
+      );
+      return;
+    }
     settlePendingDeckAttachments("commit");
   };
 
