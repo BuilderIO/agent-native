@@ -720,15 +720,25 @@ export default function DeckEditor() {
   const generationFailed =
     slideCount === 0 &&
     typeof generationContext?.generationFailureCode === "string";
+  const generationRetryPending =
+    retryEmptyGenerationPending ||
+    (generationContext !== null &&
+      "generationFailureAttemptId" in generationContext &&
+      generationContext.generationFailureAttemptId !== generationAttemptId);
   const generationLifecycleOwnedByEditor =
     generationContext?.generationMode !== "action";
-  const [generationAttemptTabId, setGenerationAttemptTabId] = useState<
-    string | null
-  >(() =>
-    generationAttemptId && id
-      ? getStartedGenerationAttemptTabId(generationAttemptId, id)
-      : null,
-  );
+  const [generationAttemptTab, setGenerationAttemptTab] = useState<{
+    attemptId: string;
+    tabId: string;
+  } | null>(() => {
+    if (!generationAttemptId || !id) return null;
+    const tabId = getStartedGenerationAttemptTabId(generationAttemptId, id);
+    return tabId ? { attemptId: generationAttemptId, tabId } : null;
+  });
+  const generationAttemptTabId =
+    generationAttemptTab?.attemptId === generationAttemptId
+      ? generationAttemptTab.tabId
+      : null;
   const {
     attempt: {
       observedRun: attemptObservedRun,
@@ -763,8 +773,14 @@ export default function DeckEditor() {
       generationAttemptId,
       id,
     );
-    setGenerationAttemptTabId(
-      getStartedGenerationAttemptTabId(generationAttemptId, id),
+    const startedTabId = getStartedGenerationAttemptTabId(
+      generationAttemptId,
+      id,
+    );
+    setGenerationAttemptTab(
+      startedTabId
+        ? { attemptId: generationAttemptId, tabId: startedTabId }
+        : null,
     );
     const handleGenerationStarted = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -775,7 +791,10 @@ export default function DeckEditor() {
         return;
       }
       if (typeof detail.tabId !== "string") return;
-      setGenerationAttemptTabId(detail.tabId);
+      setGenerationAttemptTab({
+        attemptId: generationAttemptId,
+        tabId: detail.tabId,
+      });
       generationRunStartedRef.current = true;
     };
     window.addEventListener(
@@ -878,6 +897,7 @@ export default function DeckEditor() {
             generationContext: {
               ...generationContext,
               generationFailureCode: failureCode,
+              generationFailureAttemptId: generationAttemptId,
             },
           });
           try {
@@ -953,7 +973,15 @@ export default function DeckEditor() {
     const retryContext = {
       ...generationContext,
       generationAttemptId: retryAttemptId,
+      generationFailureAttemptId:
+        generationContext.generationFailureAttemptId ?? generationAttemptId,
     };
+    setGenerationAttemptTab(null);
+    generationRunStartedRef.current = false;
+    generationSawActiveRef.current = false;
+    generationTerminalAttemptRef.current = null;
+    generationSettlingAttemptRef.current = null;
+    generationStartedAtRef.current = null;
     const restoreFailedRetry = async () => {
       updateDeck(id, { generationContext });
       setSearchParams(new URLSearchParams(originalSearchParams));
@@ -979,11 +1007,6 @@ export default function DeckEditor() {
         toast.error(t("settings.saveFailed"));
         return;
       }
-      generationRunStartedRef.current = true;
-      generationSawActiveRef.current = false;
-      generationTerminalAttemptRef.current = null;
-      generationSettlingAttemptRef.current = null;
-      generationStartedAtRef.current = null;
       setSearchParams((current) => {
         const next = new URLSearchParams(current);
         next.set("generating", "1");
@@ -1035,6 +1058,7 @@ export default function DeckEditor() {
         generationContext: {
           ...retryContext,
           generationFailureCode: null,
+          generationFailureAttemptId: null,
         },
       });
       try {
@@ -3416,7 +3440,7 @@ export default function DeckEditor() {
               >
                 <p>{t("deckEditor.deckHasNoSlides")}</p>
                 <Button
-                  disabled={!canEdit || retryEmptyGenerationPending}
+                  disabled={!canEdit || generationRetryPending}
                   onClick={() => void retryEmptyGeneration()}
                 >
                   {t("deckEditor.tryAgain")}

@@ -86,7 +86,11 @@ describe("generation outcome cleanup", () => {
     );
     expect(failureCode).toContain('"no_output"');
     expect(deckEditorSource).toContain("generationFailureCode: failureCode");
+    expect(deckEditorSource).toContain(
+      "generationFailureAttemptId: generationAttemptId",
+    );
     expect(deckEditorSource).toContain("generationFailureCode: null");
+    expect(deckEditorSource).toContain("generationFailureAttemptId: null");
   });
 
   it("emits unresolved when refresh is unavailable and resets in finally", () => {
@@ -228,12 +232,18 @@ describe("empty-deck generation retry", () => {
     expect(retryBody).toContain("if (!(await restoreFailedRetry()).persisted)");
     expect(retryBody).toContain("newTab: true");
     expect(retryBody).toContain("reuseEmptyTab: true");
+    expect(retryBody).toContain(
+      "generationFailureAttemptId:\n        generationContext.generationFailureAttemptId ?? generationAttemptId",
+    );
     expect(retryBody).toContain('toast.error(t("settings.saveFailed"))');
     expect(retryBody).toContain(
       'next.set("generationSubmitId", submitMessageId)',
     );
     expect(deckEditorSource).toContain(
-      "disabled={!canEdit || retryEmptyGenerationPending}",
+      "disabled={!canEdit || generationRetryPending}",
+    );
+    expect(deckEditorSource).toContain(
+      '"generationFailureAttemptId" in generationContext',
     );
   });
 });

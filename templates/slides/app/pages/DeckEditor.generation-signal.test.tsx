@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   attemptGenerating: false,
   attemptObservedRun: false,
   targetTabId: "target-tab",
+  scopedCalls: [] as Array<{ attemptId: string | null; tabId: string | null }>,
   revision: 0,
   listeners: new Set<() => void>(),
 }));
@@ -41,6 +42,19 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
 
       const isTargetTab =
         options !== undefined && options.tabId === mocks.targetTabId;
+      if (options !== undefined) {
+        const generationContext = mocks.deck.generationContext as Record<
+          string,
+          unknown
+        >;
+        mocks.scopedCalls.push({
+          attemptId:
+            typeof generationContext.generationAttemptId === "string"
+              ? generationContext.generationAttemptId
+              : null,
+          tabId: options.tabId ?? null,
+        });
+      }
       return {
         generating: isTargetTab
           ? mocks.attemptGenerating
@@ -200,8 +214,11 @@ describe("DeckEditor generation signal wiring", () => {
       broadGenerating: true,
       attemptGenerating: false,
       attemptObservedRun: false,
+      targetTabId: "target-tab",
       revision: 0,
     });
+    mocks.deck.generationContext = { generationAttemptId: "attempt-1" };
+    mocks.scopedCalls = [];
     mocks.listeners.clear();
     window.innerWidth = 390;
     vi.mocked(trackEvent).mockClear();
@@ -251,6 +268,73 @@ describe("DeckEditor generation signal wiring", () => {
       expect(mocks.broadGenerating).toBe(true);
       expect(screen.queryByTestId("generating-preview")).toBeNull();
     });
+  });
+
+  it("does not carry the prior tab into a retry or enable its stale failure", async () => {
+    Object.assign(mocks.deck, {
+      generationContext: {
+        generationAttemptId: "attempt-1",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
+      },
+    });
+    mocks.targetTabId = "old-tab";
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: "old-tab",
+          },
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(mocks.scopedCalls).toContainEqual({
+        attemptId: "attempt-1",
+        tabId: "old-tab",
+      }),
+    );
+
+    Object.assign(mocks.deck, {
+      generationContext: {
+        generationAttemptId: "attempt-2",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
+      },
+    });
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.scopedCalls).toContainEqual({
+        attemptId: "attempt-2",
+        tabId: null,
+      }),
+    );
+    expect(mocks.scopedCalls).not.toContainEqual({
+      attemptId: "attempt-2",
+      tabId: "old-tab",
+    });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "deckEditor.tryAgain",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 
   it("keeps a submitted attempt open when pagehide enters the back-forward cache", () => {
