@@ -23,6 +23,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const failureBackfillSource = readFileSync(
+  new URL("../jobs/recording-failure-backfill.ts", import.meta.url),
+  "utf8",
+);
 
 interface DrizzleColumn {
   name: string;
@@ -168,26 +172,31 @@ describe("organization recording visibility default migration", () => {
 });
 
 describe("recording failure code migration", () => {
-  it("maps legacy reasons in bounded batches after adding columns", () => {
-    expect(dbTsSource).toContain("failure_code = CASE");
-    expect(dbTsSource).toContain(
+  it("maps legacy reasons in bounded recurring batches after adding columns", () => {
+    expect(failureBackfillSource).toContain("failure_code = CASE");
+    expect(failureBackfillSource).toContain(
       "WHEN failure_reason IN ('Recording cancelled by user', 'Recording cancelled during countdown', 'Upload cancelled') THEN 'user_cancelled'",
     );
-    expect(dbTsSource).toContain(
+    expect(failureBackfillSource).toContain(
       "WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'",
     );
-    expect(dbTsSource).toContain(
+    expect(failureBackfillSource).toContain(
       "WHEN failure_reason LIKE 'Video storage could not start an upload: S3 CreateMultipartUpload failed%' THEN 'multipart_start_failed'",
     );
-    expect(dbTsSource).toContain(
+    expect(failureBackfillSource).toContain(
       "WHEN failure_reason LIKE 'Video storage is not connected yet%' THEN 'storage_setup_required'",
     );
-    expect(dbTsSource).toContain(
+    expect(failureBackfillSource).toContain(
       "WHEN failure_reason ILIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'",
     );
-    expect(dbTsSource).toContain("ELSE 'unknown'");
-    expect(dbTsSource).toContain("ORDER BY id LIMIT $2");
-    expect(dbTsSource).toContain("RECORDING_FAILURE_BACKFILL_BATCH_SIZE = 250");
+    expect(failureBackfillSource).toContain("ELSE 'unknown'");
+    expect(failureBackfillSource).toContain("ORDER BY id LIMIT $2");
+    expect(failureBackfillSource).toContain("BATCH_SIZE = 250");
+    expect(failureBackfillSource).toContain("SWEEP_INTERVAL_MS = 60_000");
+    expect(failureBackfillSource).toContain(
+      "export async function runRecordingFailureBackfillOnce",
+    );
+    expect(dbTsSource).not.toContain("scheduleRecordingFailureBackfill");
     const migrationStart = dbTsSource.indexOf(
       'name: "recording-failure-codes-platform"',
     );
@@ -203,7 +212,7 @@ describe("recording failure code migration", () => {
     expect(dbTsSource).toMatch(
       /version: 75,[\s\S]*?name: "recording-failure-backfill-cursor"[\s\S]*?ADD COLUMN IF NOT EXISTS cursor_id TEXT/,
     );
-    expect(dbTsSource).not.toContain("'Upload aborted by user'");
+    expect(failureBackfillSource).not.toContain("'Upload aborted by user'");
   });
 });
 

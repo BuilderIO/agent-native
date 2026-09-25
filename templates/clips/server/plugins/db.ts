@@ -227,123 +227,6 @@ function scheduleRecordingOrgIdBackfill(): void {
   if (typeof timer.unref === "function") timer.unref();
 }
 
-const RECORDING_FAILURE_BACKFILL_BATCH_SIZE = 250;
-const RECORDING_FAILURE_BACKFILL_LEASE_KEY = "recording-failure-codes";
-const recordingFailureBackfillHolder = randomUUID();
-
-async function backfillRecordingFailureCodesInBatches(): Promise<void> {
-  const exec = getDbExec();
-  const now = Date.now();
-  await exec.execute({
-    sql: `INSERT INTO clips_backfill_leases (lease_key, holder, expires_at, cursor_id)
-      VALUES ($1, $2, $3, NULL)
-      ON CONFLICT (lease_key) DO UPDATE SET
-        holder = excluded.holder,
-        expires_at = excluded.expires_at
-      WHERE clips_backfill_leases.expires_at <= $4`,
-    args: [
-      RECORDING_FAILURE_BACKFILL_LEASE_KEY,
-      recordingFailureBackfillHolder,
-      now + RECORDING_ORG_ID_BACKFILL_LEASE_MS,
-      now,
-    ],
-  });
-  const lease = await exec.execute({
-    sql: `SELECT holder, cursor_id FROM clips_backfill_leases
-      WHERE lease_key = $1 AND holder = $2 AND expires_at > $3`,
-    args: [
-      RECORDING_FAILURE_BACKFILL_LEASE_KEY,
-      recordingFailureBackfillHolder,
-      now,
-    ],
-  });
-  if (!lease.rows.length) return;
-  let cursorId =
-    typeof lease.rows[0]?.cursor_id === "string"
-      ? lease.rows[0].cursor_id
-      : null;
-
-  try {
-    for (;;) {
-      const renewed = await exec.execute({
-        sql: `UPDATE clips_backfill_leases SET expires_at = $1
-          WHERE lease_key = $2 AND holder = $3 AND expires_at > $4`,
-        args: [
-          Date.now() + RECORDING_ORG_ID_BACKFILL_LEASE_MS,
-          RECORDING_FAILURE_BACKFILL_LEASE_KEY,
-          recordingFailureBackfillHolder,
-          Date.now(),
-        ],
-      });
-      if (!renewed.rowsAffected) return;
-      // guard:allow-unscoped — leased, bounded historical failure-code backfill.
-      const result = await exec.execute({
-        sql: `UPDATE recordings SET
-          failure_code = CASE
-            WHEN failure_reason IN ('Recording cancelled by user', 'Recording cancelled during countdown', 'Upload cancelled') THEN 'user_cancelled'
-            WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'
-            WHEN failure_reason LIKE 'Video storage could not start an upload: S3 CreateMultipartUpload failed%' THEN 'multipart_start_failed'
-            WHEN failure_reason LIKE 'Video storage is not connected yet%' THEN 'storage_setup_required'
-            WHEN failure_reason ILIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'
-            ELSE 'unknown'
-          END,
-          recording_platform = COALESCE(recording_platform, 'unknown')
-          WHERE id IN (
-            SELECT id FROM recordings
-            WHERE ($1 IS NULL OR id > $1)
-              AND status = 'failed'
-              AND (failure_code IS NULL OR failure_code = 'unknown')
-            ORDER BY id LIMIT $2
-          ) RETURNING id`,
-        args: [cursorId, RECORDING_FAILURE_BACKFILL_BATCH_SIZE],
-      });
-      if (!result.rowsAffected) return;
-      cursorId = result.rows.reduce<string | null>((last, row) => {
-        const id = typeof row.id === "string" ? row.id : null;
-        return id && (!last || id > last) ? id : last;
-      }, cursorId);
-      if (cursorId) {
-        await exec.execute({
-          sql: `UPDATE clips_backfill_leases SET cursor_id = $1
-            WHERE lease_key = $2 AND holder = $3`,
-          args: [
-            cursorId,
-            RECORDING_FAILURE_BACKFILL_LEASE_KEY,
-            recordingFailureBackfillHolder,
-          ],
-        });
-      }
-      await new Promise<void>((resolve) =>
-        setTimeout(resolve, RECORDING_ORG_ID_BACKFILL_DELAY_MS),
-      );
-    }
-  } catch (err) {
-    console.warn(
-      "[db] recording failure-code backfill failed; it will retry after restart:",
-      (err as Error)?.message ?? err,
-    );
-  } finally {
-    await exec
-      .execute({
-        sql: `UPDATE clips_backfill_leases SET expires_at = $1
-        WHERE lease_key = $2 AND holder = $3`,
-        args: [
-          Date.now(),
-          RECORDING_FAILURE_BACKFILL_LEASE_KEY,
-          recordingFailureBackfillHolder,
-        ],
-      })
-      .catch(() => undefined);
-  }
-}
-
-function scheduleRecordingFailureBackfill(): void {
-  const timer = setTimeout(() => {
-    void backfillRecordingFailureCodesInBatches();
-  }, 1_000);
-  if (typeof timer.unref === "function") timer.unref();
-}
-
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
@@ -1817,7 +1700,6 @@ export default async (nitroApp: any): Promise<void> => {
     );
   }
   scheduleRecordingOrgIdBackfill();
-  scheduleRecordingFailureBackfill();
 
   // ---------------------------------------------------------------------------
   // Register Clips template events for the automations system.
