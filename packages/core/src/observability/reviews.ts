@@ -65,12 +65,10 @@ function parseToolOutput(value: unknown): Record<string, unknown> | null {
   if (record(value)) return record(value);
   if (typeof value !== "string" || value.length > MAX_THREAD_DATA_CHARS)
     return null;
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return record(parsed);
-  } catch {
-    return null;
-  }
+  const trimmed = value.trimStart();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+  const parsed: unknown = JSON.parse(value);
+  return record(parsed);
 }
 
 interface ReviewToolCall {

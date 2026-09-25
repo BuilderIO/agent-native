@@ -174,9 +174,12 @@ export default defineAction({
           artifact.artifactId,
         )
       )
-        fail("Artifact IDs must come from the thread or captured tool evidence.", {
-          statusCode: 400,
-        });
+        fail(
+          "Artifact IDs must come from the thread or captured tool evidence.",
+          {
+            statusCode: 400,
+          },
+        );
       const normalized: HumanReviewArtifactRef = {
         appId: artifact.appId,
         artifactId: artifact.artifactId,

@@ -17,6 +17,17 @@ const mocks = vi.hoisted(() => ({
   useLegacyAuth: vi.fn(() => {
     throw new Error("Settings must not depend on the template AuthProvider");
   }),
+  useOrg: vi.fn(
+    (): {
+      data?: { orgId?: string; role?: string };
+      isLoading?: boolean;
+      isError?: boolean;
+    } => ({
+      data: { orgId: "org-1", role: "member" },
+      isLoading: false,
+      isError: false,
+    }),
+  ),
   useReplayStorageStatus: vi.fn(() => ({
     data: { configured: false },
     isLoading: false,
@@ -53,6 +64,26 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("@agent-native/core/client/navigation", () => ({
+  buildSettingsRoute: (section: string) => `/settings/${section}`,
+}));
+
+vi.mock("@agent-native/core/client/observability", () => ({
+  ObservabilityDashboard: ({
+    routeBasePath,
+    showHumanReview,
+  }: {
+    routeBasePath: string;
+    showHumanReview?: boolean;
+  }) => (
+    <div
+      data-testid="observability-dashboard"
+      data-route-base-path={routeBasePath}
+      data-show-human-review={String(showHumanReview === true)}
+    />
+  ),
+}));
+
 vi.mock("@agent-native/core/client/settings", () => ({
   AccountSettingsCard: () => <div>settings-user@example.com</div>,
   SettingsGroup: ({ children }: { children: React.ReactNode }) => (
@@ -83,7 +114,13 @@ vi.mock("@agent-native/core/client/settings", () => ({
   }: {
     account: React.ReactNode;
     general: React.ReactNode;
-    extraTabs?: Array<{ content: React.ReactNode }>;
+    extraTabs?: Array<{
+      id: string;
+      label: string;
+      href?: string;
+      group?: string;
+      content: React.ReactNode;
+    }>;
     labs?: Array<{
       key: string;
       defaultEnabled?: boolean;
@@ -94,6 +131,18 @@ vi.mock("@agent-native/core/client/settings", () => ({
     <main>
       {account}
       {general}
+      <nav>
+        {extraTabs?.map((tab) => (
+          <a
+            key={tab.id}
+            data-testid={`settings-tab-${tab.id}`}
+            data-group={tab.group}
+            href={tab.href}
+          >
+            {tab.label}
+          </a>
+        ))}
+      </nav>
       {labs?.map((lab) => (
         <div key={lab.key} data-testid="creative-context-lab">
           {lab.displayName}
@@ -128,7 +177,10 @@ vi.mock("@agent-native/core/client/settings", () => ({
   ],
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({ TeamPage: () => null }));
+vi.mock("@agent-native/core/client/org", () => ({
+  TeamPage: () => null,
+  useOrg: mocks.useOrg,
+}));
 vi.mock("@/components/auth/AuthProvider", () => ({
   useAuth: mocks.useLegacyAuth,
 }));
@@ -166,6 +218,11 @@ describe("Analytics Settings", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.creativeContextEnabled = false;
+    mocks.useOrg.mockReturnValue({
+      data: { orgId: "org-1", role: "member" },
+      isLoading: false,
+      isError: false,
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -248,5 +305,58 @@ describe("Analytics Settings", () => {
     expect(
       container.querySelector("#creative-context-agent-tab"),
     ).not.toBeNull();
+  });
+
+  it.each(["owner", "admin"] as const)(
+    "shows the org observability route to an %s",
+    async (role) => {
+      mocks.useOrg.mockReturnValue({
+        data: { orgId: "org-1", role },
+        isLoading: false,
+        isError: false,
+      });
+
+      await act(async () => {
+        root.render(<Settings />);
+      });
+
+      const tab = container.querySelector<HTMLAnchorElement>(
+        '[data-testid="settings-tab-observability"]',
+      );
+      expect(tab?.getAttribute("href")).toBe(
+        "/settings/observability/overview",
+      );
+      expect(tab?.getAttribute("data-group")).toBe("agent");
+      expect(
+        container
+          .querySelector("[data-testid='observability-dashboard']")
+          ?.getAttribute("data-route-base-path"),
+      ).toBe("/settings/observability");
+      expect(
+        container
+          .querySelector("[data-testid='observability-dashboard']")
+          ?.getAttribute("data-show-human-review"),
+      ).toBe("true");
+    },
+  );
+
+  it.each([
+    ["a member", { data: { orgId: "org-1", role: "member" } }],
+    ["while the org is loading", { data: undefined, isLoading: true }],
+    ["when org loading fails", { data: undefined, isError: true }],
+    ["without an active org", { data: { role: "admin" } }],
+  ])("fails closed for %s", async (_state, orgResult) => {
+    mocks.useOrg.mockReturnValue(orgResult);
+
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="settings-tab-observability"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='observability-dashboard']"),
+    ).toBeNull();
   });
 });

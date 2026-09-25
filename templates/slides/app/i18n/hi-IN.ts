@@ -26,6 +26,7 @@ const messages = {
     team: "टीम",
   },
   settings: {
+    agentObservability: "एजेंट अवलोकन",
     title: "सेटिंग्स",
     description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
     labs: "लैब्स",

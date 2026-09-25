@@ -26,6 +26,7 @@ const messages = {
     team: "팀",
   },
   settings: {
+    agentObservability: "에이전트 관찰성",
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
     labs: "Labs",

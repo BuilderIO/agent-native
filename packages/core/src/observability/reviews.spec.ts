@@ -455,6 +455,44 @@ describe("listOutputReviews", () => {
     expect(mockGetSuccessfulToolSpansForReview).not.toHaveBeenCalled();
   });
 
+  it("rejects malformed structured tool output instead of dropping its evidence", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-1",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+    });
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          scopedThread(
+            JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "tool-call",
+                        name: "create_design",
+                        result: '{"designId":"design-1"',
+                      },
+                    ],
+                    metadata: { runId: "run-1" },
+                  },
+                },
+              ],
+            }),
+          ),
+        ],
+      ]),
+    );
+
+    await expect(
+      getOutputReviewSummarySource({ runId: "run-1", orgId: "org-a" }),
+    ).rejects.toThrow("Unable to parse observability thread data");
+  });
+
   it("redacts prefixed secrets across the bounded thread history", async () => {
     const standaloneJwt = ["eyJx", "e30", "signature"].join(".");
     mockGetTraceSummary.mockResolvedValueOnce({

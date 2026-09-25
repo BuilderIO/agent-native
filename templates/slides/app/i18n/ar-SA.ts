@@ -26,6 +26,7 @@ const messages = {
     team: "الفريق",
   },
   settings: {
+    agentObservability: "مراقبة الوكيل",
     title: "الإعدادات",
     description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
     labs: "المختبرات",
