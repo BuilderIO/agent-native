@@ -11,6 +11,10 @@ const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function isMissingInvitationTableError(error: unknown): boolean {
   const candidate = error as { message?: unknown };
   return /no such table:\s*["'`]?org_invitations["'`]?|relation\s+["'`]?org_invitations["'`]?\s+does not exist/i.test(
@@ -106,6 +110,13 @@ export async function acceptPendingInvitationsForEmail(
   }
 
   const accepted: AcceptPendingResult["accepted"] = [];
+  // No h3 event reaches this function — every caller is a Better Auth
+  // signup/SSO hook or identity-reconciliation path with no request object
+  // to register a `waitUntil` continuation with. Bound the wait instead of
+  // firing and forgetting: a pure fire-and-forget can be killed the instant
+  // the caller's response flushes, dropping `invite_accepted` telemetry
+  // silently (see feedback_lambda_fire_and_forget_pattern).
+  const telemetryPromises: Promise<void>[] = [];
   for (const inv of rows) {
     if (inv.federated) {
       let federationEnabled = false;
@@ -172,13 +183,22 @@ export async function acceptPendingInvitationsForEmail(
     });
     if (Number(updated.rowsAffected ?? 0) !== 1) continue;
     accepted.push({ invitationId: inv.id, orgId: inv.orgId });
-    trackInviteAccepted({
-      email,
-      orgId: inv.orgId,
-      role: inv.role,
-      invitedBy: inv.invitedBy,
-      federated: inv.federated,
-    });
+    telemetryPromises.push(
+      trackInviteAccepted({
+        email,
+        orgId: inv.orgId,
+        role: inv.role,
+        invitedBy: inv.invitedBy,
+        federated: inv.federated,
+      }),
+    );
+  }
+
+  if (telemetryPromises.length > 0) {
+    // One bounded wait total, not one per invitation: gives telemetry a
+    // chance to finish on a warm instance without letting N accepted
+    // invitations add up to N * 250ms of signup latency.
+    await Promise.race([Promise.all(telemetryPromises), sleep(250)]);
   }
 
   // Set active-org-id to the most recent invite so the user lands in a

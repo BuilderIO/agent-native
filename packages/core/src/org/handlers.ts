@@ -70,7 +70,10 @@ import {
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
-import { trackInviteAccepted } from "./track-invite-accepted.js";
+import {
+  registerBackgroundWork,
+  trackInviteAccepted,
+} from "./track-invite-accepted.js";
 import type {
   OrgRole,
   RequiredAuthProvider,
@@ -133,22 +136,7 @@ function scheduleFederatedOrgSync(
     pendingFederatedOrgSyncs.delete(key);
   });
   pendingFederatedOrgSyncs.set(key, sync);
-  const waitUntil = (
-    event as H3Event & {
-      waitUntil?: (promise: Promise<unknown>) => void;
-    }
-  ).waitUntil;
-  if (typeof waitUntil === "function") {
-    try {
-      waitUntil.call(event, sync);
-      return;
-    } catch (error) {
-      // Some local adapters expose a non-functional placeholder. Continue the
-      // best-effort path without turning an org read into an outage.
-      void error;
-    }
-  }
-  void sync;
+  registerBackgroundWork(event, sync);
 }
 
 function normalizeWorkspaceAppDefaultVisibility(
@@ -752,9 +740,11 @@ async function inviteOne(
 
   // Lazy import: an eager `tracking/registry.js` import here has previously
   // regressed cold start on code that loads during auth/signup. Never let a
-  // tracking failure block or reject an invite.
+  // tracking failure block or reject an invite. Registered with the
+  // request's `waitUntil` (see `registerBackgroundWork`) so a serverless
+  // runtime doesn't freeze the function before the dynamic import resolves.
   try {
-    void import("../tracking/registry.js")
+    const inviteSentPromise = import("../tracking/registry.js")
       .then(({ track }) => {
         const app = getAppConfig().app.slug ?? "unknown";
         track(
@@ -765,6 +755,7 @@ async function inviteOne(
       })
       .catch(() => {});
     // coercion-ok: telemetry must never block or fail an invite.
+    registerBackgroundWork(event, inviteSentPromise);
   } catch {
     // Tracking must never block or fail an invite.
   }
@@ -987,6 +978,7 @@ export const acceptInvitationHandler = defineEventHandler(
           role: inv.role == null ? null : String(inv.role),
           invitedBy: String(inv.invitedBy ?? inv.invited_by ?? ""),
           federated: Boolean(linked),
+          event,
         });
       }
       await setActiveOrgId(email, invOrgId, "accepted invitation");
@@ -1084,6 +1076,7 @@ export const acceptInvitationHandler = defineEventHandler(
         role: inv.role == null ? null : String(inv.role),
         invitedBy: inviterEmail,
         federated: Boolean(linked),
+        event,
       });
     }
 
