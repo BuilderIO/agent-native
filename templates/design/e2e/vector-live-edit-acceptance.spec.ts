@@ -728,6 +728,9 @@ test("closing an edited pasted SVG restores authored fill opacity through histor
       'svg[data-agent-native-layer-name="Pasted SVG"] path',
     );
     await expect(path).toHaveAttribute("fill-opacity", "0.4");
+    await expect
+      .poll(async () => pastedPathMarkup(await readSource(page, designId)).d)
+      .toBe("M10 30L70 30");
     const originalSource = await readSource(page, designId);
     const anchors = page.locator("[data-vector-anchor]");
 
