@@ -19,6 +19,10 @@ export function formatFileSize(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`;
 }
 
+function isHtmlErrorPage(bodyText: string): boolean {
+  return /<!doctype\s+html\b|<html\b/i.test(bodyText);
+}
+
 function summarizeUploadFailure(
   status: number,
   bodyText: string,
@@ -29,8 +33,8 @@ function summarizeUploadFailure(
   }
 
   if (
-    contentType?.includes("text/html") ||
-    /^\s*<(?:!doctype|html)\b/i.test(bodyText)
+    contentType?.toLowerCase().includes("text/html") ||
+    isHtmlErrorPage(bodyText)
   ) {
     return `Upload failed (${status})`;
   }
@@ -69,11 +73,11 @@ export async function readBuilderIndexResponse(
     const error = (json as { error?: unknown; builderConnectUrl?: unknown })
       .error;
     throw new Error(
-      typeof error === "string"
+      typeof error === "string" && !isHtmlErrorPage(error)
         ? error
         : summarizeUploadFailure(
             res.status,
-            bodyText,
+            typeof error === "string" ? error : bodyText,
             res.headers.get("Content-Type"),
           ),
     );
