@@ -53,17 +53,13 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../org/context.js");
     vi.unstubAllEnvs();
     // Hosted markers are opt-in here; shared CI runners may set these globally.
-    for (const key of [
-      "FUSION_ENVIRONMENT",
-      "FUSION_ENV_ORIGIN",
-      "VITE_FUSION_ENV_ORIGIN",
-      "AGENT_NATIVE_WORKSPACE",
-      "VITE_AGENT_NATIVE_WORKSPACE",
-      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
-      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
-    ]) {
-      delete process.env[key];
-    }
+    vi.stubEnv("FUSION_ENVIRONMENT", undefined);
+    vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
+    vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", undefined);
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON", undefined);
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
     delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
