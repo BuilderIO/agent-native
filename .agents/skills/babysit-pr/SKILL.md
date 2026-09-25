@@ -56,8 +56,10 @@ an unexpected merge without rotating.
 
 1. Run one foreground tick immediately and continue here until this mode's
    endpoint. Do not create or resume a heartbeat, acquire a lease, or update a
-   scheduled task. Leave legacy and foreign automations untouched. A lease has
-   no role in foreground PR work.
+   scheduled task while the PR is open. At a terminal PR state, pause a legacy
+   heartbeat only when its `targetThreadId` matches this task; if ownership
+   cannot be verified, leave it alone and report it. Never act on a PR or branch
+   match alone. A lease has no role in foreground PR work.
 2. Track the last actionable item: new human/bot feedback, a CI fix, conflict
    resolution, or an intentional commit/push.
 3. For standalone `/babysit-pr`, stop after 30 minutes with green GitHub Actions
