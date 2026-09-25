@@ -133,6 +133,15 @@ describe("delete-element / visual-structure-ack undo", () => {
         await page.evaluate(() => {
           window.postMessage(
             {
+              type: "cancel-pending-delete-element",
+              selector: '[data-agent-native-node-id="subject"]',
+              selectorCandidates: ['[data-agent-native-node-id="subject"]'],
+              requestId: "delete-1",
+            },
+            "*",
+          );
+          window.postMessage(
+            {
               type: "visual-structure-ack",
               requestId: "delete-1",
               applied: false,

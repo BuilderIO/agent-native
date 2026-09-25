@@ -1805,6 +1805,9 @@ export function DesignCanvas({
     awaitingTransaction: boolean;
   } | null>(null);
   const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
+  const lastRuntimeStructureDeleteCancelRequestIdRef = useRef<string | null>(
+    null,
+  );
   const flushPendingOneShotMessages = useCallback(() => {
     const iframe = iframeRef.current;
     const win = iframe?.contentWindow;
@@ -6469,7 +6472,51 @@ export function DesignCanvas({
   ]);
 
   useEffect(() => {
+    const request = runtimeStructureDeleteRequest;
+    if (!request?.cancelRequested) {
+      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      return;
+    }
+    if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
+      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      return;
+    }
+    if (
+      lastRuntimeStructureDeleteCancelRequestIdRef.current === request.requestId
+    ) {
+      return;
+    }
+    lastRuntimeStructureDeleteCancelRequestIdRef.current = request.requestId;
+    postOneShotBridgeMessage({
+      type: "cancel-pending-delete-element",
+      selector: request.selector,
+      selectorCandidates: request.selectorCandidates ?? [],
+      requestId: request.requestId,
+      transactionId: request.transactionId,
+    });
+    postOneShotBridgeMessage({
+      type: "visual-structure-ack",
+      requestId: request.requestId,
+      applied: false,
+    });
+    onRuntimeStructureDeleteRejected?.({
+      screenId,
+      requestId: request.requestId,
+      transactionId: request.transactionId,
+      reason: "cancelled",
+    });
+  }, [
+    iframeDocumentIdentity,
+    onRuntimeStructureDeleteRejected,
+    postOneShotBridgeMessage,
+    readyIframeDocumentIdentity,
+    runtimeStructureDeleteRequest,
+    screenId,
+  ]);
+
+  useEffect(() => {
     if (!runtimeStructureDeleteRequest) return;
+    if (runtimeStructureDeleteRequest.cancelRequested) return;
     if (runtimeStructureDeleteRequest.waitForInsertTransaction) return;
     if (
       lastRuntimeStructureDeleteRequestIdRef.current ===

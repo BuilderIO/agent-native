@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
+  crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
+  crossScreenTargetUnmountDeleteCancellation,
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
@@ -98,6 +100,66 @@ describe("crossScreenRollbackDisposition", () => {
         destinationScreenExists: false,
       }),
     ).toBe("discard");
+  });
+});
+
+describe("cross-screen target unmount after insert acknowledgement", () => {
+  it("restores the source and keeps an idempotent destination rollback for bridge recovery", () => {
+    const sourceDeleteAfterInsertAck = {
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      screenId: "source",
+      selector: "#source",
+      waitForInsertTransaction: false,
+      rollbackScreenId: "target",
+      rollbackSelector: "#inserted",
+      rollbackSourceId: "inserted-id",
+    };
+
+    const cancellation = crossScreenTargetUnmountDeleteCancellation(
+      sourceDeleteAfterInsertAck,
+      "move-1",
+    );
+    expect(cancellation).toEqual({
+      ...sourceDeleteAfterInsertAck,
+      cancelRequested: true,
+    });
+    expect(
+      crossScreenTargetUnmountDeleteCancellation(
+        sourceDeleteAfterInsertAck,
+        "move-1",
+      ),
+    ).toEqual(cancellation);
+    expect(
+      crossScreenTargetUnmountDeleteCancellation(
+        { ...sourceDeleteAfterInsertAck, waitForInsertTransaction: true },
+        "move-1",
+      ),
+    ).toBeNull();
+
+    const rollback = {
+      requestId: "move-1:target-unmount-rollback",
+      transactionId: "move-1",
+      screenId: "target",
+      selector: "#inserted",
+      sourceId: "inserted-id",
+      idempotent: true,
+    };
+    // If the destination reloaded while unmounted, its transient insertion is
+    // already gone. Treat that no-op rollback as complete instead of wedging
+    // the transaction and blocking subsequent moves.
+    expect(
+      crossScreenRollbackIsComplete(rollback!, {
+        applied: false,
+        reason: "target-unresolved",
+      }),
+    ).toBe(true);
+    expect(
+      crossScreenRollbackIsComplete(rollback!, {
+        applied: false,
+        reason: "ambiguous-target",
+      }),
+    ).toBe(false);
   });
 });
 

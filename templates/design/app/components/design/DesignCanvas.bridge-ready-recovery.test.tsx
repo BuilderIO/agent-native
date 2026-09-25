@@ -74,6 +74,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     );
     const onRuntimeStructureInsertRejected = vi.fn();
     const onRuntimeStructureRollbackResult = vi.fn();
+    const onRuntimeStructureDeleteRejected = vi.fn();
 
     const render = async (
       insertRequest: {
@@ -93,6 +94,18 @@ describe("DesignCanvas one-shot bridge queue", () => {
         sourceId?: string;
       } | null,
       targetTransactionId?: string | null,
+      deleteRequest?: {
+        requestId: string;
+        transactionId?: string;
+        screenId: string;
+        selector: string;
+        selectorCandidates?: string[];
+        waitForInsertTransaction?: boolean;
+        rollbackScreenId?: string;
+        rollbackSelector?: string;
+        rollbackSourceId?: string;
+        cancelRequested?: boolean;
+      } | null,
     ) => {
       await act(async () => {
         root.render(
@@ -106,7 +119,9 @@ describe("DesignCanvas one-shot bridge queue", () => {
             runtimeStructureInsertRequest={insertRequest}
             runtimeStructureRollbackRequest={rollbackRequest}
             runtimeStructureTargetTransactionId={targetTransactionId}
+            runtimeStructureDeleteRequest={deleteRequest}
             onRuntimeStructureInsertRejected={onRuntimeStructureInsertRejected}
+            onRuntimeStructureDeleteRejected={onRuntimeStructureDeleteRejected}
             onRuntimeStructureRollbackResult={onRuntimeStructureRollbackResult}
             zoom={100}
             deviceFrame="none"
@@ -262,6 +277,44 @@ describe("DesignCanvas one-shot bridge queue", () => {
       "style-change",
     ]);
     expect(onRuntimeStructureInsertRejected).not.toHaveBeenCalled();
+    posted.length = 0;
+    await render(null, null, "move-1", {
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      selector: "#source",
+      waitForInsertTransaction: false,
+      rollbackScreenId: "screen-target",
+      rollbackSelector: "#inserted",
+      rollbackSourceId: "inserted-id",
+      cancelRequested: true,
+    });
+    expect(
+      posted.filter((message) =>
+        ["cancel-pending-delete-element", "visual-structure-ack"].includes(
+          (message as { type?: string }).type ?? "",
+        ),
+      ),
+    ).toEqual([
+      {
+        type: "cancel-pending-delete-element",
+        selector: "#source",
+        selectorCandidates: [],
+        requestId: "move-1:source",
+        transactionId: "move-1",
+      },
+      {
+        type: "visual-structure-ack",
+        requestId: "move-1:source",
+        applied: false,
+      },
+    ]);
+    expect(onRuntimeStructureDeleteRejected).toHaveBeenCalledExactlyOnceWith({
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      reason: "cancelled",
+    });
     await act(async () => root.render(null));
     expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(
       "target-canvas-unmounted",

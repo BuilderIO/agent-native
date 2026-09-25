@@ -674,7 +674,9 @@ import { runCreatePrimitive } from "./design-editor/commands/create-primitive";
 import { runCreateScreenFrame } from "./design-editor/commands/create-screen-frame";
 import { runCrossScreenElementDrop } from "./design-editor/commands/cross-screen-element-drop";
 import {
+  crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
+  crossScreenTargetUnmountDeleteCancellation,
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
@@ -17127,6 +17129,31 @@ function DesignEditor() {
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure insert rejected", { reason });
       }
+      const sourceDeleteRequest =
+        runtimeStructureDeleteRequest?.transactionId === transactionId
+          ? runtimeStructureDeleteRequest
+          : null;
+      const targetUnmountCancellation =
+        reason === "target-canvas-unmounted" && transactionId
+          ? crossScreenTargetUnmountDeleteCancellation(
+              sourceDeleteRequest,
+              transactionId,
+            )
+          : null;
+      if (sourceDeleteRequest && targetUnmountCancellation) {
+        setRuntimeStructureInsertRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId
+            ? targetUnmountCancellation
+            : current,
+        );
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return true;
+      }
       const isInsertTimeout =
         reason === "board-drop-timeout" ||
         reason === "cross-screen-insert-timeout";
@@ -17142,6 +17169,7 @@ function DesignEditor() {
           requestId: `${transactionId}:timeout-rollback:${runtimeStructureRollbackRevisionRef.current}`,
           transactionId,
           selector: "",
+          idempotent: true,
         });
         rollbackScheduled = true;
       }
@@ -17179,6 +17207,9 @@ function DesignEditor() {
       runtimeStructurePendingTransactionRef,
       runtimeStructureInsertRequest,
       runtimeStructureRollbackRequest,
+      runtimeStructureDeleteRequest,
+      setRuntimeStructureDeleteRequest,
+      setRuntimeStructureInsertRequest,
       setRuntimeStructureRollbackRequest,
       t,
     ],
@@ -17304,6 +17335,7 @@ function DesignEditor() {
       if (
         !screenId ||
         !request ||
+        request.cancelRequested ||
         request.screenId !== screenId ||
         request.requestId !== details.requestId
       ) {
@@ -17366,6 +17398,7 @@ function DesignEditor() {
           transactionId: request.transactionId,
           selector: request.rollbackSelector,
           sourceId: request.rollbackSourceId,
+          idempotent: true,
         });
         rollbackScheduled = true;
       }
@@ -17380,7 +17413,11 @@ function DesignEditor() {
       if (DESIGN_EDITOR_DEBUG_LOGS) {
         console.warn("[design] runtime structure delete rejected", details);
       }
-      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+      if (details.reason !== "cancelled") {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+      }
     },
     [
       runtimeStructureDeleteRequest,
@@ -17454,8 +17491,12 @@ function DesignEditor() {
         overviewScreens.some(
           (screen) => screen.id === rollbackRequest.screenId,
         );
+      const rollbackIsComplete = crossScreenRollbackIsComplete(
+        rollbackRequest,
+        details,
+      );
       const disposition = crossScreenRollbackDisposition({
-        applied: details.applied,
+        applied: rollbackIsComplete,
         destinationHasPendingInsert: hasPendingInsert,
         destinationScreenExists,
       });
@@ -17480,7 +17521,7 @@ function DesignEditor() {
           current?.transactionId === transactionId ? null : current,
         );
       }
-      if (!details.applied) {
+      if (!rollbackIsComplete) {
         toast.error(t("designEditor.toasts.layerMoveFailed"), {
           duration: 4000,
         });

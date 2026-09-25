@@ -31,6 +31,7 @@ export function scheduleCrossScreenDeleteTimeout(
 ): () => void {
   if (
     !request?.transactionId ||
+    request.cancelRequested ||
     request.waitForInsertTransaction !== false ||
     request.screenId === boardFileId
   ) {
@@ -53,6 +54,32 @@ export function scheduleCrossScreenRollbackTimeout(
     CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
   );
   return () => window.clearTimeout(timeout);
+}
+
+export function crossScreenTargetUnmountDeleteCancellation(
+  request: (RuntimeStructureDeleteRequest & { screenId: string }) | null,
+  transactionId: string,
+): (RuntimeStructureDeleteRequest & { screenId: string }) | null {
+  if (
+    !request ||
+    request.transactionId !== transactionId ||
+    request.waitForInsertTransaction !== false ||
+    !request.rollbackScreenId ||
+    !request.rollbackSelector
+  ) {
+    return null;
+  }
+  return { ...request, cancelRequested: true };
+}
+
+export function crossScreenRollbackIsComplete(
+  request: RuntimeStructureRollbackRequest,
+  result: { applied: boolean; reason?: string },
+): boolean {
+  return (
+    result.applied ||
+    (request.idempotent === true && result.reason === "target-unresolved")
+  );
 }
 
 export function crossScreenRollbackDisposition({
