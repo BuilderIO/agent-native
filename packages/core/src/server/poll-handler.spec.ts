@@ -35,6 +35,18 @@ vi.mock("./auth.js", () => ({
 }));
 
 describe("poll handler", () => {
+  it("fails closed when session resolution throws", async () => {
+    mockGetSession.mockImplementation(() => {
+      throw new Error("auth unavailable");
+    });
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    await expect(handler({ query: { since: "0" } })).resolves.toEqual({
+      error: "Unauthenticated",
+    });
+  });
+
   beforeEach(() => {
     vi.resetModules();
     vi.useFakeTimers();

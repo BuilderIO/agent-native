@@ -17,6 +17,29 @@ function placeholders(value: string): string[] {
 }
 
 describe("built-in Core chat translations", () => {
+  it("localizes resource pack labels in every built-in locale", async () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadCoreMessagesForLocale(locale);
+      const pack = messages.agentResources as Record<string, string>;
+      expect(pack.exportPack, locale).toEqual(expect.any(String));
+      expect(pack.importPack, locale).toEqual(expect.any(String));
+      expect(pack.exportPackSuccess, locale).toEqual(expect.any(String));
+      expect(pack.exportPackFailed, locale).toEqual(expect.any(String));
+      expect(pack.importPackFailed, locale).toEqual(expect.any(String));
+      expect(pack.importPackInvalid, locale).toEqual(expect.any(String));
+      expect(placeholders(pack.importPackSuccess), locale).toEqual([
+        "imported",
+        "skipped",
+      ]);
+      if (locale !== "en-US") {
+        expect(pack.exportPack, locale).not.toBe("Export pack");
+        expect(pack.importPackInvalid, locale).not.toBe(
+          "That file is not a valid resource pack",
+        );
+      }
+    }
+  });
+
   it("localizes environment badge copy in every built-in locale", async () => {
     for (const locale of SUPPORTED_LOCALES) {
       const messages = await loadCoreMessagesForLocale(locale);

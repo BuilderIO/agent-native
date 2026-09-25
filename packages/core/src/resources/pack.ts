@@ -199,8 +199,11 @@ function redactLabeledCredentials(value: string): {
   content: string;
   redacted: boolean;
 } {
+  // `_` is a word character, so `\b` misses env names such as
+  // `SENDGRID_API_KEY` and `CLIENT_SECRET`. Treat `_` as a separator and
+  // redact the whole identifier when it contains a credential word.
   const pattern = new RegExp(
-    `["']?\\b(?:${CREDENTIAL_NAME})\\b["']?\\s*[:=]\\s*`,
+    `["']?(?<![A-Za-z0-9])(?:[A-Za-z0-9]+_){0,12}(?:${CREDENTIAL_NAME})(?:_[A-Za-z0-9]+){0,12}["']?\\s*[:=]\\s*`,
     "gi",
   );
   let content = "";

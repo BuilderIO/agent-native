@@ -225,6 +225,49 @@ describe("export-resource-pack", () => {
     });
   });
 
+  it("counts the export cap after redaction", async () => {
+    const secret = "s".repeat(1_000_001);
+    mockResourceListAccessible.mockResolvedValue([meta("notes.md")]);
+    mockResourceGet.mockResolvedValue(resource("notes.md", `token: ${secret}`));
+
+    const result = await exportResourcePack.run(
+      { scope: "accessible" },
+      { userEmail: "alice@x.com", caller: "http" },
+    );
+    const packed =
+      result.pack.resources.find((entry) => entry.path === "notes.md")
+        ?.content ?? "";
+
+    expect(packed).toBe("token: [REDACTED]");
+    expect(packed).not.toContain(secret);
+    expect(Buffer.byteLength(packed, "utf8")).toBeLessThanOrEqual(1_000_000);
+  });
+
+  it("fails too_large when redacted text content exceeds 1 MB", async () => {
+    const line = "token: a\n";
+    const content = line + "x".repeat(1_000_000 - Buffer.byteLength(line));
+    mockResourceListAccessible.mockResolvedValue([meta("huge.md")]);
+    mockResourceGet.mockResolvedValue(resource("huge.md", content));
+
+    await expect(
+      exportResourcePack.run(
+        { scope: "accessible" },
+        { userEmail: "alice@x.com", caller: "http" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "too_large",
+      details: expect.objectContaining({
+        fileCount: 1,
+        byteCount: Buffer.byteLength(
+          "token: [REDACTED]\n" +
+            "x".repeat(1_000_000 - Buffer.byteLength(line)),
+          "utf8",
+        ),
+        maxBytes: 1_000_000,
+      }),
+    });
+  });
+
   it("fails too_large when text content exceeds 1 MB", async () => {
     mockResourceListAccessible.mockResolvedValue([meta("huge.md")]);
     mockResourceGet.mockResolvedValue(

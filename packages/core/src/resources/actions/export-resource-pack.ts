@@ -107,7 +107,7 @@ export async function exportResourcePackForCaller(
     if (redacted.redacted) {
       redactions.push({ path: meta.path, reason: "secret" });
     }
-    byteCount += Buffer.byteLength(resource.content, "utf8");
+    byteCount += Buffer.byteLength(redacted.content, "utf8");
     entries.push({
       path: meta.path,
       scope: packScopeFromOwner(resource.owner, userEmail),

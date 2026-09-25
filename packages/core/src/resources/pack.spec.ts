@@ -207,4 +207,54 @@ describe("redactResourceContent", () => {
 
     expect(result.content).toBe("password: '[REDACTED]'");
   });
+
+  it("redacts underscore-separated environment credential names", () => {
+    const sendgrid = "SG.secret-value-should-not-export";
+    const clientSecret = "super-secret-client-value";
+    const github = "github-plain-token-value";
+    const aws = "aws-secret-access-value";
+    const source = [
+      `SENDGRID_API_KEY=${sendgrid}`,
+      `CLIENT_SECRET="${clientSecret}"`,
+      `GITHUB_TOKEN=${github}`,
+      `AWS_SECRET_ACCESS_KEY=${aws}`,
+      "MAX_RETRIES=3",
+      "keep-this-visible",
+    ].join("\n");
+
+    const result = redactResourceContent("AGENTS.md", source);
+    const pack = buildResourcePack(
+      [{ path: "AGENTS.md", scope: "personal", content: result.content }],
+      { exportedAt: 1, source: { scope: "personal" } },
+    );
+    const serialized = JSON.stringify(pack);
+
+    expect(result.redacted).toBe(true);
+    expect(result.content).toContain('CLIENT_SECRET="[REDACTED]"');
+    expect(result.content).toContain("SENDGRID_API_KEY=[REDACTED]");
+    expect(result.content).toContain("GITHUB_TOKEN=[REDACTED]");
+    expect(result.content).toContain("AWS_SECRET_ACCESS_KEY=[REDACTED]");
+    expect(result.content).toContain("MAX_RETRIES=3");
+    expect(serialized).toContain("keep-this-visible");
+    for (const secret of [sendgrid, clientSecret, github, aws]) {
+      expect(result.content).not.toContain(secret);
+      expect(serialized).not.toContain(secret);
+    }
+  });
+
+  it("keeps redacted underscore-separated JSON credentials parseable", () => {
+    const sendgrid = "SG.secret-value-should-not-export";
+    const source = JSON.stringify({
+      SENDGRID_API_KEY: sendgrid,
+      keep: "visible",
+    });
+
+    const result = redactResourceContent("config.json", source);
+
+    expect(result.redacted).toBe(true);
+    expect(result.content).not.toContain(sendgrid);
+    const reparsed = JSON.parse(result.content) as Record<string, string>;
+    expect(reparsed.SENDGRID_API_KEY).toBe("[REDACTED]");
+    expect(reparsed.keep).toBe("visible");
+  });
 });
