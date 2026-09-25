@@ -428,6 +428,12 @@ const messages = {
     agentEmptyTitle: "Participe da conversa",
     agentEmptyDescription:
       "Crie uma conta Clips grátis para comentar, reagir e fazer perguntas sobre este clipe.",
+    commentSignupTitle: "Dê ao seu agente de IA o contexto completo",
+    commentSignupContext:
+      "Compartilhe a transcrição e quadros com marcação de tempo em um só link",
+    commentSignupFeedback:
+      "Transforme feedback gravado em próximos passos claros",
+    commentSignupDebug: "Capture erros do console e solicitações com falha",
     agentEmptySignInPrompt: "Já tem uma conta?",
     signUp: "Cadastre-se",
     ownerInsights: "Insights do proprietário",

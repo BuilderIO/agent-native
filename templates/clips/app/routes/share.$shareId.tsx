@@ -17,6 +17,7 @@ import {
   DefaultSpinner,
   EnvironmentBadge,
 } from "@agent-native/core/client/ui";
+import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
 import {
   IconAlertTriangle,
   IconDeviceDesktop,
@@ -543,7 +544,10 @@ export default function ShareRoute() {
   // viewer. Its own tab strip is the only panel navigation; the page toolbar
   // stays focused on recording actions.
   const [panel, setPanel] = useState<SharePanel>("comments");
-  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(false);
+  const { collapsed: sidePanelCollapsed, setCollapsed: setSidePanelCollapsed } =
+    usePersistentSidebarCollapsed({
+      storageKey: "clips:share-sidebar-collapsed",
+    });
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
   const selectCommentsPanel = useCallback(() => {
@@ -555,7 +559,7 @@ export default function ShareRoute() {
         block: "start",
       });
     });
-  }, []);
+  }, [setSidePanelCollapsed]);
   const [downloading, setDownloading] = useState(false);
   const [accessRequestSent, setAccessRequestSent] = useState(false);
   const [accessRequestError, setAccessRequestError] = useState<string | null>(
@@ -1837,32 +1841,49 @@ export default function ShareRoute() {
                   ref={commentsSectionRef}
                   className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"
                 >
-                  <CommentsPanel
-                    recordingId={recording.id}
-                    comments={comments}
-                    currentMs={playbackMs}
-                    getCurrentMs={resolvePlaybackMs}
-                    currentUserEmail={session?.email}
-                    currentUserName={session?.name}
-                    enableComments={recording.enableComments}
-                    canComment={viewerCanComment}
-                    onSeek={(ms) => playerRef.current?.seek(ms)}
-                    onUnauthenticated={requireSignIn}
-                    queryKey={[
-                      "public-recording",
-                      shareId,
-                      password,
-                      agentAccessToken,
-                      session?.email ?? null,
-                    ]}
-                    selectComments={(d: any) => d?.data?.comments}
-                    applyComments={(d: any, next) =>
-                      d
-                        ? { ...d, data: { ...(d.data ?? {}), comments: next } }
-                        : d
-                    }
-                    presentation="inline"
-                  />
+                  {!session &&
+                  sessionStatus !== "loading" &&
+                  sessionStatus !== "signing-out" &&
+                  comments.length === 0 ? (
+                    <PublicCommentsEmptyState
+                      signInHref={signInHref}
+                      onSignUp={() => {
+                        fireShareCtaClick("signup");
+                        openCreateAccount("comment");
+                      }}
+                      onSignIn={() => fireShareCtaClick("signin")}
+                    />
+                  ) : (
+                    <CommentsPanel
+                      recordingId={recording.id}
+                      comments={comments}
+                      currentMs={playbackMs}
+                      getCurrentMs={resolvePlaybackMs}
+                      currentUserEmail={session?.email}
+                      currentUserName={session?.name}
+                      enableComments={recording.enableComments}
+                      canComment={viewerCanComment}
+                      onSeek={(ms) => playerRef.current?.seek(ms)}
+                      onUnauthenticated={requireSignIn}
+                      queryKey={[
+                        "public-recording",
+                        shareId,
+                        password,
+                        agentAccessToken,
+                        session?.email ?? null,
+                      ]}
+                      selectComments={(d: any) => d?.data?.comments}
+                      applyComments={(d: any, next) =>
+                        d
+                          ? {
+                              ...d,
+                              data: { ...(d.data ?? {}), comments: next },
+                            }
+                          : d
+                      }
+                      presentation="inline"
+                    />
+                  )}
                 </section>
               </TabsContent>
             ) : null}
@@ -2008,6 +2029,67 @@ function formatRecordedOn(
     dateStyle: "medium",
     ...(stable ? { timeZone: "UTC" } : {}),
   }).format(date);
+}
+
+function PublicCommentsEmptyState({
+  signInHref,
+  onSignUp,
+  onSignIn,
+}: {
+  signInHref: string;
+  onSignUp: () => void;
+  onSignIn: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <div className="mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col justify-center gap-5 overflow-y-auto px-5 py-6">
+      <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <IconDeviceDesktop aria-hidden="true" className="size-5" />
+      </div>
+      <h2 className="text-base font-semibold tracking-tight">
+        {t("sharePage.commentSignupTitle")}
+      </h2>
+      <ul className="space-y-3 text-sm leading-5 text-muted-foreground">
+        <li className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
+          />
+          <span>{t("sharePage.commentSignupContext")}</span>
+        </li>
+        <li className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
+          />
+          <span>{t("sharePage.commentSignupFeedback")}</span>
+        </li>
+        <li className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
+          />
+          <span>{t("sharePage.commentSignupDebug")}</span>
+        </li>
+      </ul>
+      <div className="space-y-3">
+        <Button type="button" className="w-full" onClick={onSignUp}>
+          {t("signInPrompt.createAccount")}
+        </Button>
+        <p className="text-center text-xs text-muted-foreground">
+          {t("sharePage.agentEmptySignInPrompt")}{" "}
+          <a
+            href={signInHref}
+            onClick={onSignIn}
+            className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
+          >
+            {t("signInPrompt.signIn")}
+          </a>
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function PublicAgentEmptyState({
