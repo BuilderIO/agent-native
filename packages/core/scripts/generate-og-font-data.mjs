@@ -21,12 +21,15 @@ const fonts = [
     constName: "NOTO_NASKH_ARABIC_BASE64",
     file: "../src/assets/fonts/NotoNaskhArabic-Variable.ttf",
   },
-  // The Geist faces are Latin subsets of the v1.7.2 release TTFs: every
+  // The Geist faces are minimal subsets of the v1.7.2 release TTFs: every
   // serverless function that bundles @agent-native/core/server carries these
-  // bytes, and they only draw the English sign-in copy. Regenerate with
-  //   pyftsubset <ttf> --unicodes="U+0020-007E,U+00A0-00FF,U+2010-2027,U+2032-2033,U+20AC,U+2122" \
-  //     --layout-features='*' --name-IDs='*' --name-languages='*' --name-legacy --no-hinting
-  // (Geist Mono only needs U+0020-007E).
+  // bytes (docs sits near its function size baseline), and they only draw the
+  // English sign-in copy; other glyphs fall back to Liberation Sans. Regenerate
+  // with `pyftsubset <ttf> --name-IDs='*' --name-languages='*' --name-legacy
+  // --no-hinting` plus:
+  //   Geist-Regular   --unicodes="U+0020-007E,U+2013-2014,U+2018-201D,U+2026" --layout-features=kern
+  //   Geist-SemiBold  --unicodes="U+0020-007E" --layout-features=kern
+  //   GeistMono-SemiBold  --unicodes="U+0020-005A" --layout-features=''
   {
     constName: "GEIST_REGULAR_BASE64",
     file: "../src/assets/fonts/Geist-Regular.ttf",
