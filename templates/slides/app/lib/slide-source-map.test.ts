@@ -432,6 +432,11 @@ describe("renderArtifactGrowth", () => {
     expect(
       renderArtifactGrowth("<p>a</p>", "<p contenteditable>a</p>"),
     ).toEqual(["contenteditable"]);
+    // Older editors stored contenteditable="false"; only an editable value is
+    // the live editing surface.
+    expect(
+      renderArtifactGrowth("<p>a</p>", '<p contenteditable="false">a</p>'),
+    ).toEqual([]);
     expect(
       renderArtifactGrowth(
         "<p>a</p>",

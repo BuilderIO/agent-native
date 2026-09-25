@@ -137,7 +137,7 @@ describe("assertNoDeckRenderArtifacts", () => {
     ).not.toThrow();
   });
 
-  it("refuses a new slide carrying editor markup even when another slide stores it", () => {
+  it("accepts an exact copy of a stored slide, markers and all", () => {
     expect(() =>
       assertNoDeckRenderArtifacts(stored, {
         slides: [
@@ -145,6 +145,20 @@ describe("assertNoDeckRenderArtifacts", () => {
             id: "copy",
             content:
               '<div class="fmd-slide"><p data-builder-id="b-1">L</p></div>',
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses a new slide carrying editor markup even when another slide stores it", () => {
+    expect(() =>
+      assertNoDeckRenderArtifacts(stored, {
+        slides: [
+          {
+            id: "copy",
+            content:
+              '<div class="fmd-slide"><p data-builder-id="b-1">Changed</p></div>',
           },
         ],
       }),

@@ -450,7 +450,11 @@ export default defineAction({
               slideElementProvenance,
             );
 
-      assertNoRenderArtifactsInNewSlide(content, newSlideId);
+      assertNoRenderArtifactsInNewSlide(
+        content,
+        newSlideId,
+        slides.map((s) => String(s.content ?? "")),
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const newSlide: any = {
         id: newSlideId,

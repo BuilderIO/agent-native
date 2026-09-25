@@ -161,7 +161,7 @@ describe("applyOperation — patch-slide", () => {
         slideId: "s1",
         fields: {
           content:
-            '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p { color: red; }</style><p contenteditable="false">New</p></div>',
+            '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p { color: red; }</style><p contenteditable="true">New</p></div>',
         },
       }),
     ).toThrow(
@@ -194,7 +194,7 @@ describe("applyOperation — patch-slide", () => {
         slideId: "s2",
         fields: {
           content:
-            '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>',
+            '<div class="fmd-slide"><p data-builder-id="b-4">New</p></div>',
         },
       }),
     ).toThrow(
@@ -211,6 +211,13 @@ describe("applyOperation — patch-slide", () => {
       fields: { content: restored },
     });
     expect(deck.slides[1].content).toBe(restored);
+    // A duplicate is an exact copy of a stored slide, whatever it carries.
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s4",
+      fields: { content: deck.slides[0].content },
+    });
+    expect(deck.slides).toHaveLength(3);
   });
 
   it("still saves content that already carried rendered markup", () => {

@@ -622,7 +622,11 @@ export function applyOperation(
       // Idempotency: if the slide already exists (duplicate delivery), skip.
       if (slides.some((s: { id: string }) => s.id === slideId)) return false;
       if (typeof fields.content === "string") {
-        assertNoRenderArtifactsInNewSlide(fields.content, slideId);
+        assertNoRenderArtifactsInNewSlide(
+          fields.content,
+          slideId,
+          slides.map((s: { content?: unknown }) => String(s.content ?? "")),
+        );
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       // Copy every provided field: a duplicated or undo-restored slide has to

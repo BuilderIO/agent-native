@@ -1679,11 +1679,11 @@ async function main() {
   const unrun = Object.keys(baseline).filter(
     (key) => !byKey.has(key) && isExpected(key),
   );
-  if (update && (erroredSlides.length || unrun.length)) {
+  if (update && (browserLost || erroredSlides.length || unrun.length)) {
     // Writing now would drop the coverage of what did not run from the
     // ratchet without anything noticing.
     console.error(
-      `\n[edit-fidelity] baseline not updated: ${erroredSlides.length} slide(s) errored (${erroredSlides.map((s) => `${s.caseId} s${pad2(s.slide)}`).join(", ") || "none"}), ${unrun.length} baselined scenario(s) did not run (${unrun.slice(0, 10).join(", ") || "none"}). Re-run them (--resume) first.`,
+      `\n[edit-fidelity] baseline not updated: ${browserLost ? "the browser was lost mid-run; " : ""}${erroredSlides.length} slide(s) errored (${erroredSlides.map((s) => `${s.caseId} s${pad2(s.slide)}`).join(", ") || "none"}), ${unrun.length} baselined scenario(s) did not run (${unrun.slice(0, 10).join(", ") || "none"}). Re-run them (--resume) first.`,
     );
     exitCode = 1;
   } else if (update && results.length) {

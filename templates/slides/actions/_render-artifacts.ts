@@ -33,15 +33,18 @@ export function assertNoRenderArtifacts(
 
 /**
  * The check for a slide with no stored predecessor (a new deck, a duplicate,
- * an undo-restored slide), whose history the server cannot see. Older saves
- * stored the scoped stylesheet's selectors in `<style>`, and the renderer heals
- * them, so a copy of such a slide may carry them; every other marker, the
- * scope attribute included, is refused.
+ * an undo-restored slide), whose history the server cannot see. An exact copy
+ * of a slide the deck stores is a duplicate of stored content and passes as it
+ * is. Otherwise, older saves stored the scoped stylesheet's selectors in
+ * `<style>`, and the renderer heals them, so a copy of such a slide may carry
+ * them; every other marker, the scope attribute included, is refused.
  */
 export function assertNoRenderArtifactsInNewSlide(
   content: string,
   slideId: string,
+  storedContents: readonly string[] = [],
 ): void {
+  if (storedContents.includes(content)) return;
   const markers = renderArtifactGrowth("", content).filter(
     (marker) => marker !== SCOPED_STYLE_SELECTOR_MARKER,
   );
@@ -72,6 +75,9 @@ export function assertNoDeckRenderArtifacts(
   const nextSlides = Array.isArray(nextDeck.slides)
     ? (nextDeck.slides as Array<Record<string, unknown>>)
     : [];
+  const storedContents = previousSlides
+    .map((slide) => slide.content)
+    .filter((content): content is string => typeof content === "string");
   for (const slide of nextSlides) {
     if (typeof slide.content !== "string") continue;
     const prior = previousSlides.find((candidate) => candidate.id === slide.id);
@@ -82,7 +88,11 @@ export function assertNoDeckRenderArtifacts(
         String(slide.id),
       );
     } else {
-      assertNoRenderArtifactsInNewSlide(slide.content, String(slide.id));
+      assertNoRenderArtifactsInNewSlide(
+        slide.content,
+        String(slide.id),
+        storedContents,
+      );
     }
   }
 }

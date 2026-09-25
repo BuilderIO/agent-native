@@ -968,6 +968,10 @@ function countRenderArtifacts(html: string): Map<string, number> {
     for (const node of parent.childNodes) {
       if (!isElement(node)) continue;
       for (const { name, value } of node.attrs) {
+        // Older editors stored contenteditable="false" on text elements, so
+        // only an editable value marks the live editing surface.
+        if (name === "contenteditable" && value.toLowerCase() === "false")
+          continue;
         if (MARKER_ATTRS.includes(name)) add(name);
         if (name !== "class") continue;
         for (const [marker, pattern] of MARKER_CLASSES) {
