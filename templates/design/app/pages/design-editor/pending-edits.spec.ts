@@ -15,6 +15,7 @@ import {
   mergePendingLiveNonStyleEdit,
   nextPendingLiveEditTimestamp,
   pendingLiveLayerNameUndoRevertValue,
+  relativeOperationsForStyles,
   pendingVisualStyleRouteMatches,
   pendingVisualStyleGestureIdForPhase,
   resolveOverviewScreenSourceType,
@@ -104,6 +105,39 @@ describe("resolveOverviewScreenSourceType", () => {
         bridgeUrl: "http://localhost:7331",
       }),
     ).toBe("inline");
+  });
+});
+
+describe("relative selected-screen style intent", () => {
+  it("keeps only changed properties from a batched relative scrub", () => {
+    expect(
+      relativeOperationsForStyles(
+        { marginLeft: "calc(4px + var(--step))", marginRight: "8px" },
+        {
+          relativeDelta: 2,
+          relativeDeltaProperties: ["marginLeft", "marginRight", "gap"],
+        },
+      ),
+    ).toEqual({
+      marginLeft: { kind: "delta", delta: 2 },
+      marginRight: { kind: "delta", delta: 2 },
+    });
+  });
+
+  it("preserves authored expressions rather than recording the DOM result", () => {
+    expect(
+      relativeOperationsForStyles(
+        { width: "248px" },
+        {
+          relativeExpression: {
+            expression: "+8",
+            unit: "px",
+          },
+        },
+      ),
+    ).toEqual({
+      width: { kind: "expression", expression: "+8", unit: "px" },
+    });
   });
 });
 
@@ -511,6 +545,34 @@ describe("formatPendingVisualStylePrompt", () => {
     expect(prompt).toContain("never hand off inline-style mutations");
     expect(prompt).not.toContain('style="color: blue"');
     expect(prompt).toContain('"screen": "/clips"');
+  });
+
+  it("makes relative CSS intent authoritative over an absolute live preview value", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      audience: "coding-agent",
+      edits: [
+        {
+          ...styleEdit(".card", { width: "248px" }),
+          originalStyles: { width: "calc(100% - var(--gutter))" },
+          relativeOperations: {
+            width: {
+              kind: "expression",
+              expression: "+8",
+              unit: "px",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(prompt).toContain('"width": "calc(100% - var(--gutter))"');
+    expect(prompt).toContain('"width": "248px"');
+    expect(prompt).toContain('"kind": "expression"');
+    expect(prompt).toContain('"expression": "+8"');
+    expect(prompt).toContain(
+      "relativeOperations entry is the authoritative source intent",
+    );
+    expect(prompt).toContain("do not replace calc(), var()");
   });
 
   it("hands live layer renames off as metadata with source provenance", () => {

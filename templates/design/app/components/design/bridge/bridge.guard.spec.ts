@@ -5763,6 +5763,106 @@ describe("editor chrome bridge — text editing session", () => {
   );
 
   it(
+    "hands range-only live formatting to the host with its relative source operation",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+        await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          )!;
+          const text = target.firstChild!;
+          const range = document.createRange();
+          range.setStart(text, 6);
+          range.setEnd(text, 11);
+          const selection = window.getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+          (window as any).__rangeHandoffs = [];
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "text-content-change") {
+              (window as any).__rangeHandoffs.push(event.data);
+            }
+          });
+          window.postMessage(
+            {
+              type: "style-change",
+              selector: '[data-agent-native-node-id="target"]',
+              selectorCandidates: ['[data-agent-native-node-id="target"]'],
+              property: "fontSize",
+              value: "22px",
+              relativeOperation: {
+                kind: "expression",
+                expression: "+2",
+                unit: "px",
+              },
+            },
+            "*",
+          );
+          window.postMessage(
+            {
+              type: "style-change",
+              selector: '[data-agent-native-node-id="target"]',
+              selectorCandidates: ['[data-agent-native-node-id="target"]'],
+              property: "letterSpacing",
+              value: "1px",
+              relativeOperation: {
+                kind: "delta",
+                delta: 1,
+              },
+            },
+            "*",
+          );
+        });
+        await page.waitForFunction(
+          () => (window as any).__rangeHandoffs?.length === 2,
+        );
+        const result = await page.evaluate(() => {
+          const target = document.querySelector("#target")!;
+          const spans = Array.from(target.querySelectorAll("span"));
+          return {
+            html: target.innerHTML,
+            spanCount: spans.length,
+            text: target.textContent,
+            targetFontSize: getComputedStyle(target).fontSize,
+            selectedFontSize: spans[0]
+              ? getComputedStyle(spans[0]).fontSize
+              : null,
+            handoffs: (window as any).__rangeHandoffs,
+          };
+        });
+        expect(result.spanCount).toBe(1);
+        expect(result.text).toBe("Hello world");
+        expect(result.targetFontSize).not.toBe("22px");
+        expect(result.selectedFontSize).toBe("22px");
+        expect(result.html).toContain("font-size: 22px");
+        expect(result.html).toContain("letter-spacing: 1px");
+        expect(result.handoffs).toHaveLength(2);
+        expect(result.handoffs[0].relativeOperations).toEqual({
+          fontSize: {
+            kind: "expression",
+            expression: "+2",
+            unit: "px",
+          },
+        });
+        expect(result.handoffs[0].html).toContain("Hello ");
+        expect(result.handoffs[0].html).toContain("world");
+        expect(result.handoffs[1].relativeOperations).toEqual({
+          letterSpacing: { kind: "delta", delta: 1 },
+        });
+        expect(result.handoffs[1].html).toContain("Hello ");
+        expect(result.handoffs[1].html).toContain("world");
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "T19: refreshOverlays preserves the session's captured min-width/min-height",
     { timeout: 30_000 },
     async () => {

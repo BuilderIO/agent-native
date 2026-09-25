@@ -13867,7 +13867,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelSpacingDrag);
   }
 
-  function postTextContentChange(el, value, html, originalValue, originalHtml) {
+  function postTextContentChange(
+    el,
+    value,
+    html,
+    originalValue,
+    originalHtml,
+    relativeOperations,
+  ) {
     claimContentAsSource(el);
     publishSourceDocumentProvenance(undefined, true);
     (window.parent as Window).postMessage(
@@ -13880,6 +13887,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           typeof originalValue === "string" ? originalValue : undefined,
         originalHtml:
           typeof originalHtml === "string" ? originalHtml : undefined,
+        relativeOperations:
+          relativeOperations && typeof relativeOperations === "object"
+            ? relativeOperations
+            : undefined,
         payload: getElementInfo(el),
       },
       "*",
@@ -27880,6 +27891,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         textEditStyleTarget!.innerHTML || "",
         undefined,
         undefined,
+        prop && e.data.relativeOperation
+          ? { [prop]: e.data.relativeOperation }
+          : undefined,
       );
       postTextEditingState(
         textEditStyleTarget,

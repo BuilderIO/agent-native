@@ -1,3 +1,4 @@
+import type { RelativeStyleOperation } from "../edit-panel/style-change-types";
 import { getBreakpointIframeId, getPrimaryIframeId } from "./iframe-targeting";
 
 export type LinkedScreenPreviewReplaceFn = (
@@ -18,6 +19,7 @@ export type LinkedScreenPreviewStyleFn = (
     selectorCandidates?: string[];
     nodeId?: string | null;
     phase?: string;
+    relativeOperation?: RelativeStyleOperation;
   },
 ) => boolean;
 
@@ -127,6 +129,7 @@ export function sendLinkedScreenPreviewStyleChange(
     selectorCandidates?: string[];
     nodeId?: string | null;
     phase?: string;
+    relativeOperation?: RelativeStyleOperation;
   },
 ): boolean {
   if (!screenId) return false;

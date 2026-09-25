@@ -10224,7 +10224,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keyup", onKey, true);
       setActiveDragCancel(cancelSpacingDrag);
     }
-    function postTextContentChange(el, value, html, originalValue, originalHtml) {
+    function postTextContentChange(el, value, html, originalValue, originalHtml, relativeOperations) {
       claimContentAsSource(el);
       publishSourceDocumentProvenance(void 0, true);
       window.parent.postMessage(
@@ -10235,6 +10235,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           html,
           originalValue: typeof originalValue === "string" ? originalValue : void 0,
           originalHtml: typeof originalHtml === "string" ? originalHtml : void 0,
+          relativeOperations: relativeOperations && typeof relativeOperations === "object" ? relativeOperations : void 0,
           payload: getElementInfo(el)
         },
         "*"
@@ -19720,7 +19721,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           textEditStyleTarget.textContent || "",
           textEditStyleTarget.innerHTML || "",
           void 0,
-          void 0
+          void 0,
+          prop && e.data.relativeOperation ? { [prop]: e.data.relativeOperation } : void 0
         );
         postTextEditingState(
           textEditStyleTarget,

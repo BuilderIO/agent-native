@@ -347,7 +347,7 @@ describe("runStyleChange screen routing", () => {
       tagName: "button",
       selector: "#library-button",
       classes: [],
-      computedStyles: { borderRadius: "4px" },
+      computedStyles: { borderRadius: "calc(4px + var(--radius-step))" },
       boundingRect: { x: 0, y: 0, width: 100, height: 40 },
       isFlexChild: false,
       isFlexContainer: false,

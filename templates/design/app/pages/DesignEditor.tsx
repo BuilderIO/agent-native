@@ -1041,6 +1041,7 @@ import {
   nextPendingLiveEditTimestamp,
   pendingVisualStyleGestureIdForPhase,
   projectRelativeSourcePath,
+  relativeOperationsForStyles,
   reactSourceAnchorForPendingEdit,
   type PendingLiveLayerNameEdit,
   type PendingLiveLayerStateEdit,
@@ -1049,6 +1050,7 @@ import {
   type PendingLiveStructureEdit,
   type PendingLiveStructureUndoEntry,
   type PendingLiveTextEdit,
+  type PendingRelativeStyleOperation,
   type PendingVisualStyleEdit,
   replayPendingVisualStyleRuntimePatch,
   type PendingVisualStyleUndoEntry,
@@ -8824,6 +8826,7 @@ function DesignEditor() {
         pendingUndoGestureId?: string;
         preserveSelection?: boolean;
         routePath?: string;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runRecordPendingVisualStyleEdit(
@@ -8893,6 +8896,7 @@ function DesignEditor() {
         originalValue?: string;
         originalHtml?: string;
         routePath?: string;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runRecordPendingLiveTextEdit(
@@ -14117,6 +14121,7 @@ function DesignEditor() {
         originalValue?: string;
         originalHtml?: string;
         routePath?: string;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runTextContentChange(
@@ -14171,6 +14176,7 @@ function DesignEditor() {
         preserveSelection?: boolean;
         routePath?: string;
         runtimeApplied?: boolean;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runScreenVisualStyleChange(
@@ -14228,8 +14234,16 @@ function DesignEditor() {
           ].filter((candidate): candidate is string => Boolean(candidate)),
         ),
       );
+      const textRangeOwnsScreen =
+        textEditingState.hasRange &&
+        textEditingState.screenId === screenId &&
+        textEditingState.selector === selector;
       const interactionState = metadata?.interactionState;
       if (interactionState) {
+        const relativeOperations = relativeOperationsForStyles(
+          styles,
+          metadata ?? {},
+        );
         const routePath =
           metadata.routePath ?? liveRoutePathsByScreenIdRef.current[screenId];
         const previewInteractionState = (nextStyles: Record<string, string>) =>
@@ -14258,7 +14272,11 @@ function DesignEditor() {
               selector,
               styles,
               elementInfo,
-              { interactionState, routePath },
+              {
+                interactionState,
+                routePath,
+                ...(relativeOperations ? { relativeOperations } : {}),
+              },
             );
             previewInteractionState(styles);
           }
@@ -14298,13 +14316,24 @@ function DesignEditor() {
           {
             selectorCandidates,
             nodeId: elementInfo?.runtimeSourceId ?? elementInfo?.sourceId,
+            relativeOperation: relativeOperationsForStyles(
+              { [property]: value },
+              metadata,
+            )?.[property],
           },
         );
       }
-      if (metadata?.phase === "preview" || metadata?.phase === "cancel") return;
+      if (
+        metadata?.phase === "preview" ||
+        metadata?.phase === "cancel" ||
+        textRangeOwnsScreen
+      )
+        return;
+      const relativeOperations = relativeOperationsForStyles(styles, metadata);
       handleScreenVisualStyleChange(screenId, selector, styles, elementInfo, {
         phase: metadata?.phase === "commit" ? "commit" : undefined,
         runtimeApplied: true,
+        ...(relativeOperations ? { relativeOperations } : {}),
         routePath:
           metadata?.routePath ?? liveRoutePathsByScreenIdRef.current[screenId],
       });
@@ -14322,6 +14351,9 @@ function DesignEditor() {
       overviewScreens,
       recordPendingVisualStyleEdit,
       selectedCanvasSelectorCandidates,
+      textEditingState.hasRange,
+      textEditingState.screenId,
+      textEditingState.selector,
     ],
   );
   selectedScreenStyleChangeRef.current = handleInspectorScreenStyleChange;
@@ -14583,6 +14615,7 @@ function DesignEditor() {
         originalValue?: string;
         originalHtml?: string;
         routePath?: string;
+        relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
       runScreenTextContentChange(

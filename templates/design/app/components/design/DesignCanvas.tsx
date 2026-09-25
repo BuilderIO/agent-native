@@ -174,6 +174,7 @@ import {
 } from "./design-canvas/pending-text-edit";
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
+import type { RelativeStyleOperation } from "./edit-panel/style-change-types";
 import { getBoardSurfaceRenderContent } from "./multi-screen/board-surface-html";
 import { shapeClosingHandles } from "./multi-screen/draft-primitives";
 import {
@@ -813,6 +814,7 @@ interface DesignCanvasProps {
       originalValue?: string;
       originalHtml?: string;
       routePath?: string;
+      relativeOperations?: Record<string, RelativeStyleOperation>;
     },
   ) => void;
   onTextEditingStateChange?: (
@@ -4339,11 +4341,17 @@ export function DesignCanvas({
           typeof e.data.originalHtml === "string"
             ? String(e.data.originalHtml)
             : undefined;
+        const relativeOperations =
+          e.data.relativeOperations &&
+          typeof e.data.relativeOperations === "object"
+            ? e.data.relativeOperations
+            : undefined;
         if (selector) {
           onTextContentChange?.(selector, value, e.data.payload, {
             html,
             originalValue,
             originalHtml,
+            relativeOperations,
             routePath:
               typeof e.data.routePath === "string"
                 ? e.data.routePath
@@ -6140,6 +6148,7 @@ export function DesignCanvas({
         selectorCandidates?: string[];
         nodeId?: string | null;
         phase?: string;
+        relativeOperation?: RelativeStyleOperation;
       },
     ) => {
       const iframe = iframeRef.current;
@@ -6152,6 +6161,7 @@ export function DesignCanvas({
         selectorCandidates: options?.selectorCandidates ?? [],
         nodeId: options?.nodeId ?? "",
         phase: options?.phase,
+        relativeOperation: options?.relativeOperation,
       });
     },
     [postOneShotBridgeMessage],

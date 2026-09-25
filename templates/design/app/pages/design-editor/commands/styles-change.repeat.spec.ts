@@ -249,6 +249,61 @@ describe("a batched edit from a non-active screen", () => {
     expect(commitRelativeStyleDeltaToSelectedLayers).not.toHaveBeenCalled();
   });
 
+  it("keeps batched relative operations on a non-active live screen", () => {
+    const selectedScreenStyleChange = vi.fn();
+    const selectedElement = elementInfo();
+    const selectedLayerTargetsRef = {
+      current: [
+        {
+          layerId: "row",
+          fileId: "library",
+          node: {} as any,
+          tree: [],
+          elementInfo: selectedElement,
+        },
+      ],
+    };
+    selectedElement.sourceLayerIdentity = {
+      screenId: "library",
+      nodeId: "library-row",
+    };
+
+    runStylesChange(
+      {
+        canEditLiveScreen: (screenId) => screenId === "library",
+        commitInteractionStateStyles: vi.fn(() => false),
+        commitRelativeStyleDeltaToSelectedLayers: vi.fn(() => true),
+        commitStylesToSelectedLayers: vi.fn(() => false),
+        commitCapturedStyleTargets: () => {},
+        commitVisualStyles: vi.fn(),
+        handleClearBreakpointOverride: vi.fn(() => false),
+        previewInteractionStateStyles: vi.fn(),
+        selectedCanvasSelectorCandidates: [],
+        selectedElement,
+        selectedScreenStyleChange,
+        selectedLayerTargetsRef,
+        textEditingState: { active: false },
+      },
+      { marginLeft: "12px", marginRight: "12px", color: "red" },
+      {
+        phase: "commit",
+        relativeDelta: 2,
+        relativeDeltaProperties: ["marginLeft", "marginRight"],
+      },
+    );
+
+    expect(selectedScreenStyleChange).toHaveBeenCalledWith(
+      "library",
+      ROW_SELECTOR,
+      { marginLeft: "12px", marginRight: "12px", color: "red" },
+      selectedElement,
+      expect.objectContaining({
+        relativeDelta: 2,
+        relativeDeltaProperties: ["marginLeft", "marginRight"],
+      }),
+    );
+  });
+
   it("routes a text-range style batch to the owning live screen", () => {
     const selectedScreenStyleChange = vi.fn();
     const selectedElement = elementInfo();
@@ -277,7 +332,11 @@ describe("a batched edit from a non-active screen", () => {
         },
       },
       { color: "rgb(255, 0, 0)", fontSize: "20px" },
-      { phase: "commit" },
+      {
+        phase: "commit",
+        relativeExpression: { expression: "+2", unit: "px" },
+        relativeDeltaProperties: ["fontSize"],
+      },
     );
 
     expect(selectedScreenStyleChange).toHaveBeenCalledWith(
@@ -285,7 +344,11 @@ describe("a batched edit from a non-active screen", () => {
       ROW_SELECTOR,
       { color: "rgb(255, 0, 0)", fontSize: "20px" },
       selectedElement,
-      { phase: "commit" },
+      {
+        phase: "preview",
+        relativeExpression: { expression: "+2", unit: "px" },
+        relativeDeltaProperties: ["fontSize"],
+      },
     );
   });
 });
