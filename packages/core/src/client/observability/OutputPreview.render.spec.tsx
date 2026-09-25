@@ -219,3 +219,115 @@ describe("OutputPreview saved MCP Apps", () => {
     expect(container.querySelector('[data-preview-kind="design"]')).toBeNull();
   });
 });
+
+describe("OutputPreview trusted Design frames", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("renders a bounded, lazy, no-referrer iframe for a real Design route", () => {
+    const origin = "https://design.agent-native.com";
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer={JSON.stringify({
+            type: "design",
+            title: "Saved design",
+            url: `${origin}/design/site-42?view=overview#screen-2`,
+          })}
+          compact
+          previewLabel="Agent output"
+        />,
+      );
+    });
+
+    const preview = container.querySelector(
+      '[data-preview-kind="design-iframe-thumbnail"]',
+    );
+    const iframe = preview?.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe(
+      `${origin}/present/site-42?reviewEmbed=1`,
+    );
+    expect(iframe?.getAttribute("loading")).toBe("lazy");
+    expect(iframe?.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(iframe?.className).toContain("h-[600%]");
+    expect(iframe?.className).toContain("w-[600%]");
+    expect(preview?.className).toContain("overflow-hidden");
+  });
+
+  it("renders the evidenced Design artifact path as its real thumbnail", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer="A saved summary"
+          compact
+          designPreviewPath="/present/design-17"
+          previewLabel="Agent output"
+        />,
+      );
+    });
+
+    const iframe = container.querySelector(
+      '[data-preview-kind="design-iframe-thumbnail"] iframe',
+    );
+    expect(iframe?.getAttribute("src")).toBe(
+      `${window.location.origin}/present/design-17?reviewEmbed=1`,
+    );
+  });
+
+  it("shows real design text instead of a fabricated thumbnail when no route exists", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer={JSON.stringify({
+            type: "design",
+            title: "A real design title",
+            summary: "A real design summary",
+            tokens: [{ label: "Accent", value: "green" }],
+          })}
+          compact
+          previewLabel="Agent output"
+        />,
+      );
+    });
+
+    expect(container.querySelector("iframe")).toBeNull();
+    const preview = container.querySelector(
+      '[data-preview-kind="design-thumbnail"]',
+    );
+    expect(preview?.textContent).toContain("A real design title");
+    expect(preview?.textContent).toContain("A real design summary");
+    expect(preview?.querySelectorAll("span")).toHaveLength(1);
+  });
+
+  it("never frames an untrusted Design route", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer={JSON.stringify({
+            type: "design",
+            title: "Untrusted route",
+            url: "https://evil.example/design/site-42",
+          })}
+          compact
+          previewLabel="Agent output"
+        />,
+      );
+    });
+
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(
+      container.querySelector('[data-preview-kind="design-iframe-thumbnail"]'),
+    ).toBeNull();
+  });
+});

@@ -17,6 +17,7 @@ export type OutputPreviewModel =
       title?: string;
       summary?: string;
       imageUrl?: string;
+      previewUrl?: string;
       tokens: DesignToken[];
     };
 
@@ -25,6 +26,11 @@ const MAX_ANSWER_LENGTH = 20_000;
 const MAX_COLUMNS = 8;
 const MAX_ROWS = 24;
 const MAX_MARKDOWN_LINES = MAX_ROWS * 2 + 2;
+const DESIGN_HOST_ORIGIN = "https://design.agent-native.com";
+const BETA_DESIGN_HOST_ORIGIN = "https://beta.design.agent-native.com";
+const DESIGN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const DESIGN_URL_PATTERN =
+  /(?:^|[\s([{<"'=])((?:https?:\/\/[^\s<>"'`]+|\/design\/[A-Za-z0-9_-]+(?:[?#][^\s<>"'`]*)?))/gm;
 const REBINDING_DNS_SUFFIXES = [
   "nip.io",
   "sslip.io",
@@ -116,6 +122,63 @@ function safeImageUrl(value: unknown): string | undefined {
   return undefined;
 }
 
+function safeDesignPreviewUrl(
+  value: unknown,
+  baseOrigin?: string,
+): string | undefined {
+  const candidate = boundedString(value);
+  if (!candidate || candidate.startsWith("//")) return undefined;
+  try {
+    const baseUrl = baseOrigin ? new URL(baseOrigin) : undefined;
+    const url = new URL(candidate, baseUrl);
+    const sameOrigin = baseUrl?.origin === url.origin;
+    if (
+      url.username ||
+      url.password ||
+      (url.origin !== DESIGN_HOST_ORIGIN &&
+        url.origin !== BETA_DESIGN_HOST_ORIGIN &&
+        !sameOrigin)
+    ) {
+      return undefined;
+    }
+    const match = url.pathname.match(
+      /^\/design\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/,
+    );
+    if (!match || !DESIGN_ID_PATTERN.test(match[1])) return undefined;
+    return new URL(`/present/${match[1]}?reviewEmbed=1`, url.origin).toString();
+    // coercion-ok: malformed untrusted design URLs are intentionally rejected.
+  } catch {
+    return undefined;
+  }
+}
+
+function safeDesignArtifactPreviewUrl(
+  value: unknown,
+  baseOrigin = typeof window === "undefined"
+    ? undefined
+    : window.location.origin,
+): string | undefined {
+  const candidate = boundedString(value);
+  const match = candidate?.match(
+    /^\/(?:design|present)\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/,
+  );
+  return match
+    ? safeDesignPreviewUrl(`/design/${match[1]}`, baseOrigin)
+    : undefined;
+}
+
+function findDesignPreviewUrl(
+  text: string,
+  baseOrigin?: string,
+): string | undefined {
+  for (const match of text.matchAll(DESIGN_URL_PATTERN)) {
+    const candidate = match[1].replace(/[),.;!?]+$/, "");
+    const previewUrl = safeDesignPreviewUrl(candidate, baseOrigin);
+    if (previewUrl) return previewUrl;
+  }
+  return undefined;
+}
+
 function splitTableRow(line: string): string[] {
   return line
     .trim()
@@ -161,6 +224,7 @@ function parseMarkdownTable(answer: string): OutputPreviewModel | undefined {
 
 function parseStructuredPreview(
   value: unknown,
+  baseOrigin?: string,
 ): OutputPreviewModel | undefined {
   if (!isRecord(value)) return undefined;
   const type = boundedString(value.type)?.toLowerCase();
@@ -256,6 +320,10 @@ function parseStructuredPreview(
 
   if (type === "design") {
     const imageUrl = safeImageUrl(value.imageUrl ?? value.image);
+    const previewUrl = safeDesignPreviewUrl(
+      value.url ?? value.urlPath ?? value.designUrl,
+      baseOrigin,
+    );
     const tokens = Array.isArray(value.tokens)
       ? value.tokens.slice(0, MAX_COLUMNS).flatMap((token) => {
           if (!isRecord(token)) return [];
@@ -266,15 +334,20 @@ function parseStructuredPreview(
       : [];
     const title = boundedString(value.title);
     const summary = boundedString(value.summary);
-    if (imageUrl || tokens.length > 0 || title || summary) {
-      return { kind: "design", title, summary, imageUrl, tokens };
+    if (imageUrl || previewUrl || tokens.length > 0 || title || summary) {
+      return { kind: "design", title, summary, imageUrl, previewUrl, tokens };
     }
   }
 
   return undefined;
 }
 
-export function parseOutputPreview(answer: string): OutputPreviewModel {
+export function parseOutputPreview(
+  answer: string,
+  baseOrigin = typeof window === "undefined"
+    ? undefined
+    : window.location.origin,
+): OutputPreviewModel {
   const text = answer.trim();
   if (!text) return { kind: "text", text: "-" };
   if (text.length > MAX_ANSWER_LENGTH) {
@@ -283,11 +356,20 @@ export function parseOutputPreview(answer: string): OutputPreviewModel {
 
   const jsonText = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try {
-    const structured = parseStructuredPreview(JSON.parse(jsonText));
+    const structured = parseStructuredPreview(JSON.parse(jsonText), baseOrigin);
     if (structured) return structured;
     // coercion-ok: non-JSON answers intentionally use the text fallback.
   } catch {
     // Plain text and Markdown outputs are expected and remain the fallback.
+  }
+
+  const previewUrl = findDesignPreviewUrl(text, baseOrigin);
+  if (previewUrl) {
+    return {
+      kind: "design",
+      previewUrl,
+      tokens: [],
+    };
   }
 
   const imageMatch = text.match(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/i);
@@ -310,6 +392,7 @@ export function OutputPreview({
   inlineAppTitle,
   compact = false,
   maxAppHeight,
+  designPreviewPath,
 }: {
   answer: string;
   previewLabel: string;
@@ -317,8 +400,51 @@ export function OutputPreview({
   inlineAppTitle?: string;
   compact?: boolean;
   maxAppHeight?: number;
+  designPreviewPath?: string;
 }) {
   const preview = parseOutputPreview(answer);
+  const designPreviewUrl =
+    safeDesignArtifactPreviewUrl(designPreviewPath) ??
+    (preview.kind === "design" ? preview.previewUrl : undefined);
+
+  if (designPreviewUrl) {
+    return (
+      <div
+        aria-label={
+          preview.kind === "design"
+            ? (preview.title ?? previewLabel)
+            : previewLabel
+        }
+        className={
+          compact
+            ? "relative size-full overflow-hidden bg-background"
+            : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
+        }
+        data-preview-kind={
+          compact ? "design-iframe-thumbnail" : "design-iframe"
+        }
+        role="img"
+      >
+        <iframe
+          aria-hidden="true"
+          className={
+            compact
+              ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
+              : "absolute inset-0 size-full border-0"
+          }
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          src={designPreviewUrl}
+          tabIndex={-1}
+          title={
+            preview.kind === "design"
+              ? (preview.title ?? previewLabel)
+              : previewLabel
+          }
+        />
+      </div>
+    );
+  }
 
   if (inlineApp && !compact) {
     return (
@@ -544,16 +670,9 @@ export function OutputPreview({
           data-preview-kind="design-thumbnail"
           role="img"
         >
-          <span className="block h-1 w-1/3 rounded-full bg-primary/80" />
-          <span className="mt-2 block h-2 w-3/4 rounded-full bg-foreground/20" />
-          <span className="mt-1.5 block h-1.5 w-1/2 rounded-full bg-muted-foreground/20" />
-          <span className="mt-2 flex gap-1">
-            {preview.tokens.slice(0, 4).map((token) => (
-              <span
-                key={`${token.label}-${token.value}`}
-                className="size-3 rounded-full bg-primary/40"
-              />
-            ))}
+          <span className="line-clamp-3 block text-left text-[10px] leading-3 text-muted-foreground">
+            {[preview.title, preview.summary].filter(Boolean).join(" — ") ||
+              previewLabel}
           </span>
         </div>
       );

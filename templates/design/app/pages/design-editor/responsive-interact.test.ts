@@ -188,24 +188,24 @@ describe("responsive Interact wiring", () => {
     );
   });
 
-  it("pushes editing safety live in addition to baking it", () => {
-    // Editing safety stays BAKED into the gesture script (keyed on
-    // interactMode). Un-baking it to keep the bridge key stable across
-    // Interact toggles rendered the canvas frame completely blank —
-    // verified by A/B: revert restored it immediately. The live
-    // postMessage below is additive, so a mode change still reaches an
-    // already-installed script without relying on a re-registration.
+  it("keeps the inline iframe document stable while switching interaction in place", () => {
     const canvas = readFileSync(
       "app/components/design/DesignCanvas.tsx",
       "utf8",
     );
     expect(canvas).toContain(
-      '.replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true")',
+      "const initialInteractModeRef = useRef(interactMode)",
     );
-    expect(canvas).toContain("editingSafetyEnabled: !interactMode");
+    expect(canvas).toContain(
+      'initialInteractModeRef.current ? "false" : "true"',
+    );
+    expect(canvas).toContain("const editorChromeBridge =");
+    expect(canvas).not.toContain("const editorChromeBridge = interactMode");
+    expect(canvas).toContain("set-interaction-mode");
+    expect(canvas).toContain("editingSafetyEnabled: !interactModeRef.current");
   });
 
-  it("reports live router paths while Interact omits editor chrome", () => {
+  it("reports live router paths for every URL-backed frame", () => {
     const canvas = readFileSync(
       "app/components/design/DesignCanvas.tsx",
       "utf8",
@@ -217,9 +217,7 @@ describe("responsive Interact wiring", () => {
     expect(canvas).toContain(
       'if (e.data.type === "agent-native:live-route-path") {',
     );
-    expect(canvas).toContain(
-      '(includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +',
-    );
+    expect(canvas).toContain("LIVE_ROUTE_BRIDGE_SCRIPT +");
   });
 
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
@@ -347,17 +345,23 @@ describe("responsive Interact wiring", () => {
   });
 
   it("keeps a focused localhost screen on its live route when returning to Edit", () => {
+    const focusedCanvasStart = source.lastIndexOf("<DesignCanvas");
     const focusedCanvas = source.slice(
-      source.lastIndexOf("<DesignCanvas"),
-      source.indexOf(
-        "onRoutePathChange={handleLiveRoutePathChange}",
-        source.lastIndexOf("<DesignCanvas"),
-      ) + 100,
+      focusedCanvasStart,
+      source.indexOf("publicVisualEdit={", focusedCanvasStart),
     );
-    expect(focusedCanvas).toContain('activeCanvasSourceType === "localhost"');
-    expect(focusedCanvas).toContain("previewUrlAtLiveRoute(");
-    expect(focusedCanvas).toContain("liveRoutePathsByScreenIdRef.current[");
-    expect(focusedCanvas).toContain("activeFile.id");
+    const liveRouteOverride = source.slice(
+      source.indexOf("previewUrlOverride={", focusedCanvasStart),
+      source.indexOf("bridgeUrl={activeScreenBridgeUrl}", focusedCanvasStart),
+    );
+    expect(liveRouteOverride).toContain(
+      'activeCanvasSourceType === "localhost"',
+    );
+    expect(liveRouteOverride).toContain("previewUrlAtLiveRoute(");
+    expect(liveRouteOverride).toContain("liveRoutePathsByScreenIdRef.current[");
+    expect(liveRouteOverride).toContain("activeFile.id");
+    expect(focusedCanvas).toContain("onRoutePathChange={");
+    expect(focusedCanvas).toContain("handleLiveRoutePathChange");
   });
 
   it("uses the selected screen size and the real canvas bounds", () => {

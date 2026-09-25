@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isLegacyRecordingPath,
+  isRecordingSharePath,
   isStandalonePublicPath,
 } from "./public-ssr-paths";
 
@@ -51,5 +52,13 @@ describe("isLegacyRecordingPath", () => {
     expect(isLegacyRecordingPath("/r")).toBe(false);
     expect(isLegacyRecordingPath("/library")).toBe(false);
     expect(isLegacyRecordingPath("/share/abc123")).toBe(false);
+  });
+});
+
+describe("isRecordingSharePath", () => {
+  it("matches recording shares without matching meeting shares", () => {
+    expect(isRecordingSharePath("/share/abc123")).toBe(true);
+    expect(isRecordingSharePath("/share/abc123/")).toBe(true);
+    expect(isRecordingSharePath("/share/meeting/meeting123")).toBe(false);
   });
 });

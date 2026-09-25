@@ -1,6 +1,11 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { ActionContractError } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import {
+  iconValueSchema,
+  parseIconValue,
+  serializeIconValue,
+} from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -123,7 +128,10 @@ export default defineAction({
       .describe(
         "Actual parent page ID for nesting; use spaceId or spaceName for a top-level root page. A workspace Files document ID is accepted as a top-level target for compatibility.",
       ),
-    icon: z.string().optional().describe("Optional emoji icon."),
+    icon: z
+      .union([z.string(), iconValueSchema])
+      .optional()
+      .describe("Optional emoji, Tabler icon, or uploaded image icon."),
     contextPackId: z
       .string()
       .optional()
@@ -205,7 +213,9 @@ export default defineAction({
     }
 
     let parentId = args.parentId || null;
-    const icon = args.icon || null;
+    const icon = args.icon
+      ? serializeIconValue(parseIconValue(args.icon))
+      : null;
     const currentUserEmail = getRequestUserEmail();
     if (!currentUserEmail) throw new Error("no authenticated user");
     const actor = requireDocumentRequestActor(ctx);

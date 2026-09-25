@@ -401,7 +401,11 @@ export async function trackSignupEvent({
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
-    { userId: email, ...(anonymousId ? { anonymousId } : {}) },
+    {
+      userId: email,
+      authUserId,
+      ...(anonymousId ? { anonymousId } : {}),
+    },
   );
   await flushSignupTracking();
 }

@@ -1052,6 +1052,9 @@ export default {
     signUpToSave: "註冊",
     signUpToSaveDescription: "登入即可儲存這個設計的可編輯副本。",
     signUpToShare: "註冊以分享",
+    signUpToShareLiveCanvas: "註冊以分享即時畫布",
+    liveCanvasLink: "即時畫布連結",
+    liveCanvasWaitingForOwner: "正在等待畫布擁有者的即時快照。",
     shareEditorLink: "編輯器連結",
     shareEditorLinkDescription: "分享可在編輯器中開啟這個設計的連結。",
     modes: {
@@ -1193,12 +1196,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "套用設計更新",
       applyButton: "套用樣式",
+      applySharedEdits: "套用變更",
       previewLabel: "待處理的視覺預覽",
       applyDesignUpdates: "套用設計更新",
       applying: "正在套用…",
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
+      copyFullPrompt: "複製完整提示",
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
       sentToast: "樣式編輯已傳送給 Design 代理",
@@ -1210,6 +1215,8 @@ export default {
       sourceCheckFailedToast:
         "無法驗證連接的來源檔案。預覽已保留，您可以重試或復原。",
       copiedToast: "樣式提示已複製",
+      copiedToastDescription:
+        "將它貼到您的程式設計代理，並請它套用這些視覺變更。",
       abortedToast: "已捨棄待處理的預覽",
       interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
       leaveTitle: "離開前要套用設計更新嗎？",
@@ -1245,6 +1252,8 @@ export default {
       tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",
       tweakSaveNotDurable: "調整尚未儲存。請保持此分頁開啟並再試一次。",
       codingHandoffError: "無法建立編碼交接",
+      visualEditPendingConflict:
+        "另一位協作者有待套用的變更。請先套用或清除這些變更，再傳送新變更。",
       codingHandoffCopied: "編碼交接已複製",
       clipboardBlocked: "剪貼簿被阻止",
       htmlCreateError: "無法建立 HTML 下載",

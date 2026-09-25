@@ -440,6 +440,44 @@ describe("session replay", () => {
     });
   });
 
+  it("reports the replay id once after rrweb starts, including active calls", async () => {
+    installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    const onRecordingStarted = vi.fn();
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const first = await startSessionReplay({
+      publicKey: "anpk_test",
+      onRecordingStarted,
+    });
+    const alreadyActive = await startSessionReplay({
+      publicKey: "anpk_test",
+      onRecordingStarted,
+    });
+
+    expect(first.started).toBe(true);
+    expect(first.replayId).toBeDefined();
+    expect(alreadyActive.reason).toBe("already-active");
+    expect(recordMock).toHaveBeenCalledOnce();
+    expect(onRecordingStarted).toHaveBeenCalledOnce();
+    expect(onRecordingStarted).toHaveBeenCalledWith(first.replayId);
+  });
+
+  it("does not report a start when rrweb fails", async () => {
+    installBrowser();
+    recordMock.mockReturnValue(undefined);
+    const onRecordingStarted = vi.fn();
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      onRecordingStarted,
+    });
+
+    expect(result).toMatchObject({ started: false, reason: "record-failed" });
+    expect(onRecordingStarted).not.toHaveBeenCalled();
+  });
+
   it("times out a hung replay upload and releases the flush lock", async () => {
     vi.useFakeTimers();
     try {
@@ -1292,6 +1330,119 @@ describe("session replay", () => {
         orgId: "org_123",
       },
     });
+  });
+
+  it("does not truncate the default replay at 30 minutes", async () => {
+    vi.useFakeTimers();
+    installBrowser("https://app.agent-native.com/", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+    });
+    const stopRecorder = vi.fn();
+    recordMock.mockReturnValue(stopRecorder);
+    try {
+      const { startSessionReplay, stopSessionReplay } =
+        await freshSessionReplay();
+      const result = await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        flushIntervalMs: 60 * 60 * 1000,
+      });
+      expect(result.started).toBe(true);
+      expect(recordMock).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(31 * 60 * 1000);
+      expect(stopRecorder).not.toHaveBeenCalled();
+      await stopSessionReplay("manual");
+      expect(stopRecorder).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still honors an explicitly configured replay duration", async () => {
+    vi.useFakeTimers();
+    installBrowser("https://app.agent-native.com/", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+    });
+    const stopRecorder = vi.fn();
+    recordMock.mockReturnValue(stopRecorder);
+    try {
+      const { startSessionReplay } = await freshSessionReplay();
+      const result = await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxDurationMs: 60_000,
+        flushIntervalMs: 60 * 60 * 1000,
+      });
+      expect(result.started).toBe(true);
+      expect(recordMock).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stopRecorder).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops at the Analytics per-recording chunk ceiling", async () => {
+    const { fetchMock, storage, localStorage } = installBrowser(
+      "https://app.agent-native.com/",
+      { email: "dev@example.com", userId: "auth-user-1" },
+    );
+    const sessionId = "replay-cap-session";
+    localStorage.set("agent-native.session_id", sessionId);
+    localStorage.set("agent-native.session_last_activity", String(Date.now()));
+    storage.set(
+      "agent-native.session_replay_id",
+      JSON.stringify({
+        sessionId,
+        replayId: "replay-near-chunk-cap",
+        startedAtMs: Date.now(),
+        sequence: 1998,
+      }),
+    );
+    let emit!: (event: Record<string, unknown>) => void;
+    const stopRecorder = vi.fn();
+    recordMock.mockImplementation((options) => {
+      emit = options.emit;
+      return stopRecorder;
+    });
+    const replayUploads = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/session-replay"),
+      );
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    expect(result).toMatchObject({ replayId: "replay-near-chunk-cap" });
+
+    emit({ type: 3, data: { href: "/before-cap" } });
+    await waitForAssertion(() => expect(replayUploads()).toHaveLength(1));
+    emit({ type: 3, data: { href: "/at-cap" } });
+    await waitForAssertion(() => expect(replayUploads()).toHaveLength(2));
+
+    const bodies = await Promise.all(
+      replayUploads().map(([, init]) => parseReplayUpload(init as RequestInit)),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([1998, 1999]);
+    expect(bodies[1]).toMatchObject({ status: "completed" });
+    expect(bodies[1].events).toContainEqual(
+      expect.objectContaining({
+        type: 5,
+        data: expect.objectContaining({
+          tag: "agent-native.session_replay",
+          payload: { outcome: "recording_capped", cap: "chunk_count" },
+        }),
+      }),
+    );
+    expect(stopRecorder).toHaveBeenCalledOnce();
   });
 
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
@@ -2211,7 +2362,12 @@ describe("session replay", () => {
     ).toBe(2);
     expect(replay.isSessionReplayActive()).toBe(true);
     expect(replay.getSessionReplayId()).toBe(started.replayId);
-    expect(onUploadRejected).not.toHaveBeenCalled();
+    expect(onUploadRejected).toHaveBeenCalledWith({
+      status: 413,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: "oversized_event",
+    });
     expect(warn).toHaveBeenCalledWith(
       "[session-replay] dropping oversized replay event (HTTP 413)",
       expect.any(Error),
@@ -2346,10 +2502,14 @@ describe("session replay", () => {
         // reserves the sequence again before its keepalive request begins.
         expect(sequenceAtRequest).toEqual([1, 1, 2]);
       }
-      expect(
-        JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
-          .sequence,
-      ).toBe(2);
+      if (reason === "max-duration") {
+        expect(storage.has("agent-native.session_replay_id")).toBe(false);
+      } else {
+        expect(
+          JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+            .sequence,
+        ).toBe(2);
+      }
     },
   );
 
@@ -2781,6 +2941,8 @@ describe("session replay", () => {
     });
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const onUploadRejected = vi.fn();
+    const onUploadRejectedWithAttemptId = vi.fn();
+    const onRecordingStarted = vi.fn();
     const replay = await freshSessionReplay();
     const first = await replay.startSessionReplay({
       publicKey: "anpk_test",
@@ -2794,6 +2956,8 @@ describe("session replay", () => {
         maxErrorBodyLength: 123,
       },
       onUploadRejected,
+      onUploadRejectedWithAttemptId,
+      onRecordingStarted,
     });
     const initialNormalizedOptions = (globalThis as any)[replayStateKey]
       .options;
@@ -2829,11 +2993,21 @@ describe("session replay", () => {
       storage.get("agent-native.session_replay_id") ?? "{}",
     );
     expect(restarted.replayId).not.toBe(first.replayId);
+    expect(onRecordingStarted).toHaveBeenNthCalledWith(1, first.replayId);
+    expect(onRecordingStarted).toHaveBeenNthCalledWith(2, restarted.replayId);
     expect(onUploadRejected).toHaveBeenCalledWith({
       status: 409,
       restartAttempted: true,
       restartSucceeded: true,
     });
+    expect(onUploadRejectedWithAttemptId).toHaveBeenCalledWith(
+      {
+        status: 409,
+        restartAttempted: true,
+        restartSucceeded: true,
+      },
+      rejectedUpload.replayId,
+    );
 
     recordOptions[1].emit({ type: 3, data: { href: "/recovered" } });
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));

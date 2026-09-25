@@ -176,4 +176,112 @@ describe("parseOutputPreview", () => {
       text: '{"type":"image","src":"https://127.0.0.1.nip.io/image"}',
     });
   });
+
+  it("rewrites trusted Design routes and discards their query and hash", () => {
+    const origin = "http://localhost:4173";
+
+    expect(
+      parseOutputPreview(
+        JSON.stringify({
+          type: "design",
+          url: "/design/design_123?view=overview#screen-2",
+        }),
+        origin,
+      ),
+    ).toEqual({
+      kind: "design",
+      title: undefined,
+      summary: undefined,
+      imageUrl: undefined,
+      previewUrl: `${origin}/present/design_123?reviewEmbed=1`,
+      tokens: [],
+    });
+
+    expect(
+      parseOutputPreview(
+        "Design: https://design.agent-native.com/design/site-42?editorView=overview#screen",
+        origin,
+      ),
+    ).toEqual({
+      kind: "design",
+      previewUrl:
+        "https://design.agent-native.com/present/site-42?reviewEmbed=1",
+      tokens: [],
+    });
+
+    expect(
+      parseOutputPreview(
+        "https://beta.design.agent-native.com/design/beta-design",
+        origin,
+      ),
+    ).toEqual({
+      kind: "design",
+      previewUrl:
+        "https://beta.design.agent-native.com/present/beta-design?reviewEmbed=1",
+      tokens: [],
+    });
+
+    expect(
+      parseOutputPreview(
+        JSON.stringify({
+          type: "design",
+          url: "https://design.agent-native.com/design/site-42",
+        }),
+        "https://design.agent-native.com",
+      ),
+    ).toMatchObject({
+      kind: "design",
+      previewUrl:
+        "https://design.agent-native.com/present/site-42?reviewEmbed=1",
+    });
+
+    expect(
+      parseOutputPreview(
+        JSON.stringify({
+          type: "design",
+          url: "https://beta.design.agent-native.com/design/site-42",
+        }),
+        "https://beta.design.agent-native.com",
+      ),
+    ).toMatchObject({
+      kind: "design",
+      previewUrl:
+        "https://beta.design.agent-native.com/present/site-42?reviewEmbed=1",
+    });
+
+    expect(
+      parseOutputPreview(
+        JSON.stringify({ type: "design", url: `${origin}/design/another_1` }),
+        origin,
+      ),
+    ).toMatchObject({
+      kind: "design",
+      previewUrl: `${origin}/present/another_1?reviewEmbed=1`,
+    });
+  });
+
+  it("rejects untrusted Design hosts, paths, and unsafe ids", () => {
+    const origin = "http://localhost:4173";
+    const candidates = [
+      "https://evil.example/design/site-1",
+      "https://design.agent-native.com.evil.example/design/site-1",
+      "http://design.agent-native.com/design/site-1",
+      "https://design.agent-native.com:444/design/site-1",
+      "https://beta.design.agent-native.com.evil.example/design/site-1",
+      "http://beta.design.agent-native.com/design/site-1",
+      "https://design.agent-native.com/other/site-1",
+      "https://design.agent-native.com/design/site-1/extra",
+      "https://design.agent-native.com/design/%2e%2e",
+      "https://design.agent-native.com/design/site%2F1",
+      "javascript:https://design.agent-native.com/design/site-1",
+    ];
+
+    for (const candidate of candidates) {
+      const answer = JSON.stringify({ type: "design", url: candidate });
+      expect(parseOutputPreview(answer, origin)).toEqual({
+        kind: "text",
+        text: answer,
+      });
+    }
+  });
 });

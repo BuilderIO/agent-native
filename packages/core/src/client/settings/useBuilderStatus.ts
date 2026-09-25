@@ -256,6 +256,8 @@ export interface BuilderConnectFlow {
   hasFetchedStatus: boolean;
   /** Open the popup and begin polling. Must be called from a user-gesture handler. */
   start: (options?: BuilderConnectStartOptions) => void;
+  /** Stop waiting for an OAuth attempt that cannot be closed by the app. */
+  cancel: () => void;
   /**
    * Retry the status request before choosing a connection path. Returns true
    * when a read actually started. A disabled flow never reads, so a caller
@@ -272,7 +274,7 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 // before this fires (see the "keeps polling" tests below for the regression
 // this replaced). Anything past this is a cancelled/closed popup, not a slow
 // success, and the button must not spin for the full 5-minute ceiling.
-const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
+export const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
 // A waiting page that never loads cannot hand off the popup, so keep the
 // connect flow bounded even when the popup remains open.
 const POPUP_LOAD_TIMEOUT_MS = 20_000;
@@ -558,7 +560,7 @@ function waitForBuilderConnectPopupLoad(
   });
 }
 
-function isPopupClosed(popup: Window | null): boolean {
+export function isPopupClosed(popup: Window | null): boolean {
   if (!popup) return false;
   try {
     return popup.closed === true;
@@ -726,11 +728,21 @@ export function useBuilderConnectFlow(
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const connectStartedAtRef = useRef<number | null>(null);
   const connectAttemptIdRef = useRef<string | null>(null);
+  const cancelledConnectAttemptIdRef = useRef<string | null>(null);
   // Tracks the currently open popup so the poll loop can notice it closed
   // without the callback ever landing (a cancelled/abandoned connect).
   const activePopupRef = useRef<Window | null>(null);
   const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
+  const callbackSuccessInFlightAtRef = useRef<number | null>(null);
+  const callbackSuccessCancelRef = useRef<{
+    started: number;
+    cancel: () => void;
+  } | null>(null);
+  const callbackSuccessRequestControllerRef = useRef<{
+    started: number;
+    controller: AbortController;
+  } | null>(null);
   const retryStatusRef = useRef<() => boolean>(() => false);
   const statusUnavailableRef = useRef(false);
   const mountedRef = useRef(true);
@@ -745,6 +757,55 @@ export function useBuilderConnectFlow(
     source: trackingSource,
     flow: trackingFlow,
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const desktopBridge = (
+      window as Window & {
+        agentNativeDesktop?: {
+          oauth?: {
+            onSystemBrowserReturned?: (
+              callback: (attemptId: string | null) => void,
+            ) => () => void;
+            onPopupClosed: (
+              callback: (attemptId: string | null) => void,
+            ) => () => void;
+          };
+        };
+      }
+    ).agentNativeDesktop;
+    const removeSystemBrowserReturn =
+      desktopBridge?.oauth?.onSystemBrowserReturned?.((attemptId) => {
+        if (!attemptId || attemptId !== connectAttemptIdRef.current) return;
+        retryStatusRef.current();
+      });
+    const removePopupClosed = desktopBridge?.oauth?.onPopupClosed(
+      (attemptId) => {
+        if (!attemptId || attemptId !== connectAttemptIdRef.current) return;
+        const started = connectStartedAtRef.current;
+        if (
+          started !== null &&
+          callbackSuccessStartedAtRef.current === started
+        ) {
+          // Keep cancellation observable after confirmation finishes, but let
+          // its bounded retries finish before starting the close grace window.
+          popupClosedAtRef.current ??= Date.now();
+          return;
+        }
+        popupClosedAtRef.current ??= Date.now();
+        if (callbackSuccessCancelRef.current?.started === started) {
+          callbackSuccessCancelRef.current.cancel();
+        }
+        if (callbackSuccessRequestControllerRef.current?.started === started) {
+          callbackSuccessRequestControllerRef.current.controller.abort();
+        }
+      },
+    );
+    return () => {
+      removeSystemBrowserReturn?.();
+      removePopupClosed?.();
+    };
+  }, []);
 
   // Accepts an optional external `signal` so the connect-flow poll loop below
   // can cancel this fetch via its own timeout instead of racing a second,
@@ -941,6 +1002,37 @@ export function useBuilderConnectFlow(
   }, [enabled, fetchStatus]);
 
   const retry = useCallback(() => retryStatusRef.current(), []);
+  const cancel = useCallback(() => {
+    const started = connectStartedAtRef.current;
+    if (started === null) return;
+    const attemptId = connectAttemptIdRef.current;
+    cancelledConnectAttemptIdRef.current = attemptId;
+    popupClosedAtRef.current ??= Date.now();
+    if (callbackSuccessCancelRef.current?.started === started)
+      callbackSuccessCancelRef.current.cancel();
+    if (callbackSuccessRequestControllerRef.current?.started === started)
+      callbackSuccessRequestControllerRef.current.controller.abort();
+    try {
+      activePopupRef.current?.close();
+    } catch {
+      // coercion-ok: cancellation state is already recorded.
+      // The bounded cancellation path still applies if the browser refuses.
+    }
+    if (typeof window !== "undefined" && attemptId) {
+      try {
+        (
+          window as Window & {
+            agentNativeDesktop?: {
+              oauth?: { cancelPopup?: (id: string) => void };
+            };
+          }
+        ).agentNativeDesktop?.oauth?.cancelPopup?.(attemptId);
+      } catch {
+        // coercion-ok: cancellation state is already recorded.
+        // The bounded cancellation path still applies if the desktop bridge is unavailable.
+      }
+    }
+  }, []);
 
   const start = useCallback(
     (startOptions?: BuilderConnectStartOptions) => {
@@ -952,9 +1044,15 @@ export function useBuilderConnectFlow(
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
       const provisionAccountForStart =
         startOptions?.provisionAccount ?? provisionAccount;
+      callbackSuccessCancelRef.current?.cancel();
+      callbackSuccessRequestControllerRef.current?.controller.abort();
       connectStartedAtRef.current = started;
       connectAttemptIdRef.current = connectAttemptId;
+      cancelledConnectAttemptIdRef.current = null;
       callbackSuccessStartedAtRef.current = null;
+      callbackSuccessInFlightAtRef.current = null;
+      callbackSuccessCancelRef.current = null;
+      callbackSuccessRequestControllerRef.current = null;
       activePopupRef.current = null;
       popupClosedAtRef.current = null;
       activeTrackingRef.current = {
@@ -1046,7 +1144,13 @@ export function useBuilderConnectFlow(
 
           void (async () => {
             const s = await fetchStatus(undefined, connectAttemptId);
-            if (!mountedRef.current) return;
+            if (
+              !mountedRef.current ||
+              connectAttemptIdRef.current !== connectAttemptId ||
+              cancelledConnectAttemptIdRef.current === connectAttemptId
+            ) {
+              return;
+            }
             if (s) {
               setHasFetchedStatus(true);
               setStatusResolved(true);
@@ -1093,7 +1197,8 @@ export function useBuilderConnectFlow(
           const isCurrentConnectAttempt = () =>
             mountedRef.current &&
             connectAttemptIdRef.current === connectAttemptId &&
-            connectStartedAtRef.current === started;
+            connectStartedAtRef.current === started &&
+            cancelledConnectAttemptIdRef.current !== connectAttemptId;
           const popupReady = embeddedWindow
             ? waitForBuilderConnectPopupLoad(
                 opened,
@@ -1262,18 +1367,17 @@ export function useBuilderConnectFlow(
             : `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
         );
       } else if (
-        isPopupClosed(activePopupRef.current) &&
-        callbackSuccessStartedAtRef.current !== started
+        (isPopupClosed(activePopupRef.current) ||
+          popupClosedAtRef.current !== null) &&
+        callbackSuccessInFlightAtRef.current !== started
       ) {
         // The user closed or cancelled the popup before Builder confirmed
         // credentials. Give a slow-but-real confirmation a grace window
         // (see POPUP_CLOSED_CONFIRMATION_GRACE_MS) before giving up, but do
         // not leave the button spinning for the full 5-minute ceiling below.
-        // Skipped entirely once the postMessage/BroadcastChannel success
-        // handler has started for this attempt (callbackSuccessStartedAtRef
-        // set): that handler owns its own bounded retry and must be the one
-        // to resolve `connecting`, or this branch would race it and discard
-        // a real success that lands a moment after the grace window closes.
+        // Suppressed only while the postMessage/BroadcastChannel handler's
+        // bounded confirmation retries are in flight; after they finish, this
+        // branch can still clear a cancelled attempt without racing success.
         popupClosedAtRef.current ??= Date.now();
         if (
           Date.now() - popupClosedAtRef.current >
@@ -1355,20 +1459,89 @@ export function useBuilderConnectFlow(
         return;
       }
       callbackSuccessStartedAtRef.current = started;
+      callbackSuccessInFlightAtRef.current = started;
+      popupClosedAtRef.current = null;
       let s: Awaited<ReturnType<typeof fetchStatus>> = null;
-      for (let i = 0; i < CALLBACK_SUCCESS_STATUS_RETRIES; i += 1) {
-        s = await fetchStatus(
-          undefined,
-          connectAttemptIdRef.current ?? undefined,
-        );
-        if (!mountedRef.current || connectStartedAtRef.current !== started) {
-          return;
+      let cancelled = false;
+      let resolveCancelled: (value: null) => void = () => {};
+      const cancelledPromise = new Promise<null>((resolve) => {
+        resolveCancelled = resolve;
+      });
+      const cancelConfirmation = () => {
+        if (cancelled) return;
+        cancelled = true;
+        resolveCancelled(null);
+      };
+      callbackSuccessCancelRef.current = {
+        started,
+        cancel: cancelConfirmation,
+      };
+      try {
+        for (let i = 0; i < CALLBACK_SUCCESS_STATUS_RETRIES; i += 1) {
+          const controller =
+            typeof AbortController !== "undefined"
+              ? new AbortController()
+              : null;
+          if (controller) {
+            callbackSuccessRequestControllerRef.current = {
+              started,
+              controller,
+            };
+          }
+          const timeoutId = controller
+            ? setTimeout(() => controller.abort(), STATUS_FETCH_ABORT_MS)
+            : null;
+          try {
+            s = await Promise.race([
+              fetchStatus(
+                controller?.signal,
+                connectAttemptIdRef.current ?? undefined,
+              ),
+              cancelledPromise,
+            ]);
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (
+              callbackSuccessRequestControllerRef.current?.controller ===
+              controller
+            ) {
+              callbackSuccessRequestControllerRef.current = null;
+            }
+          }
+          if (
+            cancelled ||
+            !mountedRef.current ||
+            connectStartedAtRef.current !== started
+          ) {
+            return;
+          }
+          if (
+            s?.configured ||
+            isCurrentConnectError(s?.connectError, started)
+          ) {
+            break;
+          }
+          if (i < CALLBACK_SUCCESS_STATUS_RETRIES - 1) {
+            await Promise.race([
+              delay(CALLBACK_SUCCESS_STATUS_RETRY_MS),
+              cancelledPromise,
+            ]);
+            if (cancelled) return;
+          }
         }
-        if (s?.configured || isCurrentConnectError(s?.connectError, started)) {
-          break;
+      } finally {
+        if (callbackSuccessCancelRef.current?.started === started) {
+          callbackSuccessCancelRef.current = null;
         }
-        if (i < CALLBACK_SUCCESS_STATUS_RETRIES - 1) {
-          await delay(CALLBACK_SUCCESS_STATUS_RETRY_MS);
+        if (callbackSuccessRequestControllerRef.current?.started === started) {
+          callbackSuccessRequestControllerRef.current.controller.abort();
+          callbackSuccessRequestControllerRef.current = null;
+        }
+        if (callbackSuccessInFlightAtRef.current === started) {
+          callbackSuccessInFlightAtRef.current = null;
+          if (popupClosedAtRef.current !== null && !s?.configured) {
+            popupClosedAtRef.current = Date.now();
+          }
         }
       }
       if (!mountedRef.current || connectStartedAtRef.current !== started) {
@@ -1504,6 +1677,7 @@ export function useBuilderConnectFlow(
     accountExists,
     hasFetchedStatus,
     start,
+    cancel,
     retry,
   };
 }

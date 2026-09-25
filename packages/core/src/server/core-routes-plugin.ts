@@ -4932,6 +4932,7 @@ export function createCoreRoutesPlugin(
           try {
             track(validation.name as string, properties, {
               userId: userEmail,
+              authUserId: session.authUserId,
               sessionId: readBrowserSessionIdHeader(event),
               telemetryOrigin: "client",
             });

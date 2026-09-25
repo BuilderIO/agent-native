@@ -69,7 +69,7 @@ vi.mock("./connect-store.js", () => ({
     t.revokedAt = Date.now();
     return true;
   }),
-  createDeviceCode: vi.fn(async () => {
+  createDeviceCode: vi.fn(async (catalogScope: "full" | null = null) => {
     const row = {
       deviceCode: "dev-" + deviceRows.length,
       userCode: "ABCD-2345",
@@ -77,6 +77,7 @@ vi.mock("./connect-store.js", () => ({
       orgId: null,
       status: "pending",
       tokenJti: null,
+      catalogScope,
       createdAt: Date.now(),
       expiresAt: Date.now() + 600_000,
       consumedAt: null,
@@ -86,6 +87,10 @@ vi.mock("./connect-store.js", () => ({
   }),
   getDeviceCode: vi.fn(async (dc: string) => {
     const r = deviceRows.find((d) => d.deviceCode === dc);
+    return r ? { ...r } : null;
+  }),
+  getDeviceCodeByUserCode: vi.fn(async (uc: string) => {
+    const r = deviceRows.find((d) => d.userCode === uc);
     return r ? { ...r } : null;
   }),
   approveDeviceCode: vi.fn(
@@ -506,6 +511,22 @@ describe("handleMcpConnect", () => {
       expect(data.expires_in).toBe(600);
     });
 
+    it("persists requested full catalog scope and rejects non-boolean values", async () => {
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { fullCatalog: true } }),
+        "/device/start",
+      );
+      expect(res.status).toBe(200);
+      expect(deviceRows[0].catalogScope).toBe("full");
+
+      const invalid = await handleMcpConnect(
+        ev({ method: "POST", body: { fullCatalog: "true" } }),
+        "/device/start",
+      );
+      expect(invalid.status).toBe(400);
+      expect(deviceRows).toHaveLength(1);
+    });
+
     it("device/start and returned MCP config include APP_BASE_PATH", async () => {
       process.env.APP_BASE_PATH = "/mail";
       try {
@@ -613,12 +634,49 @@ describe("handleMcpConnect", () => {
       expect(again.token).toBeUndefined();
     });
 
-    it("poll returns a dev-open localhost entry without A2A_SECRET", async () => {
+    it("shows full catalog scope before approval and signs it into the token", async () => {
+      await handleMcpConnect(
+        ev({ method: "POST", body: { fullCatalog: true } }),
+        "/device/start",
+      );
+      const dc = deviceRows[0].deviceCode;
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+
+      const page = await handleMcpConnect(
+        ev({ path: "/?user_code=ABCD-2345" }),
+        "/",
+      );
+      expect(await page.text()).toContain(
+        "This device is requesting access to the full action catalog.",
+      );
+
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      getSessionMock.mockResolvedValue(null);
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      const data = await response.json();
+      const { payload } = await jose.jwtVerify(
+        data.token,
+        new TextEncoder().encode(SECRET),
+      );
+      expect(payload.catalog_scope).toBe("full");
+    });
+
+    it("preserves full catalog scope in a dev-open localhost entry", async () => {
       delete process.env.A2A_SECRET;
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       await handleMcpConnect(
-        ev({ method: "POST", host: "localhost:4321" }),
+        ev({
+          method: "POST",
+          host: "localhost:4321",
+          body: { fullCatalog: true },
+        }),
         "/device/start",
       );
       const dc = deviceRows[0].deviceCode;
@@ -648,13 +706,17 @@ describe("handleMcpConnect", () => {
       expect(data.token).toBe("");
       expect(data.mcpServerEntry.headers).toEqual({
         "X-Agent-Native-Owner-Email": "u@example.com",
+        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
     });
 
     it("poll mints a standard MCP OAuth token for hosted deploys without A2A_SECRET", async () => {
       delete process.env.A2A_SECRET;
       process.env.BETTER_AUTH_SECRET = SECRET;
-      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      await handleMcpConnect(
+        ev({ method: "POST", body: { fullCatalog: true } }),
+        "/device/start",
+      );
       const dc = deviceRows[0].deviceCode;
 
       getSessionMock.mockResolvedValue({
@@ -686,6 +748,7 @@ describe("handleMcpConnect", () => {
         orgDomain: "builder.io",
         clientId: "agent-native-connect",
         scopes: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
+        catalogScope: "full",
       });
       expect(data.mcpServerEntry.headers).toMatchObject({
         Authorization: `Bearer ${data.token}`,

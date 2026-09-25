@@ -122,7 +122,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
 }));
 

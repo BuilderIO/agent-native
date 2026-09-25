@@ -1,3 +1,8 @@
+import {
+  safeParseIconValue,
+  serializeIconValue,
+  type IconValue,
+} from "@agent-native/core/icons";
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
 import { NFM_COLORS } from "@shared/nfm";
 import {
@@ -26,6 +31,8 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 
+import { ContentIcon } from "../../icons/ContentIcon";
+import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
 
 const BLOCK_ATOM_TAGS = [
@@ -56,7 +63,7 @@ export interface NotionPageLink {
   notionPageId: string;
   documentId: string;
   title: string;
-  icon: string | null;
+  icon: IconValue | string | null;
 }
 
 interface NotionBlockAtomOptions {
@@ -647,7 +654,11 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
           }}
         >
           <span className="notion-page-reference__icon" aria-hidden="true">
-            {pageLink?.icon || <IconFileText size={20} stroke={1.8} />}
+            <ContentIcon
+              value={pageLink?.icon}
+              size={20}
+              fallback={<IconFileText size={20} stroke={1.8} />}
+            />
           </span>
           <span className="notion-page-reference__label">{primary}</span>
           {!pageLink && externalUrl ? (
@@ -937,6 +948,37 @@ export const NotionToggle = Node.create({
   },
 });
 
+function CalloutView({ editor, getPos, node }: NodeViewProps) {
+  const icon = typeof node.attrs.icon === "string" ? node.attrs.icon : "💡";
+  const updateIcon = (value: IconValue | null) => {
+    if (!editor.isEditable) throw new Error("Callout is not editable");
+    const pos = getPos();
+    if (typeof pos !== "number") throw new Error("Callout is unavailable");
+    const currentNode = editor.state.doc.nodeAt(pos);
+    if (currentNode?.type.name !== "notionCallout")
+      throw new Error("Callout is unavailable");
+    const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+      ...currentNode.attrs,
+      icon: value ? serializeIconValue(value) : "💡",
+    });
+    tr.setMeta("preventClearDocument", true);
+    tr.setMeta("uiEvent", "pointer");
+    editor.view.dispatch(tr);
+  };
+  return (
+    <NodeViewWrapper
+      data-notion-callout="true"
+      data-icon={icon}
+      data-color={node.attrs.color || undefined}
+    >
+      <div data-notion-callout-icon="true" contentEditable={false}>
+        <EmojiPicker icon={icon} variant="compact" onSelect={updateIcon} />
+      </div>
+      <NodeViewContent data-notion-callout-content="true" />
+    </NodeViewWrapper>
+  );
+}
+
 export const NotionCallout = Node.create({
   name: "notionCallout",
   group: "block",
@@ -981,6 +1023,11 @@ export const NotionCallout = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
+    const parsedIcon = safeParseIconValue(HTMLAttributes.icon || "💡");
+    const fallbackIcon =
+      parsedIcon.success && parsedIcon.data?.kind === "emoji"
+        ? parsedIcon.data.emoji
+        : "";
     return [
       "div",
       mergeAttributes(HTMLAttributes, {
@@ -988,13 +1035,13 @@ export const NotionCallout = Node.create({
         "data-icon": HTMLAttributes.icon || "💡",
         "data-color": HTMLAttributes.color || undefined,
       }),
-      [
-        "div",
-        { "data-notion-callout-icon": "true" },
-        HTMLAttributes.icon || "💡",
-      ],
+      ["div", { "data-notion-callout-icon": "true" }, fallbackIcon],
       ["div", { "data-notion-callout-content": "true" }, 0],
     ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(CalloutView);
   },
 
   addStorage() {

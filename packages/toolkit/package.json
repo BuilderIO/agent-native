@@ -222,6 +222,14 @@
       "import": "./dist/hooks/index.js",
       "default": "./dist/hooks/index.js"
     },
+    "./icons": {
+      "types": "./dist/icons/index.d.ts",
+      "browser": "./dist/icons/index.js",
+      "node": "./dist/icons/server.js",
+      "development": "./dist/icons/index.js",
+      "import": "./dist/icons/index.js",
+      "default": "./dist/icons/index.js"
+    },
     "./hooks/*": {
       "types": "./dist/hooks/*.d.ts",
       "browser": "./dist/hooks/*.js",
@@ -360,7 +368,7 @@
     "@radix-ui/react-toggle": "^1.1.13",
     "@radix-ui/react-toggle-group": "^1.1.14",
     "@radix-ui/react-tooltip": "catalog:",
-    "@tabler/icons-react": "^3.41.1",
+    "@tabler/icons-react": "3.44.0",
     "@tiptap/core": "catalog:",
     "@tiptap/extension-bubble-menu": "catalog:",
     "@tiptap/extension-code-block-lowlight": "catalog:",
@@ -386,6 +394,7 @@
     "culori": "^4.0.2",
     "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
+    "emojibase-data": "17.0.0",
     "highlight.js": "catalog:",
     "input-otp": "^1.4.2",
     "lowlight": "catalog:",

@@ -807,6 +807,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "아이콘",
+    iconPickerEmoji: "이모지",
+    iconPickerRecent: "최근 항목",
+    iconPickerColors: "색상",
+    iconPickerDefault: "기본값",
+    iconPickerUpload: "업로드",
+    iconPickerUploading: "업로드 중…",
     suggestionCreateFailed: "제안을 만들 수 없습니다",
     suggestionsCount: "제안 {{count}}개",
     acceptSuggestion: "수락",
@@ -1017,6 +1024,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "아이콘",
+    iconPickerEmoji: "이모지",
+    iconPickerRecent: "최근 항목",
+    iconPickerColors: "색상",
+    iconPickerDefault: "기본값",
+    iconPickerUpload: "업로드",
+    iconPickerUploading: "업로드 중…",
     suggestionAmendmentEmpty:
       "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
     suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
@@ -1268,6 +1282,13 @@ const overrides = {
     genericError: "문제가 발생했습니다",
   },
   editor: {
+    iconPickerIcons: "아이콘",
+    iconPickerEmoji: "이모지",
+    iconPickerRecent: "최근 항목",
+    iconPickerColors: "색상",
+    iconPickerDefault: "기본값",
+    iconPickerUpload: "업로드",
+    iconPickerUploading: "업로드 중…",
     ...editor,
     sourceComponent: {
       defaultTitle: "소스 컴포넌트",

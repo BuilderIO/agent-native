@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Alle",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -68,7 +69,8 @@ const messages = {
       renameTab: "Tab umbenennen",
       savedFilters: "Gespeicherte Filter",
       combinedInbox: "Kombinierter Posteingang",
-      help: "Markierte Elemente werden als Tabs angezeigt. Label-E-Mails werden vom Posteingang getrennt.",
+      allTab: "Alle-Tab",
+      help: "Alle enthält alle Threads im Posteingang. Markierte Labels teilen den Posteingang auf.",
     },
     accounts: {
       remove: "Entfernen",

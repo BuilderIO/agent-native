@@ -130,6 +130,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "圖示",
+    iconPickerEmoji: "表情符號",
+    iconPickerRecent: "最近使用",
+    iconPickerColors: "顏色",
+    iconPickerDefault: "預設",
+    iconPickerUpload: "上傳",
+    iconPickerUploading: "上傳中…",
     suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
     suggestionAmendmentFailed: "無法儲存建議",
     suggestionAmendmentResolved:
@@ -304,6 +311,13 @@ const overrides = {
     genericError: "出了點問題",
   },
   editor: {
+    iconPickerIcons: "圖示",
+    iconPickerEmoji: "表情符號",
+    iconPickerRecent: "最近使用",
+    iconPickerColors: "顏色",
+    iconPickerDefault: "預設",
+    iconPickerUpload: "上傳",
+    iconPickerUploading: "上傳中…",
     suggestionFormattingUnsupported:
       "無法安全地建議此格式。草稿已保留。復原上一次編輯以繼續。",
     suggestionFormattingBaselineUnsupported:

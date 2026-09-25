@@ -147,4 +147,13 @@ describe("ORG_MIGRATIONS", () => {
       /CREATE TABLE IF NOT EXISTS agent_audit_log/i,
     );
   });
+
+  it("adds versioned workspace visual identity storage", () => {
+    const migration = ORG_MIGRATIONS.find((entry) => entry.version === 1033);
+    expect(migration?.name).toBe("organization-visual-identity");
+    expect(migration?.sql).toMatch(/ADD COLUMN IF NOT EXISTS icon_json TEXT/i);
+    expect(migration?.sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS icon_revision BIGINT NOT NULL DEFAULT 0/i,
+    );
+  });
 });

@@ -32,6 +32,8 @@ vi.mock("../agent/engine/builder-engine.js", () => ({
 vi.mock("./request-context.js", () => ({
   runWithRequestContext: async (_ctx: unknown, fn: () => Promise<unknown>) =>
     fn(),
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => undefined,
 }));
 // Real `gatewayLaneUnavailableMessage`: which audience each rejection is
 // written for is the behavior under test, so that decision is not stubbed. It

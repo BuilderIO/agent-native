@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "All",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -67,7 +68,8 @@ const messages = {
       renameTab: "Rename tab",
       savedFilters: "Saved filters",
       combinedInbox: "Combined inbox",
-      help: "Checked items show as tabs. Label emails split from inbox.",
+      allTab: "All tab",
+      help: "All includes every inbox thread. Checked labels split the inbox.",
     },
     accounts: {
       remove: "Remove",

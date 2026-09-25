@@ -486,6 +486,36 @@ export function normalizeDesignSourceType(
   return null;
 }
 
+/** Resolve per-screen source metadata before falling back to the design tier. */
+export function designScreenSourceTypeFromData(
+  data: Record<string, unknown>,
+  fileId: string,
+): DesignSourceType | null {
+  const screen = isRecord(data.screenMetadata)
+    ? data.screenMetadata[fileId]
+    : undefined;
+  const legacyScreen = isRecord(data.localhostScreens)
+    ? data.localhostScreens[fileId]
+    : undefined;
+  const metadata = isRecord(screen) ? screen : legacyScreen;
+  const screenSourceType = isRecord(metadata)
+    ? (normalizeDesignSourceType(metadata.sourceType) ??
+      (typeof metadata.bridgeUrl === "string" && metadata.bridgeUrl
+        ? "localhost"
+        : null))
+    : null;
+
+  return (
+    screenSourceType ??
+    normalizeDesignSourceType(data.sourceType) ??
+    normalizeDesignSourceType(data.sourceMode)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
 /**
  * Resolve the source tier stored in a design's JSON data blob.
  *

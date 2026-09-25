@@ -36,6 +36,8 @@ import {
   DEFAULT_SHAPE_FILL,
 } from "@/components/design/canvas-primitive-style";
 
+import { hidePenPathFill, restoreClosedPenPathFill } from "./pen-path-paint";
+
 /** Marks a stroke this module added so a reopened path stays visible. */
 const AUTO_OPEN_STROKE_MARKER = "data-an-auto-open-stroke";
 import type { PortableStyleSnapshot } from "@/components/design/types";
@@ -58,7 +60,7 @@ import {
 } from "./portable-style";
 
 function restoreClosedPenPathPaint(path: SVGPathElement): void {
-  path.removeAttribute("fill-opacity");
+  restoreClosedPenPathFill(path);
   if (!path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) return;
   if (path.getAttribute("fill") === "none") {
     path.setAttribute("fill", DEFAULT_SHAPE_FILL);
@@ -143,7 +145,7 @@ export function writeBackVectorEditedPenPath(
       if (isClosed) {
         restoreClosedPenPathPaint(path);
       } else {
-        path.setAttribute("fill-opacity", "0");
+        hidePenPathFill(path);
         if (path.getAttribute("stroke") === "none") {
           path.setAttribute("stroke", DEFAULT_LINE_STROKE);
           path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
@@ -183,7 +185,7 @@ export function writeBackVectorEditedPenPath(
     if (isClosed) {
       restoreClosedPenPathPaint(path);
     } else {
-      path.setAttribute("fill-opacity", "0");
+      hidePenPathFill(path);
       if (strokeOverlay) {
         const overlayStyle = strokeOverlay.style;
         for (const property of [

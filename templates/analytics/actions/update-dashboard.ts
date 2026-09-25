@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
@@ -16,6 +17,8 @@ import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-ti
 import {
   upsertDashboard,
   upsertDashboardWithRetry,
+  DashboardConflictError,
+  type DashboardRecord,
 } from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
@@ -605,6 +608,7 @@ function dashboardResult(
   summary: string,
   movedPanelIds: string[] = [],
   returnConfig = false,
+  updatedAt?: string,
 ) {
   const compact = compactDashboardResult(config, movedPanelIds);
   return {
@@ -614,6 +618,7 @@ function dashboardResult(
     ...compact,
     appliedOps,
     summary,
+    ...(updatedAt ? { updatedAt } : {}),
     ...(returnConfig ? { config } : {}),
     urlPath: `/dashboards/${dashboardId}`,
     deepLink: buildDeepLink({
@@ -696,6 +701,13 @@ export default defineAction({
     config: configInputSchema.describe(
       "Replace the whole dashboard config (or a JSON string).",
     ),
+    expectedUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "Only used with `config`. The dashboard `updatedAt` observed before this edit was built (from get-sql-dashboard or a prior update-dashboard result). " +
+          "When provided, the save is fenced against concurrent writers: if someone else (another tab, user, or agent call) saved in between, this call is rejected with a conflict error instead of silently overwriting their change — re-fetch and reapply. Omit only for a brand-new dashboard or a one-shot write that isn't derived from a prior read.",
+      ),
     returnConfig: z
       .boolean()
       .optional()
@@ -723,12 +735,12 @@ export default defineAction({
     ).length;
 
     if (modeCount === 0) {
-      throw new Error(
+      fail(
         "provide `ops` (surgical edits), `panelOrder` (id reorder), or `config` (full replace).",
       );
     }
     if (modeCount > 1) {
-      throw new Error("provide only one of `ops`, `panelOrder`, or `config`.");
+      fail("provide only one of `ops`, `panelOrder`, or `config`.");
     }
 
     const scope = resolveScope();
@@ -736,10 +748,33 @@ export default defineAction({
 
     if (args.config) {
       const validation = validateDashboardConfig(args.config);
-      if (validation) throw new Error(validation);
+      if (validation) fail(validation);
       const sqlError = await validatePanelSql(args.config);
-      if (sqlError) throw new Error(sqlError);
-      await upsertDashboard(dashboardId, "sql", args.config, ctx);
+      if (sqlError) fail(sqlError);
+      let saved: DashboardRecord;
+      try {
+        // Keep the 4-arg call shape when no fence is supplied (brand-new
+        // dashboard, or an explicit one-shot write) — identical semantics to
+        // passing `undefined`, but matches every other unfenced call site.
+        saved =
+          args.expectedUpdatedAt !== undefined
+            ? await upsertDashboard(
+                dashboardId,
+                "sql",
+                args.config,
+                ctx,
+                args.expectedUpdatedAt,
+              )
+            : await upsertDashboard(dashboardId, "sql", args.config, ctx);
+      } catch (err) {
+        if (err instanceof DashboardConflictError) {
+          fail(
+            `Dashboard "${dashboardId}" was changed by someone else since you loaded it (another tab, user, or agent saved in between). Reload the dashboard and reapply your edit — your change was NOT saved, so nothing was lost.`,
+            { errorCode: "dashboard_conflict", statusCode: 409 },
+          );
+        }
+        throw err;
+      }
       queueDashboardCollabSync(
         dashboardId,
         args.config,
@@ -754,6 +789,7 @@ export default defineAction({
         `Replaced dashboard "${dashboardId}"; it now has ${panelCount} panel(s).`,
         [],
         args.returnConfig === true,
+        saved.updatedAt,
       );
     }
 
@@ -767,9 +803,13 @@ export default defineAction({
         ctx,
         (existing) => {
           const root = existing.config as Record<string, unknown>;
-          orderDetails = applyPanelOrder(root, args.panelOrder!);
+          try {
+            orderDetails = applyPanelOrder(root, args.panelOrder!);
+          } catch (err: any) {
+            fail(err instanceof Error ? err.message : String(err));
+          }
           const validation = validateDashboardConfig(root);
-          if (validation) throw new Error(validation);
+          if (validation) fail(validation);
           return { kind: existing.kind, body: root };
         },
       );
@@ -787,6 +827,7 @@ export default defineAction({
         `Moved ${orderDetails.movedPanelIds.length} panel id(s) to the front of dashboard "${dashboardId}"; it now has ${orderDetails.panelCount} panel(s).`,
         orderDetails.movedPanelIds,
         args.returnConfig === true,
+        saved.updatedAt,
       );
     }
 
@@ -804,17 +845,15 @@ export default defineAction({
           try {
             details.push(applyJsonOp(root, op as JsonOp));
           } catch (err: any) {
-            throw new Error(
-              `applying op ${JSON.stringify(op)}: ${err.message}`,
-            );
+            fail(`applying op ${JSON.stringify(op)}: ${err.message}`);
           }
         }
 
         const validation = validateDashboardConfig(root);
-        if (validation) throw new Error(validation);
+        if (validation) fail(validation);
         if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
           const sqlError = await validatePanelSql(root);
-          if (sqlError) throw new Error(sqlError);
+          if (sqlError) fail(sqlError);
         }
         appliedDetails = details;
         return { kind: existing.kind, body: root };
@@ -836,6 +875,7 @@ export default defineAction({
       `Applied ${appliedDetails.length} op(s); dashboard "${dashboardId}" now has ${panelCount} panel(s).`,
       [],
       args.returnConfig === true,
+      saved.updatedAt,
     );
   },
   link: ({ result }) => {

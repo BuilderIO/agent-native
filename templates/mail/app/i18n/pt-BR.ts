@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Todas",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -67,7 +68,8 @@ const messages = {
       renameTab: "Renomear aba",
       savedFilters: "Filtros salvos",
       combinedInbox: "Caixa de entrada combinada",
-      help: "Itens marcados aparecem como abas. Emails com marcador ficam separados da caixa de entrada.",
+      allTab: "Aba Todas",
+      help: "Todas inclui todas as conversas da caixa de entrada. Os marcadores selecionados dividem a caixa.",
     },
     accounts: {
       remove: "Remover",

@@ -6,7 +6,11 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  getBrowserTabId,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
@@ -80,7 +84,7 @@ import {
   loadRecorderPreferences,
   saveRecorderPreferences,
 } from "@/lib/recorder-preferences";
-import { copyRecordingShareLink } from "@/lib/recording-link";
+import { copyFreshRecordingShareLink } from "@/lib/recording-link";
 import {
   buildCaptureTitle,
   defaultRecordingTitle,
@@ -910,6 +914,9 @@ export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  // Named distinctly from the local `session` upload-attempt counters used
+  // inside uploadFile/startFlow below — this is the signed-in visitor.
+  const { session: authSession } = useSession();
   const {
     dismiss: dismissUploadToast,
     error: failUploadToast,
@@ -933,12 +940,12 @@ export default function RecordRoute() {
         action: {
           label: t("recordRoute.copyLinkAction"),
           onClick: () => {
-            void copyRecordingShareLink(recordingId);
+            void copyFreshRecordingShareLink(recordingId, authSession);
           },
         },
       });
     },
-    [completeUploadToast, t],
+    [authSession, completeUploadToast, t],
   );
   const [uiState, setUiState] = useState<UiState>("idle");
   const [savingKind, setSavingKind] = useState<"recording" | "upload" | null>(
@@ -1936,7 +1943,7 @@ export default function RecordRoute() {
         } else if (createdId && !reportContext) {
           showSavedToast(
             t("recordRoute.videoUploaded"),
-            await copyRecordingShareLink(createdId),
+            await copyFreshRecordingShareLink(createdId, authSession),
             createdId,
           );
         } else {
@@ -2017,6 +2024,7 @@ export default function RecordRoute() {
       }
     },
     [
+      authSession,
       completeUploadToast,
       failUploadToast,
       infoUploadToast,
@@ -2197,7 +2205,8 @@ export default function RecordRoute() {
       } else {
         showSavedToast(
           t("recordRoute.recordingSaved"),
-          await (pendingCopy ?? copyRecordingShareLink(recordingId)),
+          await (pendingCopy ??
+            copyFreshRecordingShareLink(recordingId, authSession)),
           recordingId,
         );
       }
@@ -2227,7 +2236,14 @@ export default function RecordRoute() {
         void navigate(`/r/${recordingId}`);
       }, 50);
     },
-    [completeUploadToast, infoUploadToast, navigate, showSavedToast, t],
+    [
+      authSession,
+      completeUploadToast,
+      infoUploadToast,
+      navigate,
+      showSavedToast,
+      t,
+    ],
   );
 
   const doStop = useCallback(async () => {
@@ -2317,7 +2333,9 @@ export default function RecordRoute() {
       const pendingCopy =
         stopResult.waitingForStorage || bugReportContextRef.current
           ? undefined
-          : copyRecordingShareLink(pending.id).catch(() => false);
+          : copyFreshRecordingShareLink(pending.id, authSession).catch(
+              () => false,
+            );
       await diagnosticsSave;
       await finishSavedRecording(pending.id, stopResult, pendingCopy);
     } catch (err) {
@@ -2362,6 +2380,7 @@ export default function RecordRoute() {
       });
     }
   }, [
+    authSession,
     failUploadToast,
     finishSavedRecording,
     liveTranscription,

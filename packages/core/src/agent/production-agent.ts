@@ -10028,7 +10028,7 @@ export function createProductionAgentHandler(
       );
     }
     let surfacedRequestActions = availableRequestActions;
-    let useDefaultRequestActionSurface = !options.resolveActionSurface;
+    let shouldFilterInitialRequestTools = !options.resolveActionSurface;
     if (options.resolveActionSurface) {
       const persistedSurface = isBackgroundWorker
         ? readPersistedActionSurface(body, "__resolvedActionSurface")
@@ -10063,6 +10063,8 @@ export function createProductionAgentHandler(
               availableActionNames: Object.keys(availableRequestActions),
             });
       const normalizedSurface = normalizeAgentActionSurfaceResolution(surface);
+      shouldFilterInitialRequestTools =
+        normalizedSurface.mode === "default" || !normalizedSurface.actionScope;
       if (
         requestedActionScope &&
         (normalizedSurface.mode === "default" || !normalizedSurface.actionScope)
@@ -10073,7 +10075,6 @@ export function createProductionAgentHandler(
       }
       const runCtx = ensureRequestRunContext();
       if (normalizedSurface.mode === "default") {
-        useDefaultRequestActionSurface = true;
         if (runCtx) {
           delete runCtx.allowedActionNames;
           delete runCtx.actionScope;
@@ -10737,7 +10738,7 @@ export function createProductionAgentHandler(
         ? createPlanModeActionRegistry(surfacedRequestActions)
         : surfacedRequestActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const initialRequestTools = useDefaultRequestActionSurface
+    const initialRequestTools = shouldFilterInitialRequestTools
       ? filterInitialEngineTools(
           availableRequestTools,
           options.initialToolNames,

@@ -1,3 +1,4 @@
+import { iconValueSchema } from "@agent-native/core/icons";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -103,6 +104,7 @@ const boundedTablePatchSchema = z
 const updateTablePatchSchema = z
   .object({
     name: z.string().trim().min(1).max(500).optional(),
+    icon: iconValueSchema.nullable().optional(),
     ...tablePatchFields,
   })
   .strict()
@@ -122,6 +124,7 @@ export const updateContentDatabaseViewAgentSchema = z.discriminatedUnion(
           .object({
             name: z.string().trim().min(1).max(500),
             type: z.literal("table"),
+            icon: iconValueSchema.nullable().optional(),
             config: boundedTablePatchSchema.optional(),
           })
           .strict(),
@@ -311,11 +314,13 @@ function defaultTableView(
   id: string,
   name: string,
   patch: z.infer<typeof boundedTablePatchSchema> = {},
+  icon?: z.infer<typeof iconValueSchema> | null,
 ): ContentDatabaseView {
   return {
     id,
     name,
     type: "table",
+    icon,
     sorts: patch.sorts ?? [],
     filters: patch.filters ?? [],
     filterMode: patch.filterMode ?? "and",
@@ -408,7 +413,12 @@ export async function runUpdateContentDatabaseView(
         viewId = nanoid();
         nextViews = [
           ...rawViews,
-          defaultTableView(viewId, input.view.name, input.view.config),
+          defaultTableView(
+            viewId,
+            input.view.name,
+            input.view.config,
+            input.view.icon,
+          ),
         ];
       } else {
         const existing = normalized.views.find(

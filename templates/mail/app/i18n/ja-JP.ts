@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "すべて",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -68,7 +69,8 @@ const messages = {
       renameTab: "タブ名を変更",
       savedFilters: "保存したフィルター",
       combinedInbox: "統合受信トレイ",
-      help: "チェックした項目はタブとして表示されます。ラベル付きメールは受信トレイから分離されます。",
+      allTab: "すべてタブ",
+      help: "すべてには受信トレイの全スレッドが含まれます。選択したラベルで受信トレイが分割されます。",
     },
     accounts: {
       remove: "削除",
