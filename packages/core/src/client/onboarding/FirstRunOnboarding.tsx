@@ -15,13 +15,17 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useLocation } from "react-router";
 
-import { buildSettingsRoute } from "../../navigation/index.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
 import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "../../onboarding/types.js";
-import { appPath } from "../api-path.js";
+import { appMountedPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
@@ -101,6 +105,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const { pathname } = useLocation();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
   const {
@@ -345,7 +350,10 @@ export function FirstRunOnboarding({
     window.history.pushState(
       null,
       "",
-      `${appPath(buildSettingsRoute("keys"))}${query ? `?${query}` : ""}`,
+      `${appMountedPath(
+        buildSettingsRoute("keys"),
+        pathname || STANDARD_APP_ROUTES.home,
+      )}${query ? `?${query}` : ""}`,
     );
     window.dispatchEvent(new Event("popstate"));
   };
