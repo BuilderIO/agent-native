@@ -2707,6 +2707,10 @@ ${marketingStyles}
     .auth-marketing-home .card button {
       min-height: 2.75rem;
     }
+    body.has-marketing .locale-trigger {
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+    }
     .auth-marketing-home .card input { font-size: 1rem; }
   }
 `;

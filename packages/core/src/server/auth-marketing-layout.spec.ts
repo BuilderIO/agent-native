@@ -78,6 +78,7 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*min-height:\s*100vh;[^}]*display:\s*flex;/,
     );
+    expect(html).toMatch(/body\.has-marketing\s*{[^}]*padding:\s*0;/);
     expect(html).toMatch(
       /\.auth-marketing-home \.auth-marketing-description-link\s*{[^}]*text-decoration:\s*underline;/,
     );
@@ -112,6 +113,9 @@ describe("built-in auth marketing layout contract", () => {
     );
     expect(mobileCss).toMatch(
       /\.auth-marketing-home \.card button\s*{[^}]*min-height:\s*2\.75rem;/,
+    );
+    expect(mobileCss).toMatch(
+      /body\.has-marketing \.locale-trigger\s*{[^}]*min-width:\s*2\.75rem;[^}]*min-height:\s*2\.75rem;/,
     );
     expect(html).not.toMatch(
       /\.auth-marketing-home \.form-panel\s*{[^}]*border-top:/,
