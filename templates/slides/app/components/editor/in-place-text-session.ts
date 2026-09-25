@@ -72,6 +72,12 @@ export interface InPlaceTextSession {
   apply: (mutate: () => void) => boolean;
   undo: () => boolean;
   redo: () => boolean;
+  /**
+   * A copy of `root` (the element's slide) as content: without the caret
+   * placeholders this session added, and with the author's own zero-width
+   * spaces, which only the session can tell apart.
+   */
+  cloneWithoutPlaceholders: (root: HTMLElement) => HTMLElement;
   /** Settles placeholders and restores the element's pre-session attributes. */
   end: () => void;
 }
@@ -1766,6 +1772,29 @@ export function startInPlaceTextSession(
     );
   }
 
+  function cloneWithoutPlaceholders(root: HTMLElement): HTMLElement {
+    const copy = root.cloneNode(true) as HTMLElement;
+    const copies = textNodesIn(copy);
+    textNodesIn(root).forEach((text, index) => {
+      const placeholder = copies[index];
+      if (
+        !el.contains(text) ||
+        authorZwsp.has(text) ||
+        !text.data.includes(ZERO_WIDTH_SPACE)
+      ) {
+        return;
+      }
+      const rest = text.data.replaceAll(ZERO_WIDTH_SPACE, "");
+      // A lone placeholder keeps an empty run from collapsing, so the run
+      // keeps its font; anywhere else it is dropped.
+      if (rest) placeholder.data = rest;
+      else if (placeholder.parentNode?.childNodes.length !== 1) {
+        placeholder.remove();
+      }
+    });
+    return copy;
+  }
+
   function end() {
     if (!active) return;
     active = false;
@@ -1854,6 +1883,7 @@ export function startInPlaceTextSession(
       }),
     undo,
     redo,
+    cloneWithoutPlaceholders,
     end,
   };
 }

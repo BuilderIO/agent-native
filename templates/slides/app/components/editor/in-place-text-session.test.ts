@@ -1168,6 +1168,18 @@ describe("in-place text session: review fixes", () => {
     expect(el.innerHTML).toBe(`A${ZWSP}By`);
   });
 
+  it("copies the slide without its placeholders but with the author's zero-width spaces", () => {
+    const el = mount(`<p id="t">A${ZWSP}B</p>`);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 3);
+    beforeInput(el, "insertParagraph");
+    expect(el.innerHTML).toBe(`A${ZWSP}B<br>${ZWSP}`);
+    const copy = session.cloneWithoutPlaceholders(root);
+    expect(copy.querySelector("#t")!.innerHTML).toBe(`A${ZWSP}B<br>`);
+    expect(el.innerHTML).toBe(`A${ZWSP}B<br>${ZWSP}`);
+  });
+
   it("restores a caret on an empty line between two <br>s through undo", () => {
     const el = mount('<p id="t">A<br><br>B</p>');
     session = startInPlaceTextSession(el);

@@ -673,10 +673,13 @@ function stripBuilderIds(html: string): string {
   );
 }
 
-/** Editor-only text and spacers, removed before live and base are compared. */
+/**
+ * Editor-only spacers, removed before live and base are compared. Caret
+ * placeholders are the text session's to remove: a blanket strip of
+ * zero-width spaces would also delete an author's own.
+ */
 function prepareSerializationRoot(root: ParentNode): void {
   for (const child of Array.from(root.children)) {
-    stripPlaceholderZws(child);
     stripTransientSlideLayoutSpacers(child);
   }
 }
@@ -2163,7 +2166,11 @@ export default function SlideEditor({
       slideContent: HTMLElement,
       source: RenderedSlideSource | undefined,
     ): string | null => {
-      const clone = slideContent.cloneNode(true) as HTMLElement;
+      const text = textSessionRef.current?.text;
+      const clone =
+        text?.isActive && slideContent.contains(text.element)
+          ? text.cloneWithoutPlaceholders(slideContent)
+          : (slideContent.cloneNode(true) as HTMLElement);
       if (source) {
         return mergeRenderedEdits({
           stored: source.stored,
