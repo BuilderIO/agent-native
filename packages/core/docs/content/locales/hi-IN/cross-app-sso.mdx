@@ -7,9 +7,9 @@ description: "संगठन के OIDC या SAML साइन-इन और
 
 संगठन SSO, एक Agent-Native deployment में कंपनी के OIDC या SAML प्रदाता से साइन-इन की सुविधा देता है। ऐप federation अलग deployments के बीच सत्यापित identity या संगठन संदर्भ साझा करता है। इनके setup और trust boundaries अलग हैं।
 
-Browser का "Sign in with Agent-Native" विकल्प और automatic browser handoff हटा दिया गया
-है। Web users के लिए app-specific login अभी भी default है। यह पेज केवल बचे हुए
-Desktop और server-side federation contracts बताता है।
+Exact registered first-party Agent-Native apps के sign-in pages पर "Continue
+with Agent-Native" action उपलब्ध है। यह Dispatch के मौजूदा verified-email flow
+को शुरू करता है। यह पेज browser, Desktop और server-side federation को बताता है।
 
 ## ऐप federation
 
@@ -33,8 +33,9 @@ opt-out बना रहता है। Flag, preference, registration या e
 
 ### Server-side federation
 
-बचे हुए broker और server-side callers short-lived, server-verified protocol का उपयोग
-करते हैं। यह browser login control के रूप में expose नहीं होता:
+Broker और server-side callers short-lived, server-verified protocol का उपयोग
+करते हैं। Exact registered first-party apps पर user "Continue with Agent-Native"
+चुनकर इसी protocol को शुरू कर सकता है:
 
 1. Caller exact registered app binding मांगता है।
 2. Dispatch workspace identity authenticate करके short-lived one-time authorization code
@@ -81,9 +82,12 @@ Identity और organization writes additive हैं। Same-email users ब�
 
 ## Configuration
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> केवल बचे हुए server-side और Desktop
-path में तब उपयोग होता है जब self-hosted app को explicit Dispatch deployment
-चाहिए। यह browser login option या automatic browser handoff नहीं जोड़ता।
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> server और browser paths के लिए
+Dispatch hub बताता है, जब self-hosted app को explicit configuration चाहिए। Exact
+registered first-party apps के sign-in pages पर "Continue with Agent-Native"
+action उपलब्ध है। <code>browser.identity-sso</code> rollout flag silent
+<code>prompt=none</code> sign-in और local sign-in के बाद bootstrap को control
+करता है। Local sign-in fallback के रूप में उपलब्ध रहता है।
 
 Self-hosted Dispatch में हर custom app को exact app ID, client ID, HTTPS origin, callback
 path और <code>identity-sso</code> capability के साथ
@@ -99,15 +103,21 @@ development के लिए allowed है। Unknown subdomains, mismatched ap
 Deployment के बाद:
 
 1. Browser में email, password, magic-link और configured provider sign-in काम करते रहें।
-2. Browser auth surface में Agent-Native sign-in option न हो।
+2. "Continue with Agent-Native" action दिखने और local sign-in उपलब्ध रहने की
+   पुष्टि करें। <code>browser.identity-sso</code> बंद होने पर भी explicit action
+   और local sign-in काम करें। इसे चालू करने पर silent <code>prompt=none</code>
+   और local form fallback की पुष्टि करें।
 3. Desktop SSO enabled हो तो Desktop Settings के explicit action से एक exact registered
    app verify करें।
 4. Organization federation enabled हो तो target app में exact organization ID और
    membership role verify करें।
 
-Remaining path को rollback करने के लिए relevant feature flag disable करें और self-hosted
-deployment से <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> हटाकर redeploy करें। Added identity
-और organization records ordinary local auth के लिए उपलब्ध रहेंगे।
+Silent browser या Desktop path को rollback करने के लिए उसका feature flag बंद
+करें। Self-hosted app से explicit browser action हटाने के लिए
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> या उसका exact app registration हटाकर
+redeploy करें। Local sign-in उपलब्ध रहेगा और additive identity तथा organization
+records बने रहेंगे।
 
 ## संबंधित docs
 
