@@ -5,7 +5,6 @@ import {
   IconDatabase,
   IconFileText,
   IconMessageQuestion,
-  IconSettings,
 } from "@tabler/icons-react";
 
 export type BrainView =
@@ -1063,12 +1062,6 @@ export const navItems: Array<{
     label: "Knowledge",
     href: "/knowledge",
     icon: IconBook2,
-  },
-  {
-    view: "settings",
-    label: "Settings",
-    href: "/settings",
-    icon: IconSettings,
   },
 ];
 

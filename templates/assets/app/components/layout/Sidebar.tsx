@@ -13,7 +13,6 @@ import {
   AppSidebar,
   AppSidebarNavItem,
   FeedbackButton,
-  type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
 import {
   ChatHistoryRail,
@@ -24,7 +23,6 @@ import {
   IconLayoutGrid,
   IconPhotoPlus,
   IconSearch,
-  IconSettings,
   IconShare3,
   IconTemplate,
 } from "@tabler/icons-react";
@@ -327,15 +325,6 @@ export function Sidebar() {
     }
   }, [collapsed]);
 
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: location.pathname.startsWith("/settings"),
-    },
-  ];
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -367,7 +356,6 @@ export function Sidebar() {
       brandName={t("navigation.brand")}
       appId="assets"
       brandHref="/home"
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={

@@ -19,7 +19,6 @@ import {
   AgentNativeIcon,
   buildSignInReturnHref,
   FeedbackButton,
-  type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
 import {
   ChatHistoryRail,
@@ -31,7 +30,6 @@ import {
   IconMessageCircle,
   IconPlus,
   IconRefresh,
-  IconSettings,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -91,10 +89,6 @@ function buildBrandingCustomizationMessage(request: string) {
 const navItems = [
   { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/chat" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
-];
-
-const bottomNavItems = [
-  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 interface SidebarProps {
@@ -583,15 +577,6 @@ export function Sidebar({
   const t = useT();
   const returnPath = planReturnPathFromLocation(location);
 
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: pathname.startsWith("/settings"),
-    },
-  ];
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -640,7 +625,6 @@ export function Sidebar({
           {!collapsed ? <BrandingCustomizePopover /> : null}
         </div>
       }
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={<DevDatabaseLink />}

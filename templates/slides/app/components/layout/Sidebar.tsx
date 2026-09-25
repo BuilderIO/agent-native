@@ -11,7 +11,6 @@ import {
   IconLayoutGrid,
   IconComponents,
   IconSearch,
-  IconSettings,
 } from "@tabler/icons-react";
 import { useLocation } from "react-router";
 
@@ -51,15 +50,6 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
     },
   ];
 
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: isItemActive("/settings"),
-    },
-  ];
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -93,7 +83,6 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
       appId="slides"
       brandHref="/home"
       items={items}
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={

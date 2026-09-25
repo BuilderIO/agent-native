@@ -11,7 +11,6 @@ import {
   IconForms,
   IconInbox,
   IconSearch,
-  IconSettings,
 } from "@tabler/icons-react";
 import { useLocation } from "react-router";
 
@@ -58,15 +57,6 @@ export function Sidebar({
     },
   ];
 
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("header.pageSettings"),
-      icon: IconSettings,
-      active: location.pathname.startsWith("/settings"),
-    },
-  ];
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -110,7 +100,6 @@ export function Sidebar({
       appId="tasks"
       brandHref="/tasks"
       items={items}
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={searchButton}

@@ -11,7 +11,6 @@ import {
   AppSidebar,
   AppSidebarNavItem,
   FeedbackButton,
-  type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
 import {
   ChatHistoryRail,
@@ -29,13 +28,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { navItems } from "@/lib/brain";
-
-const primaryNavItems = navItems.filter(
-  (item) => item.view !== "agent" && item.view !== "settings",
-);
-const bottomNavItems = navItems.filter(
-  (item) => item.view === "agent" || item.view === "settings",
-);
 
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
@@ -235,18 +227,6 @@ export function Sidebar({
   const t = useT();
   const isAskRoute = location.pathname === "/home";
 
-  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map(
-    (item) => ({
-      to: item.href,
-      label:
-        item.view === "agent"
-          ? t("settings.agentTitle")
-          : t(`navigation.${item.view}`),
-      icon: item.icon,
-      active: location.pathname.startsWith(item.href),
-    }),
-  );
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -279,7 +259,6 @@ export function Sidebar({
       brandName={t("navigation.brand")}
       appId="brain"
       brandHref="/home"
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={
@@ -289,11 +268,8 @@ export function Sidebar({
         </>
       }
     >
-      {primaryNavItems.map((item) => {
-        const label =
-          item.view === "agent"
-            ? t("settings.agentTitle")
-            : t(`navigation.${item.view}`);
+      {navItems.map((item) => {
+        const label = t(`navigation.${item.view}`);
         const isActive =
           item.href === "/home"
             ? isAskRoute

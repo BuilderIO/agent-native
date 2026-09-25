@@ -10,7 +10,6 @@ import {
   IconLoader2,
   IconStar,
   IconPencil,
-  IconSettings,
   IconFilter,
   IconGripVertical,
   IconBook2,
@@ -191,10 +190,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-
-const bottomItems = [
-  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
-];
 
 function getStoredBooleanPreference(key: string): boolean | null {
   if (typeof window === "undefined") return null;
@@ -2245,12 +2240,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       href: "/data-dictionary",
       active: location.pathname.startsWith("/data-dictionary"),
     },
-    {
-      icon: IconSettings,
-      label: t("navigation.settings"),
-      href: "/settings",
-      active: location.pathname === "/settings",
-    },
   ];
 
   const footerCollapse = !mobile ? (
@@ -2666,30 +2655,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             </nav>
 
             <div className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70 pt-3">
-              <nav className="flex min-w-0 flex-col space-y-0.5 px-2">
-                {bottomItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = location.pathname === item.href;
-                  return (
-                    <Link
-                      key={item.href}
-                      to={item.href}
-                      className={cn(
-                        "flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
-                        isActive
-                          ? "bg-primary/10 font-medium text-primary"
-                          : "text-primary hover:bg-accent/60",
-                      )}
-                    >
-                      <Icon className="size-4 shrink-0 text-primary" />
-                      <span className="truncate text-primary">
-                        {t(item.labelKey)}
-                      </span>
-                    </Link>
-                  );
-                })}
-              </nav>
-
               <AppSidebarFooter
                 collapsed={false}
                 collapsible={false}

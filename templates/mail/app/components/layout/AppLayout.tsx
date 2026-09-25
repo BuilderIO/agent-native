@@ -2048,21 +2048,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     footerExtras={
                       <>
                         <DevDatabaseLink />
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Link
-                              to="/settings"
-                              onClick={closeSidebar}
-                              aria-label={t("mail.toolbar.settings")}
-                              className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
-                            >
-                              <IconSettings className="size-4" />
-                            </Link>
-                          </TooltipTrigger>
-                          <TooltipContent side="right">
-                            {t("mail.toolbar.settings")}
-                          </TooltipContent>
-                        </Tooltip>
                         <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
                         {collapseButton}
                       </>
@@ -2538,21 +2523,6 @@ function StandardLayout({ children }: AppLayoutProps) {
             >
               <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
               <DevDatabaseLink />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    to="/settings"
-                    onClick={() => setSidebarOpen(false)}
-                    aria-label={t("mail.toolbar.settings")}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
-                  >
-                    <IconSettings className="size-4" />
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  {t("mail.toolbar.settings")}
-                </TooltipContent>
-              </Tooltip>
               <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
             </div>
           </div>

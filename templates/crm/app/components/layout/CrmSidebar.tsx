@@ -20,7 +20,6 @@ import {
   IconMessageCircle,
   IconPencilCheck,
   IconRoute,
-  IconSettings,
   IconStar,
   IconTable,
   IconUsers,
@@ -66,11 +65,6 @@ const primaryNav = [
 
 const footerNav = [
   { to: "/ask", labelKey: "navigation.askCrm", icon: IconMessageCircle },
-  {
-    to: "/settings/connections",
-    labelKey: "navigation.connections",
-    icon: IconSettings,
-  },
 ];
 
 export function CrmSidebar({ onNavigate }: { onNavigate?: () => void }) {

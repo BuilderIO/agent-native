@@ -18,7 +18,6 @@ import {
   IconMessageCircle,
   IconPlus,
   IconSearch,
-  IconSettings,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -129,16 +128,6 @@ export function Sidebar() {
       label: t("navigation.allForms"),
       icon: IconForms,
       active: location.pathname.startsWith("/forms"),
-      onClick: () => isMobile && setMobileOpen(false),
-    },
-  ];
-
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: location.pathname === "/settings",
       onClick: () => isMobile && setMobileOpen(false),
     },
   ];
@@ -271,7 +260,6 @@ export function Sidebar() {
       appId="forms"
       brandHref="/forms"
       items={items}
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={searchButton}

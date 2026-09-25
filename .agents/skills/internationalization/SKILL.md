@@ -44,9 +44,11 @@ whether `loadMessages` can actually resolve it.
 
 - Wrap apps with `AppProviders i18n={{ catalog: i18nCatalog }}`.
 - Read strings with `useT()` and keep keys stable.
-- Sidebar apps should expose a `/settings` route in the app sidebar. Put
-  `<LanguagePicker />` in that settings page, usually in a Language or General
-  section, and keep the header language icon only as a quick-access shortcut.
+- Apps expose a `/settings` route without a sidebar item for it: Settings
+  opens from the account menu in the sidebar footer and from ⌘, (Ctrl+,
+  elsewhere). Put `<LanguagePicker />` in that settings page, usually in a
+  Language or General section, and keep the header language icon only as a
+  quick-access shortcut.
 - Settings pages should include an "Agent settings" row/card that calls
   `openAgentSettings()` from `@agent-native/core/client` to open the right
   agent sidebar's Settings tab. Localize the title, description, and button.

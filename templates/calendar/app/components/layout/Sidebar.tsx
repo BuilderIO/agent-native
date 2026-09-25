@@ -7,7 +7,6 @@ import {
   AppSidebar,
   AppSidebarNavItem,
   FeedbackButton,
-  type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
 import type { GoogleCalendarSource, OverlayPerson } from "@shared/api";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
@@ -101,10 +100,6 @@ const navItems = [
     labelKey: "navigation.bookingLinks",
     icon: IconLink,
   },
-];
-
-const bottomNavItems = [
-  { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 
 interface SidebarProps {
@@ -820,16 +815,6 @@ export function Sidebar({
       <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
-  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map(
-    (item) => ({
-      to: item.path,
-      label: t(item.labelKey),
-      icon: item.icon,
-      active: location.pathname.startsWith(item.path),
-      onClick: onClose,
-    }),
-  );
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -854,7 +839,6 @@ export function Sidebar({
         brandName={t("navigation.brand")}
         appId="calendar"
         brandHref="/home"
-        secondaryItems={secondaryItems}
         feedback={feedbackButton}
         orgSwitcher={orgSwitcher}
         footerExtras={

@@ -28,7 +28,6 @@ import {
   IconArrowsSort,
   IconPlus,
   IconRestore,
-  IconSettings,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -2715,16 +2714,6 @@ export function DocumentSidebar({
             footerExtras={
               <>
                 {isCodeMode ? <DevDatabaseLink /> : null}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link to="/settings" aria-label={t("navigation.settings")}>
-                      <IconSettings className="size-4" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {t("navigation.settings")}
-                  </TooltipContent>
-                </Tooltip>
                 {collapseButton}
               </>
             }
@@ -2890,16 +2879,6 @@ export function DocumentSidebar({
         footerExtras={
           <>
             {isCodeMode ? <DevDatabaseLink /> : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link to="/settings" aria-label={t("navigation.settings")}>
-                  <IconSettings className="size-4" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("navigation.settings")}
-              </TooltipContent>
-            </Tooltip>
             {collapseButton}
           </>
         }

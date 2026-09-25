@@ -36,9 +36,13 @@ language or make a simple app-specific workflow harder to understand.
 
 The repeated app shell has two distinct navigation surfaces:
 
-- The left rail owns domain destinations, settings, and chat history when the
-  app has a full-page chat route. Do not label a domain workflow as `Chat` just
-  because the app was scaffolded from the chat template.
+- The left rail owns domain destinations and chat history when the app has a
+  full-page chat route. Do not label a domain workflow as `Chat` just because
+  the app was scaffolded from the chat template.
+- Settings is not a rail item. It opens from the account menu (`OrgSwitcher`
+  in the sidebar footer) and from ⌘, (Ctrl+, elsewhere), which `AppProviders`
+  already binds. Keep the `/settings` route; don't add a Settings entry to
+  `items`, `secondaryItems`, or the footer.
 - The right `AgentSidebar` owns contextual agent work. Domain buttons that call
   `sendToAgentChat` should open it (`openSidebar: true`) so the user can see,
   steer, and review the agent without losing the page they were using.
