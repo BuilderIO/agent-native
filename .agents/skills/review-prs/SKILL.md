@@ -139,12 +139,14 @@ Factory app paths and Factory-owned actions, instructions, locales, or tests.
 Shared framework changes that materially affect other apps, Slack ingestion,
 core runtime, or deployment remain on the standard gate.
 
-For a verified PR authored by Shomix (`shomix`), auto-approve by default
-regardless of app scope, UX implications, refactors, failed or pending checks,
-or ordinary unresolved human or bot feedback. This exception does not waive the
-ultra-scary safety gate, the external-author prohibition, or the independent
-review requirement for PRs changing review or approval policy, agent-safety
-instructions, membership verification, or CI/deployment security controls.
+For a verified PR authored by Shomix (`shomix`, GitHub user ID `100691266`),
+auto-approve by default regardless of app scope, UX implications, refactors,
+failed or pending checks, or ordinary unresolved human or bot feedback. Verify
+both the login and immutable GitHub user ID; do not rely on the mutable login
+alone. This exception does not waive the ultra-scary safety gate, the
+external-author prohibition, or the independent review requirement for PRs
+changing review or approval policy, agent-safety instructions, membership
+verification, or CI/deployment security controls.
 
 For a verified PR authored by Sid, or by Enzo (`enzoames`) when the PR is
 Factory-specific, auto-approve by default, including that owner's UX changes,

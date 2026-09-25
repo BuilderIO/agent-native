@@ -91,11 +91,12 @@ membership and the ultra-scary assessment: Alice (\`3mdistal\`) for Content,
 Nick (\`NKoech123\`) for Slides, Enzo (\`enzoames\`) for Factory-specific PRs,
 and Sid (\`sidmohanty11\`) for Design. Alice and Nick may include supporting
 shared framework/Desktop plumbing required by their app feature. For
-BuilderIO/agent-native PRs, Shomix (shomix) may be auto-approved across app and
-framework areas, including UX changes, refactors, ordinary unresolved
-feedback, and failed or pending checks. This exception never applies to
-review/approval policy, agent-safety
-instructions, membership verification, or CI/deployment security changes;
+BuilderIO/agent-native PRs, Shomix (shomix, GitHub user ID 100691266) may be
+auto-approved across app and framework areas, including UX changes, refactors,
+ordinary unresolved feedback, and failed or pending checks. Match both the login
+and immutable GitHub author ID; do not rely on login alone. This exception never
+applies to review/approval policy, agent-safety instructions, membership
+verification, or CI/deployment security changes;
 those require independent human review. The docs-only
 exception applies to \`kapunahelewong\` and Wes (\`bwreid\`) only when every
 changed file is documentation, localization, docs navigation/redirect, or a

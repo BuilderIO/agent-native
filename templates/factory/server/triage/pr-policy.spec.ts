@@ -294,9 +294,11 @@ describe("pull-request governance", () => {
       "No OAuth redirect issues were found.",
       "No CORS issues were found.",
       "No authentication bypass vulnerabilities were found.",
+      "No authentication issues were found.",
       "No authorization issues were found.",
       "No XSS, CSRF, or authentication vulnerabilities were found.",
       "XSS, CSRF, and authentication vulnerabilities were fixed.",
+      "CSP and authorization vulnerabilities were fixed.",
       "This change reduces prompt tokens by 500.",
     ]) {
       expect(
@@ -329,6 +331,9 @@ describe("pull-request governance", () => {
       "The API token is exposed in client output.",
       "An API key is leaked to logs.",
       "The webhook token is returned to an untrusted caller.",
+      "A token leaked to client output.",
+      "Token exposed to untrusted callers.",
+      "GitHub token leaked to logs.",
       "The user password is sent to the client.",
       "Untrusted HTML is rendered without escaping, so scripts can run.",
       "The Markdown renderer permits event-handler attributes.",
@@ -386,8 +391,11 @@ describe("pull-request governance", () => {
       "No issues found and authentication bypass permits access.",
       "No issues found as authentication bypass permits access.",
       "No issues found except authentication bypass permits access.",
+      "No issues except an authentication bypass vulnerability was found.",
       "CSP is safe, authentication bypass permits access.",
       "No CSP issues found, authentication bypass permits access.",
+      "No authentication issues, API token is exposed, and a CSP vulnerability was found.",
+      "No auth issue, one API token was leaked, and a CSP vulnerability was found.",
       "CSP vulnerability found, authentication bypass is safe.",
       "An authentication bypass remains, unrelated CSP issues were resolved.",
       "CSP vulnerability remains and auth issue was a false positive.",
@@ -564,6 +572,10 @@ describe("pull-request governance", () => {
         decidePullRequestGovernance({
           ...cleanInternalBug,
           author: testCase.author,
+          authorId:
+            testCase.author === "shomix"
+              ? 100691266
+              : cleanInternalBug.authorId,
           changedFiles: testCase.changedFiles,
           clearBug: false,
           productUxImplications: true,

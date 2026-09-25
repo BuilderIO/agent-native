@@ -46,7 +46,10 @@ describe("Factory review skill alignment", () => {
     expect(second).toContain("Keep this prompt.");
     expect(second).toContain("Custom suffix.");
     expect(second).toContain("Alice (`3mdistal`)");
-    expect(second).toContain("Shomix (shomix)");
+    expect(second).toContain("Shomix (shomix, GitHub user ID 100691266)");
+    expect(second).toMatch(
+      /Match both the login and\s+immutable GitHub author ID/,
+    );
     expect(second).toMatch(/across app and\s+framework areas/);
     expect(second).toContain("independent human review");
     expect(second).toContain("MCP iframe sandboxing, CSP, HTML sanitization");
