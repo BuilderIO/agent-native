@@ -22,4 +22,13 @@ describe("Slides content-edit agent guidance", () => {
       "preserve all existing markup, inline styles, style blocks, backgrounds, and slide-level styling",
     );
   });
+
+  it("batches multi-slide edits and verifies once", () => {
+    expect(agentChatSource).toContain(
+      "collect the needed source, send all changed slides in one call, and verify once after the batch",
+    );
+    expect(agentChatSource).toMatch(
+      /After a multi-slide\s+patch-deck write, verify the completed batch once with get-deck compact=true\./,
+    );
+  });
 });
