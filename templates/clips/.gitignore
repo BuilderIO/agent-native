@@ -10,3 +10,8 @@ build
 public/mediapipe/wasm/
 
 data/*.lock
+
+# The ffmpeg sidecar the desktop app bundles, and the source build it is cached
+# from. Both are produced by desktop/scripts/prepare-ffmpeg-sidecar.mjs; a
+# 4 MB binary per architecture does not belong in git.
+desktop/src-tauri/binaries/
