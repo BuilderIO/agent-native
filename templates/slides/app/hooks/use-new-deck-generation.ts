@@ -304,6 +304,13 @@ export function useNewDeckGenerationRun(
     return () => clearTimeout(timer);
   }, [currentContinuation.submitMessageId, runKey]);
 
+  // A targeted send can dispatch chatSubmitTarget and the run's first
+  // chatRunning event in the same synchronous stack (sendToTab ->
+  // reportAgentChatSubmitTarget -> markOptimisticRunning). The `setRun` state
+  // update below only commits on the next render, too late for that first
+  // event, so the tab id also lands here in a ref the chatRunning listener
+  // (installed alongside this one, not after it) can read immediately.
+  const tabIdRef = useRef(currentRun.tabId);
   useLayoutEffect(() => {
     const submitId = currentRun.submitMessageId;
     if (!submitId) return;
@@ -321,6 +328,7 @@ export function useNewDeckGenerationRun(
         }
         return;
       }
+      tabIdRef.current = detail.tabId;
       setRun((previous) =>
         previous.deckId === currentRun.deckId &&
         previous.submitMessageId === submitId
@@ -337,9 +345,14 @@ export function useNewDeckGenerationRun(
       );
   }, [currentRun.deckId, currentRun.submitMessageId, currentRun.tabId]);
 
-  useEffect(() => {
-    const tabId = currentRun.tabId;
-    if (!tabId) return;
+  useLayoutEffect(() => {
+    const submitId = currentRun.submitMessageId;
+    if (!submitId) return;
+    const deckId = currentRun.deckId;
+    // Re-sync in case this effect reinstalls (e.g. StrictMode) without a
+    // chatSubmitTarget event in between.
+    tabIdRef.current = currentRun.tabId;
+    const getRunKey = () => `${deckId}:${submitId}:${tabIdRef.current}`;
     const clearStopDebounce = () => {
       if (stopDebounceRef.current !== null) {
         clearTimeout(stopDebounceRef.current);
@@ -347,45 +360,49 @@ export function useNewDeckGenerationRun(
       }
     };
     const handleChatRunning = (event: Event) => {
+      const tabId = tabIdRef.current;
+      if (!tabId) return;
       const detail = (event as CustomEvent).detail;
       if (detail?.threadId !== tabId && detail?.tabId !== tabId) {
         return;
       }
       if (detail.isRunning === true) {
         clearStopDebounce();
-        setActiveRun({ runKey, generating: true });
+        setActiveRun({ runKey: getRunKey(), generating: true });
         if (continuationTargetTabIdRef.current === tabId) {
           continuationTargetTabIdRef.current = null;
           continuationSubmitMessageIdRef.current = null;
           setContinuation((previous) =>
-            previous.runKey === runKey
-              ? { runKey, submitMessageId: null }
+            previous.runKey === getRunKey()
+              ? { runKey: getRunKey(), submitMessageId: null }
               : previous,
           );
         }
       } else if (detail.isRunning === false) {
         clearStopDebounce();
         if (detail.reason === "stopped") {
-          setActiveRun({ runKey, generating: false });
+          setActiveRun({ runKey: getRunKey(), generating: false });
         } else {
           stopDebounceRef.current = setTimeout(() => {
             stopDebounceRef.current = null;
-            setActiveRun({ runKey, generating: false });
+            setActiveRun({ runKey: getRunKey(), generating: false });
           }, CHAT_STOP_DEBOUNCE_MS);
         }
       }
     };
     const handleRunError = (event: Event) => {
+      const tabId = tabIdRef.current;
+      if (!tabId) return;
       const detail = (event as CustomEvent).detail;
       if (detail?.tabId !== tabId) return;
       clearStopDebounce();
-      setActiveRun({ runKey, generating: false });
+      setActiveRun({ runKey: getRunKey(), generating: false });
       if (continuationTargetTabIdRef.current === tabId) {
         continuationTargetTabIdRef.current = null;
         continuationSubmitMessageIdRef.current = null;
         setContinuation((previous) =>
-          previous.runKey === runKey
-            ? { runKey, submitMessageId: null }
+          previous.runKey === getRunKey()
+            ? { runKey: getRunKey(), submitMessageId: null }
             : previous,
         );
       }
@@ -397,7 +414,7 @@ export function useNewDeckGenerationRun(
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
       window.removeEventListener("agent-chat:run-error", handleRunError);
     };
-  }, [currentRun.tabId, runKey]);
+  }, [currentRun.deckId, currentRun.submitMessageId]);
 
   return {
     generating: activeRun.runKey === runKey && activeRun.generating,

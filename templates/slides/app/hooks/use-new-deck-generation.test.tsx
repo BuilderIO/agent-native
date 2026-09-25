@@ -434,6 +434,36 @@ describe("useNewDeckGeneration", () => {
     await act(async () => submission);
   });
 
+  it("catches the run's first chatRunning event dispatched synchronously with its submit target", () => {
+    // sendToTab -> reportAgentChatSubmitTarget -> AssistantChat's optimistic
+    // "running" event all fire in one call stack for a targeted send. The
+    // chatRunning listener must already be live when that happens, not wait
+    // for the chatSubmitTarget state update to commit on a later render.
+    const submitMessageId = "submit-sync-initial-running";
+    const { result } = renderHook(() =>
+      useNewDeckGenerationRun(
+        "deck-sync-initial-running",
+        true,
+        submitMessageId,
+      ),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId, tabId: "generation-tab" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "generation-tab" },
+        }),
+      );
+    });
+
+    expect(result.current.generating).toBe(true);
+  });
+
   it("clears stored run identity when the deck route is left", async () => {
     const submitMessageId = "submit-leaving-route";
     const deckId = "deck-leaving-route";
