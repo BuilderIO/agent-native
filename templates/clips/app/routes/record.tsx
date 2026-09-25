@@ -2528,7 +2528,7 @@ export default function RecordRoute() {
       });
     }
     try {
-      await engine?.cancel();
+      await engine?.cancel("user_cancelled");
     } catch {
       // ignore
     }
@@ -2546,7 +2546,7 @@ export default function RecordRoute() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            reason: "user_cancelled",
+            reason: "Recording cancelled by user",
             failureCode: "user_cancelled",
           }),
         }).catch(() => {});
@@ -2569,7 +2569,7 @@ export default function RecordRoute() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            reason: "user_cancelled",
+            reason: "Recording cancelled by user",
             failureCode: "user_cancelled",
           }),
         }).catch(() => {});

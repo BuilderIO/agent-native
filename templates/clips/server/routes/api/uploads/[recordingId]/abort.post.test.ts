@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
@@ -54,6 +55,10 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -195,7 +200,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
   });
 
   it("classifies aborts without a normalized cause as unknown", async () => {
-    mockReadBody.mockResolvedValue({});
+    mockReadBody.mockResolvedValue({ failureCode: "upload_failed" });
 
     await handler({} as any);
 
@@ -206,6 +211,34 @@ describe("/api/uploads/:recordingId/abort route", () => {
           failureCode: "unknown",
           failureReason: "unknown",
         }),
+      ]),
+    );
+  });
+
+  it.each([
+    "Recording cancelled by user",
+    "Recording cancelled during countdown",
+    "Upload cancelled",
+  ])("maps the legacy cancellation reason %s", async (reason) => {
+    mockReadBody.mockResolvedValue({ reason });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ failureCode: "user_cancelled" }),
+      ]),
+    );
+  });
+
+  it("does not treat the ambiguous legacy abort message as a cancellation", async () => {
+    mockReadBody.mockResolvedValue({ reason: "Upload aborted by user" });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ failureCode: "unknown" }),
       ]),
     );
   });
@@ -374,6 +407,38 @@ describe("/api/uploads/:recordingId/abort route", () => {
       expect.arrayContaining([
         expect.objectContaining({ failureCode: "chunk_html_error" }),
       ]),
+    );
+  });
+
+  it("classifies legacy reset-chunks HTML errors and records their stage", async () => {
+    mockReadBody.mockResolvedValue({
+      reason:
+        "Couldn't prepare the recording for re-upload (reset-chunks 2). <!DOCTYPE html><html>",
+      failureCode: "upload_failed",
+    });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          failureCode: "chunk_html_error",
+          failureReason:
+            "Couldn't prepare the recording for re-upload (reset-chunks 2). <!DOCTYPE html><html>",
+        }),
+      ]),
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.objectContaining({
+        failure_code: "chunk_html_error",
+        failure_stage: "reset_chunks",
+      }),
+      { userId: "owner@example.com" },
+    );
+    expect(mockTrack.mock.calls[0]?.[1]).not.toHaveProperty("failure_reason");
+    expect(JSON.stringify(mockTrack.mock.calls[0]?.[1])).not.toContain(
+      "<!DOCTYPE html>",
     );
   });
 

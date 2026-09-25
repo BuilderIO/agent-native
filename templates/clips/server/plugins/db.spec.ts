@@ -173,7 +173,9 @@ describe("organization recording visibility default migration", () => {
 
 describe("recording failure code migration", () => {
   it("maps legacy reasons in bounded recurring batches after adding columns", () => {
-    expect(failureBackfillSource).toContain("failure_code = CASE");
+    expect(failureBackfillSource).toContain(
+      "failure_code = ${LEGACY_FAILURE_CODE_CASE}",
+    );
     expect(failureBackfillSource).toContain(
       "WHEN failure_reason IN ('Recording cancelled by user', 'Recording cancelled during countdown', 'Upload cancelled') THEN 'user_cancelled'",
     );
@@ -189,7 +191,21 @@ describe("recording failure code migration", () => {
     expect(failureBackfillSource).toContain(
       "WHEN failure_reason ILIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'",
     );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason ILIKE 'Couldn''t prepare the recording for re-upload (reset-chunks %). <!DOCTYPE html>%' THEN 'chunk_html_error'",
+    );
     expect(failureBackfillSource).toContain("ELSE 'unknown'");
+    const backfillUpdate = failureBackfillSource.slice(
+      failureBackfillSource.indexOf("sql: `UPDATE recordings SET"),
+    );
+    const outerUpdatePredicate = backfillUpdate.slice(
+      backfillUpdate.indexOf("ORDER BY id LIMIT $2"),
+      backfillUpdate.indexOf("RETURNING id"),
+    );
+    expect(outerUpdatePredicate).toContain("AND status = 'failed'");
+    expect(outerUpdatePredicate).toContain(
+      "(failure_code IS NULL OR failure_code = 'unknown')",
+    );
     expect(failureBackfillSource).toContain("ORDER BY id LIMIT $2");
     expect(failureBackfillSource).toContain("BATCH_SIZE = 250");
     expect(failureBackfillSource).toContain("SWEEP_INTERVAL_MS = 60_000");
@@ -211,6 +227,9 @@ describe("recording failure code migration", () => {
     expect(failureMigration).not.toMatch(/UPDATE recordings/i);
     expect(dbTsSource).toMatch(
       /version: 75,[\s\S]*?name: "recording-failure-backfill-cursor"[\s\S]*?ADD COLUMN IF NOT EXISTS cursor_id TEXT/,
+    );
+    expect(dbTsSource).toMatch(
+      /version: 76,[\s\S]*?name: "recording-failure-backfill-completion"[\s\S]*?ADD COLUMN IF NOT EXISTS completed_at TEXT/,
     );
     expect(failureBackfillSource).not.toContain("'Upload aborted by user'");
   });

@@ -67,23 +67,43 @@ export async function handleAbortRecordingUpload(
     attemptId?: unknown;
     uploadGenerationId?: unknown;
   } | null;
-  const reasonText = typeof body?.reason === "string" ? body.reason : "";
+  const reasonText =
+    typeof body?.reason === "string" ? body.reason.trim().slice(0, 1000) : "";
+  const isResetChunksHtmlFailure =
+    /reset-chunks\b/i.test(reasonText) &&
+    /(?:<!doctype html|<html\b)/i.test(reasonText);
   const isHtmlFailure =
     /returned an HTML error response/i.test(reasonText) ||
-    /^\s*(?:<!doctype html|<html\b)/i.test(reasonText);
+    /^\s*(?:<!doctype html|<html\b)/i.test(reasonText) ||
+    isResetChunksHtmlFailure;
   const requestedFailureCode = normalizeRecordingFailureCode(body?.failureCode);
-  const failureCode =
-    requestedFailureCode === "upload_failed" && isHtmlFailure
-      ? "chunk_html_error"
+  const legacyCancellationReasons = new Set([
+    "Recording cancelled by user",
+    "Recording cancelled during countdown",
+    "Upload cancelled",
+  ]);
+  const normalizedFailureCode = !reasonText
+    ? "unknown"
+    : requestedFailureCode === "unknown" &&
+        legacyCancellationReasons.has(reasonText)
+      ? "user_cancelled"
       : requestedFailureCode;
+  const failureCode =
+    (normalizedFailureCode === "upload_failed" ||
+      normalizedFailureCode === "unknown") &&
+    isHtmlFailure
+      ? "chunk_html_error"
+      : normalizedFailureCode;
   const failureStage =
     body?.failureStage === "multipart_start" ||
     body?.failureStage === "chunk_upload" ||
     body?.failureStage === "reset_chunks"
       ? body.failureStage
-      : isHtmlFailure
-        ? "chunk_upload"
-        : undefined;
+      : isResetChunksHtmlFailure
+        ? "reset_chunks"
+        : isHtmlFailure
+          ? "chunk_upload"
+          : undefined;
   const explicitHttpStatus =
     Number.isInteger(body?.httpStatus) &&
     Number(body?.httpStatus) >= 100 &&
@@ -95,9 +115,7 @@ export async function handleAbortRecordingUpload(
     : undefined;
   const httpStatus =
     explicitHttpStatus ?? (htmlStatus ? Number(htmlStatus) : undefined);
-  const failureReason = reasonText.trim()
-    ? reasonText.trim().slice(0, 1000)
-    : failureCode;
+  const failureReason = reasonText || "unknown";
   const requestedAttemptId =
     typeof body?.attemptId === "string" &&
     body.attemptId.length > 0 &&

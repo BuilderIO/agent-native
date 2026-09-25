@@ -1263,6 +1263,11 @@ export const migrations = runMigrations(
       name: "recording-failure-backfill-cursor",
       sql: `ALTER TABLE clips_backfill_leases ADD COLUMN IF NOT EXISTS cursor_id TEXT`,
     },
+    {
+      version: 76,
+      name: "recording-failure-backfill-completion",
+      sql: `ALTER TABLE clips_backfill_leases ADD COLUMN IF NOT EXISTS completed_at TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

@@ -14,6 +14,7 @@
  */
 
 import {
+  compareAndSetAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -761,18 +762,6 @@ export async function handleRecordingChunk(
         });
         if ((result as any)?.status === "failed") {
           const failure = finalizeResultFailure(result);
-          trackUploadBlockingFailure(
-            ownerEmail,
-            recordingId,
-            attemptId,
-            existing.recordingPlatform,
-            {
-              stage: "finalize_recording",
-              outcome: failure.outcome,
-              failure_type: failure.failure_type,
-              upload_mode: "buffered",
-            },
-          );
           if (failure.outcome === "cancelled") {
             setResponseStatus(event, 409);
             return {
@@ -926,25 +915,6 @@ export async function handleRecordingChunk(
           )
           .returning({ id: schema.recordings.id });
         if (failed.length !== 1) {
-          if (
-            committed?.status === "failed" &&
-            committed.failureCode === "chunk_assembly_failed" &&
-            (committed.uploadAttemptId ?? null) === attemptId &&
-            (committed.uploadGenerationId ?? null) === uploadGenerationId
-          ) {
-            trackUploadBlockingFailure(
-              ownerEmail,
-              recordingId,
-              attemptId,
-              existing.recordingPlatform,
-              {
-                stage: "finalize_recording",
-                outcome: "failed",
-                failure_type: classifyTrackingFailure(err),
-                upload_mode: "buffered",
-              },
-            );
-          }
           throw err;
         }
         trackUploadBlockingFailure(
@@ -1403,18 +1373,6 @@ async function handleResumableChunk(
     );
     if ((result as any)?.status === "failed") {
       const failure = finalizeResultFailure(result);
-      trackUploadBlockingFailure(
-        ownerEmail,
-        recordingId,
-        attemptId,
-        recordingPlatform,
-        {
-          stage: "finalize_recording",
-          outcome: failure.outcome,
-          failure_type: failure.failure_type,
-          upload_mode: "resumable",
-        },
-      );
       if (failure.outcome === "cancelled") {
         setResponseStatus(event, 409);
         return {
@@ -1445,6 +1403,8 @@ async function handleResumableChunk(
       .select({
         id: schema.recordings.id,
         status: schema.recordings.status,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
         videoUrl: schema.recordings.videoUrl,
         videoSizeBytes: schema.recordings.videoSizeBytes,
         durationMs: schema.recordings.durationMs,
@@ -1460,7 +1420,10 @@ async function handleResumableChunk(
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
-    if (committed?.status === "ready" && committed.videoUrl) {
+    const sameUpload =
+      committed?.uploadAttemptId === attemptId &&
+      committed.uploadGenerationId === uploadGenerationId;
+    if (sameUpload && committed.status === "ready" && committed.videoUrl) {
       console.warn(
         `[resumable-chunk-${recordingId}] finalize reported an error after committing a ready recording; returning committed success.`,
         { error: err instanceof Error ? err.message : String(err) },
@@ -1507,7 +1470,7 @@ async function handleResumableChunk(
         hasCamera: committed.hasCamera,
       };
     }
-    if (committed?.status === "processing" && committed.videoUrl) {
+    if (sameUpload && committed.status === "processing" && committed.videoUrl) {
       const pendingState = pendingMediaVerificationState(
         await readAppState(`recording-upload-${recordingId}`).catch(() => null),
       );
@@ -1516,18 +1479,6 @@ async function handleResumableChunk(
       }
     }
 
-    trackUploadBlockingFailure(
-      ownerEmail,
-      recordingId,
-      attemptId,
-      recordingPlatform,
-      {
-        stage: "finalize_recording",
-        outcome: "failed",
-        failure_type: classifyTrackingFailure(err),
-        upload_mode: "resumable",
-      },
-    );
     const failureReason =
       err instanceof Error ? err.message : "Finalize failed";
     const failedAt = new Date().toISOString();
@@ -1544,15 +1495,37 @@ async function handleResumableChunk(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           eq(schema.recordings.status, "processing"),
+          attemptId === null
+            ? isNull(schema.recordings.uploadAttemptId)
+            : eq(schema.recordings.uploadAttemptId, attemptId),
+          uploadGenerationId === null
+            ? isNull(schema.recordings.uploadGenerationId)
+            : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
         ),
       )
-      .returning({ id: schema.recordings.id });
+      .returning({
+        id: schema.recordings.id,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        recordingPlatform: schema.recordings.recordingPlatform,
+      });
     if (failed.length !== 1) throw err;
+    trackUploadBlockingFailure(
+      ownerEmail,
+      recordingId,
+      attemptId,
+      recordingPlatform,
+      {
+        stage: "finalize_recording",
+        outcome: "failed",
+        failure_type: classifyTrackingFailure(err),
+        upload_mode: "resumable",
+      },
+    );
     trackRecordingFailure({
       recordingId,
       userId: ownerEmail,
-      uploadAttemptId: attemptId,
-      platform: recordingPlatform,
+      uploadAttemptId: failed[0]?.uploadAttemptId,
+      platform: failed[0]?.recordingPlatform,
       failureCode: "finalize_failed",
     });
     const failedUploadStateRaw = await readAppState(
@@ -1562,13 +1535,22 @@ async function handleResumableChunk(
       failedUploadStateRaw && typeof failedUploadStateRaw === "object"
         ? (failedUploadStateRaw as Record<string, unknown>)
         : {};
-    await writeAppState(`recording-upload-${recordingId}`, {
-      ...failedUploadState,
-      recordingId,
-      status: "failed",
-      failureReason,
-      updatedAt: failedAt,
-    });
+    if (
+      failedUploadState.aborted !== true &&
+      failedUploadState.failureCode !== "user_cancelled"
+    ) {
+      await compareAndSetAppState(
+        `recording-upload-${recordingId}`,
+        failedUploadState,
+        {
+          ...failedUploadState,
+          recordingId,
+          status: "failed",
+          failureReason,
+          updatedAt: failedAt,
+        },
+      );
+    }
     setResponseStatus(event, 500);
     return {
       ok: false,
