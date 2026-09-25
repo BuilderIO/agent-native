@@ -191,9 +191,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain(
       "if (textSessionRef.current) exitInlineEditRef.current();",
     );
-    expect(source).toContain(
-      "container.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);",
-    );
     // Drafts are written mid-session, so they bypass the committing wrapper.
     const persistStart = source.indexOf("const persistInlineEditDraft");
     const persistEnd = source.indexOf(
@@ -203,6 +200,31 @@ describe("SlideEditor render-phase safety", () => {
     expect(source.slice(persistStart, persistEnd)).toContain(
       "rawOnUpdateSlideRef.current({ content }, slideId, {",
     );
+  });
+
+  it("keeps the replacement listener mounted across Excalidraw-to-HTML swaps", () => {
+    const boundaryRefAt = source.indexOf("ref={contentReplaceBoundaryRef}");
+    const canvasBranchAt = source.indexOf(
+      "{slide.excalidrawData ? (",
+      boundaryRefAt,
+    );
+    expect(boundaryRefAt).toBeGreaterThan(-1);
+    expect(canvasBranchAt).toBeGreaterThan(boundaryRefAt);
+
+    const effectStart = source.indexOf("// Another slide's HTML");
+    const effectEnd = source.indexOf(
+      "// Keep canvas gesture handlers",
+      effectStart,
+    );
+    const listenerEffect = source.slice(effectStart, effectEnd);
+    expect(listenerEffect).toContain("contentReplaceBoundaryRef.current");
+    expect(listenerEffect).toContain(
+      "boundary.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);",
+    );
+    expect(listenerEffect).toContain(
+      "boundary.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);",
+    );
+    expect(listenerEffect).not.toContain("containerRef.current");
   });
 
   it("never lets a slide link on the editing canvas navigate", () => {

@@ -1653,6 +1653,9 @@ export default function SlideEditor({
   const [selectionViewportRect, setSelectionViewportRect] =
     useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Mounted for Excalidraw and HTML slides alike, so the once-run listener
+  // effect below finds it whichever kind of slide the editor opened on.
+  const contentReplaceBoundaryRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // Wraps the rendered slide; used as the positioning container for the
   // lingering "AI edited" ring when the active slide was just edited.
@@ -2941,16 +2944,16 @@ export default function SlideEditor({
   // (the agent navigated, or a slide switch rendered before the effect above
   // ran). Save the edit while its DOM still exists.
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    const boundary = contentReplaceBoundaryRef.current;
+    if (!boundary) return;
     const commit = (event: Event) => {
       const newer = (event as CustomEvent<SlideContentReplaceDetail | null>)
         .detail;
       if (textSessionRef.current) exitInlineEditRef.current(newer ?? undefined);
     };
-    container.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    boundary.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
     return () =>
-      container.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+      boundary.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
   }, []);
 
   // Keep canvas gesture handlers from stealing the browser's native text
@@ -8907,7 +8910,10 @@ export default function SlideEditor({
         ? createPortal(contextToolbar, contextToolbarSlot)
         : contextToolbar}
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div
+        ref={contentReplaceBoundaryRef}
+        className="flex min-h-0 flex-1 overflow-hidden"
+      >
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (
             <div
