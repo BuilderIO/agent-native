@@ -83,11 +83,11 @@ Identity और organization writes additive हैं। Same-email users ब�
 ## Configuration
 
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> server और browser paths के लिए
-Dispatch hub बताता है, जब self-hosted app को explicit configuration चाहिए।
-Exact registered first-party apps के sign-in pages पर "Continue with
-Agent-Native" action उपलब्ध है। <code>browser.identity-sso</code> rollout flag
-silent <code>prompt=none</code> sign-in और local sign-in के बाद bootstrap को
-control करता है। Local sign-in fallback के रूप में उपलब्ध रहता है।
+Dispatch hub बताता है, जब self-hosted app को explicit configuration चाहिए। Exact
+registered first-party apps के sign-in pages पर "Continue with Agent-Native"
+action उपलब्ध है। <code>browser.identity-sso</code> rollout flag silent
+<code>prompt=none</code> sign-in और local sign-in के बाद bootstrap को control
+करता है। Local sign-in fallback के रूप में उपलब्ध रहता है।
 
 Self-hosted Dispatch में हर custom app को exact app ID, client ID, HTTPS origin, callback
 path और <code>identity-sso</code> capability के साथ
@@ -114,6 +114,7 @@ Deployment के बाद:
 
 Silent browser या Desktop path को rollback करने के लिए उसका feature flag बंद
 करें। Self-hosted app से explicit browser action हटाने के लिए
+
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> या उसका exact app registration हटाकर
 redeploy करें। Local sign-in उपलब्ध रहेगा और additive identity तथा organization
 records बने रहेंगे।
