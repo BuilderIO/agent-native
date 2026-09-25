@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -20,6 +21,11 @@ const mocks = vi.hoisted(() => ({
   view: "all",
   headerActions: null as unknown,
   priorityRequest: vi.fn(),
+  queryClient: {
+    getQueryData: vi.fn(),
+    setQueryData: vi.fn(),
+    invalidateQueries: vi.fn(),
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -31,11 +37,7 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({
-    getQueryData: vi.fn(),
-    setQueryData: vi.fn(),
-    invalidateQueries: vi.fn(),
-  }),
+  useQueryClient: () => mocks.queryClient,
 }));
 
 vi.mock("@tanstack/react-virtual", () => ({
@@ -262,6 +264,11 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
     mocks.view = "all";
     mocks.headerActions = null;
+    mocks.queryClient = {
+      getQueryData: vi.fn(),
+      setQueryData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    };
     mocks.priorityRequest.mockReset().mockResolvedValue({ scores: [] });
   });
 
@@ -316,6 +323,47 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
       emails: [expect.objectContaining({ id: "last" })],
     });
+  });
+
+  it("reuses priority scores on the first render after the list remounts", async () => {
+    mocks.view = "inbox";
+    const inboxEmails = [messages[0], messages[1], messages[2]].map(
+      (email) => ({
+        ...email,
+        labelIds: ["inbox"],
+      }),
+    );
+    let resolvePriority!: (result: {
+      scores: Array<{ emailId: string; score: number }>;
+    }) => void;
+    mocks.priorityRequest.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePriority = resolve;
+      }),
+    );
+
+    const firstMount = render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+    expect(mocks.priorityRequest).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolvePriority({
+        scores: [
+          { emailId: "first", score: 0.1 },
+          { emailId: "middle", score: 0.9 },
+          { emailId: "last", score: 0.8 },
+        ],
+      });
+    });
+    expect(rows()[0].textContent).toContain("Subject middle");
+    firstMount.unmount();
+
+    render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+
+    expect(rows()[0].textContent).toContain("Subject middle");
+    expect(mocks.priorityRequest).toHaveBeenCalledTimes(1);
   });
 
   it("keeps partial refresh warnings out of a populated cached list", () => {

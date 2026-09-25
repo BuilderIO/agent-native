@@ -22,7 +22,11 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import {
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
@@ -125,6 +129,7 @@ function priorityEmailCacheKey(
   const priorityEmail = toPriorityEmail(email);
   return JSON.stringify([
     ruleRevision,
+    priorityEmail.accountEmail,
     priorityEmail.id,
     priorityEmail.date,
     priorityEmail.from,
@@ -133,6 +138,22 @@ function priorityEmailCacheKey(
     priorityEmail.snippet,
     priorityEmail.labelIds,
   ]);
+}
+
+type CachedPriorityScore = { inputKey: string; score: number };
+
+const priorityScoreCaches = new WeakMap<
+  QueryClient,
+  Map<string, CachedPriorityScore>
+>();
+
+function priorityScoreCache(queryClient: QueryClient) {
+  let cache = priorityScoreCaches.get(queryClient);
+  if (!cache) {
+    cache = new Map();
+    priorityScoreCaches.set(queryClient, cache);
+  }
+  return cache;
 }
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
@@ -640,15 +661,15 @@ export function EmailList({
         .concat(
           priorityWindowEmails.map(
             (email) =>
-              `${email.id}:${email.date}:${email.from.email}:${JSON.stringify(email.to)}:${email.subject}:${email.snippet}:${email.labelIds.join(",")}`,
+              `${email.accountEmail}:${email.id}:${email.date}:${email.from.email}:${JSON.stringify(email.to)}:${email.subject}:${email.snippet}:${email.labelIds.join(",")}`,
           ),
         )
         .join("\u001f"),
     [priorityRuleRevision, priorityWindowEmails],
   );
-  const [priorityScores, setPriorityScores] = useState<
-    Map<string, { inputKey: string; score: number }>
-  >(() => new Map());
+  const [priorityScores, setPriorityScores] = useState(
+    () => new Map(priorityScoreCache(queryClient)),
+  );
   const cachedPriorityScores = useMemo(() => {
     const cached = new Map<string, number>();
     for (const email of priorityWindowEmails) {
@@ -694,15 +715,17 @@ export function EmailList({
         emails: uncachedPriorityEmails.map(toPriorityEmail),
       });
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
-      setPriorityScores((current) => {
-        const next = new Map(current);
-        for (const score of result.scores) {
-          const inputKey = pendingInputKeys.get(score.emailId);
-          if (inputKey)
-            next.set(score.emailId, { inputKey, score: score.score });
+      const cache = priorityScoreCache(queryClient);
+      const next = new Map(cache);
+      for (const score of result.scores) {
+        const inputKey = pendingInputKeys.get(score.emailId);
+        if (inputKey) {
+          const cachedScore = { inputKey, score: score.score };
+          cache.set(score.emailId, cachedScore);
+          next.set(score.emailId, cachedScore);
         }
-        return next;
-      });
+      }
+      setPriorityScores(next);
     } catch (error) {
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
       priorityRequestKeyRef.current = "";
@@ -719,6 +742,7 @@ export function EmailList({
     priorityRuleRevision,
     cachedPriorityScores,
     priorityWindowEmails,
+    queryClient,
     requestPriority,
     t,
   ]);
