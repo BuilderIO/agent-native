@@ -43,7 +43,7 @@ describe("selected library actions layout", () => {
     expect(layoutSource).not.toContain("navigation.newFolder");
     expect(layoutSource).not.toContain("createSpaceDialog.newSpace");
     expect(layoutSource).not.toContain("<ImportMenu");
-    expect(libraryRouteSource).toContain("<LibraryPrimaryActions />");
+    expect(libraryRouteSource).toContain("<LibraryPrimaryActions landing />");
     expect(libraryRouteSource).toContain(
       'import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";',
     );
@@ -54,7 +54,9 @@ describe("selected library actions layout", () => {
     expect(gridSource).toContain('import { FolderCard } from "./folder-card"');
     expect(gridSource).toContain("visibleFolders");
     expect(gridSource).toContain("const isEmptyState =");
-    expect(gridSource).toContain("!isEmptyState && extraActions");
+    expect(gridSource).toContain(
+      "(!isEmptyState || isLandingView) && extraActions",
+    );
     expect(gridSource).toContain("!isEmptyState && (\n              <SortMenu");
     expect(gridSource).toContain("organizationId: currentOrganizationId");
     expect(folderRouteSource).toContain("useOrganizations()");
@@ -207,13 +209,18 @@ describe("selected library actions layout", () => {
     );
   });
 
-  it("keeps library search before the primary recording action", () => {
+  it("keeps library search and imports visible on an empty landing page", () => {
     const gridSource = readSource("./library-grid.tsx");
     const searchIndex = gridSource.indexOf("<SearchBar");
-    const actionIndex = gridSource.indexOf("!isEmptyState && extraActions");
+    const actionIndex = gridSource.indexOf(
+      "(!isEmptyState || isLandingView) && extraActions",
+    );
 
     expect(searchIndex).toBeGreaterThan(-1);
     expect(actionIndex).toBeGreaterThan(searchIndex);
+    expect(gridSource).toContain('<TabsList variant="line"');
+    expect(gridSource).toContain('t("libraryLanding.createTitle")');
+    expect(gridSource).toContain('t("navigation.sharedWithMe")');
   });
 
   it("anchors the action bar to the list viewport instead of the list end", () => {

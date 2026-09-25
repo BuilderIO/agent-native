@@ -1626,7 +1626,11 @@ export default {
   },
   home: {
     pageTitle: "Designs",
-    searchPlaceholder: "डिज़ाइन खोजें...",
+    searchPlaceholder: "डिज़ाइन खोजें",
+    recent: "हाल के",
+    sharedWithMe: "मेरे साथ साझा",
+    importDesign: "डिज़ाइन आयात करें",
+    noSharedDesigns: "अभी तक आपके साथ कोई डिज़ाइन साझा नहीं किया गया है।",
     newDesign: "नया Design",
     newDesignLower: "नया डिज़ाइन",
     createDesignProject: "एक डिज़ाइन प्रोजेक्ट बनाएं",

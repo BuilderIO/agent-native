@@ -135,6 +135,8 @@ interface PromptPopoverProps {
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
+  inline?: boolean;
+  toolbarSlot?: React.ReactNode;
   /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
   initialText?: string;
@@ -168,6 +170,8 @@ export default function PromptPopover({
   loading = false,
   anchorRef,
   centered = false,
+  inline = false,
+  toolbarSlot,
   draftScope,
   initialText,
   initialTextKey,
@@ -218,7 +222,7 @@ export default function PromptPopover({
 
   // Position the popover after render so we can measure its actual size
   useEffect(() => {
-    if (!open || !panelRef.current) return;
+    if (!open || inline || !panelRef.current) return;
     const panel = panelRef.current;
     const MARGIN = 12;
 
@@ -254,7 +258,7 @@ export default function PromptPopover({
 
   // Close on outside click / escape
   useEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
     const handleClick = (e: MouseEvent) => {
       if (isInsidePortaledLayer(e.target)) return;
       if (
@@ -274,7 +278,7 @@ export default function PromptPopover({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [open, onOpenChange, anchorRef]);
+  }, [inline, open, onOpenChange, anchorRef]);
 
   const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
 
@@ -520,7 +524,7 @@ export default function PromptPopover({
 
   const popover = (
     <>
-      {centered && (
+      {centered && !inline && (
         <div
           className="fixed inset-0 bg-black/40 z-[199]"
           onClick={() => onOpenChange(false)}
@@ -528,27 +532,33 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className="fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
-        role="dialog"
-        aria-modal="true"
+        className={
+          inline
+            ? "w-full min-w-0"
+            : "fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
+        }
+        role={inline ? "region" : "dialog"}
+        aria-modal={inline ? undefined : "true"}
         aria-label={title}
-        style={{ top: 0, left: 0, visibility: "visible" }}
+        style={inline ? undefined : { top: 0, left: 0, visibility: "visible" }}
       >
-        <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
-          <span className="text-sm font-medium text-foreground">{title}</span>
-          {onSkip && !importMode && !submitting && (
-            <button
-              type="button"
-              onClick={() => {
-                onSkip();
-                onOpenChange(false);
-              }}
-              className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {skipLabel}
-            </button>
-          )}
-        </div>
+        {!inline && (
+          <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+            <span className="text-sm font-medium text-foreground">{title}</span>
+            {onSkip && !importMode && !submitting && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSkip();
+                  onOpenChange(false);
+                }}
+                className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {skipLabel}
+              </button>
+            )}
+          </div>
+        )}
 
         {importEnabled && (
           <input
@@ -589,7 +599,7 @@ export default function PromptPopover({
           >
             <div className="px-2.5 pb-2.5">
               <PromptComposer
-                autoFocus
+                autoFocus={!inline}
                 attachmentsEnabled
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
@@ -603,6 +613,7 @@ export default function PromptPopover({
                 draftScope={draftScope}
                 initialText={initialText}
                 initialTextKey={initialTextKey}
+                toolbarSlot={toolbarSlot}
                 selectedModel={
                   initialModelSelection ? modelSelection?.model : undefined
                 }
@@ -779,5 +790,5 @@ export default function PromptPopover({
     </>
   );
 
-  return createPortal(popover, document.body);
+  return inline ? popover : createPortal(popover, document.body);
 }

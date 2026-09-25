@@ -1198,8 +1198,12 @@ const messages = {
     unsupportedFormat:
       "이 브라우저에서는 이 동영상을 재생할 수 없습니다. Chrome, Edge 또는 Firefox에서 링크를 열어 보세요.",
   },
+  libraryLanding: {
+    recent: "최근",
+    createTitle: "다음 Clip 만들기",
+  },
   searchBar: {
-    placeholder: "녹화 검색…",
+    placeholder: "클립 검색",
     clear: "검색 지우기",
     searching: "검색 중…",
     noMatchesFor: "일치 항목 없음:",

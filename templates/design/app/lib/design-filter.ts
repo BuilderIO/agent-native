@@ -1,6 +1,6 @@
 export const DESIGN_FILTER_STORAGE_KEY = "design:design-filter";
 
-export type DesignFilter = "all" | "mine";
+export type DesignFilter = "recent" | "shared";
 
 function getLocalStorage(): Pick<Storage, "getItem" | "setItem"> | null {
   if (typeof window === "undefined") return null;
@@ -20,7 +20,10 @@ export function readStoredDesignFilter(
 
   try {
     const stored = storage.getItem(DESIGN_FILTER_STORAGE_KEY);
-    return stored === "all" || stored === "mine" ? stored : undefined;
+    if (stored === "recent" || stored === "shared") return stored;
+    if (stored === "mine") return "recent";
+    if (stored === "all") return "shared";
+    return undefined;
   } catch {
     // coercion-ok: localStorage failures intentionally fall back to the default filter.
     return undefined;

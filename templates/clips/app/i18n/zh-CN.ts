@@ -1151,8 +1151,12 @@ const messages = {
     unsupportedFormat:
       "此浏览器无法播放该视频。请尝试在 Chrome、Edge 或 Firefox 中打开链接。",
   },
+  libraryLanding: {
+    recent: "最近",
+    createTitle: "创建你的下一个 Clip",
+  },
   searchBar: {
-    placeholder: "搜索录制…",
+    placeholder: "搜索片段",
     clear: "清除搜索",
     searching: "正在搜索…",
     noMatchesFor: "没有匹配项：",

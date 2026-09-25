@@ -27,7 +27,7 @@ export default function LibraryIndexRoute() {
       view="library"
       folderId={null}
       title={t("navigation.library")}
-      extraActions={<LibraryPrimaryActions />}
+      extraActions={<LibraryPrimaryActions landing />}
     />
   );
 }

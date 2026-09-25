@@ -245,25 +245,12 @@ describe("Index rename dialog accessibility", () => {
     expect(resolveAccessibleName(input!)).toBeTruthy();
   });
 
-  it("gives the search text input an accessible name too (same placeholder-only pattern)", async () => {
-    // The search input lives in header actions, which the real app renders
-    // in app-shell chrome outside this component's own tree — mount the
-    // captured node separately to inspect it.
-    const headerContainer = document.createElement("div");
-    document.body.append(headerContainer);
-    const headerRoot = createRoot(headerContainer);
-    await act(async () => {
-      headerRoot.render(mocks.headerActions as React.ReactElement);
-    });
-
-    const search = headerContainer.querySelector<HTMLInputElement>(
+  it("gives the search text input an accessible name in the page content", async () => {
+    const search = document.querySelector<HTMLInputElement>(
       'input[placeholder="home.searchPlaceholder"]',
     );
     expect(search).toBeTruthy();
     expect(resolveAccessibleName(search!)).toBeTruthy();
-
-    await act(async () => headerRoot.unmount());
-    headerContainer.remove();
   });
 });
 

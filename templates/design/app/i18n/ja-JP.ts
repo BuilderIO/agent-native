@@ -1655,7 +1655,11 @@ export default {
   },
   home: {
     pageTitle: "Design",
-    searchPlaceholder: "デザインを検索...",
+    searchPlaceholder: "デザインを検索",
+    recent: "最近",
+    sharedWithMe: "共有されたデザイン",
+    importDesign: "デザインをインポート",
+    noSharedDesigns: "まだデザインが共有されていません。",
     newDesign: "新しいDesign",
     newDesignLower: "新しいデザイン",
     createDesignProject: "デザインプロジェクトを作成する",

@@ -24,6 +24,8 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import {
+  type ComponentProps,
+  type ReactNode,
   lazy,
   Suspense,
   useState,
@@ -371,6 +373,7 @@ interface PromptPopoverProps {
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
+  inline?: boolean;
   designSystems?: PromptDesignSystemOption[];
   designSystemsLoading?: boolean;
   selectedDesignSystemId?: string | null;
@@ -413,6 +416,47 @@ interface PromptPopoverProps {
 export interface PromptCreativeContextOption {
   id: string;
   name: string;
+}
+
+function PromptPopoverSurface({
+  inline,
+  children,
+  onCloseAutoFocus,
+  onEscapeKeyDown,
+  onInteractOutside,
+}: {
+  inline: boolean;
+  children: ReactNode;
+} & Pick<
+  ComponentProps<typeof PopoverContent>,
+  "onCloseAutoFocus" | "onEscapeKeyDown" | "onInteractOutside"
+>) {
+  if (inline) {
+    return (
+      <div
+        data-agent-native-prompt-popover
+        className="relative w-full max-w-3xl rounded-xl border border-border bg-card p-0 shadow-sm"
+      >
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <PopoverContent
+      side="bottom"
+      align="center"
+      sideOffset={12}
+      collisionPadding={12}
+      onCloseAutoFocus={onCloseAutoFocus}
+      onEscapeKeyDown={onEscapeKeyDown}
+      onInteractOutside={onInteractOutside}
+      data-agent-native-prompt-popover
+      className="relative z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
+    >
+      {children}
+    </PopoverContent>
+  );
 }
 
 function isNestedPromptPopoverTarget(target: EventTarget | null) {
@@ -466,6 +510,7 @@ export default function PromptPopover({
   loading = false,
   anchorRef,
   centered = false,
+  inline = false,
   designSystems = [],
   designSystemsLoading = false,
   selectedDesignSystemId,
@@ -891,32 +936,34 @@ export default function PromptPopover({
     (creativeContextsLoading || creativeContexts.length > 0);
 
   return (
-    <Popover open={open} onOpenChange={handlePopoverOpenChange}>
-      {open && centered && (
+    <Popover
+      open={inline ? false : open}
+      onOpenChange={handlePopoverOpenChange}
+    >
+      {!inline && open && centered && (
         <div
           className="fixed inset-0 z-[199] bg-black/40"
           onClick={() => onOpenChange(false)}
         />
       )}
-      {hasVirtualAnchor ? (
-        <PopoverAnchor virtualRef={virtualAnchorRef} />
-      ) : (
-        <PopoverAnchor asChild>
-          <span
-            aria-hidden="true"
-            className={
-              centered
-                ? "fixed left-1/2 top-1/2 size-px"
-                : "fixed left-3 top-3 size-px"
-            }
-          />
-        </PopoverAnchor>
-      )}
-      <PopoverContent
-        side="bottom"
-        align="center"
-        sideOffset={12}
-        collisionPadding={12}
+      {!inline ? (
+        hasVirtualAnchor ? (
+          <PopoverAnchor virtualRef={virtualAnchorRef} />
+        ) : (
+          <PopoverAnchor asChild>
+            <span
+              aria-hidden="true"
+              className={
+                centered
+                  ? "fixed left-1/2 top-1/2 size-px"
+                  : "fixed left-3 top-3 size-px"
+              }
+            />
+          </PopoverAnchor>
+        )
+      ) : null}
+      <PromptPopoverSurface
+        inline={inline}
         onCloseAutoFocus={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => {
           if (assetsPickerOpen) event.preventDefault();
@@ -930,21 +977,23 @@ export default function PromptPopover({
             event.preventDefault();
           }
         }}
-        data-agent-native-prompt-popover
-        className="relative z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
-        <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
-          <span className="text-sm font-medium text-foreground/90">
-            {title}
-          </span>
-          {creationMode && onCreationModeChange ? (
-            <CreationModeToggle
-              mode={creationMode}
-              onChange={onCreationModeChange}
-              disabled={loading || uploading || submitting}
-            />
-          ) : null}
-        </div>
+        {title || (creationMode && onCreationModeChange) ? (
+          <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
+            {title ? (
+              <span className="text-sm font-medium text-foreground/90">
+                {title}
+              </span>
+            ) : null}
+            {creationMode && onCreationModeChange ? (
+              <CreationModeToggle
+                mode={creationMode}
+                onChange={onCreationModeChange}
+                disabled={loading || uploading || submitting}
+              />
+            ) : null}
+          </div>
+        ) : null}
 
         {showStartChoice ? (
           <div className="grid grid-cols-2 gap-2 px-3.5 pt-1 pb-3.5">
@@ -1241,7 +1290,7 @@ export default function PromptPopover({
           onReady={handleAssetsPickerReady}
           onMessage={handleAssetsPickerMessage}
         />
-      </PopoverContent>
+      </PromptPopoverSurface>
     </Popover>
   );
 }

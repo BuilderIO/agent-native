@@ -1686,7 +1686,11 @@ export default {
   },
   home: {
     pageTitle: "Design",
-    searchPlaceholder: "搜尋設計...",
+    searchPlaceholder: "搜尋設計",
+    recent: "最近",
+    sharedWithMe: "與我分享",
+    importDesign: "匯入設計",
+    noSharedDesigns: "目前還沒有與您分享的設計。",
     newDesign: "新Design",
     newDesignLower: "新設計",
     createDesignProject: "建立一個設計專案",

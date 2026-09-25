@@ -1209,8 +1209,12 @@ const messages = {
     unsupportedFormat:
       "لا يمكن لهذا المتصفح تشغيل هذا الفيديو. جرّب فتح الرابط في Chrome أو Edge أو Firefox.",
   },
+  libraryLanding: {
+    recent: "الأحدث",
+    createTitle: "أنشئ المقطع التالي",
+  },
   searchBar: {
-    placeholder: "البحث في التسجيلات…",
+    placeholder: "ابحث عن المقاطع",
     clear: "مسح البحث",
     searching: "جارٍ البحث…",
     noMatchesFor: "لا توجد نتائج لـ",

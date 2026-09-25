@@ -1677,7 +1677,11 @@ export default {
   },
   home: {
     pageTitle: "Designs",
-    searchPlaceholder: "Designs suchen...",
+    searchPlaceholder: "Designs suchen",
+    recent: "Zuletzt",
+    sharedWithMe: "Mit mir geteilt",
+    importDesign: "Design importieren",
+    noSharedDesigns: "Es wurden noch keine Designs mit Ihnen geteilt.",
     newDesign: "Neue Design",
     newDesignLower: "Neues Design",
     createDesignProject: "Erstellen Sie ein Designprojekt",

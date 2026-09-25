@@ -1135,8 +1135,12 @@ const messages = {
     unsupportedFormat:
       "This browser can't play this video. Try opening the link in Chrome, Edge, or Firefox.",
   },
+  libraryLanding: {
+    recent: "Recent",
+    createTitle: "Create your next Clip",
+  },
   searchBar: {
-    placeholder: "Search recordings…",
+    placeholder: "Search clips",
     clear: "Clear search",
     searching: "Searching…",
     noMatchesFor: "No matches for",

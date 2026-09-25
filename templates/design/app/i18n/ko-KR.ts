@@ -1633,7 +1633,11 @@ export default {
   },
   home: {
     pageTitle: "Design",
-    searchPlaceholder: "디자인 검색...",
+    searchPlaceholder: "디자인 검색",
+    recent: "최근",
+    sharedWithMe: "나와 공유됨",
+    importDesign: "디자인 가져오기",
+    noSharedDesigns: "아직 공유된 디자인이 없습니다.",
     newDesign: "새로운 Design",
     newDesignLower: "새로운 디자인",
     createDesignProject: "디자인 프로젝트 만들기",

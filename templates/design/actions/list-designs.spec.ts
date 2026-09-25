@@ -107,6 +107,7 @@ function predicateValues(value: unknown): unknown[] {
 function filteredDesignRows(predicate: unknown): DesignRow[] {
   let rows = mocks.designRows;
   const values = predicateValues(predicate);
+  const serializedPredicate = JSON.stringify(predicate);
   const searchPattern = values.find(
     (value): value is string =>
       typeof value === "string" && value.startsWith("%") && value.endsWith("%"),
@@ -115,14 +116,16 @@ function filteredDesignRows(predicate: unknown): DesignRow[] {
     const search = searchPattern.slice(1, -1).replace(/\\([\\%_])/g, "$1");
     rows = rows.filter((row) => row.title.toLowerCase().includes(search));
   }
-  if (JSON.stringify(predicate).includes("ownerEmail")) {
+  if (serializedPredicate.includes("ownerEmail")) {
     const owner = values.find(
       (value): value is string =>
         typeof value === "string" && value.includes("@"),
     );
     if (owner) {
-      rows = rows.filter(
-        (row) => row.ownerEmail.trim().toLowerCase() === owner,
+      rows = rows.filter((row) =>
+        serializedPredicate.includes("<>")
+          ? row.ownerEmail.trim().toLowerCase() !== owner
+          : row.ownerEmail.trim().toLowerCase() === owner,
       );
     }
   }
@@ -319,6 +322,26 @@ describe("list-designs", () => {
     );
     expect(JSON.stringify(mocks.designWhereCalls[0])).toContain(
       "owner@example.com",
+    );
+  });
+
+  it("lists accessible designs owned by other users in Shared with me", async () => {
+    mocks.designRows = [
+      design("mine", "Mine", "owner@example.com"),
+      design("shared", "Shared", "teammate@example.com"),
+    ];
+
+    const result = await action.run({
+      createdBy: "shared",
+      page: 1,
+      pageSize: 10,
+      includePreview: "false",
+    });
+
+    expect(result.designs.map((item) => item.id)).toEqual(["shared"]);
+    expect(mocks.accessFilter).toHaveBeenCalledWith(
+      mocks.schema.designs,
+      mocks.schema.designShares,
     );
   });
 

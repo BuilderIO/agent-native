@@ -21,7 +21,7 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
-  it("defers the home prompt until open and prefetches on intent", () => {
+  it("keeps the home prompt inline and lazy loaded", () => {
     expect(source).toContain(
       'const loadPromptPopover = () => import("@/components/editor/PromptDialog")',
     );
@@ -31,10 +31,10 @@ describe("new deck generation flow", () => {
     expect(source).toContain(
       "(showNewDeckPrompt || hasOpenedNewDeckPrompt) &&",
     );
-    expect(source).toContain("onPointerEnter={preloadPromptPopover}");
-    expect(source).toContain("onFocus={preloadPromptPopover}");
+    expect(source).toContain("setNewDeckPromptOpen");
     expect(source).toContain(".then(clearInitialPromptFromUrl)");
-    expect(source).toContain("onClose={closeNewDeckPromptFallback}");
+    expect(source).toContain("inline");
+    expect(source).toContain("toolbarSlot=");
     expect(source).toContain("<LazyChunkErrorBoundary");
   });
 
@@ -66,7 +66,11 @@ describe("new deck generation flow", () => {
       "setNewDeckRetryImportedReference(state.retryImportedReference)",
     );
     expect(source).toContain(
-      "selection.referenceDeckId === carriedImportedReference.deckId",
+      "selectedReferenceDeckId === carriedImportedReference.deckId",
+    );
+    expect(source).toContain("retryReferenceSource: referenceSource");
+    expect(source).toContain(
+      "setSelectedReferenceSource(state.retryReferenceSource ?? null)",
     );
     // A deleted reference deck must not keep its source excluded, or the run
     // has neither the deck nor the file it was built from.
@@ -76,7 +80,7 @@ describe("new deck generation flow", () => {
     // A deck that is gone must also stop being passed as the reference, or it
     // reads as one while loading nothing.
     expect(source).toContain(
-      "...(carriedDeckMissing ? { referenceDeckId: null } : {})",
+      "referenceDeckId: carriedDeckMissing ? null : selectedReferenceDeckId",
     );
   });
 
@@ -123,19 +127,18 @@ describe("new deck generation flow", () => {
     );
   });
 
-  it("keeps imported reference exclusions through skip, repeats, and retries", () => {
+  it("keeps imported reference exclusions through retries and repeats", () => {
     expect(source).toContain("retryReferenceFilePaths?: string[]");
-    expect(source).toContain(
-      "newDeckRetryFiles.length > 0 ? newDeckRetryReferenceFilePaths : []",
+    expect(source).toMatch(
+      /newDeckRetryFiles\.length > 0\s*\? newDeckRetryReferenceFilePaths\s*:\s*\[\]/,
     );
-    expect(source).toContain("referenceFilePaths: retryReferenceFilePaths,");
+    expect(source).toContain(
+      "...(retryReferenceFilePaths.length > 0\n          ? { referenceFilePaths: retryReferenceFilePaths }",
+    );
     expect(source).toContain(
       "setNewDeckRetryReferenceFilePaths(state.retryReferenceFilePaths ?? [])",
     );
-    expect(source).toContain(
-      "referenceFilePaths: [\n                  ...new Set([",
-    );
-    expect(source).toContain("...(pending.referenceFilePaths.length > 0");
+    expect(source).toContain("...selectedReferenceFilePaths,");
   });
 
   it("requires a generated title before the first slide", () => {
@@ -250,15 +253,14 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("...modelSelection");
   });
 
-  it("routes both prompt submit and prompt skip into the reference step", () => {
+  it("submits directly and keeps reference selection available in the prompt", () => {
     expect(source).toContain("const handlePromptSubmit");
-    expect(source).toContain("const handlePromptSkip");
-    expect(source).toContain(
-      'setPendingDeck({\n      prompt: "",\n      files: [],',
-    );
     expect(source).toContain("onSubmit={handlePromptSubmit}");
-    expect(source).toContain("onSkip={handlePromptSkip}");
     expect(source).toContain("setShowNewDeckReferenceStep(true)");
+    expect(source).toContain(
+      "setSelectedReferenceSource(selection.referenceSource ?? null)",
+    );
+    expect(source).not.toContain("setPendingDeck(");
   });
 
   it("imports directly from the new-deck prompt and opens the imported deck", () => {
@@ -273,8 +275,9 @@ describe("new deck generation flow", () => {
     expect(directImportFlow).toContain('callAction("import-pptx"');
     expect(directImportFlow).toContain('callAction("import-file"');
     expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
-    expect(source).toContain("onImport={handleDirectImport}");
-    expect(source).toContain('importFromLabel={t("home.importFrom")}');
+    expect(source).toContain(
+      "<ImportDeckMenu onImport={handleDirectImport} />",
+    );
   });
 
   it("turns an imported PPTX into a reusable reference deck", () => {
@@ -291,7 +294,6 @@ describe("new deck generation flow", () => {
     );
     expect(referenceImportFlow).toContain("importedReference = {");
     expect(referenceImportFlow).toContain('source: "pptx"');
-    expect(referenceImportFlow).toContain("setPendingDeck((current) =>");
     expect(referenceImportFlow).toContain("return importedReference");
     expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
   });

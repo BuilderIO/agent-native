@@ -1214,8 +1214,12 @@ const messages = {
     unsupportedFormat:
       "このブラウザではこの動画を再生できません。Chrome、Edge、Firefoxでリンクを開いてみてください。",
   },
+  libraryLanding: {
+    recent: "最近",
+    createTitle: "次のClipを作成",
+  },
   searchBar: {
-    placeholder: "録画を検索…",
+    placeholder: "クリップを検索",
     clear: "検索をクリア",
     searching: "検索中…",
     noMatchesFor: "一致なし:",

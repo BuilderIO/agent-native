@@ -1225,8 +1225,12 @@ const messages = {
     unsupportedFormat:
       "Este navegador não consegue reproduzir este vídeo. Tente abrir o link no Chrome, Edge ou Firefox.",
   },
+  libraryLanding: {
+    recent: "Recentes",
+    createTitle: "Crie seu próximo Clip",
+  },
   searchBar: {
-    placeholder: "Pesquisar gravações…",
+    placeholder: "Pesquisar clipes",
     clear: "Limpar pesquisa",
     searching: "Pesquisando…",
     noMatchesFor: "Nenhum resultado para",

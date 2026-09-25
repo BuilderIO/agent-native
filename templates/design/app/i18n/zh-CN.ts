@@ -1583,7 +1583,11 @@ export default {
   },
   home: {
     pageTitle: "Design",
-    searchPlaceholder: "搜索设计...",
+    searchPlaceholder: "搜索设计",
+    recent: "最近",
+    sharedWithMe: "与我共享",
+    importDesign: "导入设计",
+    noSharedDesigns: "目前还没有与您共享的设计。",
     newDesign: "新Design",
     newDesignLower: "新设计",
     createDesignProject: "创建一个设计项目",

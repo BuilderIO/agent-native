@@ -12,6 +12,7 @@ import {
   IconFolderPlus,
   IconLink,
   IconUpload,
+  IconVideoPlus,
 } from "@tabler/icons-react";
 import {
   type DragEvent,
@@ -22,7 +23,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
@@ -35,6 +36,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDropVideoUpload } from "@/hooks/use-drop-video-upload";
 import {
   useFolders,
@@ -198,6 +200,7 @@ export function LibraryGrid({
   extraActions,
 }: LibraryGridProps) {
   const t = useT();
+  const navigate = useNavigate();
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -221,9 +224,19 @@ export function LibraryGrid({
     [view],
   );
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
+  const isLandingView =
+    (view === "library" || view === "shared") &&
+    !folderId &&
+    !spaceId &&
+    !tagFilter;
   const pageBreadcrumbItems =
-    breadcrumbItems ?? (title ? [{ label: title }] : []);
-  const { uploadHref, importLoomHref } = buildLibraryActionHrefs({
+    breadcrumbItems ??
+    (isLandingView
+      ? [{ label: t("navigation.brand") }]
+      : title
+        ? [{ label: title }]
+        : []);
+  const { recordHref, uploadHref, importLoomHref } = buildLibraryActionHrefs({
     folderId,
     spaceId,
   });
@@ -604,14 +617,14 @@ export function LibraryGrid({
               <PageBreadcrumb items={pageBreadcrumbItems} />
             ) : null}
           </div>
-          {!isEmptyState && (
+          {(!isEmptyState || isLandingView) && (
             <SearchBar
               side="bottom"
               className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
             />
           )}
           <div className="ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
-            {!isEmptyState && extraActions}
+            {(!isEmptyState || isLandingView) && extraActions}
             {!isEmptyState && (
               <SortMenu value={sort} onChange={handleSortChange} />
             )}
@@ -624,6 +637,38 @@ export function LibraryGrid({
           <FilterChips chips={chips} />
         </div>
       )}
+
+      {isLandingView ? (
+        <section className="shrink-0 border-b border-border px-5 py-7 sm:py-9">
+          <div className="mx-auto flex max-w-3xl flex-col items-center gap-5 text-center">
+            <h1 className="text-xl font-semibold text-foreground">
+              {t("libraryLanding.createTitle")}
+            </h1>
+            <Button asChild>
+              <Link to={recordHref}>
+                <IconVideoPlus />
+                {t("empty.library.cta")}
+              </Link>
+            </Button>
+            <Tabs
+              value={view === "shared" ? "shared" : "recent"}
+              onValueChange={(value) => {
+                void navigate(value === "shared" ? "/shared" : "/library");
+              }}
+              aria-label={t("navigation.brand")}
+            >
+              <TabsList variant="line" className="h-10">
+                <TabsTrigger value="recent">
+                  {t("libraryLanding.recent")}
+                </TabsTrigger>
+                <TabsTrigger value="shared">
+                  {t("navigation.sharedWithMe")}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        </section>
+      ) : null}
 
       {/* Grid body */}
       <div

@@ -1240,8 +1240,12 @@ const messages = {
     unsupportedFormat:
       "Dieser Browser kann dieses Video nicht abspielen. Öffne den Link in Chrome, Edge oder Firefox.",
   },
+  libraryLanding: {
+    recent: "Zuletzt",
+    createTitle: "Erstelle deinen nächsten Clip",
+  },
   searchBar: {
-    placeholder: "Aufzeichnungen suchen…",
+    placeholder: "Clips suchen",
     clear: "Suche löschen",
     searching: "Suchen…",
     noMatchesFor: "Keine Treffer für",

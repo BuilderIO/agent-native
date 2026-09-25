@@ -1232,8 +1232,12 @@ const messages = {
     unsupportedFormat:
       "Ce navigateur ne peut pas lire cette vidéo. Essayez d’ouvrir le lien dans Chrome, Edge ou Firefox.",
   },
+  libraryLanding: {
+    recent: "Récents",
+    createTitle: "Créez votre prochain Clip",
+  },
   searchBar: {
-    placeholder: "Rechercher des enregistrements…",
+    placeholder: "Rechercher des clips",
     clear: "Effacer la recherche",
     searching: "Recherche…",
     noMatchesFor: "Aucun résultat pour",

@@ -1187,8 +1187,12 @@ const messages = {
     unsupportedFormat:
       "यह ब्राउज़र यह वीडियो नहीं चला सकता। कृपया लिंक को Chrome, Edge या Firefox में खोलकर देखें।",
   },
+  libraryLanding: {
+    recent: "हाल के",
+    createTitle: "अपना अगला Clip बनाएं",
+  },
   searchBar: {
-    placeholder: "रिकॉर्डिंग खोजें…",
+    placeholder: "क्लिप खोजें",
     clear: "खोज साफ़ करें",
     searching: "खोजा जा रहा है…",
     noMatchesFor: "कोई मिलान नहीं:",

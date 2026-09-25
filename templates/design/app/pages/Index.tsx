@@ -21,6 +21,7 @@ import {
 import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
+  IconBrandFigma,
   IconChecks,
   IconChevronLeft,
   IconChevronRight,
@@ -39,11 +40,10 @@ import { useNavigate, Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
+import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
-import PromptPopover, {
-  preloadPromptComposer,
-} from "@/components/editor/PromptDialog";
+import PromptPopover from "@/components/editor/PromptDialog";
 import type {
   PromptTemplateOption,
   UploadedFile,
@@ -62,6 +62,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,8 +70,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -115,9 +117,7 @@ interface DesignListResult {
   designs: Design[];
 }
 
-// The New Design card shares the grid, so a full page is pageSize + 1 tiles;
-// 12 is what divides evenly into every breakpoint's column count.
-const DESIGN_PAGE_SIZE = 11;
+const DESIGN_PAGE_SIZE = 12;
 
 export default function Index() {
   const t = useT();
@@ -126,16 +126,16 @@ export default function Index() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [designFilter, setDesignFilter] = useState<DesignFilter>(
-    () => readStoredDesignFilter() ?? "mine",
+    () => readStoredDesignFilter() ?? "recent",
   );
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [page, setPage] = useState(1);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [showNewPrompt, setShowNewPrompt] = useState(false);
-  const [newDesignDraftRevision, setNewDesignDraftRevision] = useState(0);
+  const [showNewPrompt, setShowNewPrompt] = useState(true);
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
@@ -152,20 +152,17 @@ export default function Index() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
-
-  const anchorElRef = useRef<HTMLElement | null>(null);
-  const anchorRef = useRef<HTMLElement | null>(null);
+  const [importDesignId, setImportDesignId] = useState<string | null>(null);
+  const [importPreparing, setImportPreparing] = useState(false);
   const skipToEditorPendingRef = useRef(false);
   const newDesignSystemWasChosenRef = useRef(false);
-  // Keep anchorRef.current in sync so PromptPopover can read it
-  anchorRef.current = anchorElRef.current;
 
   const normalizedSearch = search.trim();
   const listDesignsParams = useMemo(
     () => ({
       page,
       pageSize: DESIGN_PAGE_SIZE,
-      createdBy: designFilter === "mine" ? "me" : "all",
+      createdBy: designFilter === "recent" ? "me" : "shared",
       search: normalizedSearch || undefined,
       includePreview: "true",
     }),
@@ -271,7 +268,7 @@ export default function Index() {
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
 
-  const showAuthors = designFilter === "all";
+  const showAuthors = designFilter === "shared";
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
   const allVisibleSelected =
@@ -312,7 +309,6 @@ export default function Index() {
 
   const handleNewPromptOpenChange = useCallback(
     (open: boolean) => {
-      if (open) preloadPromptComposer();
       setShowNewPrompt(open);
       if (!open) {
         newDesignSystemWasChosenRef.current = false;
@@ -411,8 +407,18 @@ export default function Index() {
     );
   }, []);
 
+  useEffect(() => {
+    const focusSearch = () => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+    document.addEventListener("design:focus-home-search", focusSearch);
+    return () =>
+      document.removeEventListener("design:focus-home-search", focusSearch);
+  }, []);
+
   const handleDesignFilterChange = useCallback((next: string) => {
-    if (next !== "all" && next !== "mine") return;
+    if (next !== "recent" && next !== "shared") return;
     const nextFilter: DesignFilter = next;
     setDesignFilter(nextFilter);
     writeStoredDesignFilter(nextFilter);
@@ -450,7 +456,7 @@ export default function Index() {
       queryClient.setQueryData(
         ["action", "list-designs", listDesignsParams],
         (old: any) => {
-          if (!old) return old;
+          if (!old || designFilter !== "recent") return old;
           const newDesign: Design = {
             id,
             title: finalTitle,
@@ -505,7 +511,14 @@ export default function Index() {
       void ready.catch(() => {});
       return { id, title: finalTitle, ready };
     },
-    [listDesignsParams, normalizedSearch, page, queryClient, createMutation],
+    [
+      designFilter,
+      listDesignsParams,
+      normalizedSearch,
+      page,
+      queryClient,
+      createMutation,
+    ],
   );
 
   // Mirrors the chat-title flow: the placeholder (derivePromptTitle) shows
@@ -780,18 +793,31 @@ export default function Index() {
     return false;
   }, [handleSubmitPrompt, newDesignMode, selectedTemplate, startBlankDesign]);
 
-  const openNewDesign = useCallback(
-    (e: React.MouseEvent<HTMLElement>) => {
-      preloadPromptComposer();
-      anchorElRef.current = e.currentTarget;
-      setNewDesignDraftRevision((revision) => revision + 1);
-      newDesignSystemWasChosenRef.current = false;
-      syncSelectedTemplate(null);
-      setNewDesignSystemId(undefined);
-      setShowNewPrompt(true);
-    },
-    [syncSelectedTemplate],
-  );
+  const openDesignImport = useCallback(async () => {
+    if (importPreparing) return;
+    setImportPreparing(true);
+    try {
+      const designSystemId = designSystemsLoading
+        ? undefined
+        : resolveDefaultDesignSystemId();
+      const { id, ready } = createDesign(
+        t("home.untitledDesign"),
+        designSystemId,
+      );
+      await ready;
+      setImportDesignId(id);
+    } catch {
+      toast.error(t("home.failedToCreateDesign"));
+    } finally {
+      setImportPreparing(false);
+    }
+  }, [
+    createDesign,
+    designSystemsLoading,
+    importPreparing,
+    resolveDefaultDesignSystemId,
+    t,
+  ]);
 
   const handleDelete = useCallback(() => {
     if (!deleteId) return;
@@ -950,57 +976,29 @@ export default function Index() {
     });
   };
 
+  const searchShortcut =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
+      ? "⌘K"
+      : "Ctrl K";
+
   useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
-    <div className="flex flex-wrap items-center gap-3">
-      <ToggleGroup
-        type="single"
-        value={designFilter}
-        onValueChange={handleDesignFilterChange}
-        aria-label={t("home.designFilter")}
-        className="w-fit rounded-lg border border-border bg-card p-0.5"
-        size="sm"
-      >
-        <ToggleGroupItem
-          value="mine"
-          aria-label={t("home.showMineDesigns")}
-          className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-        >
-          {t("home.mine")}
-        </ToggleGroupItem>
-        <ToggleGroupItem
-          value="all"
-          aria-label={t("home.showAllDesigns")}
-          className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-        >
-          {t("home.all")}
-        </ToggleGroupItem>
-      </ToggleGroup>
-      <div className="relative">
-        <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
-        <Input
-          value={search}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          placeholder={t("home.searchPlaceholder")}
-          aria-label={t("home.searchPlaceholder")}
-          className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
-        />
-      </div>
+    <div className="flex items-center gap-2">
       <Button
         size="sm"
-        onClick={openNewDesign}
-        disabled={newDesignHandoffPending}
+        variant="outline"
+        onClick={() => void openDesignImport()}
+        disabled={importPreparing}
         className="cursor-pointer"
       >
-        {newDesignHandoffPending ? (
-          <Spinner className="w-3.5 h-3.5" />
+        {importPreparing ? (
+          <Spinner className="size-4" />
         ) : (
-          <IconPlus className="w-3.5 h-3.5" />
+          <IconBrandFigma className="size-4" />
         )}
-        {newDesignHandoffPending
-          ? t("home.openingDesign")
-          : t("home.newDesign")}
+        {t("home.importDesign")}
       </Button>
     </div>,
   );
@@ -1009,6 +1007,125 @@ export default function Index() {
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <main className="px-4 sm:px-6 py-6 sm:py-10">
+        <div className="relative mx-auto mb-8 w-full max-w-xl">
+          <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            ref={searchInputRef}
+            value={search}
+            onChange={(event) => handleSearchChange(event.target.value)}
+            placeholder={t("home.searchPlaceholder")}
+            aria-label={t("home.searchPlaceholder")}
+            className="h-11 bg-card ps-10 pe-20 text-sm"
+          />
+          <Kbd className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2">
+            {searchShortcut}
+          </Kbd>
+        </div>
+
+        <section className="mx-auto mb-10 flex max-w-3xl flex-col items-center gap-5 text-center">
+          <h1 className="text-xl font-semibold text-foreground">
+            {designFilter === "recent" &&
+            !normalizedSearch &&
+            (designsData?.totalCount ?? 0) === 0
+              ? t("home.createFirstDesign")
+              : t("home.newDesignLower")}
+          </h1>
+          <PromptPopover
+            inline
+            open={showNewPrompt}
+            onOpenChange={handleNewPromptOpenChange}
+            title=""
+            draftScope="design:new"
+            placeholder={
+              selectedTemplate
+                ? t("promptDialog.templatePromptPlaceholder", {
+                    title: selectedTemplate.title,
+                  })
+                : t("home.describeBuild")
+            }
+            onSkip={handleSkipToEditor}
+            skipLabel={
+              selectedTemplate
+                ? t("templatesPage.useTemplate")
+                : t("promptDialog.skipPrompt")
+            }
+            onSubmit={handleSubmitPrompt}
+            templateOptions={templateOptions}
+            templatesLoading={templatesLoading}
+            selectedTemplateId={newTemplateId}
+            onTemplateChange={handleTemplateChange}
+            designSystems={designSystemOptions}
+            designSystemsLoading={designSystemsLoading}
+            selectedDesignSystemId={newDesignSystemId ?? null}
+            onDesignSystemChange={handleNewDesignSystemChange}
+            creativeContexts={
+              creativeContextEnabled ? creativeContextOptions : []
+            }
+            creativeContextsLoading={
+              creativeContextEnabled && creativeContextsQuery.isLoading
+            }
+            selectedCreativeContextId={
+              creativeContextEnabled
+                ? (creativeContextState.state.selectedContextId ?? null)
+                : undefined
+            }
+            onCreativeContextChange={
+              creativeContextEnabled ? handleCreativeContextChange : undefined
+            }
+            loading={newDesignHandoffPending}
+            onCreateDesignSystem={() => {
+              handleNewPromptOpenChange(false);
+              void navigate("/design-systems/setup");
+            }}
+            creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
+            onCreationModeChange={
+              fullAppBuildingEnabled ? setNewDesignMode : undefined
+            }
+          />
+          {designFilter === "recent" &&
+          !normalizedSearch &&
+          (designsData?.totalCount ?? 0) === 0 ? (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {STARTER_PROMPTS.map((starter) => (
+                <Button
+                  key={starter.labelKey}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSubmitPrompt(starter.prompt, [], {})}
+                  disabled={newDesignHandoffPending}
+                  className="rounded-full"
+                >
+                  {t(starter.labelKey)}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
+        <div className="mb-5 flex justify-center border-b border-border">
+          <Tabs
+            value={designFilter}
+            onValueChange={handleDesignFilterChange}
+            aria-label={t("home.designFilter")}
+          >
+            <TabsList className="h-10 rounded-none border-b border-border bg-transparent p-0">
+              <TabsTrigger
+                value="recent"
+                className="h-10 rounded-none border-x-0 border-t-0 border-b-2 border-transparent bg-transparent px-4 text-muted-foreground shadow-none data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                {t("home.recent")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="shared"
+                className="h-10 rounded-none border-x-0 border-t-0 border-b-2 border-transparent bg-transparent px-4 text-muted-foreground shadow-none data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                {t("home.sharedWithMe")}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
         {isLoading ? (
           <LoadingSkeleton />
         ) : isError ? (
@@ -1019,12 +1136,11 @@ export default function Index() {
         ) : designs.length === 0 ? (
           normalizedSearch ? (
             <SearchEmptyState />
-          ) : (
-            <EmptyState
-              onCreateDesign={openNewDesign}
-              onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
-            />
-          )
+          ) : designFilter === "shared" ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              {t("home.noSharedDesigns")}
+            </p>
+          ) : null
         ) : (
           <>
             {isSelectingDesigns ? (
@@ -1102,31 +1218,6 @@ export default function Index() {
             ) : null}
             {/* Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {/* New design card */}
-              <button
-                onClick={openNewDesign}
-                disabled={newDesignHandoffPending}
-                className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
-              >
-                <div className="aspect-video flex items-center justify-center bg-muted/30">
-                  <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
-                    {newDesignHandoffPending ? (
-                      <Spinner className="w-6 h-6 text-muted-foreground/70" />
-                    ) : (
-                      <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
-                    )}
-                  </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                    {t("home.newDesign")}
-                  </h3>
-                  <div className="text-xs text-muted-foreground/70 mt-1">
-                    {t("home.createDesignProject")}
-                  </div>
-                </div>
-              </button>
-
               {/* Design cards */}
               {designs.map((design) => {
                 const isSelected = selectedDesignIds.has(design.id);
@@ -1320,56 +1411,23 @@ export default function Index() {
         />
       ) : null}
 
-      <PromptPopover
-        open={showNewPrompt}
-        onOpenChange={handleNewPromptOpenChange}
-        title={t("home.newDesignLower")}
-        draftScope={`design:new:${newDesignDraftRevision}`}
-        placeholder={
-          selectedTemplate
-            ? t("promptDialog.templatePromptPlaceholder", {
-                title: selectedTemplate.title,
-              })
-            : t("home.describeBuild")
-        }
-        onSkip={handleSkipToEditor}
-        skipLabel={
-          selectedTemplate
-            ? t("templatesPage.useTemplate")
-            : t("promptDialog.skipPrompt")
-        }
-        onSubmit={handleSubmitPrompt}
-        anchorRef={anchorRef}
-        templateOptions={templateOptions}
-        templatesLoading={templatesLoading}
-        selectedTemplateId={newTemplateId}
-        onTemplateChange={handleTemplateChange}
-        designSystems={designSystemOptions}
-        designSystemsLoading={designSystemsLoading}
-        selectedDesignSystemId={newDesignSystemId ?? null}
-        onDesignSystemChange={handleNewDesignSystemChange}
-        creativeContexts={creativeContextEnabled ? creativeContextOptions : []}
-        creativeContextsLoading={
-          creativeContextEnabled && creativeContextsQuery.isLoading
-        }
-        selectedCreativeContextId={
-          creativeContextEnabled
-            ? (creativeContextState.state.selectedContextId ?? null)
-            : undefined
-        }
-        onCreativeContextChange={
-          creativeContextEnabled ? handleCreativeContextChange : undefined
-        }
-        loading={newDesignHandoffPending}
-        onCreateDesignSystem={() => {
-          handleNewPromptOpenChange(false);
-          void navigate("/design-systems/setup");
+      <Dialog
+        open={importDesignId !== null}
+        onOpenChange={(open) => {
+          if (!open) setImportDesignId(null);
         }}
-        creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
-        onCreationModeChange={
-          fullAppBuildingEnabled ? setNewDesignMode : undefined
-        }
-      />
+      >
+        <DialogContent className="flex max-h-[min(85vh,900px)] w-[min(96vw,960px)] max-w-none flex-col overflow-hidden p-0">
+          <DialogTitle className="sr-only">
+            {t("designEditor.import.title")}
+          </DialogTitle>
+          {importDesignId ? (
+            <DesignImportPanel
+              context={{ designId: importDesignId, viewMode: "overview" }}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation */}
       <AlertDialog
@@ -1563,47 +1621,6 @@ const STARTER_PROMPTS: { labelKey: string; prompt: string }[] = [
       "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
   },
 ];
-
-function EmptyState({
-  onCreateDesign,
-  onStarterPrompt,
-}: {
-  onCreateDesign: (e: React.MouseEvent<HTMLElement>) => void;
-  onStarterPrompt: (prompt: string) => void;
-}) {
-  const t = useT();
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-      <h2 className="text-xl font-semibold text-foreground mb-2">
-        {t("home.createFirstDesign")}
-      </h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
-        {t("home.pickStartingPoint")}
-      </p>
-      <div className="flex flex-wrap items-center justify-center gap-2 max-w-md mb-6">
-        {STARTER_PROMPTS.map((s) => (
-          <button
-            key={s.labelKey}
-            type="button"
-            onClick={() => onStarterPrompt(s.prompt)}
-            className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground/80 hover:border-foreground/30 hover:text-foreground/95 transition-colors"
-          >
-            {t(s.labelKey)}
-          </button>
-        ))}
-      </div>
-      <Button
-        onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
-          onCreateDesign(e as React.MouseEvent<HTMLElement>)
-        }
-        className="cursor-pointer dark:bg-white dark:text-black dark:hover:bg-white/90"
-      >
-        <IconPlus className="w-4 h-4" />
-        {t("home.newDesign")}
-      </Button>
-    </div>
-  );
-}
 
 function SearchEmptyState() {
   const t = useT();

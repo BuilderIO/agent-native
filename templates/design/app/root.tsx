@@ -244,8 +244,13 @@ function PrivateRootContent() {
   const isPublicVisualEdit = location.pathname === "/visual-edit";
   useCommandMenuShortcut(
     useCallback(() => {
-      if (hasSession && !isPublicVisualEdit) setCmdkOpen(true);
-    }, [hasSession, isPublicVisualEdit]),
+      if (!hasSession || isPublicVisualEdit) return;
+      if (location.pathname === "/home") {
+        document.dispatchEvent(new Event("design:focus-home-search"));
+        return;
+      }
+      setCmdkOpen(true);
+    }, [hasSession, isPublicVisualEdit, location.pathname]),
   );
 
   const content = isPublicVisualEdit ? (
