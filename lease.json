@@ -1,9 +1,1 @@
-{
-  "pr": 5871,
-  "ownerThreadId": "01a0d5d9-6783-7d50-843e-91c03bb5e943",
-  "version": 71,
-  "expiresAt": "2026-09-25T09:33:22.946Z",
-  "legacyHeartbeatVersion": "absent",
-  "legacy_retired": true,
-  "status": "active"
-}
+{"pr":5871,"ownerThreadId":"01a0d5d9-6783-7d50-843e-91c03bb5e943","version":72,"expiresAt":"2026-09-25T09:19:03Z","legacyHeartbeatVersion":"absent","legacy_retired":true,"status":"released"}
