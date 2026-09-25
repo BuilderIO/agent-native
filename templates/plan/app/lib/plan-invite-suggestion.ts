@@ -14,3 +14,30 @@ export function hasSameDomainCoworker(
     );
   });
 }
+
+export async function hasSameDomainCoworkerInPages(
+  ownerEmail: string,
+  fetchPage: (offset: number) => Promise<{
+    members: Array<{ email: string }>;
+    hasMore: boolean;
+    nextOffset: number | null;
+  }>,
+): Promise<boolean> {
+  let offset = 0;
+  while (true) {
+    const page = await fetchPage(offset);
+    if (
+      hasSameDomainCoworker(
+        ownerEmail,
+        page.members.map((member) => member.email),
+      )
+    ) {
+      return true;
+    }
+    if (!page.hasMore) return false;
+    if (page.nextOffset === null || page.nextOffset <= offset) {
+      throw new Error("Organization member search returned an invalid offset");
+    }
+    offset = page.nextOffset;
+  }
+}

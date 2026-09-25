@@ -27,12 +27,14 @@ import {
 import {
   useAcceptInvitation,
   useJoinByDomain,
-  useOrgMembers,
   useOrg,
   useOrgRole,
   useSetOrgDomain,
 } from "@agent-native/core/client/org";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  fetchOrgMemberPage,
+  ShareButton,
+} from "@agent-native/core/client/sharing";
 import {
   buildSignInReturnHref,
   ErrorReportActions,
@@ -294,7 +296,7 @@ import {
   type CommentDraft,
 } from "@/lib/plan-comment-editor-helpers";
 import { planDocumentTitle } from "@/lib/plan-document-title";
-import { hasSameDomainCoworker } from "@/lib/plan-invite-suggestion";
+import { hasSameDomainCoworkerInPages } from "@/lib/plan-invite-suggestion";
 import {
   fetchLocalPlanBridgeComments,
   fetchLocalPlanBridgeBundle,
@@ -6487,6 +6489,7 @@ function PlanInviteSuggestion({
     return (
       <PlanDomainInviteSuggestion
         userId={userId}
+        orgId={org?.orgId ?? ""}
         email={email}
         domain={domain}
         firstShare={firstShare}
@@ -6509,28 +6512,33 @@ function PlanInviteSuggestion({
 
 function PlanDomainInviteSuggestion({
   userId,
+  orgId,
   email,
   domain,
   firstShare,
   children,
 }: {
   userId: string;
+  orgId: string;
   email: string;
   domain: string;
   firstShare: boolean;
   children: ReactNode;
 }) {
-  const membersQuery = useOrgMembers(0, domain);
-  const hasCoworker = hasSameDomainCoworker(
-    email,
-    membersQuery.data?.members.map((member) => member.email) ?? [],
-  );
+  const membersQuery = useQuery({
+    queryKey: ["plan-domain-coworker", orgId, email.toLowerCase(), domain],
+    queryFn: ({ signal }) =>
+      hasSameDomainCoworkerInPages(email, (offset) =>
+        fetchOrgMemberPage({ search: domain, limit: 100, offset, signal }),
+      ),
+    enabled: Boolean(orgId),
+  });
 
   return (
     <PlanInviteSuggestionCard
       userId={userId}
-      firstShare={firstShare && !membersQuery.isLoading}
-      domain={hasCoworker ? domain : null}
+      firstShare={firstShare}
+      domain={membersQuery.data ? domain : null}
     >
       {children}
     </PlanInviteSuggestionCard>
