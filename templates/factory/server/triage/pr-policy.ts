@@ -490,6 +490,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.startsWith("packages/core/src/server/prompts/") ||
       normalized.startsWith("packages/core/src/guards/no-unscoped-queries.") ||
       normalized.startsWith("templates/mail/app/lib/sanitize-html.") ||
+      normalized.startsWith("templates/analytics/app/components/markdown.") ||
       normalized.startsWith("templates/slides/app/lib/sanitize-slide-html.") ||
       normalized.startsWith("templates/design/shared/capture-sanitize.") ||
       normalized.startsWith(
@@ -551,9 +552,11 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
 }
 
 const SAFETY_FINDING_PATTERN =
-  /\b(auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\b/i;
+  /\b(auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|sanitiz(?:e|ers?|ations?|ed|ing))\b/i;
+const COMPOUND_SAFETY_FINDING_PATTERN =
+  /\b(?:auth(?:entication)?\s+bypass|(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|ssrf|rce)\s+vulnerabilit(?:y|ies)|tenant\s+isolation|access\s+control|privilege\s+escalation)\b/i;
 const NON_FINDING_PATTERN =
-  /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+(?:or|and)\s+)*(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+)?(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilities?)|issues?|findings?|concerns?|risks?|vulnerabilities?|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy)\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
+  /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+(?:or|and)\s+)*(?:(?:xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+)?(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilities?)|issues?|findings?|concerns?|risks?|vulnerabilities?|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
 
 export function hasActiveCredibleSafetyFinding(
   reviews: readonly {
@@ -566,9 +569,7 @@ export function hasActiveCredibleSafetyFinding(
 ): boolean {
   const isFinding = (body: string) =>
     body
-      .split(
-        /(?:[.!?]\s+|;\s*|\r?\n+|,\s*(?:but|however|while)\s+|\s+(?:but|however|while)\s+)/i,
-      )
+      .split(/(?:[.!?]\s+|;\s*|\r?\n+|,\s*|\s+(?:but|however|while)\s+)/i)
       .some((sentence) => {
         const safetyTerms = Array.from(
           sentence.matchAll(new RegExp(SAFETY_FINDING_PATTERN.source, "gi")),
@@ -582,7 +583,27 @@ export function hasActiveCredibleSafetyFinding(
           const index = safetyTerm.index ?? 0;
           const coveringNonFinding = nonFindings.find((match) => {
             const start = match.index ?? 0;
-            return index >= start && index < start + match[0].length;
+            const end = start + match[0].length;
+            const coversTerm = index >= start && index < end;
+            const coveredTerms = safetyTerms.filter((term) => {
+              const termIndex = term.index ?? 0;
+              return termIndex >= start && termIndex < end;
+            });
+            const compound = COMPOUND_SAFETY_FINDING_PATTERN.exec(match[0]);
+            const compoundStart = start + (compound?.index ?? 0);
+            const compoundEnd = compoundStart + (compound?.[0].length ?? 0);
+            return (
+              coversTerm &&
+              (/^\b(?:no|none|zero)\b/i.test(match[0]) ||
+                coveredTerms.length === 1 ||
+                (compound !== null &&
+                  coveredTerms.every((term) => {
+                    const termIndex = term.index ?? 0;
+                    return (
+                      termIndex >= compoundStart && termIndex < compoundEnd
+                    );
+                  })))
+            );
           });
           return (
             !coveringNonFinding ||

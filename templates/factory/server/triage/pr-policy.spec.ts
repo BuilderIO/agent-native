@@ -275,6 +275,34 @@ describe("pull-request governance", () => {
     ).toBe(false);
     expect(
       hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "No HTML sanitization issues were found.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body: "The authentication bypass is safe." }],
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "The HTML sanitizer allows event-handler attributes.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      hasActiveCredibleSafetyFinding(
         [{ state: "commented", body: "No issues found." }],
         [],
       ),
@@ -302,6 +330,12 @@ describe("pull-request governance", () => {
       "No issues found and authentication bypass permits access.",
       "No issues found as authentication bypass permits access.",
       "No issues found except authentication bypass permits access.",
+      "CSP is safe, authentication bypass permits access.",
+      "No CSP issues found, authentication bypass permits access.",
+      "CSP vulnerability found, authentication bypass is safe.",
+      "An authentication bypass remains, unrelated CSP issues were resolved.",
+      "CSP vulnerability remains and auth issue was a false positive.",
+      "The CSP vulnerability remains and the auth issue was a false positive.",
     ]) {
       expect(
         hasActiveCredibleSafetyFinding([{ state: "commented", body }], []),
@@ -691,6 +725,7 @@ describe("pull-request governance", () => {
       "templates/plan/app/components/plan/wireframe/sanitize-html.spec.ts",
       "templates/calendar/app/lib/sanitize-description.ts",
       "templates/calendar/app/lib/sanitize-description.test.ts",
+      "templates/analytics/app/components/Markdown.tsx",
       "templates/factory/server/lib/require-factory-automation.ts",
       "templates/factory/server/lib/require-factory-automation.spec.ts",
       "templates/factory/server/lib/factory-automation-resources.ts",
