@@ -64,6 +64,7 @@ export interface AuthPageProps {
   initialView: AuthView;
   appBasePath: string;
   homePath: string;
+  initialResumeHref?: string;
   workspaceRuntime: boolean;
   trackingApp: string;
   defaultLocale: string;
@@ -731,6 +732,7 @@ export function AuthPage(props: AuthPageProps) {
     initialPrompt,
     appBasePath,
     homePath,
+    initialResumeHref,
     workspaceRuntime,
     trackingApp,
     defaultLocale,
@@ -758,6 +760,8 @@ export function AuthPage(props: AuthPageProps) {
   } = props;
   const [localePreference, setLocalePreference] = React.useState("system");
   const [locale, setLocale] = React.useState(defaultLocale);
+  const [browserLocationReady, setBrowserLocationReady] = React.useState(false);
+  React.useEffect(() => setBrowserLocationReady(true), []);
   const [localeMenuOpen, setLocaleMenuOpen] = React.useState(false);
   const [view, setView] = React.useState<AuthView>(props.initialView);
   const [messages, setMessages] = React.useState<Record<string, Notice>>({});
@@ -838,9 +842,9 @@ export function AuthPage(props: AuthPageProps) {
     [apiPath],
   );
   const journey = React.useCallback((): SignInJourney => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || !browserLocationReady) {
       return signInJourney({
-        at: `${runtimeAppBasePath}/`,
+        at: initialResumeHref ?? `${runtimeAppBasePath}/`,
         basePath: runtimeAppBasePath,
         homePath,
       });
@@ -855,7 +859,7 @@ export function AuthPage(props: AuthPageProps) {
       basePath: runtimeAppBasePath,
       homePath,
     });
-  }, [homePath, runtimeAppBasePath]);
+  }, [browserLocationReady, homePath, initialResumeHref, runtimeAppBasePath]);
   const resumeHref = React.useCallback(() => journey().resumeHref, [journey]);
   const identityLoginHref = React.useMemo(
     () =>

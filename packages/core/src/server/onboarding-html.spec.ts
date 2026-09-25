@@ -11,6 +11,7 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from "../shared/password-policy.js";
+import { encodeContinuation } from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
@@ -199,6 +200,66 @@ describe("getOnboardingHtml", () => {
       expect(html).not.toContain("Sign in with Agent-Native");
       expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
       expect(readAuthPageData(html).identitySsoAuto).toBe(true);
+    });
+
+    it.each([
+      ["return", encodeURIComponent("/protected?tab=1")],
+      ["c", encodeContinuation("/protected?tab=1")],
+    ])(
+      "preserves a validated %s destination in the federation CTA",
+      (key, value) => {
+        vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
+        delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+
+        const html = getOnboardingHtml({
+          requestHost: "calendar.agent-native.com",
+          requestPath: `/sign-in?${key}=${value}`,
+        });
+
+        expect(html).toContain(
+          'href="/_agent-native/identity/login?return=%2Fprotected%3Ftab%3D1"',
+        );
+      },
+    );
+
+    it("carries a direct protected request into the federation CTA", () => {
+      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+
+      const html = getOnboardingHtml({
+        requestHost: "calendar.agent-native.com",
+        requestPath: "/protected?tab=1",
+      });
+
+      expect(html).toContain(
+        'href="/_agent-native/identity/login?return=%2Fprotected%3Ftab%3D1"',
+      );
+    });
+
+    it("rejects an external federation return target", () => {
+      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+
+      const html = getOnboardingHtml({
+        requestHost: "calendar.agent-native.com",
+        requestPath: "/sign-in?return=https%3A%2F%2Fevil.example",
+      });
+
+      expect(html).toContain(
+        'href="/_agent-native/identity/login?return=%2Fhome"',
+      );
+    });
+
+    it("keeps root auth markup independent of request query parameters", () => {
+      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
+      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+
+      const html = getOnboardingHtml({
+        requestHost: "calendar.agent-native.com",
+        requestPath: "/?return=%2Fprotected",
+      });
+
+      expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
     });
 
     it("keeps silent federation enabled in cached canonical login HTML", () => {

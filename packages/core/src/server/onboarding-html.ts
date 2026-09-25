@@ -40,6 +40,7 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from "../shared/password-policy.js";
+import { signInJourney } from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -1239,6 +1240,22 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     getAppConfig().app,
     getAppConfig().workspace,
   );
+  const requestUrl = new URL(
+    opts.requestPath || `${appBasePath}/`,
+    "https://agent-native.local",
+  );
+  const requestPathname = requestUrl.pathname;
+  const isRootRequest =
+    requestPathname === appBasePath || requestPathname === `${appBasePath}/`;
+  const initialResumeHref = signInJourney({
+    at: isRootRequest
+      ? `${appBasePath}/`
+      : `${requestPathname}${requestUrl.search}${requestUrl.hash}`,
+    continuation: isRootRequest ? null : requestUrl.searchParams.get("c"),
+    legacyReturn: isRootRequest ? null : requestUrl.searchParams.get("return"),
+    basePath: appBasePath,
+    homePath: appHomePath,
+  }).resumeHref;
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
     getAppConfig().app.slug ??
@@ -1721,6 +1738,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     initialView: initialAuthView(opts, authMode, googleOnly),
     appBasePath,
     homePath: appHomePath,
+    initialResumeHref,
     workspaceRuntime,
     trackingApp,
     defaultLocale: DEFAULT_LOCALE,
