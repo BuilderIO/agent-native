@@ -2,7 +2,9 @@ import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import { useActionQuery } from "../use-action.js";
 
 type ChartPoint = { label: string; value: number };
 type DesignToken = { label: string; value: string };
@@ -30,8 +32,6 @@ const MAX_MARKDOWN_LINES = MAX_ROWS * 2 + 2;
 const DESIGN_HOST_ORIGIN = "https://design.agent-native.com";
 const BETA_DESIGN_HOST_ORIGIN = "https://beta.design.agent-native.com";
 const DESIGN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-const DESIGN_URL_PATTERN =
-  /(?:^|[\s([{<"'=])((?:https?:\/\/[^\s<>"'`]+|\/design\/[A-Za-z0-9_-]+(?:[?#][^\s<>"'`]*)?))/gm;
 const REBINDING_DNS_SUFFIXES = [
   "nip.io",
   "sslip.io",
@@ -74,19 +74,99 @@ function reserveCompactFrame(onReserve: () => void): () => void {
 
 function ReviewPreviewFrame({
   url,
+  artifactAppId,
+  artifactId,
   previewLabel,
   compact,
   kind,
 }: {
-  url: string;
+  url?: string;
+  artifactAppId?: "design" | "slides";
+  artifactId?: string;
   previewLabel: string;
   compact: boolean;
   kind: "artifact" | "design";
 }) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const releaseRef = useRef<(() => void) | null>(null);
   const [mounted, setMounted] = useState(!compact);
   const [loaded, setLoaded] = useState(false);
+  const designQuery = useActionQuery<Record<string, unknown>>(
+    "get-design",
+    { id: artifactId ?? "" },
+    {
+      enabled: mounted && artifactAppId === "design" && Boolean(artifactId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const deckQuery = useActionQuery<Record<string, unknown>>(
+    "get-deck",
+    { id: artifactId ?? "", compact: compact ? "true" : "false" },
+    {
+      enabled: mounted && artifactAppId === "slides" && Boolean(artifactId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const deckMetadataSlides = Array.isArray(deckQuery.data?.slides)
+    ? deckQuery.data.slides.filter((slide): slide is Record<string, unknown> =>
+        isRecord(slide),
+      )
+    : [];
+  const firstSlideId =
+    compact && typeof deckMetadataSlides[0]?.id === "string"
+      ? deckMetadataSlides[0].id
+      : undefined;
+  const firstSlideQuery = useActionQuery<Record<string, unknown>>(
+    "get-deck",
+    {
+      id: artifactId ?? "",
+      slideId: firstSlideId ?? "",
+      compact: "false",
+    },
+    {
+      enabled: mounted && artifactAppId === "slides" && Boolean(firstSlideId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const designFiles = Array.isArray(designQuery.data?.files)
+    ? designQuery.data.files.filter((file): file is Record<string, unknown> =>
+        isRecord(file),
+      )
+    : [];
+  const designFile =
+    designFiles.find(
+      (file) =>
+        typeof file.filename === "string" &&
+        file.filename.toLowerCase() === "index.html",
+    ) ??
+    designFiles.find(
+      (file) =>
+        (typeof file.filename === "string" &&
+          file.filename.toLowerCase().endsWith(".html")) ||
+        (typeof file.fileType === "string" &&
+          file.fileType.toLowerCase().includes("html")),
+    );
+  const slideData = compact ? firstSlideQuery.data : deckQuery.data;
+  const slides = Array.isArray(slideData?.slides)
+    ? slideData.slides.filter((slide): slide is Record<string, unknown> =>
+        isRecord(slide),
+      )
+    : [];
+  const artifactHtml =
+    artifactAppId === "design" ? designFile?.content : slides[0]?.content;
+  const srcDoc = typeof artifactHtml === "string" ? artifactHtml : undefined;
+  const artifactError =
+    artifactAppId === "design"
+      ? designQuery.isError
+      : deckQuery.isError || firstSlideQuery.isError;
+  const artifactLoaded =
+    artifactAppId === "design"
+      ? designQuery.isSuccess
+      : deckQuery.isSuccess &&
+        (!compact || !firstSlideId || firstSlideQuery.isSuccess);
+  const unavailable =
+    artifactAppId && (artifactError || (artifactLoaded && !srcDoc));
 
   useEffect(() => {
     if (!compact) return;
@@ -120,9 +200,7 @@ function ReviewPreviewFrame({
     };
   }, [compact]);
 
-  useEffect(() => {
-    setLoaded(false);
-  }, [url]);
+  useEffect(() => setLoaded(false), [url, srcDoc]);
 
   const dataKind = compact ? `${kind}-iframe-thumbnail` : `${kind}-iframe`;
   return (
@@ -135,10 +213,28 @@ function ReviewPreviewFrame({
           : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
       }
       data-preview-kind={dataKind}
+      data-preview-state={
+        unavailable
+          ? "unavailable"
+          : artifactAppId && !srcDoc
+            ? "loading"
+            : "ready"
+      }
       role="img"
     >
-      {!loaded && <div className="absolute inset-0 animate-pulse bg-muted" />}
-      {mounted && (
+      {!loaded && (
+        <div
+          className={
+            unavailable
+              ? "absolute inset-0 flex items-center justify-center bg-muted px-3 text-center text-xs text-muted-foreground"
+              : "absolute inset-0 animate-pulse bg-muted"
+          }
+          role={unavailable ? "status" : undefined}
+        >
+          {unavailable ? t("observability.reviewPreviewUnavailable") : null}
+        </div>
+      )}
+      {mounted && (!artifactAppId || srcDoc) && (
         <iframe
           aria-hidden="true"
           className={
@@ -149,8 +245,8 @@ function ReviewPreviewFrame({
           loading="lazy"
           onLoad={() => setLoaded(true)}
           referrerPolicy="no-referrer"
-          sandbox="allow-forms allow-scripts"
-          src={url}
+          sandbox="allow-scripts"
+          {...(artifactAppId ? { srcDoc } : { src: url })}
           tabIndex={-1}
           title={previewLabel}
         />
@@ -269,33 +365,6 @@ function safeDesignPreviewUrl(
   } catch {
     return undefined;
   }
-}
-
-function safeDesignArtifactPreviewUrl(
-  value: unknown,
-  baseOrigin = typeof window === "undefined"
-    ? undefined
-    : window.location.origin,
-): string | undefined {
-  const candidate = boundedString(value);
-  const match = candidate?.match(
-    /^\/(?:design|present)\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/,
-  );
-  return match
-    ? safeDesignPreviewUrl(`/design/${match[1]}`, baseOrigin)
-    : undefined;
-}
-
-function findDesignPreviewUrl(
-  text: string,
-  baseOrigin?: string,
-): string | undefined {
-  for (const match of text.matchAll(DESIGN_URL_PATTERN)) {
-    const candidate = match[1].replace(/[),.;!?]+$/, "");
-    const previewUrl = safeDesignPreviewUrl(candidate, baseOrigin);
-    if (previewUrl) return previewUrl;
-  }
-  return undefined;
 }
 
 function splitTableRow(line: string): string[] {
@@ -482,15 +551,6 @@ export function parseOutputPreview(
     // Plain text and Markdown outputs are expected and remain the fallback.
   }
 
-  const previewUrl = findDesignPreviewUrl(text, baseOrigin);
-  if (previewUrl) {
-    return {
-      kind: "design",
-      previewUrl,
-      tokens: [],
-    };
-  }
-
   const imageMatch = text.match(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/i);
   const imageUrl = imageMatch ? safeImageUrl(imageMatch[2]) : undefined;
   if (imageUrl) {
@@ -510,9 +570,10 @@ export function OutputPreview({
   inlineApp,
   compact = false,
   maxAppHeight,
-  designPreviewPath,
   artifactPreviewUrl,
   artifactPreviewIsImage = false,
+  artifactPreviewAppId,
+  artifactPreviewId,
   artifactOnly = false,
 }: {
   answer: string;
@@ -520,9 +581,10 @@ export function OutputPreview({
   inlineApp?: AgentMcpAppPayload;
   compact?: boolean;
   maxAppHeight?: number;
-  designPreviewPath?: string;
   artifactPreviewUrl?: string;
   artifactPreviewIsImage?: boolean;
+  artifactPreviewAppId?: "design" | "slides" | "analytics";
+  artifactPreviewId?: string;
   artifactOnly?: boolean;
 }) {
   const preview = parseOutputPreview(answer);
@@ -544,27 +606,29 @@ export function OutputPreview({
       />
     );
   }
-  if (artifactPreviewUrl) {
+  if (artifactPreviewAppId === "design" && artifactPreviewId) {
     return (
       <ReviewPreviewFrame
-        url={artifactPreviewUrl}
-        previewLabel={previewLabel}
-        compact={compact}
-        kind="artifact"
-      />
-    );
-  }
-  const designPreviewUrl =
-    safeDesignArtifactPreviewUrl(designPreviewPath) ??
-    (preview.kind === "design" ? preview.previewUrl : undefined);
-
-  if (designPreviewUrl) {
-    return (
-      <ReviewPreviewFrame
-        url={designPreviewUrl}
+        artifactAppId="design"
+        artifactId={artifactPreviewId}
         previewLabel={previewLabel}
         compact={compact}
         kind="design"
+      />
+    );
+  }
+  if (
+    artifactPreviewAppId === "slides" &&
+    artifactPreviewId &&
+    artifactPreviewUrl
+  ) {
+    return (
+      <ReviewPreviewFrame
+        artifactAppId="slides"
+        artifactId={artifactPreviewId}
+        previewLabel={previewLabel}
+        compact={compact}
+        kind="artifact"
       />
     );
   }

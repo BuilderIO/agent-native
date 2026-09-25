@@ -4,6 +4,14 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { mockUseActionQuery } = vi.hoisted(() => ({
+  mockUseActionQuery: vi.fn(),
+}));
+vi.mock("../use-action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../use-action.js")>()),
+  useActionQuery: mockUseActionQuery,
+}));
+
 import { OutputPreview } from "./OutputPreview.js";
 
 beforeEach(() => vi.stubGlobal("IntersectionObserver", undefined));
@@ -208,12 +216,41 @@ describe("OutputPreview saved MCP Apps", () => {
   });
 });
 
-describe("OutputPreview trusted Design frames", () => {
+describe("OutputPreview authenticated artifact frames", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mockUseActionQuery.mockImplementation((actionName, params) => {
+      if (actionName === "get-deck") {
+        return {
+          data:
+            params.compact === "true"
+              ? { slides: [{ id: "slide-1" }] }
+              : {
+                  slides: [
+                    { id: "slide-1", content: "<main>Saved slide</main>" },
+                  ],
+                },
+          isError: false,
+          isSuccess: true,
+        };
+      }
+      return {
+        data: {
+          files: [
+            {
+              filename: "index.html",
+              fileType: "text/html",
+              content: "<main>Actual saved Design</main>",
+            },
+          ],
+        },
+        isError: false,
+        isSuccess: true,
+      };
+    });
     container = document.createElement("div");
     root = createRoot(container);
   });
@@ -223,16 +260,16 @@ describe("OutputPreview trusted Design frames", () => {
     container.remove();
   });
 
-  it("renders a bounded, lazy, no-referrer iframe for a real Design route", async () => {
+  it("renders the parent-fetched Design in an opaque sandbox", async () => {
     const origin = "https://design.agent-native.com";
     act(() => {
       root.render(
         <OutputPreview
-          answer={JSON.stringify({
-            type: "design",
-            title: "Saved design",
-            url: `${origin}/design/site-42?view=overview#screen-2`,
-          })}
+          answer="Saved design"
+          artifactPreviewAppId="design"
+          artifactPreviewId="site-42"
+          artifactPreviewUrl={`${origin}/present/site-42?reviewEmbed=1`}
+          artifactOnly
           compact
           previewLabel="Agent output"
         />,
@@ -250,24 +287,26 @@ describe("OutputPreview trusted Design frames", () => {
       '[data-preview-kind="design-iframe-thumbnail"]',
     );
     const iframe = preview?.querySelector("iframe");
-    expect(iframe?.getAttribute("src")).toBe(
-      `${origin}/present/site-42?reviewEmbed=1`,
-    );
+    expect(iframe?.getAttribute("src")).toBeNull();
+    expect(iframe?.srcdoc).toContain("Actual saved Design");
     expect(iframe?.getAttribute("loading")).toBe("lazy");
     expect(iframe?.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-forms allow-scripts");
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
     expect(iframe?.className).toContain("h-[600%]");
     expect(iframe?.className).toContain("w-[600%]");
     expect(preview?.className).toContain("overflow-hidden");
   });
 
-  it("renders the evidenced Design artifact path as its real thumbnail", async () => {
+  it("fetches only the selected Slides page before rendering its HTML", async () => {
     act(() => {
       root.render(
         <OutputPreview
           answer="A saved summary"
+          artifactPreviewAppId="slides"
+          artifactPreviewId="deck-42"
+          artifactPreviewUrl="https://slides.agent-native.com/deck/deck-42/present?reviewEmbed=1"
+          artifactOnly
           compact
-          designPreviewPath="/present/design-17"
           previewLabel="Agent output"
         />,
       );
@@ -276,17 +315,37 @@ describe("OutputPreview trusted Design frames", () => {
     await vi.waitFor(() =>
       expect(
         container.querySelector(
-          '[data-preview-kind="design-iframe-thumbnail"] iframe',
+          '[data-preview-kind="artifact-iframe-thumbnail"] iframe',
         ),
       ).not.toBeNull(),
     );
-    const iframe = container.querySelector(
-      '[data-preview-kind="design-iframe-thumbnail"] iframe',
-    );
-    expect(iframe?.getAttribute("src")).toBe(
-      `${window.location.origin}/present/design-17?reviewEmbed=1`,
-    );
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-forms allow-scripts");
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBeNull();
+    expect(iframe?.srcdoc).toContain("Saved slide");
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(
+      mockUseActionQuery.mock.calls.some(
+        ([actionName, params]) =>
+          actionName === "get-deck" &&
+          params.slideId === "slide-1" &&
+          params.compact === "false",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not derive an authenticated preview from an artifact path alone", () => {
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer="A saved summary"
+          compact
+          previewLabel="Agent output"
+        />,
+      );
+    });
+
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("[data-preview-kind]")).toBeNull();
   });
 
   it("renders no thumbnail when there is no real Design artifact", () => {
@@ -309,7 +368,7 @@ describe("OutputPreview trusted Design frames", () => {
     expect(container.querySelector("[data-preview-kind]")).toBeNull();
   });
 
-  it("never frames an untrusted Design route", () => {
+  it("never frames a Design URL scraped from the agent answer", () => {
     act(() => {
       root.render(
         <OutputPreview

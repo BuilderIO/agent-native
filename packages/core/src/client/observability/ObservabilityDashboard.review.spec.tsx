@@ -15,6 +15,7 @@ const {
   mockTraces,
   mockTraceDetail,
   mockOpenThread,
+  mockUseActionQuery,
 } = vi.hoisted(() => ({
   mockOutputReviews: vi.fn(),
   mockOutputReviewDetail: vi.fn(),
@@ -24,6 +25,7 @@ const {
   mockTraces: vi.fn(),
   mockTraceDetail: vi.fn(),
   mockOpenThread: vi.fn(),
+  mockUseActionQuery: vi.fn(),
 }));
 
 vi.mock("../agent-chat.js", async (importOriginal) => ({
@@ -38,6 +40,11 @@ vi.mock("../org/hooks.js", () => ({
     isLoading: false,
     isError: false,
   }),
+}));
+
+vi.mock("../use-action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../use-action.js")>()),
+  useActionQuery: mockUseActionQuery,
 }));
 
 vi.mock("./useObservability.js", () => ({
@@ -97,9 +104,7 @@ describe("human review artifact links", () => {
         "/deck/deck-1/present",
         "localhost",
       ),
-    ).toBe(
-      "http://localhost:8086/deck/deck-1/present?reviewEmbed=1",
-    );
+    ).toBe("http://localhost:8086/deck/deck-1/present?reviewEmbed=1");
     expect(
       resolveReviewArtifactHref(
         "design",
@@ -196,10 +201,29 @@ describe("ObservabilityDashboard human review", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClient;
+  let originalLocation: Location;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("IntersectionObserver", undefined);
+    originalLocation = window.location;
+    mockUseActionQuery.mockImplementation((actionName, params) =>
+      actionName === "get-design" && params.id === "design-2"
+        ? {
+            data: {
+              files: [
+                {
+                  filename: "index.html",
+                  fileType: "text/html",
+                  content: "<main>Actual campaign design</main>",
+                },
+              ],
+            },
+            isError: false,
+            isSuccess: true,
+          }
+        : { data: undefined, isError: false, isSuccess: false },
+    );
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -322,6 +346,10 @@ describe("ObservabilityDashboard human review", () => {
     act(() => root.unmount());
     queryClient.clear();
     container.remove();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
     vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
@@ -683,6 +711,12 @@ describe("ObservabilityDashboard human review", () => {
   });
 
   it("shows a saved summary and previews the latest real artifact only", async () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: new URL(
+        "https://beta.design.agent-native.com/settings/observability/human-review",
+      ),
+    });
     mockOutputReviews.mockReturnValue({
       isLoading: false,
       data: [
@@ -768,7 +802,7 @@ describe("ObservabilityDashboard human review", () => {
     await vi.waitFor(() =>
       expect(
         container.querySelector(
-          `[data-preview-kind="artifact-iframe-thumbnail"] iframe[src="http://localhost:8099/present/design-2?reviewEmbed=1"]`,
+          '[data-preview-kind="design-iframe-thumbnail"] iframe[srcdoc]',
         ),
       ).not.toBeNull(),
     );
@@ -782,11 +816,10 @@ describe("ObservabilityDashboard human review", () => {
     expect(
       detail.querySelector("[data-review-summary]")?.textContent,
     ).toContain("The updated analytics dashboard shows a clear lift.");
+    expect(detail.querySelector("iframe[srcdoc]")).not.toBeNull();
     expect(
-      detail.querySelector(
-        'iframe[src="http://localhost:8099/present/design-2?reviewEmbed=1"]',
-      ),
-    ).not.toBeNull();
+      detail.querySelector("iframe[srcdoc]")?.getAttribute("srcdoc"),
+    ).toContain("Actual campaign design");
     expect(detail.querySelector('iframe[src*="example.com"]')).toBeNull();
     expect(
       Array.from(detail.querySelectorAll("button")).some((button) =>

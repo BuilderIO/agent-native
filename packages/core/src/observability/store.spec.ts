@@ -285,7 +285,9 @@ describe("observability store: per-user isolation", () => {
         /INNER JOIN chat_threads thread\s+ON thread\.id = summary\.thread_id AND thread\.org_id = summary\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(summary\.user_id\)/,
       );
       expect(call.sql).toContain("summary.org_id = ?");
-      expect(call.sql).toContain("name = 'agent_run:observability:human-review-summary'");
+      expect(call.sql).toContain(
+        "name = 'agent_run:observability:human-review-summary'",
+      );
       expect(call.sql).toContain("PARTITION BY summary.thread_id");
       expect(call.args).toEqual(["org-a", 100, "thread-a", "org-a", 6]);
     });
@@ -544,7 +546,61 @@ describe("observability store: per-user isolation", () => {
       await getFeedback({ sinceMs: 500, limit: 20, userId: "bob" });
       const call = lastSelect();
       expect(call.sql).toMatch(/user_id = \?/);
+      expect(call.sql).not.toContain("ROW_NUMBER()");
+      expect(call.sql).toMatch(/ORDER BY created_at DESC LIMIT \?$/);
       expect(call.args).toEqual([500, "bob", 20]);
+    });
+
+    it("bounds feedback independently for each selected thread", async () => {
+      await getFeedback({
+        runIds: ["run-a", "run-b"],
+        threadIds: ["thread-a", "thread-b"],
+        sinceMs: 500,
+        feedbackType: "thumbs_down",
+        userId: "alice",
+        orgId: "org-a",
+        source: "human_review",
+        limit: 1,
+        perThreadLimit: 3,
+      });
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /PARTITION BY thread_id ORDER BY created_at DESC, id DESC/,
+      );
+      expect(call.sql).toMatch(/WHERE feedback_row_number <= \?/);
+      expect(call.sql).toMatch(
+        /FROM agent_feedback WHERE run_id IN \(\?, \?\) AND thread_id IN \(\?, \?\) AND created_at >= \? AND feedback_type = \? AND user_id = \? AND org_id = \? AND source = \?/,
+      );
+      expect(call.sql).not.toContain("LIMIT ?");
+      expect(call.args).toEqual([
+        "run-a",
+        "run-b",
+        "thread-a",
+        "thread-b",
+        500,
+        "thumbs_down",
+        "alice",
+        "org-a",
+        "human_review",
+        3,
+      ]);
+    });
+
+    it("defaults review rollups to six feedback rows per thread and caps overrides", async () => {
+      await getFeedback({
+        threadIds: ["thread-a", "thread-b"],
+        limit: 1,
+      });
+      const call = lastSelect();
+      expect(call.sql).toContain("PARTITION BY thread_id");
+      expect(call.sql).toContain("WHERE feedback_row_number <= ?");
+      expect(call.args).toEqual(["thread-a", "thread-b", 6]);
+
+      await getFeedback({
+        threadIds: ["thread-a", "thread-b"],
+        perThreadLimit: 99,
+      });
+      expect(lastSelect().args).toEqual(["thread-a", "thread-b", 12]);
     });
 
     it("getFeedbackStats scopes aggregations to userId", async () => {

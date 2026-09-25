@@ -712,7 +712,7 @@ export async function resolveObservabilityReviewSummaryActionSurface(
       candidateRunIds.length === 0 ||
       candidateRunIds.length > MAX_OBSERVABILITY_REVIEW_SUMMARY_BATCH ||
       !candidateRunIds.every(
-        (runId) =>
+        (runId): runId is string =>
           typeof runId === "string" &&
           runId.trim().length > 0 &&
           runId.trim().length <= 200,
@@ -720,7 +720,8 @@ export async function resolveObservabilityReviewSummaryActionSurface(
     ) {
       throw createError({
         statusCode: 400,
-        statusMessage: "A valid bounded run batch is required for summary review.",
+        statusMessage:
+          "A valid bounded run batch is required for summary review.",
       });
     }
     const runIds = [...new Set(candidateRunIds.map((runId) => runId.trim()))];

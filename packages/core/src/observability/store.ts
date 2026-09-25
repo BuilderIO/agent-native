@@ -896,8 +896,7 @@ export async function getOrgScopedReviewThreads(
         threadData:
           typeof row.thread_data === "string" ? row.thread_data : null,
         title: typeof row.title === "string" ? row.title.slice(0, 240) : null,
-        scopeType:
-          typeof row.scope_type === "string" ? row.scope_type : null,
+        scopeType: typeof row.scope_type === "string" ? row.scope_type : null,
         scopeId: typeof row.scope_id === "string" ? row.scope_id : null,
         scopeLabel:
           typeof row.scope_label === "string"
@@ -1043,6 +1042,7 @@ export async function getFeedback(opts: {
   source?: FeedbackEntry["source"];
   runIds?: readonly string[];
   threadIds?: readonly string[];
+  perThreadLimit?: number;
 }): Promise<FeedbackEntry[]> {
   const runIds = opts.runIds
     ? [...new Set(opts.runIds.filter(Boolean))]
@@ -1090,10 +1090,21 @@ export async function getFeedback(opts: {
   }
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const limit = opts.limit ?? 100;
+  const perThreadLimit = Math.max(1, Math.min(opts.perThreadLimit ?? 6, 12));
   const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_feedback ${where} ORDER BY created_at DESC LIMIT ?`,
-    args: [...args, limit],
+    sql: threadIds
+      ? `SELECT * FROM (
+        SELECT agent_feedback.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY thread_id ORDER BY created_at DESC, id DESC
+          ) AS feedback_row_number
+        FROM agent_feedback ${where}
+      ) AS review_feedback
+      WHERE feedback_row_number <= ?
+      ORDER BY created_at DESC, id DESC`
+      : `SELECT * FROM agent_feedback ${where}
+      ORDER BY created_at DESC LIMIT ?`,
+    args: [...args, threadIds ? perThreadLimit : (opts.limit ?? 100)],
   });
   return (rows as any[]).map(rowToFeedback);
 }

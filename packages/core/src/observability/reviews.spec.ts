@@ -52,7 +52,10 @@ import {
   listOutputReviews,
 } from "./reviews.js";
 
-const scopedThread = (threadData: string, title: string | null = "A real thread") => ({
+const scopedThread = (
+  threadData: string,
+  title: string | null = "A real thread",
+) => ({
   ownerEmail: "alice@example.com",
   threadData,
   title,
@@ -155,7 +158,7 @@ describe("listOutputReviews", () => {
     mockGetHumanReviewSummaries.mockResolvedValueOnce(
       new Map([
         [
-            "run-1",
+          "run-1",
           {
             runId: "run-1",
             orgId: "org-a",
@@ -268,7 +271,7 @@ describe("listOutputReviews", () => {
     mockGetHumanReviewSummaries.mockResolvedValueOnce(
       new Map([
         [
-            "run-1",
+          "run-1",
           {
             runId: "run-1",
             orgId: "org-a",
@@ -370,6 +373,88 @@ describe("listOutputReviews", () => {
     ]);
   });
 
+  it("keeps summary artifacts scoped to the selected run and redacts scope labels", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-1",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+    });
+    const threadData = JSON.stringify({
+      messages: [
+        {
+          message: {
+            role: "user",
+            content: "Create a design",
+            metadata: { runId: "run-1" },
+          },
+        },
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                name: "create_design",
+                result: { designId: "design-run-1", title: "Run one" },
+              },
+            ],
+            metadata: { runId: "run-1" },
+          },
+        },
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                name: "create_design",
+                result: { designId: "design-run-2", title: "Run two" },
+              },
+            ],
+            metadata: { runId: "run-2" },
+          },
+        },
+      ],
+    });
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            ...scopedThread(threadData),
+            scopeType: "design",
+            scopeId: "design-scope",
+            scopeLabel: "AWS_SECRET_ACCESS_KEY=fake-scope-secret",
+          },
+        ],
+      ]),
+    );
+
+    const source = await getOutputReviewSummarySource({
+      runId: "run-1",
+      orgId: "org-a",
+    });
+
+    expect(source).toMatchObject({
+      found: true,
+      attachedArtifacts: [
+        {
+          artifactId: "design-scope",
+          title: "AWS_SECRET_ACCESS_KEY=[REDACTED]",
+        },
+      ],
+      toolEvidence: [
+        {
+          name: "create_design",
+          output: { designId: "design-run-1", title: "Run one" },
+        },
+      ],
+    });
+    expect(JSON.stringify(source)).not.toContain("design-run-2");
+    expect(JSON.stringify(source)).not.toContain("fake-scope-secret");
+    expect(mockGetSuccessfulToolSpansForReview).not.toHaveBeenCalled();
+  });
+
   it("redacts prefixed secrets across the bounded thread history", async () => {
     const standaloneJwt = ["eyJx", "e30", "signature"].join(".");
     mockGetTraceSummary.mockResolvedValueOnce({
@@ -383,30 +468,30 @@ describe("listOutputReviews", () => {
           "thread-1",
           scopedThread(
             JSON.stringify({
-            messages: [
-              {
-                message: {
-                  role: "user",
-                  content: `AWS_SECRET_ACCESS_KEY=target-secret\nAuthorization: Basic fake-encoded-credential\naccessToken=fake-access-token\nclientSecret=fake-client-secret\nCookie: session=fake-cookie; refresh=fake-refresh\nSet-Cookie: session=fake-set-cookie; refresh=fake-set-cookie-two; Path=/\nAIzaEXAMPLE_NOT_A_REAL_KEY SG.EXAMPLE_ONLY.NOT_A_REAL_TOKEN xoxb-example-not-a-real-token AKIAEXAMPLE sk-proj-example sk-ant-example ${standaloneJwt} https://viewer:fake-url-password@example.test/review#access_token=fake-url-fragment`,
-                  metadata: { runId: "run-1" },
+              messages: [
+                {
+                  message: {
+                    role: "user",
+                    content: `AWS_SECRET_ACCESS_KEY=target-secret\nAuthorization: Basic fake-encoded-credential\naccessToken=fake-access-token\nclientSecret=fake-client-secret\nCookie: session=fake-cookie; refresh=fake-refresh\nSet-Cookie: session=fake-set-cookie; refresh=fake-set-cookie-two; Path=/\nAIzaEXAMPLE_NOT_A_REAL_KEY SG.EXAMPLE_ONLY.NOT_A_REAL_TOKEN xoxb-example-not-a-real-token AKIAEXAMPLE sk-proj-example sk-ant-example ${standaloneJwt} https://viewer:fake-url-password@example.test/review#access_token=fake-url-fragment`,
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content:
-                    '{"AWS_SECRET_ACCESS_KEY":"json-secret","Authorization":"Basic fake-json-credential","accessToken":"fake-json-access-token","clientSecret":"fake-json-client-secret","Cookie":"fake-json-cookie","Set-Cookie":"fake-json-set-cookie"}',
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "assistant",
+                    content:
+                      '{"AWS_SECRET_ACCESS_KEY":"json-secret","Authorization":"Basic fake-json-credential","accessToken":"fake-json-access-token","clientSecret":"fake-json-client-secret","Cookie":"fake-json-cookie","Set-Cookie":"fake-json-set-cookie"}',
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              ...Array.from({ length: 45 }, (_, index) => ({
-                message: {
-                  role: "user",
-                  content: `neighbor-${index} AWS_SECRET_ACCESS_KEY=neighbor-secret`,
-                  metadata: { runId: "run-2" },
-                },
-              })),
-            ],
+                ...Array.from({ length: 45 }, (_, index) => ({
+                  message: {
+                    role: "user",
+                    content: `neighbor-${index} AWS_SECRET_ACCESS_KEY=neighbor-secret`,
+                    metadata: { runId: "run-2" },
+                  },
+                })),
+              ],
             }),
             '{"AWS_SECRET_ACCESS_KEY":"title-secret"}',
           ),
@@ -428,7 +513,9 @@ describe("listOutputReviews", () => {
       text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]\naccessToken=[REDACTED]\nclientSecret=[REDACTED]\nCookie: [REDACTED]\nSet-Cookie: [REDACTED]\n[REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] https://[REDACTED]@example.test/review#[REDACTED]",
     });
     expect(source.messages).toHaveLength(40);
-    expect(source.messages.some((message) => message.text.startsWith("neighbor-"))).toBe(true);
+    expect(
+      source.messages.some((message) => message.text.startsWith("neighbor-")),
+    ).toBe(true);
     expect(JSON.stringify(source)).not.toContain("neighbor-secret");
     expect(JSON.stringify(source)).not.toContain("target-secret");
     expect(JSON.stringify(source)).not.toContain("json-secret");
@@ -467,12 +554,7 @@ describe("listOutputReviews", () => {
       userId: "alice@example.com",
     });
     mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
-      new Map([
-        [
-          "thread-1",
-          scopedThread("x".repeat(1_000_001)),
-        ],
-      ]),
+      new Map([["thread-1", scopedThread("x".repeat(1_000_001))]]),
     );
 
     await expect(
@@ -763,52 +845,54 @@ describe("listOutputReviews", () => {
       new Map([
         [
           "thread-1",
-          scopedThread(JSON.stringify({
-            messages: [
-              {
-                message: {
-                  role: "user",
-                  content: "Neighbor question",
-                  metadata: { runId: "run-2" },
+          scopedThread(
+            JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "user",
+                    content: "Neighbor question",
+                    metadata: { runId: "run-2" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content: "Neighbor answer",
-                  metadata: { runId: "run-2" },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "Neighbor answer",
+                    metadata: { runId: "run-2" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "user",
-                  content: "First question",
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "user",
+                    content: "First question",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content: "First answer",
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "First answer",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "user",
-                  content: "Follow-up",
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "user",
+                    content: "Follow-up",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content: "Final answer",
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "Final answer",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-            ],
-          })),
+              ],
+            }),
+          ),
         ],
       ]),
     );

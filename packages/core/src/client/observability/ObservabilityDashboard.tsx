@@ -23,6 +23,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, useRef, useState } from "react";
 import { Link, Navigate, useInRouterContext, useLocation } from "react-router";
 
+import type { OutputReviewListRow } from "../../observability/types.js";
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_OPEN,
@@ -128,6 +129,39 @@ const REVIEW_ARTIFACT_APPS = {
   analytics: { host: "analytics.agent-native.com", port: 8088 },
 } as const;
 
+function currentReviewArtifactAppId():
+  | keyof typeof REVIEW_ARTIFACT_APPS
+  | undefined {
+  if (typeof window === "undefined") return undefined;
+  const hostname = window.location.hostname.toLowerCase();
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return Object.entries(REVIEW_ARTIFACT_APPS).find(
+      ([, app]) => String(app.port) === window.location.port,
+    )?.[0] as keyof typeof REVIEW_ARTIFACT_APPS | undefined;
+  }
+  const normalizedHost = hostname.startsWith("beta.")
+    ? hostname.slice("beta.".length)
+    : hostname;
+  return Object.entries(REVIEW_ARTIFACT_APPS).find(
+    ([, app]) => app.host === normalizedHost,
+  )?.[0] as keyof typeof REVIEW_ARTIFACT_APPS | undefined;
+}
+
+function canRenderReviewArtifactInParent(
+  artifact: OutputReviewListRow["artifacts"][number],
+): boolean {
+  if (
+    artifact.appId === "analytics" &&
+    artifact.path?.startsWith("/api/media/")
+  ) {
+    return true;
+  }
+  return (
+    currentReviewArtifactAppId() === artifact.appId &&
+    (artifact.appId === "design" || artifact.appId === "slides")
+  );
+}
+
 function reviewArtifactPath(
   appId: keyof typeof REVIEW_ARTIFACT_APPS,
   artifactId: string,
@@ -190,12 +224,14 @@ function latestRenderableReviewArtifact(
 ) {
   return [...(artifacts ?? [])]
     .reverse()
-    .find((artifact) =>
-      resolveReviewArtifactHref(
-        artifact.appId,
-        artifact.artifactId,
-        artifact.path,
-      ),
+    .find(
+      (artifact) =>
+        canRenderReviewArtifactInParent(artifact) &&
+        resolveReviewArtifactHref(
+          artifact.appId,
+          artifact.artifactId,
+          artifact.path,
+        ),
     );
 }
 
@@ -947,11 +983,11 @@ function ReviewTab({ days }: { days: number }) {
     isLoading: orgLoading,
     isError: orgError,
   } = useOrg();
-  const { data: reviews, isLoading, isError: reviewsError } = useOutputReviews(
-    days,
-    100,
-    activeOrg?.orgId ?? undefined,
-  );
+  const {
+    data: reviews,
+    isLoading,
+    isError: reviewsError,
+  } = useOutputReviews(days, 100, activeOrg?.orgId ?? undefined);
   const feedbackMutation = useSaveReviewFeedback();
   const instructionMutation = useSaveInstructionUpdate();
   const queryClient = useQueryClient();
@@ -1008,9 +1044,7 @@ function ReviewTab({ days }: { days: number }) {
     selectedRun?.runId ??
     selectedReview?.runs?.[0]?.runId ??
     selectedReview?.runId;
-  const reviewDetailQuery = useOutputReviewDetail(
-    activeRunId ?? null,
-  );
+  const reviewDetailQuery = useOutputReviewDetail(activeRunId ?? null);
   const activeDetail =
     reviewDetailQuery.data?.runId === activeRunId
       ? reviewDetailQuery.data
@@ -1019,18 +1053,23 @@ function ReviewTab({ days }: { days: number }) {
     activeDetail?.artifacts ??
     (activeRunId === selectedReview?.runId
       ? selectedReview?.artifacts
-      : undefined) ?? []
+      : undefined) ??
+    []
   ).flatMap((artifact) => {
+    if (!canRenderReviewArtifactInParent(artifact)) return [];
     const href = resolveReviewArtifactHref(
       artifact.appId,
       artifact.artifactId,
       artifact.path,
     );
-    return href ? [{ artifact, href, key: `${artifact.appId}:${artifact.artifactId}` }] : [];
+    return href
+      ? [{ artifact, href, key: `${artifact.appId}:${artifact.artifactId}` }]
+      : [];
   });
   const selectedArtifactChoice =
-    selectedArtifactChoices.find((choice) => choice.key === selectedArtifactKey) ??
-    selectedArtifactChoices.at(-1);
+    selectedArtifactChoices.find(
+      (choice) => choice.key === selectedArtifactKey,
+    ) ?? selectedArtifactChoices.at(-1);
   const selectedArtifact = selectedArtifactChoice?.artifact;
   const selectedArtifactHref = selectedArtifactChoice?.href;
   const selectedSummary =
@@ -1042,7 +1081,7 @@ function ReviewTab({ days }: { days: number }) {
     activeDetail?.answer ??
     (activeRunId === selectedReview?.runId ? selectedReview?.answer : "");
   const selectedAnswerPreview = selectedReview
-    ? parseOutputPreview(selectedAnswer)
+    ? parseOutputPreview(selectedAnswer ?? "")
     : undefined;
   const selectedHasPreview = Boolean(
     selectedArtifactHref ||
@@ -1051,7 +1090,7 @@ function ReviewTab({ days }: { days: number }) {
     selectedAnswerPreview?.kind === "table" ||
     selectedAnswerPreview?.kind === "image" ||
     (selectedAnswerPreview?.kind === "design" &&
-      (selectedAnswerPreview.imageUrl || selectedAnswerPreview.previewUrl)),
+      selectedAnswerPreview.imageUrl),
   );
 
   if (orgLoading || isLoading) return <LoadingState />;
@@ -1239,25 +1278,27 @@ function ReviewTab({ days }: { days: number }) {
   const activeFeedback = selectedReview?.feedback.filter(
     (entry) => entry.runId === activeRunId,
   );
-  const selectedVote = activeFeedback?.find(
-    (entry) =>
-      entry.feedbackType === "thumbs_up" ||
-      entry.feedbackType === "thumbs_down",
-  ) ?? (activeRunId === selectedReview?.runId
-    ? selectedReview?.feedback.find(
-        (entry) =>
-          entry.runId == null &&
-          (entry.feedbackType === "thumbs_up" ||
-            entry.feedbackType === "thumbs_down"),
-      )
-    : undefined);
-  const selectedNote = activeFeedback?.find(
-    (entry) => entry.feedbackType === "text",
-  ) ?? (activeRunId === selectedReview?.runId
-    ? selectedReview?.feedback.find(
-        (entry) => entry.runId == null && entry.feedbackType === "text",
-      )
-    : undefined);
+  const selectedVote =
+    activeFeedback?.find(
+      (entry) =>
+        entry.feedbackType === "thumbs_up" ||
+        entry.feedbackType === "thumbs_down",
+    ) ??
+    (activeRunId === selectedReview?.runId
+      ? selectedReview?.feedback.find(
+          (entry) =>
+            entry.runId == null &&
+            (entry.feedbackType === "thumbs_up" ||
+              entry.feedbackType === "thumbs_down"),
+        )
+      : undefined);
+  const selectedNote =
+    activeFeedback?.find((entry) => entry.feedbackType === "text") ??
+    (activeRunId === selectedReview?.runId
+      ? selectedReview?.feedback.find(
+          (entry) => entry.runId == null && entry.feedbackType === "text",
+        )
+      : undefined);
   const feedbackOpen =
     activeRunId !== undefined &&
     openPopover?.runId === activeRunId &&
@@ -1345,17 +1386,25 @@ function ReviewTab({ days }: { days: number }) {
                 artifact.path,
               )
             : undefined;
-          const hasPreview = Boolean(artifactHref);
+          const answerPreview = parseOutputPreview(review.answer);
+          const hasAnswerPreview =
+            answerPreview.kind === "chart" ||
+            answerPreview.kind === "table" ||
+            answerPreview.kind === "image" ||
+            (answerPreview.kind === "design" &&
+              Boolean(answerPreview.imageUrl));
+          const hasPreview = Boolean(artifactHref || hasAnswerPreview);
           const vote = review.feedback.find(
             (entry) =>
               entry.feedbackType === "thumbs_up" ||
               entry.feedbackType === "thumbs_down",
           );
-          const voteReason = review.feedback.find(
-            (entry) =>
-              entry.feedbackType === "text" &&
-              entry.runId === vote?.runId,
-          )?.value.trim();
+          const voteReason = review.feedback
+            .find(
+              (entry) =>
+                entry.feedbackType === "text" && entry.runId === vote?.runId,
+            )
+            ?.value.trim();
           const voteLabel =
             vote?.feedbackType === "thumbs_up"
               ? `${t("observability.thumbsUp")}${voteReason ? ` · ${voteReason}` : ""}`
@@ -1377,6 +1426,13 @@ function ReviewTab({ days }: { days: number }) {
                         artifact?.appId === "analytics" &&
                         artifact.path?.startsWith("/api/media/"),
                       )}
+                      artifactPreviewAppId={
+                        artifact?.appId === "design" ||
+                        artifact?.appId === "slides"
+                          ? artifact.appId
+                          : undefined
+                      }
+                      artifactPreviewId={artifact?.artifactId}
                       artifactOnly
                       previewLabel={t("observability.reviewPreview")}
                       compact
@@ -1577,7 +1633,9 @@ function ReviewTab({ days }: { days: number }) {
                             <button
                               key={choice.key}
                               type="button"
-                              aria-pressed={choice.key === selectedArtifactChoice?.key}
+                              aria-pressed={
+                                choice.key === selectedArtifactChoice?.key
+                              }
                               onClick={() => setSelectedArtifactKey(choice.key)}
                               className={cn(
                                 "max-w-48 shrink-0 truncate rounded-md px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -1599,7 +1657,7 @@ function ReviewTab({ days }: { days: number }) {
                         >
                           <div className="relative max-h-[min(38rem,65dvh)] min-h-64 overflow-hidden">
                             <OutputPreview
-                              answer={selectedAnswer}
+                              answer={selectedAnswer ?? ""}
                               artifactPreviewUrl={selectedArtifactHref}
                               artifactPreviewIsImage={Boolean(
                                 selectedArtifact?.appId === "analytics" &&
@@ -1607,6 +1665,13 @@ function ReviewTab({ days }: { days: number }) {
                                   "/api/media/",
                                 ),
                               )}
+                              artifactPreviewAppId={
+                                selectedArtifact?.appId === "design" ||
+                                selectedArtifact?.appId === "slides"
+                                  ? selectedArtifact.appId
+                                  : undefined
+                              }
+                              artifactPreviewId={selectedArtifact?.artifactId}
                               artifactOnly
                               inlineApp={activeDetail?.app ?? undefined}
                               maxAppHeight={420}
@@ -1651,7 +1716,8 @@ function ReviewTab({ days }: { days: number }) {
                               >
                                 {selectedReview.runs.map((run, index) => (
                                   <option key={run.runId} value={run.runId}>
-                                    {run.model} · {timeAgo(run.createdAt)} · {index + 1}
+                                    {run.model} · {timeAgo(run.createdAt)} ·{" "}
+                                    {index + 1}
                                   </option>
                                 ))}
                               </select>
@@ -1688,12 +1754,12 @@ function ReviewTab({ days }: { days: number }) {
                             >
                               {t("agentChat.common.chunkLoadFailed")}
                             </p>
+                          ) : reviewMessages.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              {t("observability.notCaptured")}
+                            </p>
                           ) : (
-                            reviewMessages.length === 0 ? (
-                              <p className="text-sm text-muted-foreground">
-                                {t("observability.notCaptured")}
-                              </p>
-                            ) : reviewMessages.map((message, index) => {
+                            reviewMessages.map((message, index) => {
                               const isLongAssistant =
                                 message.role === "assistant" &&
                                 message.text.length > 320;
@@ -1773,7 +1839,10 @@ function ReviewTab({ days }: { days: number }) {
                           title={t("observability.thumbsUp")}
                           disabled={feedbackMutation.isPending}
                           onClick={() =>
-                            saveFeedback(activeRunId ?? selectedReview.runId, "thumbs_up")
+                            saveFeedback(
+                              activeRunId ?? selectedReview.runId,
+                              "thumbs_up",
+                            )
                           }
                           className={cn(
                             "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
@@ -1792,11 +1861,18 @@ function ReviewTab({ days }: { days: number }) {
                           title={t("observability.thumbsDown")}
                           disabled={feedbackMutation.isPending}
                           onClick={() => {
-                            saveFeedback(activeRunId ?? selectedReview.runId, "thumbs_down");
+                            saveFeedback(
+                              activeRunId ?? selectedReview.runId,
+                              "thumbs_down",
+                            );
                             setFeedbackNote((current) =>
-                              current?.runId === (activeRunId ?? selectedReview.runId)
+                              current?.runId ===
+                              (activeRunId ?? selectedReview.runId)
                                 ? current
-                                : { runId: activeRunId ?? selectedReview.runId, value: "" },
+                                : {
+                                    runId: activeRunId ?? selectedReview.runId,
+                                    value: "",
+                                  },
                             );
                             setOpenPopover({
                               runId: activeRunId ?? selectedReview.runId,
@@ -1817,9 +1893,13 @@ function ReviewTab({ days }: { days: number }) {
                         onOpenChange={(open) => {
                           if (open) {
                             setFeedbackNote((current) =>
-                              current?.runId === (activeRunId ?? selectedReview.runId)
+                              current?.runId ===
+                              (activeRunId ?? selectedReview.runId)
                                 ? current
-                                : { runId: activeRunId ?? selectedReview.runId, value: "" },
+                                : {
+                                    runId: activeRunId ?? selectedReview.runId,
+                                    value: "",
+                                  },
                             );
                           }
                           setOpenPopover((current) => {
@@ -1829,7 +1909,8 @@ function ReviewTab({ days }: { days: number }) {
                                 kind: "feedback",
                               };
                             }
-                            return current?.runId === (activeRunId ?? selectedReview.runId) &&
+                            return current?.runId ===
+                              (activeRunId ?? selectedReview.runId) &&
                               current.kind === "feedback"
                               ? null
                               : current;
@@ -1857,7 +1938,8 @@ function ReviewTab({ days }: { days: number }) {
                             </span>
                             <textarea
                               value={
-                                feedbackNote?.runId === (activeRunId ?? selectedReview.runId)
+                                feedbackNote?.runId ===
+                                (activeRunId ?? selectedReview.runId)
                                   ? feedbackNote.value
                                   : ""
                               }
@@ -1876,9 +1958,12 @@ function ReviewTab({ days }: { days: number }) {
                           </label>
                           <button
                             type="button"
-                            onClick={() => saveNote(activeRunId ?? selectedReview.runId)}
+                            onClick={() =>
+                              saveNote(activeRunId ?? selectedReview.runId)
+                            }
                             disabled={
-                              !(feedbackNote?.runId === (activeRunId ?? selectedReview.runId)
+                              !(feedbackNote?.runId ===
+                              (activeRunId ?? selectedReview.runId)
                                 ? feedbackNote.value.trim()
                                 : "") || feedbackMutation.isPending
                             }
@@ -1893,7 +1978,8 @@ function ReviewTab({ days }: { days: number }) {
                         onOpenChange={(open) => {
                           if (open) {
                             setInstructionDraft((current) =>
-                              current?.runId === (activeRunId ?? selectedReview.runId)
+                              current?.runId ===
+                              (activeRunId ?? selectedReview.runId)
                                 ? current
                                 : {
                                     runId: activeRunId ?? selectedReview.runId,
@@ -1909,7 +1995,8 @@ function ReviewTab({ days }: { days: number }) {
                                 kind: "instruction",
                               };
                             }
-                            return current?.runId === (activeRunId ?? selectedReview.runId) &&
+                            return current?.runId ===
+                              (activeRunId ?? selectedReview.runId) &&
                               current.kind === "instruction"
                               ? null
                               : current;
@@ -2042,12 +2129,19 @@ function ReviewTab({ days }: { days: number }) {
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-auto overscroll-contain p-4">
               <OutputPreview
-                answer={selectedAnswer}
+                answer={selectedAnswer ?? ""}
                 artifactPreviewUrl={selectedArtifactHref}
                 artifactPreviewIsImage={Boolean(
                   selectedArtifact?.appId === "analytics" &&
                   selectedArtifact.path?.startsWith("/api/media/"),
                 )}
+                artifactPreviewAppId={
+                  selectedArtifact?.appId === "design" ||
+                  selectedArtifact?.appId === "slides"
+                    ? selectedArtifact.appId
+                    : undefined
+                }
+                artifactPreviewId={selectedArtifact?.artifactId}
                 artifactOnly
                 inlineApp={activeDetail?.app ?? undefined}
                 maxAppHeight={720}

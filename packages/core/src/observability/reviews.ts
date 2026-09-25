@@ -3,7 +3,6 @@ import { isEmailDerivedName } from "../user-profile/shared.js";
 import { getUserProfiles } from "../user-profile/store.js";
 import {
   getOrgScopedThreadData,
-  getOrgScopedThreadTitles,
   getOrgScopedReviewThreads,
   getFeedback,
   getInstructionUpdates,
@@ -64,7 +63,8 @@ function inlineMcpApp(value: unknown): AgentMcpAppPayload | null {
 
 function parseToolOutput(value: unknown): Record<string, unknown> | null {
   if (record(value)) return record(value);
-  if (typeof value !== "string" || value.length > MAX_THREAD_DATA_CHARS) return null;
+  if (typeof value !== "string" || value.length > MAX_THREAD_DATA_CHARS)
+    return null;
   try {
     const parsed: unknown = JSON.parse(value);
     return record(parsed);
@@ -186,7 +186,9 @@ function threadScopeArtifact(thread: {
   return {
     appId: artifact.appId as HumanReviewArtifactRef["appId"],
     artifactId: scopeId,
-    title: scopeLabel || artifact.fallbackTitle,
+    title: scopeLabel
+      ? redactEvidenceString(scopeLabel)
+      : artifact.fallbackTitle,
     path: artifact.path,
   };
 }
@@ -251,6 +253,7 @@ function readThreadMessages(threadData: string): Array<{
       ) {
         return [];
       }
+      const role: "user" | "assistant" = message.role;
       if (!Object.prototype.hasOwnProperty.call(message, "content")) {
         return [];
       }
@@ -279,9 +282,9 @@ function readThreadMessages(threadData: string): Array<{
             const output =
               tool.isError === true
                 ? undefined
-                : parseToolOutput(
+                : (parseToolOutput(
                     tool.result ?? tool.resultText ?? tool.content,
-                  ) ?? undefined;
+                  ) ?? undefined);
             return [
               {
                 name,
@@ -298,10 +301,13 @@ function readThreadMessages(threadData: string): Array<{
       const hasToolResult =
         Array.isArray(content) &&
         content.some((part) => record(part)?.type === "tool-result");
-      return text || inlineApps.length > 0 || toolCalls.length > 0 || hasToolResult
+      return text ||
+        inlineApps.length > 0 ||
+        toolCalls.length > 0 ||
+        hasToolResult
         ? [
             {
-              role: message.role,
+              role,
               text,
               runId: messageRunId(message),
               inlineApps,
@@ -339,18 +345,23 @@ function readThreadMessages(threadData: string): Array<{
         const output =
           parseToolOutput(tool.result ?? tool.resultText ?? tool.content) ??
           undefined;
-        if (output) matched.message.toolCalls[matched.index] = {
-          ...matched.message.toolCalls[matched.index]!,
-          output,
-        };
+        if (output)
+          matched.message.toolCalls[matched.index] = {
+            ...matched.message.toolCalls[matched.index]!,
+            output,
+          };
       }
     }
     return parsedMessages
       .filter(
         (message) =>
-          message.text || message.inlineApps.length > 0 || message.toolCalls.length > 0,
+          message.text ||
+          message.inlineApps.length > 0 ||
+          message.toolCalls.length > 0,
       )
-      .map(({ toolCallIds: _ids, contentParts: _parts, ...message }) => message);
+      .map(
+        ({ toolCallIds: _ids, contentParts: _parts, ...message }) => message,
+      );
   } catch (error) {
     throw new Error("Unable to parse observability thread data", {
       cause: error,
@@ -479,10 +490,7 @@ export async function getOutputReviewDetailForRun(opts: {
     found: true,
     runId: summary.runId,
     app: getInlineAppForRun(summary, threadData),
-    artifacts: [
-      ...artifacts,
-      ...(savedSummary?.artifacts ?? []),
-    ].filter(
+    artifacts: [...artifacts, ...(savedSummary?.artifacts ?? [])].filter(
       (artifact, index, all) =>
         all.findIndex(
           (candidate) =>
@@ -640,11 +648,13 @@ export async function listOutputReviews(opts: {
         ),
       ].filter((artifact, index, all): artifact is HumanReviewArtifactRef => {
         if (!artifact) return false;
-        return all.findIndex(
-          (candidate) =>
-            candidate?.appId === artifact.appId &&
-            candidate?.artifactId === artifact.artifactId,
-        ) === index;
+        return (
+          all.findIndex(
+            (candidate) =>
+              candidate?.appId === artifact.appId &&
+              candidate?.artifactId === artifact.artifactId,
+          ) === index
+        );
       });
       return {
         runId: summary.runId,
@@ -879,26 +889,48 @@ export async function getOutputReviewSummarySource(opts: {
     if (threadData) {
       threadEvidenceAvailable = true;
       const threadMessages = readThreadMessages(threadData);
-      const firstAsk = threadMessages.find((message) => message.role === "user");
+      const firstAsk = threadMessages.find(
+        (message) => message.role === "user",
+      );
+      const messageRunIds = new Set(
+        threadMessages.flatMap((message) =>
+          message.runId ? [message.runId] : [],
+        ),
+      );
+      const runMessages = messageRunIds.has(opts.runId)
+        ? threadMessages.filter((message) => message.runId === opts.runId)
+        : messageRunIds.size === 0
+          ? threadMessages
+          : [];
       const recentMessages = threadMessages.slice(
         -(MAX_SOURCE_MESSAGES - (firstAsk ? 1 : 0)),
       );
       const retained = firstAsk
-        ? [firstAsk, ...recentMessages.filter((message) => message !== firstAsk)]
+        ? [
+            firstAsk,
+            ...recentMessages.filter((message) => message !== firstAsk),
+          ]
         : recentMessages;
       messages = retained.map(({ role, text }) => ({
-          role,
-          text: redactEvidenceString(text)
-            .replace(
-              /<\/?(?:html|script|svg|iframe)\b[^>]*>/gi,
-              "[omitted markup]",
-            )
-            .slice(0, firstAsk && text === firstAsk.text ? MAX_FIRST_ASK_TEXT : MAX_SOURCE_TEXT),
-        }));
-        threadToolEvidence = threadMessages
+        role,
+        text: redactEvidenceString(text)
+          .replace(
+            /<\/?(?:html|script|svg|iframe)\b[^>]*>/gi,
+            "[omitted markup]",
+          )
+          .slice(
+            0,
+            firstAsk && text === firstAsk.text
+              ? MAX_FIRST_ASK_TEXT
+              : MAX_SOURCE_TEXT,
+          ),
+      }));
+      threadToolEvidence = runMessages
         .flatMap((message) => message.toolCalls)
         .filter(
-          (call): call is ReviewToolCall & { output: Record<string, unknown> } =>
+          (
+            call,
+          ): call is ReviewToolCall & { output: Record<string, unknown> } =>
             Boolean(call.output),
         )
         .slice(-MAX_REVIEW_TOOL_SPANS)
