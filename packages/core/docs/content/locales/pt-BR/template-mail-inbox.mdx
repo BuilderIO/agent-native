@@ -1,0 +1,118 @@
+---
+title: "Correio: Caixa de Entrada, Pesquisa e Automações"
+description: "Leia, pesquise e faça a triagem da sua caixa de entrada do Gmail no Correio — atalhos de teclado, limpeza em massa, regras de triagem automática, filtros nativos do Gmail e contexto de CRM em uma conversa."
+---
+
+# Caixa de Entrada, Pesquisa e Automações
+
+Esta página cobre o trabalho diário na caixa de entrada do [Correio](/docs/template-mail): ler e fazer a triagem de mensagens, pesquisar em todas as contas conectadas, limpar em massa e as duas formas de automatizar a triagem recorrente. Ela foi escrita para qualquer pessoa que use o Correio, não apenas para desenvolvedores.
+
+## Lendo e fazendo triagem
+
+Navegue pela sua caixa de entrada sem tocar no mouse. A ordenação por prioridade só está disponível quando você tem acesso ao Builder ou uma chave pessoal salva. Use estes atalhos de teclado:
+
+| Chave     | Ação                            |
+| --------- | ------------------------------- |
+| `J`       | Próximo e-mail                  |
+| `K`       | E-mail anterior                 |
+| `Up/Down` | Igual a J/K                     |
+| `Enter`   | Abrir e-mail focado             |
+| `E`       | Arquivar e-mail ou conversa     |
+| `D`       | Lixo de e-mail ou conversa      |
+| `S`       | Marque ou desmarque             |
+| `R`       | Responder                       |
+| `U`       | Alternar leitura/não lida       |
+| `C`       | Escrever novo e-mail            |
+| `/`       | Barra de pesquisa em foco       |
+| `Cmd+K`   | Abrir paleta de comandos        |
+| `G I`     | Acessar a Caixa de entrada      |
+| `G S`     | Vá para Com estrela             |
+| `G T`     | Vá para Enviados                |
+| `G D`     | Acessar Rascunhos               |
+| `G A`     | Ir para Arquivo                 |
+| `Esc`     | Fechar conversa/limpar pesquisa |
+
+Tudo o que um atalho faz, você também pode pedir: "arquive todos os e-mails de bots do Netlify com mais de uma semana", "marque com estrela qualquer coisa da Priya", "marque tudo nesta conversa como lido".
+
+## Pesquisando em todas as caixas de entrada conectadas
+
+Digite na barra de pesquisa, ou peça ao agente — uma única consulta pesquisa em todas as contas do Gmail conectadas de uma vez, não apenas na aba que estiver aberta no momento. Se você conectou contas pessoal e de trabalho, "encontre a fatura da Acme" verifica as duas.
+
+## Ações em massa para limpeza da caixa de entrada
+
+Arquivar, marcar com estrela e marcar como lido funcionam em massa contra suas contas reais do Gmail conectadas — selecione várias mensagens (ou peça ao agente para agir em "todas essas") e o Correio agrupa as requisições por conta em vez de fazer uma chamada por mensagem. Uma limpeza separada baseada em data ("arquive tudo com mais de 30 dias") e uma exportação em JSON de uma visualização também estão disponíveis, mas ambas atualmente operam na caixa de correio de demonstração local, e não em uma conta do Gmail conectada. Depois de mudanças no Gmail, o Correio evita que respostas mais antigas ou canceladas substituam resultados mais recentes.
+
+Para limpar um grande acúmulo de e-mails não lidos em uma conta, use "marcar tudo que está não lido como lido" em vez de pedir ao agente para abrir e marcar cada conversa uma de cada vez — o Correio executa isso como uma única operação em massa verificada e informa quantas mensagens realmente mudaram.
+
+## Regras de triagem automática vs. filtros nativos do Gmail
+
+O Correio tem duas formas distintas de automatizar o que acontece com o e-mail recebido — escolha deliberadamente:
+
+<Callout tone="info">
+
+**Regras de automação** comparam novos e-mails com uma condição em inglês simples que você escreve ("de um boletim informativo", "assunto contém fatura") usando IA, e aplicam uma action (rótulo, arquivar, marcar como lido, estrela, lixeira). Elas rodam automaticamente cerca de uma vez por minuto dentro do Correio.
+
+**Filtros do Gmail** são o próprio mecanismo nativo do Gmail — eles rodam dentro do próprio Gmail, antes que as regras de automação sequer vejam a mensagem, e usam a sintaxe de pesquisa exata do Gmail (`from:`, `older_than:`, has-attachment, size, e assim por diante). Eles continuam funcionando mesmo quando o Correio não está aberto.
+
+Use um filtro do Gmail quando a regra puder ser expressa nos próprios critérios do Gmail; use uma regra de automação quando a condição exigir julgamento ("se isso parecer um discurso de vendas").
+
+</Callout>
+
+<Diagram id="doc-block-mail4" title="Ciclo de vida da regra de automação" summary={"Uma regra que você descreve em inglês simples é executada contra novos e-mails recebidos em uma programação recorrente e aplica sua action automaticamente."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    Você descreve uma regra<br /><small class="diagram-muted"
+      >"de um boletim informativo" → arquivar</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Novo e-mail recebido</span
+    ><small class="diagram-muted">verificado a cada minuto</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    IA compara a condição<br /><small class="diagram-muted"
+      >por regra, por mensagem</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Action aplicada<br /><small class="diagram-muted"
+      >rótulo · arquivar · marcar como lido · estrela · lixeira</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Contexto de CRM em uma conversa
+
+Abra uma conversa e a barra lateral de contatos do Correio pode mostrar o contexto de CRM de quem a enviou. O HubSpot é o único conectado de ponta a ponta hoje — pergunte ao agente "quem é essa pessoa e quais negócios ela tem em aberto", e ele consulta o contato, até 5 negócios associados e até 5 tickets associados da sua conta HubSpot configurada.
+
+Gong, Pylon e Apollo aparecem no mesmo painel lateral, mas apenas quando você adicionou as chaves de API deles em Configurações, e apenas como uma visualização lateral somente leitura — o agente não consegue trazer uma chamada do Gong ou um ticket do Pylon para o chat hoje, apenas o HubSpot.
+
+## O que vem a seguir
+
+- [**Rascunhos, Agendamento e a Fila de Rascunhos**](/docs/template-mail-drafts-and-queue) — respondendo ao que você acabou de triar
+- [**Conversar com o Agent**](/docs/template-mail-agent) — prompts por tarefa, e quando escalar além das actions prontas
+- [**Guia do desenvolvedor**](/docs/template-mail-developers) — o inventário completo de actions por trás desta página
+- [**Visão geral do Correio**](/docs/template-mail) — voltar ao resumo do aplicativo

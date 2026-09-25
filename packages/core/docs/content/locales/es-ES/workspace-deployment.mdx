@@ -5,7 +5,7 @@ description: "Implementa cada aplicación de un espacio de trabajo nativo del ag
 
 # Implementación de espacios de trabajo
 
-Si tu proyecto es un [espacio de trabajo](/docs/multi-app-workspace) con más de una aplicación, puedes implementar todas las aplicaciones en un único origen en lugar de gestionar implementaciones separadas por aplicación. Esta página cubre la ruta gestionada de un solo comando y una alternativa autoalojada con Docker Compose. Consulta [Implementación](/docs/deployment) para elegir primero una base de datos, un ajuste preestablecido y una plataforma.
+Si tu proyecto es un [espacio de trabajo](/docs/multi-app-workspace) con más de una aplicación, puedes implementar todas las aplicaciones en un único origen en lugar de gestionar implementaciones separadas por aplicación. Los espacios de trabajo con varias aplicaciones pueden mostrar una página de directorio en `/`. De lo contrario, la raíz redirige a la primera aplicación. Esta página cubre la ruta gestionada de un solo comando y una alternativa autoalojada con Docker Compose. Consulta [Implementación](/docs/deployment) para elegir primero una base de datos, un ajuste preestablecido y una plataforma.
 
 ## Un origen, muchas aplicaciones {#workspace-deploy}
 
@@ -81,7 +81,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-Internamente, cada aplicación se compila con su propia **ruta base**, un prefijo de URL como `/mail` establecido mediante `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, y luego se empaqueta para el ajuste preestablecido de Nitro de destino. Cloudflare Pages enruta a través de un **worker despachador** generado, un pequeño script en `dist/_worker.js` que lee la ruta entrante y reenvía la solicitud a la aplicación correspondiente. Netlify usa una función por aplicación más redirecciones generadas. Vercel escribe un `.vercel/output` a nivel de espacio de trabajo usando la Build Output API.
+Internamente, cada aplicación se compila con su propia **ruta base**, un prefijo de URL como `/mail` establecido mediante `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, y luego se empaqueta para el ajuste preestablecido de Nitro de destino. Cloudflare Pages enruta a través de un **worker despachador** generado, un pequeño script en `dist/_worker.js` que lee la ruta entrante y reenvía la solicitud a la aplicación correspondiente. Netlify usa una función por aplicación más redirecciones generadas, y enruta las solicitudes de datos de la aplicación al controlador correspondiente. Vercel escribe un `.vercel/output` a nivel de espacio de trabajo usando la Build Output API y enruta las solicitudes de datos de la aplicación al controlador correspondiente.
 
 </Callout>
 

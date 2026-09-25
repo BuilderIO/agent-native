@@ -19,7 +19,7 @@ Your Library shows folders first, then recordings, as a grid of thumbnails with 
 Three ways to add a clip to your library, all from the **Record** button and the **Import** menu next to it. Right-clicking empty space in the Library offers the same three, plus **New folder**.
 
 - **Record.** Clips' built-in screen recorder, with a webcam overlay, audio capture, and pause/trim controls.
-- **Upload a video file.** Add an existing video straight from your computer, no recording needed.
+- **Upload a video file.** Add an existing video straight from your computer, or drop it onto the Library or Spaces grid. No recording is needed.
 - **Import Loom.** Bring in a public Loom video without re-recording it. Next to **Record**, open **Import**, choose **Import Loom**, then paste a Loom share or embed URL. Clips saves a copy in your library and imports the public transcript when Loom provides one.
 
 ### Manage a clip
@@ -86,11 +86,13 @@ Archiving and trashing both hide a clip from the main Library without deleting a
 
 ### View clips {#shared-view-clips}
 
-This view lists every recording someone has shared directly with you or your organization, by name or by an org-wide visibility setting. A public link someone happens to have doesn't count toward this list. You can watch and comment here, but there's no three-dot menu: managing a clip (moving, archiving, sharing further) is still the owner's call.
+This view lists every recording someone has shared directly with you or your organization, by name or by an org-wide visibility setting. A public link someone happens to have doesn't count toward this list.
+
+You can watch and seek through shared clips, and collapse the sidebar to give the video more room. You can comment here, but there's no three-dot menu: managing a clip (moving, archiving, sharing further) is still the owner's call.
 
 ### Comment on clips
 
-Add a comment at the exact point in the video you're watching, not just on the recording as a whole. Comments thread into replies, support bold, italic, inline code, and links (headings flatten to plain text), and can @mention a teammate to notify them.
+Add a comment at the exact point in the video you're watching, not just on the recording as a whole. Comments thread into replies, support bold, italic, inline code, and links (headings flatten to plain text), and can @mention a teammate to notify them. Comment fields grow as you type, and the feed expands to show longer comments.
 
 ## Spaces
 
@@ -148,7 +150,7 @@ It only watches the tab you're actively recording, and only while the recording 
 
 ## Transcription and AI metadata
 
-Transcription tries the fastest, free option first and only falls back to a paid one when it has to:
+Transcription tries the fastest, free option first and only falls back to a paid one when it has to. Dictate history shows transcript previews that expand to full transcripts and aligned actions:
 
 | Order | Provider                        | Notes                                                                                                                                          |
 | ----- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -156,7 +158,7 @@ Transcription tries the fastest, free option first and only falls back to a paid
 | 2     | Builder.io managed (Gemini)     | Cloud fallback when native text is missing. No extra key needed once Builder is connected. Builder.io's free tier includes managed AI credits. |
 | 3     | Groq (`whisper-large-v3-turbo`) | Optional backup if you'd rather bring your own key.                                                                                            |
 
-Once a transcript is ready, the agent fills in a title, summary, and chapter markers automatically, and keeps them current as you edit. You can also ask directly:
+Once a transcript is ready, the agent fills in a title, summary, and chapter markers automatically, and keeps them current as you edit. During playback, the transcript follows the current position. You can also ask directly:
 
 - "Regenerate the title and summary."
 - "Add chapters. This one's long."
@@ -169,7 +171,9 @@ Backup transcription, transcript cleanup, and AI titles and summaries run on Bui
 
 ## Non-destructive editing
 
-Trim, split, remove silences or filler words, or combine clips together, all without ever touching the original file. Every edit is layered as an instruction on top of your original recording, undoable, and nothing is baked into a new file until you export.
+Use the timeline to trim and split clips, remove silences or filler words, and combine clips. Drag cut boundaries to adjust them, and use undo or redo to review edits. These changes stay layered over the original recording, and nothing is baked into a new file until you export.
+
+Redactions work differently. Drawing a redaction box only covers the area in the editor — the underlying pixels are still in the file. Nothing is actually hidden until you **Burn in** the redactions: that re-encodes the video, permanently destroys the covered pixels, and deletes the original file. There's no undo after a burn, so treat it as the one truly irreversible step here.
 
 <Video
   src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"

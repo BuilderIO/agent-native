@@ -5,7 +5,7 @@ description: "用一個指令將 agent-native 工作區中的每個應用程式�
 
 # 工作區部署
 
-如果你的專案是擁有多個應用程式的[工作區](/docs/multi-app-workspace)，你可以將每個應用程式部署到單一來源，而不必為每個應用程式各自管理獨立的部署。本頁面涵蓋受管理的單指令部署方式，以及一個自架的 Docker Compose 替代方案。若要先選擇資料庫、預設集和平台，請參閱 [Deployment](/docs/deployment)。
+如果你的專案是擁有多個應用程式的[工作區](/docs/multi-app-workspace)，你可以將每個應用程式部署到單一來源，而不必為每個應用程式各自管理獨立的部署。多應用程式工作區可以在 `/` 顯示一個目錄頁面。否則，根路徑會重新導向到第一個應用程式。本頁面涵蓋受管理的單指令部署方式，以及一個自架的 Docker Compose 替代方案。若要先選擇資料庫、預設集和平台，請參閱 [Deployment](/docs/deployment)。
 
 ## 單一來源，多個應用程式 {#workspace-deploy}
 
@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-在底層，每個應用程式都以自己的**基本路徑**建置，也就是透過 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 設定的 URL 前綴（例如 `/mail`），接著再封裝成目標 Nitro 預設集。Cloudflare Pages 透過一個產生出來的**調度工作器**進行路由，這是一個位於 `dist/_worker.js` 的小型指令碼，會讀取傳入的路徑並將請求轉送給對應的應用程式。Netlify 為每個應用程式各使用一個 function，並搭配自動產生的重新導向規則。Vercel 則使用 Build Output API 寫入工作區層級的 `.vercel/output`。
+在底層，每個應用程式都以自己的**基本路徑**建置，也就是透過 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 設定的 URL 前綴（例如 `/mail`），接著再封裝成目標 Nitro 預設集。Cloudflare Pages 透過一個產生出來的**調度工作器**進行路由，這是一個位於 `dist/_worker.js` 的小型指令碼，會讀取傳入的路徑並將請求轉送給對應的應用程式。Netlify 為每個應用程式各使用一個 function，並搭配自動產生的重新導向規則，並將應用程式資料請求路由給對應的處理程式。Vercel 則使用 Build Output API 寫入工作區層級的 `.vercel/output`，並將應用程式資料請求路由給對應的處理程式。
 
 </Callout>
 

@@ -5,7 +5,7 @@ description: "एक ही command से agent-native कार्यस्थ
 
 # कार्यस्थान तैनाती
 
-अगर आपका प्रोजेक्ट एक से ज़्यादा ऐप वाला [कार्यस्थान](/docs/multi-app-workspace) है, तो आप हर ऐप के लिए अलग-अलग तैनाती manage करने के बजाय हर ऐप को एक ही origin पर तैनात कर सकते हैं। यह पेज managed one-command तरीके और एक self-hosted Docker Compose विकल्प को कवर करता है। पहले एक डेटाबेस, एक preset, और एक platform चुनने के लिए [तैनाती](/docs/deployment) देखें।
+अगर आपका प्रोजेक्ट एक से ज़्यादा ऐप वाला [कार्यस्थान](/docs/multi-app-workspace) है, तो आप हर ऐप के लिए अलग-अलग तैनाती manage करने के बजाय हर ऐप को एक ही origin पर तैनात कर सकते हैं। मल्टी-ऐप कार्यस्थान `/` पर एक directory page दिखा सकते हैं। वरना, root पहले ऐप पर redirect हो जाता है। यह पेज managed one-command तरीके और एक self-hosted Docker Compose विकल्प को कवर करता है। पहले एक डेटाबेस, एक preset, और एक platform चुनने के लिए [तैनाती](/docs/deployment) देखें।
 
 ## एक Origin, कई ऐप्स {#workspace-deploy}
 
@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-हुड के तहत, हर ऐप अपने खुद के **base path** के साथ बनाया जाता है, जो `APP_BASE_PATH`/`VITE_APP_BASE_PATH` से सेट किया गया `/mail` जैसा एक URL prefix है, फिर उसे target Nitro preset के लिए package किया जाता है। Cloudflare Pages एक generated **dispatcher worker** के ज़रिए route करता है, जो `dist/_worker.js` पर एक छोटी script है जो incoming path को पढ़ती है और request को matching ऐप तक forward करती है। Netlify हर ऐप के लिए एक function और generated redirects का उपयोग करता है। Vercel Build Output API का उपयोग करके एक कार्यस्थान-स्तरीय `.vercel/output` लिखता है।
+हुड के तहत, हर ऐप अपने खुद के **base path** के साथ बनाया जाता है, जो `APP_BASE_PATH`/`VITE_APP_BASE_PATH` से सेट किया गया `/mail` जैसा एक URL prefix है, फिर उसे target Nitro preset के लिए package किया जाता है। Cloudflare Pages एक generated **dispatcher worker** के ज़रिए route करता है, जो `dist/_worker.js` पर एक छोटी script है जो incoming path को पढ़ती है और request को matching ऐप तक forward करती है। Netlify हर ऐप के लिए एक function और generated redirects का उपयोग करता है, और app data requests को matching handler तक route करता है। Vercel Build Output API का उपयोग करके एक कार्यस्थान-स्तरीय `.vercel/output` लिखता है और app data requests को matching handler तक route करता है।
 
 </Callout>
 

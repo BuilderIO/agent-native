@@ -40,7 +40,6 @@ ar-SA|template-forms-developers
 ar-SA|template-mail-agent
 ar-SA|template-mail-developers
 ar-SA|template-mail-drafts-and-queue
-ar-SA|template-mail-inbox
 ar-SA|template-plan-automations
 ar-SA|template-plan-developers
 ar-SA|template-plan-local-and-desktop
@@ -96,7 +95,6 @@ de-DE|template-forms-developers
 de-DE|template-mail-agent
 de-DE|template-mail-developers
 de-DE|template-mail-drafts-and-queue
-de-DE|template-mail-inbox
 de-DE|template-plan-automations
 de-DE|template-plan-developers
 de-DE|template-plan-local-and-desktop
@@ -152,7 +150,6 @@ es-ES|template-forms-developers
 es-ES|template-mail-agent
 es-ES|template-mail-developers
 es-ES|template-mail-drafts-and-queue
-es-ES|template-mail-inbox
 es-ES|template-plan-automations
 es-ES|template-plan-developers
 es-ES|template-plan-local-and-desktop
@@ -208,7 +205,6 @@ fr-FR|template-forms-developers
 fr-FR|template-mail-agent
 fr-FR|template-mail-developers
 fr-FR|template-mail-drafts-and-queue
-fr-FR|template-mail-inbox
 fr-FR|template-plan-automations
 fr-FR|template-plan-developers
 fr-FR|template-plan-local-and-desktop
@@ -264,7 +260,6 @@ hi-IN|template-forms-developers
 hi-IN|template-mail-agent
 hi-IN|template-mail-developers
 hi-IN|template-mail-drafts-and-queue
-hi-IN|template-mail-inbox
 hi-IN|template-plan-automations
 hi-IN|template-plan-developers
 hi-IN|template-plan-local-and-desktop
@@ -320,7 +315,6 @@ ja-JP|template-forms-developers
 ja-JP|template-mail-agent
 ja-JP|template-mail-developers
 ja-JP|template-mail-drafts-and-queue
-ja-JP|template-mail-inbox
 ja-JP|template-plan-automations
 ja-JP|template-plan-developers
 ja-JP|template-plan-local-and-desktop
@@ -376,7 +370,6 @@ ko-KR|template-forms-developers
 ko-KR|template-mail-agent
 ko-KR|template-mail-developers
 ko-KR|template-mail-drafts-and-queue
-ko-KR|template-mail-inbox
 ko-KR|template-plan-automations
 ko-KR|template-plan-developers
 ko-KR|template-plan-local-and-desktop
@@ -432,7 +425,6 @@ pt-BR|template-forms-developers
 pt-BR|template-mail-agent
 pt-BR|template-mail-developers
 pt-BR|template-mail-drafts-and-queue
-pt-BR|template-mail-inbox
 pt-BR|template-plan-automations
 pt-BR|template-plan-developers
 pt-BR|template-plan-local-and-desktop
@@ -488,7 +480,6 @@ zh-CN|template-forms-developers
 zh-CN|template-mail-agent
 zh-CN|template-mail-developers
 zh-CN|template-mail-drafts-and-queue
-zh-CN|template-mail-inbox
 zh-CN|template-plan-automations
 zh-CN|template-plan-developers
 zh-CN|template-plan-local-and-desktop
@@ -543,7 +534,6 @@ zh-TW|template-forms-developers
 zh-TW|template-mail-agent
 zh-TW|template-mail-developers
 zh-TW|template-mail-drafts-and-queue
-zh-TW|template-mail-inbox
 zh-TW|template-plan-automations
 zh-TW|template-plan-developers
 zh-TW|template-plan-local-and-desktop

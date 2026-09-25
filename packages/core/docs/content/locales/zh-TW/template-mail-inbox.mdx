@@ -1,0 +1,116 @@
+---
+title: "郵件：收件匣、搜尋與自動化"
+description: "在郵件中閱讀、搜尋並分類您的 Gmail 收件匣 — 鍵盤快速鍵、批次清理、自動分類規則、原生 Gmail 篩選器，以及對話串上的 CRM 脈絡。"
+---
+
+# 收件匣、搜尋與自動化
+
+本頁面涵蓋在[郵件](/docs/template-mail)中日常的收件匣工作:閱讀和分類訊息、跨每個已連線帳戶搜尋，以及批次清理，還有兩種自動化例行分類工作的方式。這是寫給所有使用郵件的人看的，不只是開發者。
+
+## 閱讀和分類
+
+不必碰滑鼠就能在您的收件匣中移動。優先順序排序只有在您擁有 Builder 存取權或已儲存個人金鑰時才能使用。請使用以下鍵盤快速鍵:
+
+| 按鍵      | 動作                         |
+| --------- | ---------------------------- |
+| `J`       | 下一封電子郵件               |
+| `K`       | 上一封電子郵件               |
+| `Up/Down` | 與 J/K 相同                  |
+| `Enter`   | 開啟重點電子郵件             |
+| `E`       | 存檔電子郵件或對話串         |
+| `D`       | 將電子郵件或對話串放入垃圾桶 |
+| `S`       | 加星號或取消加星號           |
+| `R`       | 回覆                         |
+| `U`       | 切換已讀/未讀                |
+| `C`       | 撰寫新電子郵件               |
+| `/`       | 焦點搜尋欄                   |
+| `Cmd+K`   | 開啟指令面板                 |
+| `G I`     | 轉到收件匣                   |
+| `G S`     | 轉到已加星號                 |
+| `G T`     | 轉到已傳送                   |
+| `G D`     | 轉到草稿                     |
+| `G A`     | 轉到存檔                     |
+| `Esc`     | 關閉對話串/清除搜尋          |
+
+快速鍵能做的每一件事，您也都可以直接提出要求:「存檔一週以上的所有 Netlify 機器人電子郵件」、「幫 Priya 寄來的東西加星號」、「把這個對話串裡的所有東西都標記為已讀」。
+
+## 跨每個已連線收件匣搜尋
+
+在搜尋欄中輸入，或直接問代理 — 一次查詢就會同時搜尋每個已連線的 Gmail 帳戶，而不只是您剛好開啟的那個分頁。如果您連線了個人和工作帳戶，「找 Acme 的發票」會同時檢查兩者。
+
+## 用於收件匣清理的批次操作
+
+存檔、加星號和標記已讀都會對您真正已連線的 Gmail 帳戶批次執行 — 選取多則訊息(或請代理對「這些全部」採取行動)，郵件會依帳戶批次處理請求，而不是每則訊息各呼叫一次。另外還有一個依日期清理的功能(「存檔 30 天以前的所有東西」)，以及某個檢視畫面的 JSON 匯出功能，但這兩者目前都是對本機的示範信箱運作，而不是對已連線的 Gmail 帳戶運作。Gmail 變更之後，郵件會防止較舊或已取消的回應覆蓋較新的結果。
+
+若要一次清掉一個帳戶中大量的未讀積壓郵件，請使用「把所有未讀的都標記為已讀」，而不是請代理逐一開啟並標記每個對話串 — 郵件會將它當作單一個經過驗證的批次操作來執行，並回報實際變更了多少則訊息。
+
+## 自動分類規則 vs. 原生 Gmail 篩選器
+
+郵件有兩種截然不同的方式可以自動化處理收到的郵件 — 請刻意選擇:
+
+<Callout tone="info">
+
+**自動化規則**會使用 AI，把新郵件比對您用白話文寫下的條件(「來自電子報」、「主旨包含 invoice」)，並套用一個動作(標籤、存檔、標記已讀、加星號、垃圾桶)。它們會在郵件內部大約每分鐘自動執行一次。
+
+**Gmail 篩選器**是 Gmail 自己原生的機制 — 它們在 Gmail 內部執行，早在自動化規則看到那則訊息之前就已完成，並使用 Gmail 自己確切的搜尋語法(`from:`、`older_than:`、是否有附件、大小等等)。即使郵件沒有開啟，它們仍會持續運作。
+
+當規則可以用 Gmail 自己的條件表達時，請使用 Gmail 篩選器；當條件需要判斷力時(「如果這看起來像推銷郵件」)，請使用自動化規則。
+
+</Callout>
+
+<Diagram id="doc-block-mail4" title="自動化規則的生命週期" summary={"您用白話文描述的一條規則，會依排程對新收到的郵件持續執行檢查，並自動套用其動作。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    您描述一條規則<br /><small class="diagram-muted"
+      >「來自電子報」→ 存檔</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">新收到的郵件</span
+    ><small class="diagram-muted">每分鐘檢查一次</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    AI 比對條件<br /><small class="diagram-muted">依規則、依訊息</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    套用動作<br /><small class="diagram-muted"
+      >標籤 · 存檔 · 標記已讀 · 加星號 · 垃圾桶</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 對話串上的 CRM 脈絡
+
+開啟一個對話串，郵件的聯絡人側邊欄就能顯示寄件者的 CRM 脈絡。HubSpot 是目前唯一完整連線的一端 — 問代理「這是誰，他有哪些正在進行的交易」，它就會查詢您已設定的 HubSpot 帳戶中的聯絡人、最多 5 筆相關交易，以及最多 5 張相關工單。
+
+Gong、Pylon 和 Apollo 會出現在同一個側邊欄面板中，但只有在您於設定中新增它們的 API 金鑰之後才會顯示，而且只是唯讀的側邊欄檢視 — 代理目前無法把 Gong 的通話紀錄或 Pylon 的工單拉進聊天中，只有 HubSpot 可以。
+
+## 接下來
+
+- [**起草、排程與草稿佇列**](/docs/template-mail-drafts-and-queue) — 回覆您剛剛分類完的郵件
+- [**與 Agent 對話**](/docs/template-mail-agent) — 依任務分類的提示，以及何時該超出既定操作範圍
+- [**開發者指南**](/docs/template-mail-developers) — 本頁面背後完整的 action 清單
+- [**郵件總覽**](/docs/template-mail) — 回到應用程式總覽
