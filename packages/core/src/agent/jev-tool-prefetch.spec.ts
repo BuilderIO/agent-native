@@ -114,6 +114,37 @@ describe("preloadJevTools", () => {
     expect(request).not.toContain("secret");
   });
 
+  it("does not fall back to legacy history when structured history has no visible text", () => {
+    const input = {
+      request: "Current request",
+      history: [
+        {
+          role: "user" as const,
+          content: "Prior query result: Acme has 42 users.",
+        },
+      ],
+      structuredHistory: [
+        {
+          role: "assistant" as const,
+          content: [
+            {
+              type: "tool-result" as const,
+              toolCallId: "query-1",
+              content: "Acme has 42 users.",
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(buildJevRequestContext(input)).toBe(
+      "Current request:\nCurrent request",
+    );
+    expect(buildRecentUserRequestContext(input)).toBe(
+      "Current request:\nCurrent request",
+    );
+  });
+
   it("limits Jev context to the current request and recent user turns", () => {
     const request = buildJevRequestContext({
       request: "Compare the prior period",

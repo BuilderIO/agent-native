@@ -99,7 +99,7 @@ function visiblePriorMessages(input: {
         return text ? [{ role: message.role, content: text }] : [];
       })
     : [];
-  return structured.length
+  return Array.isArray(input.structuredHistory)
     ? structured
     : (Array.isArray(input.history) ? input.history : []).flatMap((message) =>
         message &&
