@@ -553,11 +553,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "응답 다시 생성",
   "message.restoreFailed": "복원 실패({{status}}).",
   "message.restoreQuestion": "여기로 복원하시겠습니까?",
+  "message.revertQuestion":
+    "이 지점으로 되돌릴까요? 이후 변경 사항은 사라집니다.",
   "message.restoreRequestFailed": "복원 요청에 실패했습니다.",
   "message.threadNotFound":
     "이 채팅 스레드는 더 이상 사용할 수 없습니다. 새 채팅을 시작하거나 예상치 못한 문제라면 다시 시도하세요.",
   "message.restoring": "복원 중...",
   "message.revertHere": "여기로 되돌리기",
+  "message.revertToBeginning": "처음으로 되돌리기",
   "message.sentAt": "{{time}}에 전송",
   "contextMeter.ariaLabel":
     "컨텍스트 {{percent}}%, 총 {{totalTokens}}{{breakdown}}. 컨텍스트 X-Ray를 엽니다.",

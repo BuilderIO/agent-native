@@ -112,6 +112,8 @@
   }
   /* Prevent text selection on double-click for keyboard nav UX */
   .email-list-row {
+    --mail-row-background: hsl(var(--background));
+    background-color: var(--mail-row-background);
     user-select: none;
   }
 }
@@ -194,20 +196,23 @@
 
 /* Highlight focused email row */
 .email-list-row.focused {
-  background: hsl(var(--accent));
+  --mail-row-background: hsl(var(--accent));
 }
 
 /* Selected email row — stronger highlight */
 .email-list-row.selected {
-  background: hsl(var(--secondary));
+  --mail-row-background: hsl(var(--secondary));
 }
 
 /* Multi-selected email rows */
 .email-list-row.multi-selected {
-  background: hsl(var(--primary) / 0.06);
+  --mail-row-background: hsl(var(--primary) / 0.06);
 }
 .email-list-row.multi-selected.focused {
-  background: hsl(var(--primary) / 0.12);
+  --mail-row-background: hsl(var(--primary) / 0.12);
+}
+.email-list-row:hover:not(.focused):not(.selected):not(.multi-selected) {
+  --mail-row-background: hsl(var(--accent));
 }
 
 /* Compose modal animations */
@@ -232,11 +237,10 @@
   max-width: 120px;
 }
 
-/* Date/actions container on email rows — reserve enough room for actions. */
+/* Keep the timestamp and score fixed while actions overlay the preview. */
 .email-list-row .row-action-rail {
   position: relative;
   display: flex;
-  width: 3rem;
   height: 100%;
   flex-shrink: 0;
   align-items: center;
@@ -244,40 +248,52 @@
   margin-left: 0.75rem;
 }
 
-@media (min-width: 640px) {
-  .email-list-row .row-action-rail {
-    width: 9rem;
-  }
-}
-
 .email-list-row .hover-actions {
   position: absolute;
-  inset: 0;
+  inset: 0 100% 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   opacity: 0;
   pointer-events: none;
-  background: hsl(var(--background));
-  transition: opacity 120ms ease;
+  padding-left: 1.5rem;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--mail-row-background) 28px
+  );
   z-index: 2;
+  width: 10rem;
+  overflow: hidden;
+  transition: opacity 120ms ease;
+}
+.email-list-row .row-time,
+.email-list-row .email-importance-score {
+  position: relative;
+  z-index: 3;
+  flex: none;
+}
+.email-importance-score {
+  color: oklch(0.62 0.17 var(--mail-importance-hue, 85deg));
+}
+.dark .email-importance-score {
+  color: oklch(0.76 0.15 var(--mail-importance-hue, 85deg));
+}
+.mail-importance-ramp {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right in oklch,
+    oklch(0.7 0.15 25),
+    oklch(0.8 0.14 85),
+    oklch(0.74 0.15 150)
+  );
 }
 .email-list-row.focused .hover-actions,
 .email-list-row:hover .hover-actions {
   opacity: 1;
   pointer-events: auto;
 }
-.email-list-row.focused .hover-actions {
-  background: hsl(var(--accent));
-}
-.email-list-row.selected .hover-actions {
-  background: hsl(var(--secondary));
-}
-.email-list-row.focused .row-time,
-.email-list-row:hover .row-time {
-  visibility: hidden;
-}
-
 @media (max-width: 639px) {
   .email-list-row:hover .hover-actions,
   .email-list-row.focused .hover-actions {

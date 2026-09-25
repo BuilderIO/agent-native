@@ -314,11 +314,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "Antwort neu generieren",
   "message.restoreFailed": "Wiederherstellung fehlgeschlagen ({{status}}).",
   "message.restoreQuestion": "Bis hierher wiederherstellen?",
+  "message.revertQuestion":
+    "Zu diesem Punkt zurückkehren? Änderungen danach gehen verloren.",
   "message.restoreRequestFailed": "Wiederherstellungsanfrage fehlgeschlagen.",
   "message.threadNotFound":
     "Dieser Chat-Thread ist nicht mehr verfügbar. Starte einen neuen Chat oder versuche es erneut, falls das unerwartet war.",
   "message.restoring": "Wird wiederhergestellt...",
   "message.revertHere": "Bis hierher zurücksetzen",
+  "message.revertToBeginning": "Zum Anfang zurückkehren",
   "message.sentAt": "Gesendet {{time}}",
   "plan.act": "Ausführen",
   "plan.implement": "Umsetzen",

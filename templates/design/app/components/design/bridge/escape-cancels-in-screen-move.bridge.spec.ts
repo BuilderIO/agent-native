@@ -180,6 +180,42 @@ describe("Escape mid-drag cancels an in-screen move even when it loses the postM
     }
   });
 
+  it("physically pressing Escape during a same-frame drag cancels before release", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="box-a"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(30);
+
+      await page.mouse.move(90, 320);
+      await page.mouse.down();
+      await page.mouse.move(290, 420, { steps: 8 });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(400);
+      await page.mouse.up();
+
+      const domPosition = await page
+        .locator('[data-agent-native-node-id="box-a"]')
+        .evaluate((el: HTMLElement) => ({
+          left: el.style.left,
+          top: el.style.top,
+        }));
+      expect(domPosition).toEqual({ left: "30px", top: "280px" });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("does not revert a completed drag from an unrelated Escape reaching the local (focus-in-iframe) path after mouseup", async () => {
     // Guards the fix's own failure mode: reusing the shared activeDragCancel
     // slot for the grace window would let ANY later Escape — routed through

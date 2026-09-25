@@ -702,6 +702,7 @@ const messages = {
     reviewFeedback: "الملاحظات",
     reviewOutput: "مراجعة الإجابة",
     reviewPreview: "معاينة الإجابة",
+    reviewPreviewUnavailable: "المعاينة غير متاحة",
     closePreview: "إخفاء المعاينة",
     addFeedback: "إضافة ملاحظات",
     draftInstruction: "صياغة تعليمات",

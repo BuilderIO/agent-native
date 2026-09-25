@@ -1,5 +1,13 @@
 # @agent-native/dispatch
 
+## 0.38.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.21.1
+
 ## 0.38.8
 
 ### Patch Changes
@@ -1008,16 +1016,5 @@
 ### Patch Changes
 
 - 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
-
-## 0.23.1
-
-### Patch Changes
-
-- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
-- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
-- Updated dependencies [dab8787]
-- Updated dependencies [dab8787]
-- Updated dependencies [dab8787]
-  - @agent-native/toolkit@0.13.9
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

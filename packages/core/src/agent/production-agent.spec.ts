@@ -2000,8 +2000,13 @@ describe("createProductionAgentHandler", () => {
         "tool-search": actionEntry({}),
       },
       initialToolNames: ["denied"],
-      prepareRequest: async () => {
+      prepareRequest: async ({ requestContext }) => {
         lifecycle.push("prepare");
+        expect(requestContext).toContain(
+          "Earlier, compare monthly active users.",
+        );
+        expect(requestContext).not.toContain("Use the approved definition.");
+        expect(requestContext).not.toContain("omit this query result");
       },
       resolveActionSurface: async ({
         threadId,
@@ -2029,6 +2034,38 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "Use the configured agent",
           threadId: "thread-allowed",
+          structuredHistory: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Earlier, compare monthly active users.",
+                },
+              ],
+            },
+            {
+              role: "assistant",
+              content: [
+                { type: "text", text: "Use the approved definition." },
+                {
+                  type: "tool-call",
+                  name: "query-analytics",
+                  input: { sql: "not sent to Jev" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "query-1",
+                  content: "omit this query result",
+                },
+              ],
+            },
+          ],
           actionScope: {
             kind: "content-comment-ai",
             requestId: "request-1",

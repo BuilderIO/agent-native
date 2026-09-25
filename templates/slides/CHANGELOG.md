@@ -5,6 +5,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-09-25
 
+### Added
+
+- Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
 ### Fixed
 
 - Word document imports now complete successfully.

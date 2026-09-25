@@ -26,6 +26,7 @@ const messages = {
     team: "Équipe",
   },
   settings: {
+    agentObservability: "Observabilité de l’agent",
     title: "Paramètres",
     description: "Préférences de langue et d’espace de travail pour cette app.",
     labs: "Labs",
@@ -722,6 +723,8 @@ const messages = {
     leaveWithoutSaving: "Quitter sans enregistrer",
     editorMarkupNotSaved:
       "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
+    textEditConflictNotSaved:
+      "Votre modification du texte n'a pas été enregistrée, car le même texte a été modifié ailleurs au même moment.",
   },
   designSystemSetup: {
     importedBrand: "Marque importée",

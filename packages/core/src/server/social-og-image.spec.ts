@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 
+import { createApp } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -9,10 +10,14 @@ import {
 import {
   OG_ARABIC_FONT_FAMILY,
   OG_FONT_FAMILY,
+  OG_GEIST_FONT_FAMILY,
+  OG_GEIST_MONO_FONT_FAMILY,
   resolveOgFontFiles,
 } from "./og-fonts.js";
+import { createSecurityHeadersMiddleware } from "./security-headers.js";
 import {
   agentNativeOgImageResponseHeaders,
+  createAgentNativeOgImageHandler,
   isResvgRuntimeUnavailableError,
   renderAgentNativeOgImageSvg,
   resolveAgentNativeOgImageAppName,
@@ -36,6 +41,9 @@ describe("social OG image", () => {
     expect(fontFiles).toEqual(
       expect.arrayContaining([
         expect.stringContaining("NotoNaskhArabic-Variable.ttf"),
+        expect.stringContaining("Geist-Regular.ttf"),
+        expect.stringContaining("Geist-SemiBold.ttf"),
+        expect.stringContaining("GeistMono-SemiBold.ttf"),
       ]),
     );
   });
@@ -103,15 +111,88 @@ describe("social OG image", () => {
     vi.stubEnv("npm_package_name", "design");
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Design");
     const designSvg = renderAgentNativeOgImageSvg();
-    expect(designSvg).toContain("Agent-Native Design");
-    expect(designSvg).toContain("100% free and open source");
+    expect(designSvg).toContain("Design - Agent-Native preview");
+    expect(designSvg).toContain("Imagine it. Make it.");
     expect(designSvg).toContain('<path d="M26.8789');
 
     vi.stubEnv("APP_NAME", "slides");
     vi.stubEnv("npm_package_name", "slides");
     resetAppConfigForTests();
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Slides");
-    expect(renderAgentNativeOgImageSvg()).toContain("Agent-Native Slides");
+    expect(renderAgentNativeOgImageSvg()).toContain(
+      "Slides - Agent-Native preview",
+    );
+  });
+
+  it("mirrors the sign-in page copy for first-party app cards", () => {
+    const svg = renderAgentNativeOgImageSvg({
+      brand: "agent-native",
+      presentation: {
+        appLabel: "Mail",
+        status: "alpha",
+        headline: "Read it. Write it.\nLet your agent take it from here.",
+        description: "An inbox that drafts, sorts, and follows up with you.",
+      },
+    });
+
+    expect(svg).toContain(OG_GEIST_FONT_FAMILY);
+    expect(svg).toContain(OG_GEIST_MONO_FONT_FAMILY);
+    expect(svg).toContain(">Mail</tspan>");
+    expect(svg).toContain(">ALPHA</tspan>");
+    expect(svg).toContain(">Read it. Write it.</tspan>");
+    expect(svg).toContain(">Let your agent take it from here.</tspan>");
+    expect(svg).toContain(
+      ">An inbox that drafts, sorts, and follows up with you.</tspan>",
+    );
+    expect(svg).toContain(">FREE &amp; OPEN SOURCE</tspan>");
+    expect(svg).toContain('<path d="M26.8789');
+    expect(svg).not.toContain("100% free and open source");
+  });
+
+  it("does not mirror sign-in copy resolved only from env on a custom host", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEMPLATE", "mail");
+    vi.stubEnv("npm_package_name", "");
+    const app = createApp();
+    app.use("/_agent-native/og-image.png", createAgentNativeOgImageHandler());
+
+    const custom = await app.request(
+      "https://inbox.example.com/_agent-native/og-image.png",
+      { headers: { host: "inbox.example.com" } },
+    );
+    const trusted = await app.request(
+      "https://mail.agent-native.com/_agent-native/og-image.png",
+      { headers: { host: "mail.agent-native.com" } },
+    );
+
+    expect(custom.status).toBe(200);
+    expect(trusted.status).toBe(200);
+    // Different layouts render different PNG bytes; same-layout renders are
+    // byte-identical, so equal bytes would mean the custom host got the
+    // sign-in card.
+    expect(Buffer.from(await custom.arrayBuffer())).not.toEqual(
+      Buffer.from(await trusted.arrayBuffer()),
+    );
+    expect(renderAgentNativeOgImageSvg()).not.toContain("Read it. Write it.");
+  });
+
+  it("keeps the title layout for explicit titles and custom apps", () => {
+    const presentation = {
+      appLabel: "Mail",
+      status: "alpha",
+      headline: "Read it. Write it.",
+      description: "An inbox.",
+    };
+
+    expect(
+      renderAgentNativeOgImageSvg({
+        brand: "agent-native",
+        presentation,
+        title: "Getting started",
+      }),
+    ).not.toContain("Read it. Write it.");
+    expect(
+      renderAgentNativeOgImageSvg({ brand: "custom", presentation }),
+    ).not.toContain("Read it. Write it.");
   });
 
   it("does not infer first-party branding from a custom display name", () => {
@@ -194,6 +275,27 @@ describe("social OG image", () => {
         "public, durable, max-age=60, stale-while-revalidate=604800, stale-if-error=3600",
       "Cross-Origin-Resource-Policy": "cross-origin",
     });
+  });
+
+  it("keeps cross-origin CORP behind the security headers middleware", async () => {
+    // The middleware stages `same-site` on every response; link-preview tools
+    // that render og:image in the browser show a broken image unless the OG
+    // route's own header wins.
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+    app.use("/_agent-native/og-image.png", createAgentNativeOgImageHandler());
+
+    for (const method of ["GET", "HEAD"]) {
+      const res = await app.request(
+        "https://mail.agent-native.com/_agent-native/og-image.png",
+        { method, headers: { host: "mail.agent-native.com" } },
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toBe("image/png");
+      expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+        "cross-origin",
+      );
+    }
   });
 
   it("identifies missing resvg runtime errors", () => {

@@ -440,6 +440,16 @@ export default defineAction({
           aspectRatio: aspectRatio ?? prevData.aspectRatio,
           designSystemId: designSystemId ?? prevData.designSystemId,
           creativeContext: creativeContextProvenance,
+          ...(actionOwnsGenerationLifecycle
+            ? {
+                generationContext: incrementalGeneration
+                  ? {
+                      generationAttemptId,
+                      generationMode: "action",
+                    }
+                  : undefined,
+              }
+            : {}),
         };
         await db.transaction(async (tx: any) => {
           await createDeckVersionSnapshot(
@@ -584,7 +594,7 @@ export default defineAction({
         slides,
         createdAt: now,
         updatedAt: now,
-        ...(incrementalGeneration
+        ...(actionOwnsGenerationLifecycle && incrementalGeneration
           ? {
               generationContext: {
                 generationAttemptId,

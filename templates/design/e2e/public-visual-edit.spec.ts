@@ -1034,27 +1034,86 @@ test.describe.serial("public visual edit", () => {
     );
   });
 
+  test("signed-out live canvas sharing requires sign-in and returns to the canvas", async ({
+    browser,
+  }) => {
+    await expectReturnUrl(
+      browser,
+      `/visual-edit/${collaborationDesignId}?editorView=overview`,
+      (page) =>
+        page.getByRole("link", {
+          name: "Sign up to share a live canvas",
+        }),
+      appReturnPath(`/visual-edit/${collaborationDesignId}?intent=share`),
+    );
+  });
+
+  test("live collaboration can be enabled from Share by a signed-in editor", async ({
+    browser,
+    page,
+  }) => {
+    await setLiveCollaboration(browser, collaborationDesignId, false);
+    try {
+      await page.goto(
+        appUrl(`/visual-edit/${collaborationDesignId}?editorView=overview`),
+        { waitUntil: "domcontentloaded" },
+      );
+      await expect(page.locator("[data-design-editor]")).toBeVisible();
+      await page
+        .getByRole("button", { name: /^share(?: \\(.+\\))?$/i })
+        .first()
+        .click();
+      await page.getByRole("tab", { name: "Live collaboration" }).click();
+
+      const collaborationToggle = page.getByRole("switch", {
+        name: "Live collaboration",
+      });
+      await expect(collaborationToggle).toHaveAttribute(
+        "aria-checked",
+        "false",
+      );
+      await collaborationToggle.click();
+      await expect(collaborationToggle).toHaveAttribute("aria-checked", "true");
+    } finally {
+      await setLiveCollaboration(browser, collaborationDesignId, false);
+    }
+  });
+
   test("shares an inert live snapshot and hands guest edits back to the owner", async ({
     browser,
     page,
   }) => {
+    await setLiveCollaboration(browser, collaborationDesignId, true);
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(BASE_URL).origin,
+      permissions: ["localNetworkAccess"],
+    });
     const ownerSnapshotStatuses: number[] = [];
+    let ownerSnapshotPublished = false;
     page.on("response", (response) => {
       if (response.url().includes("/publish-visual-edit-snapshot")) {
         ownerSnapshotStatuses.push(response.status());
+        void response
+          .json()
+          .then((body: { published?: boolean }) => {
+            ownerSnapshotPublished ||= body.published === true;
+          })
+          .catch(() => {});
       }
     });
     await page.goto(
-      appUrl(`/design/${collaborationDesignId}?editorView=overview`),
+      appUrl(`/visual-edit/${collaborationDesignId}?editorView=overview`),
       { waitUntil: "domcontentloaded" },
     );
+    await expect(page.locator("[data-design-editor]")).toBeVisible({
+      timeout: 30_000,
+    });
     const ownerFrame = designFrame(page, collaborationScreenId);
     await expect(
       ownerFrame.getByRole("heading", { name: "Local visual edit" }),
     ).toBeVisible({ timeout: 30_000 });
-    await expect
-      .poll(() => ownerSnapshotStatuses.some((status) => status === 200))
-      .toBe(true);
+    await expect.poll(() => ownerSnapshotPublished).toBe(true);
 
     await page.getByRole("button", { name: /^share$/i }).click();
     await expect(
@@ -1071,19 +1130,15 @@ test.describe.serial("public visual edit", () => {
       .toContain(`/visual-edit/${collaborationDesignId}?share=1`);
     await page.keyboard.press("Escape");
 
-    const signedOutOwner = await openSignedOutPage(
+    await expectReturnUrl(
       browser,
       `/design/${collaborationDesignId}`,
-    );
-    try {
-      await expect(
-        signedOutOwner.page.getByRole("link", {
+      (signedOutPage) =>
+        signedOutPage.getByRole("link", {
           name: /^sign up to share a live canvas$/i,
         }),
-      ).toBeVisible();
-    } finally {
-      await signedOutOwner.close();
-    }
+      appReturnPath(`/design/${collaborationDesignId}?intent=share`),
+    );
 
     const guestSnapshotReads: string[] = [];
     const guestSnapshotRequestCounts = new Map<string, number>();
@@ -1371,6 +1426,32 @@ async function setDesignVisibility(
       ok?: boolean;
     };
     expect(body.visibility ?? visibility).toBe(visibility);
+  } finally {
+    await context.close();
+  }
+}
+
+async function setLiveCollaboration(
+  browser: Browser,
+  designId: string,
+  enabled: boolean,
+): Promise<void> {
+  const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+  try {
+    const response = await context.request.post(
+      appUrl("/_agent-native/actions/update-visual-edit-collaboration"),
+      { data: { designId, enabled } },
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `update-visual-edit-collaboration(${enabled}) failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    const body = (await response.json()) as {
+      designId?: string;
+      enabled?: boolean;
+    };
+    expect(body).toMatchObject({ designId, enabled });
   } finally {
     await context.close();
   }

@@ -15,6 +15,10 @@ import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import {
+  normalizeRecordingPlatform,
+  trackRecordingFailure,
+} from "./recording-failures.js";
 import type { StoredResumableSession } from "./resumable-session.js";
 import { abortResumableUploadSession } from "./resumable-upload-cleanup.js";
 
@@ -261,12 +265,13 @@ export async function reapExpiredUploads(
     const result = await exec.execute({
       sql: `UPDATE recordings
             SET status = 'failed',
+                failure_code = 'upload_timed_out',
                 failure_reason = $1,
                 updated_at = $2
             WHERE status IN ('uploading', 'processing')
               AND upload_lease_expires_at < $3
               AND id IN (${ids.map((_, i) => `$${i + 4}`).join(", ")})
-            RETURNING id`,
+            RETURNING id, owner_email, upload_attempt_id, recording_platform`,
       args: [UPLOAD_LEASE_EXPIRED_REASON, nowIso, nowIso, ...ids],
     });
 
@@ -274,13 +279,27 @@ export async function reapExpiredUploads(
     // compare-and-set keeps its row, so only what the UPDATE actually claimed
     // may be reported or have its session state swept — reading the probe
     // list here would tear down a live streaming upload's session.
-    const terminated = new Set(
-      ((result.rows as Array<{ id?: unknown }>) ?? []).map((row) =>
-        String(row.id),
-      ),
-    );
+    const terminatedRows =
+      (result.rows as Array<Record<string, unknown>>) ?? [];
+    const terminated = new Set(terminatedRows.map((row) => String(row.id)));
     expired = expired.filter((row) => terminated.has(row.id));
     failed = terminated.size;
+
+    for (const row of terminatedRows) {
+      if (typeof row.owner_email !== "string") {
+        throw new Error("Upload timeout row is missing owner email");
+      }
+      trackRecordingFailure({
+        recordingId: String(row.id),
+        userId: row.owner_email,
+        uploadAttemptId:
+          typeof row.upload_attempt_id === "string"
+            ? row.upload_attempt_id
+            : null,
+        platform: normalizeRecordingPlatform(row.recording_platform),
+        failureCode: "upload_timed_out",
+      });
+    }
 
     for (const id of terminated) {
       const generationId =

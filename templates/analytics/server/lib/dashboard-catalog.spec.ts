@@ -183,16 +183,17 @@ describe("dashboard catalog", () => {
       "agent-native-templates-first-party",
     );
     expect(entry?.dataSources).toEqual(["first-party"]);
-    expect(entry?.panelCount).toBe(42);
+    expect(entry?.panelCount).toBe(43);
 
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent-Native Templates (First-party)");
-    expect(config.panels).toHaveLength(46);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(46);
+    expect(config.panels).toHaveLength(47);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(47);
     for (const id of [
       "activation-funnel",
       "signup-method-conversion",
       "onboarding-step-dropoff",
+      "onboarding-setup-choice",
       "sharing-actions-by-app",
     ]) {
       expect(config.panels.find((panel) => panel.id === id)).toEqual(
@@ -249,6 +250,22 @@ describe("dashboard catalog", () => {
     for (const panel of sentimentPanels) {
       expect(panel.source).toBe("first-party");
       expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
+    }
+  });
+
+  it("ships the onboarding panels with catalog SQL and columns", () => {
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanels = seed?.panels as Array<{
+      id?: string;
+      sql?: string;
+      config?: { columns?: unknown };
+    }>;
+
+    for (const id of ["onboarding-step-dropoff", "onboarding-setup-choice"]) {
+      const catalogPanel = buildPanel(id)!;
+      const seedPanel = seedPanels.find((panel) => panel.id === id);
+      expect(seedPanel?.sql).toBe(catalogPanel.sql);
+      expect(seedPanel?.config?.columns).toEqual(catalogPanel.config.columns);
     }
   });
 

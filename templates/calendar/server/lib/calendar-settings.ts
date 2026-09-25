@@ -4,7 +4,6 @@ import {
   getUserSetting,
   mutateUserSetting,
   putSetting,
-  putUserSetting,
 } from "@agent-native/core/settings";
 
 import type { Settings } from "../../shared/api.js";
@@ -73,16 +72,51 @@ export async function saveCalendarSettings(
   email: string,
   patch: unknown,
 ): Promise<Settings> {
-  const settings = normalizeCalendarSettings({
-    ...(await readCalendarSettings(email)),
-    ...(patch && typeof patch === "object" ? patch : {}),
-  });
+  const patchRecord =
+    patch && typeof patch === "object"
+      ? (patch as Record<string, unknown>)
+      : {};
+  const storedSettings = await mutateUserSetting(
+    email,
+    SETTINGS_KEY,
+    (current) => {
+      const currentRecord = current ?? {};
+      const currentSettings = normalizeCalendarSettings(currentRecord, {
+        timezone: callerTimezone(),
+      });
+      return {
+        ...normalizeCalendarSettings(
+          {
+            ...currentSettings,
+            ...patchRecord,
+            eventRules: {
+              ...currentSettings.eventRules,
+              ...((patchRecord.eventRules as
+                | Record<string, unknown>
+                | undefined) ?? {}),
+            },
+          },
+          { timezone: callerTimezone() },
+        ),
+        ...(currentRecord.__calendarEventRuleUndoClaims !== undefined
+          ? {
+              __calendarEventRuleUndoClaims:
+                currentRecord.__calendarEventRuleUndoClaims,
+            }
+          : {}),
+      } as unknown as Record<string, unknown>;
+    },
+  );
+  const settings = normalizeCalendarSettings(storedSettings);
   const record = settings as unknown as Record<string, unknown>;
-  await Promise.all([
-    putUserSetting(email, SETTINGS_KEY, record),
-    // Also write the global key so the public booking page can read it.
-    putSetting(SETTINGS_KEY, record),
-  ]);
+  const publicRecord = { ...record };
+  delete publicRecord.eventRules;
+  delete publicRecord.hiddenEventKeys;
+  delete publicRecord.eventRuleActivity;
+  // `mutateUserSetting` already persisted the private record atomically. A
+  // second whole-record write here could overwrite activity recorded between
+  // the mutation and this public-settings update.
+  await putSetting(SETTINGS_KEY, publicRecord);
   return settings;
 }
 

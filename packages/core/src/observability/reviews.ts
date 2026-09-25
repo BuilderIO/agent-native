@@ -1,18 +1,21 @@
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { isEmailDerivedName } from "../user-profile/shared.js";
+import { getUserProfiles } from "../user-profile/store.js";
 import {
-  getHumanReviewSummaries,
   getOrgScopedThreadData,
-  getOrgScopedThreadTitles,
   getOrgScopedReviewThreads,
   getFeedback,
   getInstructionUpdates,
   getSuccessfulToolSpansForReview,
   MAX_REVIEW_TOOL_SPANS,
+  getHumanReviewSummariesForThreads,
   getTraceSummary,
   getTraceSummaries,
+  getRecentReviewRunsForThreads,
 } from "./store.js";
 import type {
   FeedbackEntry,
+  HumanReviewArtifactRef,
   InstructionUpdate,
   OutputReviewDetail,
   OutputReviewListRow,
@@ -20,6 +23,7 @@ import type {
 } from "./types.js";
 
 const MAX_INLINE_APP_TITLE_LENGTH = 120;
+const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/;
 
 function unwrapMessage(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -55,6 +59,154 @@ function inlineMcpApp(value: unknown): AgentMcpAppPayload | null {
     return null;
   }
   return value as AgentMcpAppPayload;
+}
+
+type ParsedToolOutput =
+  | { kind: "parsed"; output: Record<string, unknown> }
+  | { kind: "unavailable" }
+  | { kind: "malformed" };
+
+function parseToolOutput(value: unknown): ParsedToolOutput {
+  const directOutput = record(value);
+  if (directOutput) return { kind: "parsed", output: directOutput };
+  if (typeof value !== "string") return { kind: "unavailable" };
+  if (value.length > MAX_THREAD_DATA_CHARS) return { kind: "malformed" };
+  const trimmed = value.trimStart();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("["))
+    return { kind: "unavailable" };
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const output = record(parsed);
+    return output ? { kind: "parsed", output } : { kind: "unavailable" };
+  } catch {
+    return { kind: "malformed" };
+  }
+}
+
+interface ReviewToolCall {
+  name: string;
+  output?: Record<string, unknown>;
+  outputMalformed?: true;
+}
+
+function toolOutputArtifacts(
+  calls: readonly ReviewToolCall[],
+): HumanReviewArtifactRef[] {
+  const artifacts = new Map<string, HumanReviewArtifactRef>();
+  for (const call of calls) {
+    if (!call.output) continue;
+    const name = call.name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const output = call.output;
+    let artifact: HumanReviewArtifactRef | undefined;
+    if (/(?:^|_)(?:create|generate|edit|update)_design(?:_|$)/.test(name)) {
+      if (output.renderable !== false) {
+        const artifactId = output.designId ?? output.id;
+        if (
+          typeof artifactId === "string" &&
+          ARTIFACT_ID_PATTERN.test(artifactId)
+        ) {
+          artifact = {
+            appId: "design",
+            artifactId,
+            title:
+              (typeof output.title === "string" && output.title.trim()) ||
+              "Design",
+            path: `/present/${encodeURIComponent(artifactId)}`,
+          };
+        }
+      }
+    } else if (
+      /(?:^|_)(?:create|generate|update)_(?:deck|slides?)(?:_|$)/.test(name)
+    ) {
+      const artifactId = output.deckId ?? output.presentationId ?? output.id;
+      if (
+        typeof artifactId === "string" &&
+        ARTIFACT_ID_PATTERN.test(artifactId)
+      ) {
+        artifact = {
+          appId: "slides",
+          artifactId,
+          title:
+            (typeof output.title === "string" && output.title.trim()) ||
+            "Presentation",
+          path: `/deck/${encodeURIComponent(artifactId)}/present`,
+        };
+      }
+    } else if (/(?:^|_)(?:compose|create|update)_dashboard(?:_|$)/.test(name)) {
+      const artifactId = output.dashboardId ?? output.id;
+      if (
+        typeof artifactId === "string" &&
+        ARTIFACT_ID_PATTERN.test(artifactId)
+      ) {
+        artifact = {
+          appId: "analytics",
+          artifactId,
+          title:
+            (typeof output.name === "string" && output.name.trim()) ||
+            (typeof output.title === "string" && output.title.trim()) ||
+            "Dashboard",
+          path: `/dashboards/${encodeURIComponent(artifactId)}`,
+        };
+      }
+    } else if (/(?:^|_)generate_chart(?:_|$)/.test(name)) {
+      const filename = output.filename;
+      if (
+        typeof filename === "string" &&
+        ARTIFACT_ID_PATTERN.test(filename) &&
+        /\.(?:png|svg)$/i.test(filename)
+      ) {
+        artifact = {
+          appId: "analytics",
+          artifactId: filename,
+          title: filename,
+          path: `/api/media/${encodeURIComponent(filename)}`,
+        };
+      }
+    }
+    if (artifact)
+      artifacts.set(`${artifact.appId}:${artifact.artifactId}`, artifact);
+  }
+  return [...artifacts.values()];
+}
+
+function threadScopeArtifact(thread: {
+  scopeType: string | null;
+  scopeId: string | null;
+  scopeLabel: string | null;
+}): HumanReviewArtifactRef | undefined {
+  const { scopeType, scopeId, scopeLabel } = thread;
+  if (!scopeId || !ARTIFACT_ID_PATTERN.test(scopeId)) return undefined;
+  const artifact = {
+    design: {
+      appId: "design",
+      path: `/present/${encodeURIComponent(scopeId)}`,
+      fallbackTitle: "Design",
+    },
+    deck: {
+      appId: "slides",
+      path: `/deck/${encodeURIComponent(scopeId)}/present`,
+      fallbackTitle: "Presentation",
+    },
+    dashboard: {
+      appId: "analytics",
+      path: `/dashboards/${encodeURIComponent(scopeId)}`,
+      fallbackTitle: "Dashboard",
+    },
+    analysis: {
+      appId: "analytics",
+      path: `/analyses/${encodeURIComponent(scopeId)}`,
+      fallbackTitle: "Analysis",
+    },
+  }[scopeType ?? ""];
+  if (!artifact) return undefined;
+  return {
+    appId: artifact.appId as HumanReviewArtifactRef["appId"],
+    artifactId: scopeId,
+    title: scopeLabel
+      ? redactEvidenceString(scopeLabel)
+      : artifact.fallbackTitle,
+    path: artifact.path,
+  };
 }
 
 function messageText(value: unknown): string {
@@ -99,6 +251,7 @@ function readThreadMessages(threadData: string): Array<{
   text: string;
   runId?: string;
   inlineApps: AgentMcpAppPayload[];
+  toolCalls: ReviewToolCall[];
 }> {
   if (threadData.length > MAX_THREAD_DATA_CHARS) {
     throw new Error("Observability thread data exceeds the maximum size");
@@ -108,7 +261,7 @@ function readThreadMessages(threadData: string): Array<{
     const values: unknown[] = Array.isArray(repository?.messages)
       ? repository.messages
       : [];
-    return values.flatMap((value) => {
+    const parsedMessages = values.flatMap((value) => {
       const message = unwrapMessage(value);
       if (
         !message ||
@@ -116,6 +269,7 @@ function readThreadMessages(threadData: string): Array<{
       ) {
         return [];
       }
+      const role: "user" | "assistant" = message.role;
       if (!Object.prototype.hasOwnProperty.call(message, "content")) {
         return [];
       }
@@ -130,17 +284,111 @@ function readThreadMessages(threadData: string): Array<{
             return app ? [app] : [];
           })
         : [];
-      return text || inlineApps.length > 0
+      const toolCalls = Array.isArray(content)
+        ? content.flatMap((part): Array<ReviewToolCall & { id?: string }> => {
+            const tool = record(part);
+            if (tool?.type !== "tool-call") return [];
+            const name =
+              typeof tool.toolName === "string"
+                ? tool.toolName
+                : typeof tool.name === "string"
+                  ? tool.name
+                  : undefined;
+            if (!name) return [];
+            const outputResult =
+              tool.isError === true
+                ? { kind: "unavailable" as const }
+                : parseToolOutput(
+                    tool.result ?? tool.resultText ?? tool.content,
+                  );
+            return [
+              {
+                name,
+                ...(typeof tool.toolCallId === "string"
+                  ? { id: tool.toolCallId }
+                  : typeof tool.id === "string"
+                    ? { id: tool.id }
+                    : {}),
+                ...(outputResult.kind === "parsed"
+                  ? { output: outputResult.output }
+                  : {}),
+                ...(outputResult.kind === "malformed"
+                  ? { outputMalformed: true as const }
+                  : {}),
+              },
+            ];
+          })
+        : [];
+      const hasToolResult =
+        Array.isArray(content) &&
+        content.some((part) => record(part)?.type === "tool-result");
+      return text ||
+        inlineApps.length > 0 ||
+        toolCalls.length > 0 ||
+        hasToolResult
         ? [
             {
-              role: message.role,
+              role,
               text,
               runId: messageRunId(message),
               inlineApps,
+              toolCalls: toolCalls.map(({ name, output, outputMalformed }) => ({
+                name,
+                ...(output ? { output } : {}),
+                ...(outputMalformed ? { outputMalformed } : {}),
+              })),
+              toolCallIds: toolCalls.flatMap((tool, index) =>
+                tool.id ? [{ id: tool.id, index }] : [],
+              ),
+              contentParts: Array.isArray(content) ? content : [],
             },
           ]
         : [];
     });
+    const toolCallsById = new Map<
+      string,
+      { message: (typeof parsedMessages)[number]; index: number }
+    >();
+    parsedMessages.forEach((message) => {
+      message.toolCallIds.forEach(({ id, index }) => {
+        toolCallsById.set(id, { message, index });
+      });
+    });
+    for (const message of parsedMessages) {
+      for (const part of message.contentParts) {
+        const tool = record(part);
+        if (tool?.type !== "tool-result" || tool.isError === true) continue;
+        const callId = tool.toolCallId;
+        if (typeof callId !== "string") continue;
+        const matched = toolCallsById.get(callId);
+        if (!matched || matched.message.toolCalls[matched.index]?.output) {
+          continue;
+        }
+        const outputResult = parseToolOutput(
+          tool.result ?? tool.resultText ?? tool.content,
+        );
+        if (outputResult.kind === "parsed")
+          matched.message.toolCalls[matched.index] = {
+            ...matched.message.toolCalls[matched.index]!,
+            output: outputResult.output,
+          };
+        else if (outputResult.kind === "malformed")
+          matched.message.toolCalls[matched.index] = {
+            ...matched.message.toolCalls[matched.index]!,
+            outputMalformed: true,
+          };
+      }
+    }
+    return parsedMessages
+      .filter(
+        (message) =>
+          message.text ||
+          message.inlineApps.length > 0 ||
+          message.toolCalls.length > 0,
+      )
+      .map(
+        ({ toolCallIds: _ids, contentParts: _parts, ...message }) => message,
+      );
   } catch (error) {
     throw new Error("Unable to parse observability thread data", {
       cause: error,
@@ -163,16 +411,18 @@ function askAndAnswer(
       : messages.filter((message) => message.role === "user").length === 1
         ? messages.findIndex((message) => message.role === "user")
         : -1;
-  const answerIndex =
-    resolvedAskIndex < 0
-      ? -1
-      : messages.findIndex((message, index) => {
-          if (index <= resolvedAskIndex || message.role === "user") {
-            return false;
-          }
-          if (message.role !== "assistant") return false;
-          return message.runId === summary.runId || !message.runId;
-        });
+  let answerIndex = -1;
+  for (let index = resolvedAskIndex + 1; index < messages.length; index += 1) {
+    const message = messages[index]!;
+    if (message.role === "user") break;
+    if (
+      message.role === "assistant" &&
+      message.text &&
+      (message.runId === summary.runId || !message.runId)
+    ) {
+      answerIndex = index;
+    }
+  }
   return {
     ask: resolvedAskIndex >= 0 ? messages[resolvedAskIndex]!.text : "",
     answer: answerIndex >= 0 ? messages[answerIndex]!.text : "",
@@ -225,25 +475,76 @@ export async function getOutputReviewDetailForRun(opts: {
   const summary = await getTraceSummary(opts.runId, { orgId: opts.orgId });
   if (!summary) return { found: false };
   if (!summary.threadId) {
-    return { found: true, app: null, messages: [] };
+    return {
+      found: true,
+      runId: summary.runId,
+      app: null,
+      messages: [],
+      artifacts: [],
+      summary: null,
+      ask: "",
+      answer: "",
+    };
   }
 
   if (!summary.userId) return { found: false };
-  const threads = await getOrgScopedThreadData(opts.orgId, summary.userId, [
+  const threads = await getOrgScopedReviewThreads(opts.orgId, [
+    { ownerEmail: summary.userId, threadId: summary.threadId },
+  ]);
+  const thread = threads.get(summary.threadId);
+  if (!thread) return { found: false };
+  const threadData = thread.threadData;
+
+  const threadMessages = threadData ? readThreadMessages(threadData) : [];
+  const messageRunIds = new Set(
+    threadMessages.flatMap((message) => (message.runId ? [message.runId] : [])),
+  );
+  const runMessages = messageRunIds.has(summary.runId)
+    ? threadMessages.filter((message) => message.runId === summary.runId)
+    : messageRunIds.size === 0
+      ? threadMessages
+      : [];
+  const artifacts = [
+    threadScopeArtifact(thread),
+    ...toolOutputArtifacts(runMessages.flatMap((message) => message.toolCalls)),
+  ].filter((artifact): artifact is HumanReviewArtifactRef => Boolean(artifact));
+  const savedSummaries = await getHumanReviewSummariesForThreads(opts.orgId, [
     summary.threadId,
   ]);
-  const threadData = threads.get(summary.threadId);
-  if (threadData === undefined) return { found: false };
-
-  const threadMessages = threadData
-    ? readThreadMessages(threadData).filter(
-        (message) => message.runId === summary.runId,
-      )
-    : [];
+  const savedSummary = savedSummaries.get(summary.threadId);
+  const { ask, answer } = askAndAnswer(summary, threadData);
   return {
     found: true,
+    runId: summary.runId,
     app: getInlineAppForRun(summary, threadData),
-    messages: threadMessages.map(({ role, text }) => ({ role, text })),
+    artifacts: [...artifacts, ...(savedSummary?.artifacts ?? [])].filter(
+      (artifact, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.appId === artifact.appId &&
+            candidate.artifactId === artifact.artifactId,
+        ) === index,
+    ),
+    summary: savedSummary
+      ? {
+          ask: savedSummary.ask,
+          outcome: savedSummary.outcome,
+          artifacts: savedSummary.artifacts,
+        }
+      : null,
+    ask,
+    answer,
+    messages: runMessages.map(({ role, text, toolCalls }) => ({
+      role,
+      text,
+      ...(toolCalls.length > 0
+        ? {
+            toolCalls: toolCalls.map((tool) =>
+              /^[A-Za-z0-9_.:-]{1,80}$/.test(tool.name) ? tool.name : "tool",
+            ),
+          }
+        : {}),
+    })),
   };
 }
 
@@ -259,23 +560,28 @@ export async function listOutputReviews(opts: {
     excludeSpanName: "agent_run:observability:human-review-summary",
     requireReviewContext: true,
   });
+  const threadIds = summaries.flatMap((summary) =>
+    summary.threadId ? [summary.threadId] : [],
+  );
   const [feedback, updates] = await Promise.all([
     getFeedback({
       sinceMs: opts.sinceMs,
       limit: opts.limit * 4,
       orgId: opts.orgId,
-      runIds: summaries.map((summary) => summary.runId),
+      threadIds,
     }),
     getInstructionUpdates({
       sinceMs: opts.sinceMs,
-      limit: opts.limit * 2,
+      perThreadLimit: 1,
       orgId: opts.orgId,
-      runIds: summaries.map((summary) => summary.runId),
+      threadIds,
     }),
   ]);
-  const updateByRun = new Map<string, InstructionUpdate>();
+  const updateByThread = new Map<string, InstructionUpdate>();
   for (const update of updates) {
-    if (!updateByRun.has(update.runId)) updateByRun.set(update.runId, update);
+    if (update.threadId && !updateByThread.has(update.threadId)) {
+      updateByThread.set(update.threadId, update);
+    }
   }
 
   const [threadRows, humanSummaries] = await Promise.all([
@@ -287,33 +593,45 @@ export async function listOutputReviews(opts: {
           : [],
       ),
     ),
-    getHumanReviewSummaries(
-      opts.orgId,
-      summaries.map((summary) => summary.runId),
-    ),
+    getHumanReviewSummariesForThreads(opts.orgId, threadIds),
   ]);
+  const reviewRuns = await getRecentReviewRunsForThreads({
+    orgId: opts.orgId,
+    threadIds,
+    sinceMs: opts.sinceMs,
+    perThreadLimit: 6,
+  });
+  const runsByThread = new Map<string, TraceSummary[]>();
+  for (const run of reviewRuns) {
+    if (!run.threadId) continue;
+    const runs = runsByThread.get(run.threadId) ?? [];
+    runs.push(run);
+    runsByThread.set(run.threadId, runs);
+  }
   const threads = new Map(
     [...threadRows].map(([id, thread]) => [id, thread.threadData]),
+  );
+  const profiles = await getUserProfiles(
+    [...threadRows.values()].map((thread) => thread.ownerEmail),
   );
   const titles = new Map(
     [...threadRows].flatMap(([id, thread]) =>
       thread.title?.trim() ? [[id, thread.title]] : [],
     ),
   );
-  const visibleRunIds = new Set(summaries.map((summary) => summary.runId));
-  const feedbackByRun = groupByRun(
-    feedback.filter((entry) => entry.runId && visibleRunIds.has(entry.runId)),
-  );
+  const feedbackByThread = groupByThread(feedback);
 
   return summaries
     .map((summary): OutputReviewListRow | null => {
       if (!summary.threadId) return null;
-      const savedSummary = humanSummaries.get(summary.runId) ?? null;
+      if (!threadRows.has(summary.threadId)) return null;
+      const savedSummary = humanSummaries.get(summary.threadId) ?? null;
       const threadData = summary.threadId
         ? (threads.get(summary.threadId) ?? undefined)
         : null;
       if (threadData === undefined && !savedSummary) return null;
       const { answer, inlineApp } = askAndAnswer(summary, threadData ?? null);
+      const messages = threadData ? readThreadMessages(threadData) : [];
       const threadTitle = summary.threadId
         ? titles.get(summary.threadId)
         : undefined;
@@ -327,7 +645,42 @@ export async function listOutputReviews(opts: {
       if (!reviewSummary && !threadTitle?.trim()) return null;
       const ask = reviewSummary?.ask ?? threadTitle ?? "";
       const resolvedAnswer = reviewSummary?.outcome ?? answer;
-      const title = inlineApp ? inlineAppTitle(inlineApp) : undefined;
+      const title = [...messages]
+        .reverse()
+        .flatMap((message) => message.inlineApps)
+        .map(inlineAppTitle)
+        .find((value): value is string => Boolean(value));
+      const author = threadRows.get(summary.threadId)?.ownerEmail;
+      const profile = author ? profiles.get(author.toLowerCase()) : undefined;
+      const authorName =
+        profile && !isEmailDerivedName(profile.name, profile.email)
+          ? profile.name.trim().split(/\s+/)[0]
+          : undefined;
+      const thread = threadRows.get(summary.threadId);
+      const messageRunIds = new Set(
+        messages.flatMap((message) => (message.runId ? [message.runId] : [])),
+      );
+      const runMessages = messageRunIds.has(summary.runId)
+        ? messages.filter((message) => message.runId === summary.runId)
+        : messageRunIds.size === 0
+          ? messages
+          : [];
+      const artifacts = [
+        ...(reviewSummary?.artifacts ?? []),
+        ...(thread ? [threadScopeArtifact(thread)] : []),
+        ...toolOutputArtifacts(
+          runMessages.flatMap((message) => message.toolCalls),
+        ),
+      ].filter((artifact, index, all): artifact is HumanReviewArtifactRef => {
+        if (!artifact) return false;
+        return (
+          all.findIndex(
+            (candidate) =>
+              candidate?.appId === artifact.appId &&
+              candidate?.artifactId === artifact.artifactId,
+          ) === index
+        );
+      });
       return {
         runId: summary.runId,
         threadId: summary.threadId,
@@ -336,11 +689,20 @@ export async function listOutputReviews(opts: {
         hasInlineApp: Boolean(inlineApp),
         threadTitle: threadTitle ?? "",
         summary: reviewSummary,
+        artifacts,
+        runs: (runsByThread.get(summary.threadId) ?? [summary]).map((run) => ({
+          runId: run.runId,
+          model: run.model,
+          createdAt: run.createdAt,
+        })),
+        runCount: summary.runCount ?? 1,
+        ...(authorName ? { authorName } : {}),
+        ...(profile?.image ? { authorAvatar: profile.image } : {}),
         ...(title ? { inlineAppTitle: title } : {}),
         model: summary.model,
         createdAt: summary.createdAt,
-        feedback: feedbackByRun.get(summary.runId) ?? [],
-        instructionUpdate: updateByRun.get(summary.runId) ?? null,
+        feedback: feedbackByThread.get(summary.threadId) ?? [],
+        instructionUpdate: updateByThread.get(summary.threadId) ?? null,
       } satisfies OutputReviewListRow;
     })
     .filter((row): row is OutputReviewListRow => row !== null);
@@ -348,6 +710,7 @@ export async function listOutputReviews(opts: {
 
 const MAX_SOURCE_MESSAGES = 40;
 const MAX_SOURCE_TEXT = 500;
+const MAX_FIRST_ASK_TEXT = 2_000;
 const MAX_THREAD_DATA_CHARS = 1_000_000;
 const MAX_EVIDENCE_TEXT = 600;
 const MAX_EVIDENCE_NODES_PER_SPAN = 80;
@@ -477,8 +840,10 @@ function boundedEvidence(
     budget.chars -= safe.length;
     return budget.chars < 0 ? "[omitted]" : safe;
   }
-  if (value === null || typeof value === "boolean" || typeof value === "number")
-    return "[omitted]";
+  if (typeof value === "boolean") {
+    return key === "renderable" ? value : "[omitted]";
+  }
+  if (value === null || typeof value === "number") return "[omitted]";
   if (Array.isArray(value))
     return value
       .slice(0, 20)
@@ -510,6 +875,7 @@ export async function getOutputReviewSummarySource(opts: {
       found: true;
       runId: string;
       threadTitle: string | null;
+      attachedArtifacts: HumanReviewArtifactRef[];
       threadEvidenceAvailable: boolean;
       messages: Array<{ role: "user" | "assistant"; text: string }>;
       toolEvidence: Array<{
@@ -519,43 +885,111 @@ export async function getOutputReviewSummarySource(opts: {
         output?: unknown;
       }>;
       toolEvidenceAvailable: boolean;
+      malformedThreadToolOutput: boolean;
     }
 > {
   const summary = await getTraceSummary(opts.runId, { orgId: opts.orgId });
   if (!summary) return { found: false };
   let threadTitle: string | null = null;
+  let attachedArtifacts: HumanReviewArtifactRef[] = [];
   let threadEvidenceAvailable = false;
   let messages: Array<{ role: "user" | "assistant"; text: string }> = [];
+  let threadToolEvidence: Array<{
+    name: string;
+    status: "success";
+    output: unknown;
+  }> = [];
+  let malformedThreadToolOutput = false;
   if (summary.threadId && summary.userId) {
-    const [titles, threads] = await Promise.all([
-      getOrgScopedThreadTitles(opts.orgId, summary.userId, [summary.threadId]),
-      getOrgScopedThreadData(opts.orgId, summary.userId, [summary.threadId]),
+    const threads = await getOrgScopedReviewThreads(opts.orgId, [
+      { ownerEmail: summary.userId, threadId: summary.threadId },
     ]);
-    const title = titles.get(summary.threadId) ?? null;
+    const thread = threads.get(summary.threadId);
+    const title = thread?.title ?? null;
     threadTitle = title ? redactEvidenceString(title) : null;
-    const threadData = threads.get(summary.threadId);
+    attachedArtifacts = thread
+      ? [threadScopeArtifact(thread)].filter(
+          (artifact): artifact is HumanReviewArtifactRef => Boolean(artifact),
+        )
+      : [];
+    const threadData = thread?.threadData;
     if (threadData) {
       threadEvidenceAvailable = true;
-      messages = readThreadMessages(threadData)
-        .filter((message) => message.runId === summary.runId)
-        .slice(-MAX_SOURCE_MESSAGES)
-        .map(({ role, text }) => ({
-          role,
-          text: redactEvidenceString(text)
-            .replace(
-              /<\/?(?:html|script|svg|iframe)\b[^>]*>/gi,
-              "[omitted markup]",
-            )
-            .slice(0, MAX_SOURCE_TEXT),
-        }));
+      const threadMessages = readThreadMessages(threadData);
+      const firstAsk = threadMessages.find(
+        (message) => message.role === "user",
+      );
+      const messageRunIds = new Set(
+        threadMessages.flatMap((message) =>
+          message.runId ? [message.runId] : [],
+        ),
+      );
+      const runMessages = messageRunIds.has(opts.runId)
+        ? threadMessages.filter((message) => message.runId === opts.runId)
+        : messageRunIds.size === 0
+          ? threadMessages
+          : [];
+      malformedThreadToolOutput = runMessages.some((message) =>
+        message.toolCalls.some((call) => call.outputMalformed),
+      );
+      const recentMessages = threadMessages.slice(
+        -(MAX_SOURCE_MESSAGES - (firstAsk ? 1 : 0)),
+      );
+      const retained = firstAsk
+        ? [
+            firstAsk,
+            ...recentMessages.filter((message) => message !== firstAsk),
+          ]
+        : recentMessages;
+      messages = retained.map(({ role, text }) => ({
+        role,
+        text: redactEvidenceString(text)
+          .replace(
+            /<\/?(?:html|script|svg|iframe)\b[^>]*>/gi,
+            "[omitted markup]",
+          )
+          .slice(
+            0,
+            firstAsk && text === firstAsk.text
+              ? MAX_FIRST_ASK_TEXT
+              : MAX_SOURCE_TEXT,
+          ),
+      }));
+      threadToolEvidence = runMessages
+        .flatMap((message) => message.toolCalls)
+        .filter(
+          (
+            call,
+          ): call is ReviewToolCall & { output: Record<string, unknown> } =>
+            Boolean(call.output),
+        )
+        .slice(-MAX_REVIEW_TOOL_SPANS)
+        .flatMap((call) => {
+          const output = boundedEvidence(call.output, {
+            nodes: MAX_EVIDENCE_NODES_PER_SPAN,
+            chars: MAX_EVIDENCE_CHARS_PER_SPAN,
+          });
+          return output === undefined
+            ? []
+            : [
+                {
+                  name: call.name.slice(0, 160),
+                  status: "success" as const,
+                  output,
+                },
+              ];
+        });
     }
   }
-  const toolSpans = await getSuccessfulToolSpansForReview(
-    opts.runId,
-    opts.orgId,
-    MAX_REVIEW_TOOL_SPANS,
-  );
-  const toolEvidence = toolSpans.flatMap((span) => {
+  const toolSpans =
+    threadToolEvidence.length > 0
+      ? []
+      : await getSuccessfulToolSpansForReview(
+          opts.runId,
+          opts.orgId,
+          MAX_REVIEW_TOOL_SPANS,
+        );
+  const spanEvidence = toolSpans.flatMap((span) => {
     const metadata = record(span.metadata);
     const inputBudget = {
       nodes: MAX_EVIDENCE_NODES_PER_SPAN,
@@ -583,24 +1017,28 @@ export async function getOutputReviewSummarySource(opts: {
       },
     ];
   });
+  const toolEvidence =
+    threadToolEvidence.length > 0 ? threadToolEvidence : spanEvidence;
   return {
     found: true,
     runId: summary.runId,
     threadTitle,
+    attachedArtifacts,
     threadEvidenceAvailable,
     messages,
     toolEvidence,
     toolEvidenceAvailable: toolEvidence.length > 0,
+    malformedThreadToolOutput,
   };
 }
 
-function groupByRun(entries: FeedbackEntry[]): Map<string, FeedbackEntry[]> {
+function groupByThread(entries: FeedbackEntry[]): Map<string, FeedbackEntry[]> {
   const grouped = new Map<string, FeedbackEntry[]>();
   for (const entry of entries) {
-    if (!entry.runId) continue;
-    const current = grouped.get(entry.runId) ?? [];
+    if (!entry.threadId) continue;
+    const current = grouped.get(entry.threadId) ?? [];
     current.push(entry);
-    grouped.set(entry.runId, current);
+    grouped.set(entry.threadId, current);
   }
   return grouped;
 }

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     asc: vi.fn((column) => ({ asc: column })),
+    and: vi.fn((...conditions) => ({ conditions })),
     eq: vi.fn((left, right) => ({ left, right })),
     getDb: vi.fn(() => ({
       select: vi.fn(() => selectChain),
@@ -34,6 +35,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: mocks.and,
   asc: mocks.asc,
   eq: mocks.eq,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
@@ -45,7 +47,11 @@ vi.mock("../server/db/index.js", () => ({
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+      content: "designFiles.content",
       createdAt: "designFiles.createdAt",
+      updatedAt: "designFiles.updatedAt",
     },
   },
 }));
@@ -166,6 +172,32 @@ describe("get-design", () => {
     expect(mocks.selectChain.orderBy).toHaveBeenCalledWith(
       { asc: "designFiles.createdAt" },
       { asc: "designFiles.id" },
+    );
+  });
+
+  it("can list file metadata without fetching file content", async () => {
+    const result = await action.run({
+      id: "design_123",
+      includeFileContent: false,
+    });
+
+    expect(mocks.selectChain.orderBy).toHaveBeenCalled();
+    expect(result.files).toEqual([
+      expect.objectContaining({
+        id: "file_123",
+        filename: "index.html",
+        fileType: "html",
+      }),
+    ]);
+    expect(result.files[0]).not.toHaveProperty("content");
+  });
+
+  it("scopes a file read to the requested design and file IDs", async () => {
+    await action.run({ id: "design_123", fileId: "file_123" });
+
+    expect(mocks.and).toHaveBeenCalledWith(
+      { left: "designFiles.designId", right: "design_123" },
+      { left: "designFiles.id", right: "file_123" },
     );
   });
 

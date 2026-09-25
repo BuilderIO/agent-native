@@ -26,6 +26,7 @@ const messages = {
     team: "Team",
   },
   settings: {
+    agentObservability: "Agentenbeobachtbarkeit",
     title: "Einstellungen",
     description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
     labs: "Labs",
@@ -715,6 +716,8 @@ const messages = {
     leaveWithoutSaving: "Ohne Speichern beenden",
     editorMarkupNotSaved:
       "Diese Änderung wurde nicht gespeichert, weil sie der Folie Editor-Markup hinzugefügt hätte.",
+    textEditConflictNotSaved:
+      "Deine Textänderung wurde nicht gespeichert, weil derselbe Text gleichzeitig an anderer Stelle geändert wurde.",
   },
   designSystemSetup: {
     importedBrand: "Importierte Marke",

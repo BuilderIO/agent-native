@@ -427,6 +427,20 @@ describe("schema reflection", () => {
 });
 
 describe("env layer", () => {
+  it("resolves the recurring background-jobs setting through app config", () => {
+    expect(collectEnvAliases(appConfigSchema)).toContainEqual({
+      path: ["runtime", "backgroundJobsEnabled"],
+      env: ["RUN_BACKGROUND_JOBS"],
+      type: "boolean",
+    });
+    expect(
+      readEnvConfigLayer(appConfigSchema, { RUN_BACKGROUND_JOBS: "1" }).runtime,
+    ).toEqual({ backgroundJobsEnabled: true });
+    expect(
+      readEnvConfigLayer(appConfigSchema, { RUN_BACKGROUND_JOBS: "0" }).runtime,
+    ).toEqual({ backgroundJobsEnabled: false });
+  });
+
   it("collects declared aliases with their field path", () => {
     expect(collectEnvAliases(appConfigSchema)).toContainEqual({
       path: ["privateBlob", "publicUploadFallback"],

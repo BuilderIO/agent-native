@@ -41,6 +41,197 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas one-shot bridge queue", () => {
+  it("keeps local layers immediate and captures shared HTML after its reservation", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    const documentId = "runtime-document-live";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    const reservations: Array<{
+      promise: Promise<{ reservationToken: string }>;
+      resolve: (value: { reservationToken: string }) => void;
+    }> = [];
+    const onRuntimeLayerSnapshot = vi.fn();
+    const onReserveVisualEditSnapshot = vi.fn(() => {
+      let resolve!: (value: { reservationToken: string }) => void;
+      const promise = new Promise<{ reservationToken: string }>((done) => {
+        resolve = done;
+      });
+      reservations.push({ promise, resolve });
+      return promise;
+    });
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/"
+          contentKey="screen-live"
+          screenId="screen-live"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="ready-recovery-preview-token"
+          liveEditCapability="ready-recovery-live-edit-capability"
+          onRuntimeLayerSnapshot={onRuntimeLayerSnapshot}
+          onReserveVisualEditSnapshot={onReserveVisualEditSnapshot}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframePostMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
+
+    const sendBridgeMessage = async (data: Record<string, unknown>) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data,
+            origin: bridgeUrl,
+            source: iframe.contentWindow,
+          }),
+        );
+      });
+    };
+    const requestReservation = (requestId: number) =>
+      sendBridgeMessage({
+        type: "agent-native:runtime-layer-snapshot-reservation-request",
+        requestId,
+        documentId,
+      });
+    const sendSnapshot = (
+      requestId: number,
+      html: string,
+      reservationToken?: string,
+    ) =>
+      sendBridgeMessage({
+        type: "agent-native:runtime-layer-snapshot",
+        payload: {
+          requestId,
+          documentId,
+          html,
+          nodeCount: 2,
+          ...(reservationToken ? { reservationToken } : {}),
+        },
+      });
+    const expectImmediateSnapshot = async (requestId: number, html: string) => {
+      await sendSnapshot(requestId, html);
+      expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+        html,
+        nodeCount: 2,
+        documentId,
+        reservationToken: undefined,
+      });
+    };
+    const resolveReservation = async (index: number, token: string) => {
+      await act(async () => {
+        reservations[index]!.resolve({ reservationToken: token });
+        await reservations[index]!.promise;
+      });
+    };
+
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    await requestReservation(41);
+    await requestReservation(42);
+    expect(onReserveVisualEditSnapshot).toHaveBeenCalledTimes(2);
+    expect(onReserveVisualEditSnapshot).toHaveBeenNthCalledWith(
+      1,
+      "screen-live",
+    );
+    expect(onReserveVisualEditSnapshot).toHaveBeenNthCalledWith(
+      2,
+      "screen-live",
+    );
+
+    await expectImmediateSnapshot(41, "<body>First</body>");
+    await expectImmediateSnapshot(42, "<body>Second</body>");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(2);
+
+    await resolveReservation(1, "reservation-for-42");
+    expect(
+      iframePostMessage.mock.calls
+        .map(([message]) => message)
+        .filter(
+          (message) =>
+            (message as { type?: string })?.type ===
+            "grant-runtime-layer-snapshot-reservation",
+        ),
+    ).toContainEqual({
+      type: "grant-runtime-layer-snapshot-reservation",
+      requestId: 42,
+      documentId,
+      reservationToken: "reservation-for-42",
+    });
+    await sendSnapshot(
+      42,
+      "<body>Fresh after reservation</body>",
+      "reservation-for-42",
+    );
+    expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+      html: "<body>Fresh after reservation</body>",
+      nodeCount: 2,
+      documentId,
+      reservationToken: "reservation-for-42",
+    });
+
+    await resolveReservation(0, "reservation-for-41");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
+    expect(onRuntimeLayerSnapshot.mock.calls[2]?.[0]).toEqual({
+      html: "<body>Fresh after reservation</body>",
+      nodeCount: 2,
+      documentId,
+      reservationToken: "reservation-for-42",
+    });
+
+    await requestReservation(43);
+    await expectImmediateSnapshot(43, "<body>Third</body>");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
+    await resolveReservation(2, "reservation-for-43");
+    await sendSnapshot(43, "<body>Fresh third</body>", "reservation-for-43");
+    expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+      html: "<body>Fresh third</body>",
+      nodeCount: 2,
+      documentId,
+      reservationToken: "reservation-for-43",
+    });
+  });
+
   /**
    * A live-edit screen keeps its already-loaded iframe when the canvas
    * remounts, so the replacement instance can see ordinary bridge traffic

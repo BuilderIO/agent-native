@@ -67,6 +67,7 @@ import {
 import {
   COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
   preloadJevContextForPrompt,
+  type JevPromptContextCandidate,
 } from "../server/agent-chat/prompt-resources.js";
 import {
   isRuntimeVisibleScope,
@@ -174,7 +175,11 @@ import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
 } from "./harness/hosted.js";
-import { preloadJevTools } from "./jev-tool-prefetch.js";
+import {
+  buildRecentUserRequestContext,
+  buildJevRequestContext,
+  preloadJevTools,
+} from "./jev-tool-prefetch.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -1545,7 +1550,13 @@ export interface ProductionAgentOptions {
     attachments: AgentChatAttachment[];
     references: AgentChatReference[];
     threadId?: string;
+    /** Recent visible conversation text, bounded and with tool outputs omitted. */
+    requestContext: string;
+    /** Shared deadline for optional prompt-context preloading. */
+    contextPrefetchDeadlineAt: number;
     internalContinuation?: boolean;
+    dispatchToBackground: boolean;
+    isBackgroundWorker?: boolean;
     mode: AgentExecutionMode;
   }) =>
     | void
@@ -1553,11 +1564,15 @@ export interface ProductionAgentOptions {
         message?: string;
         displayMessage?: string;
         attachments?: AgentChatAttachment[];
+        jevPromptCandidates?: JevPromptContextCandidate[];
+        jevFallbackCandidateIds?: string[];
       }
     | Promise<void | {
         message?: string;
         displayMessage?: string;
         attachments?: AgentChatAttachment[];
+        jevPromptCandidates?: JevPromptContextCandidate[];
+        jevFallbackCandidateIds?: string[];
       }>;
   /**
    * Resolve the exact action registry exposed to one interactive agent-chat
@@ -9942,10 +9957,8 @@ export function createProductionAgentHandler(
     if (requestRunCtx) {
       requestRunCtx.browserTabId = requestBrowserTabId;
       requestRunCtx.chatScope = requestChatScope;
-      // Let template extraContext / system-prompt builders detect the durable
-      // background worker so they can skip heavy hang-prone enrichment (e.g. the
-      // analytics data-dictionary read) that otherwise stalls the worker before
-      // it claims its run. Set early — before the system-prompt build runs.
+      // Let app prompt hooks select bounded worker-safe enrichment. Set this
+      // before request preparation and system-prompt assembly.
       requestRunCtx.isBackgroundWorker = isBackgroundWorker;
     }
     const requestMode: AgentExecutionMode =
@@ -9960,11 +9973,17 @@ export function createProductionAgentHandler(
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
     let requestDisplayMessage = displayMessage;
+    const requestContext = buildRecentUserRequestContext({
+      request: requestMessage,
+      history,
+      structuredHistory,
+    });
 
     // Resolve owner first so we can look up a per-owner API key. Users
     // who bring their own key use their key for this request (durable
     // across serverless cold starts via the settings table).
     const ownerEmail = await resolveAgentOwnerEmail(options, event);
+    const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
       ownerEmail,
@@ -9973,9 +9992,15 @@ export function createProductionAgentHandler(
       attachments: requestAttachments,
       references,
       threadId,
+      requestContext,
+      contextPrefetchDeadlineAt,
       internalContinuation: Boolean(internalContinuation),
+      dispatchToBackground,
+      isBackgroundWorker,
       mode: requestMode,
     });
+    let jevPromptCandidates: JevPromptContextCandidate[] = [];
+    let jevFallbackCandidateIds: string[] = [];
     if (preparedRequest) {
       if (
         typeof preparedRequest.message === "string" &&
@@ -9989,7 +10014,18 @@ export function createProductionAgentHandler(
       if (Array.isArray(preparedRequest.attachments)) {
         requestAttachments = preparedRequest.attachments;
       }
+      if (Array.isArray(preparedRequest.jevPromptCandidates)) {
+        jevPromptCandidates = preparedRequest.jevPromptCandidates;
+      }
+      if (Array.isArray(preparedRequest.jevFallbackCandidateIds)) {
+        jevFallbackCandidateIds = preparedRequest.jevFallbackCandidateIds;
+      }
     }
+    const jevRequestContext = buildJevRequestContext({
+      request: requestMessage,
+      history,
+      structuredHistory,
+    });
     const requestedHostedHarness = normalizeHostedHarnessRuntime(
       requestHarness?.runtime,
     );
@@ -10761,7 +10797,9 @@ export function createProductionAgentHandler(
       : undefined;
     const [requestTools, jevContext] = await Promise.all([
       preloadJevTools({
-        request: requestMessage,
+        request: jevRequestContext,
+        skip: Boolean(internalContinuation || dispatchToBackground),
+        deadlineAt: contextPrefetchDeadlineAt,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
         builderAuth: jevContextCredentials.builderAuth,
@@ -10771,12 +10809,20 @@ export function createProductionAgentHandler(
         readOnlyOnly: requestMode === "plan",
       }),
       preloadJevContextForPrompt({
-        request: requestMessage,
+        request: jevRequestContext,
+        appId: options.appId,
+        owner: ownerEmail ?? undefined,
+        orgId: getRequestOrgId() ?? null,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
+        contextPrefetchDeadlineAt,
+        dispatchToBackground,
+        internalContinuation: Boolean(internalContinuation),
+        candidates: jevPromptCandidates,
+        fallbackCandidateIds: jevFallbackCandidateIds,
       }),
     ]);
     if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
@@ -10788,7 +10834,7 @@ export function createProductionAgentHandler(
       ...(jevContext
         ? await buildSystemManifestSections([
             {
-              label: "Jev-prefetched skills and resources",
+              label: "Jev-prefetched context",
               provenance: "runtime-context",
               governance: "inherited",
               content: jevContext,

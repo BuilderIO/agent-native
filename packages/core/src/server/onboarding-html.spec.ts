@@ -388,6 +388,70 @@ describe("getOnboardingHtml", () => {
     );
   });
 
+  it("labels first-party share cards with the full product name", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+
+    const html = getOnboardingHtml({
+      requestHost: "mail.agent-native.com",
+      requestOrigin: "https://mail.agent-native.com",
+      marketing: {
+        appName: "Mail",
+        learnMoreUrl: "https://agent-native.com/apps/mail",
+        tagline:
+          "Your AI agent reads, drafts, and organizes email alongside you.",
+      },
+    });
+
+    expect(html).toContain(
+      '<meta property="og:title" content="Agent-Native Mail"/>',
+    );
+    expect(html).toContain(
+      '<meta property="og:site_name" content="Agent-Native"/>',
+    );
+    expect(html).toContain('<meta property="og:type" content="website"/>');
+    expect(html).toContain(
+      '<meta property="og:url" content="https://mail.agent-native.com/"/>',
+    );
+    expect(html).toContain(
+      '<meta property="og:image:alt" content="Agent-Native Mail: Read it. Write it. Let your agent take it from here."/>',
+    );
+    expect(html).toContain(
+      `og-image.png?v=${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`,
+    );
+  });
+
+  it("does not claim Agent-Native provenance for catalog copy on a custom host", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_TEMPLATE", "mail");
+
+    const html = getOnboardingHtml({
+      requestHost: "inbox.example.com",
+      requestOrigin: "https://inbox.example.com",
+    });
+
+    expect(html).toContain('property="og:site_name"');
+    expect(html).not.toContain(
+      '<meta property="og:site_name" content="Agent-Native"/>',
+    );
+  });
+
+  it("keeps a custom app's own name on its share card", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+
+    const html = getOnboardingHtml({
+      requestHost: "inbox.example.com",
+      requestOrigin: "https://inbox.example.com",
+      marketing: { appName: "Mail", tagline: "Acme's inbox." },
+    });
+
+    expect(html).toContain('<meta property="og:title" content="Mail"/>');
+    expect(html).toContain('<meta property="og:site_name" content="Mail"/>');
+    expect(html).not.toContain("Agent-Native Mail");
+  });
+
   it("derives the workspace mount for request-specific and cached login HTML", () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     delete process.env.APP_BASE_PATH;

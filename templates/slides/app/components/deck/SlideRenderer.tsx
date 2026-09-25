@@ -1,3 +1,4 @@
+import { captureError } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useState,
@@ -22,7 +23,11 @@ import {
   sanitizeSlideHtml,
   sanitizeSlideUrl,
 } from "@/lib/sanitize-slide-html";
-import { swapImageSourcesInPlace } from "@/lib/slide-image-replacement";
+import {
+  swapImageSourcesInPlace,
+  takeSlideImageUploadProvenance,
+  updateLiveImagesUnderEdit,
+} from "@/lib/slide-image-replacement";
 import {
   stampSlideSource,
   type RenderedSlideSource,
@@ -863,6 +868,42 @@ function loadImportedFonts(hrefs: string[]) {
 }
 
 const renderedSlideSources = new WeakMap<HTMLElement, RenderedSlideSource>();
+const pendingSlideEditDrafts = new WeakMap<
+  HTMLElement,
+  Array<{ nonce: string; content: string }>
+>();
+const MAX_PENDING_SLIDE_EDIT_DRAFTS = 8;
+
+// ponytail: cap delayed echoes at 8 drafts per canvas; raise it only if ordering proves insufficient.
+export function noteSlideEditDraft(
+  root: HTMLElement,
+  nonce: string,
+  content: string,
+) {
+  const drafts = pendingSlideEditDrafts.get(root) ?? [];
+  const duplicate = drafts.findIndex(
+    (draft) => draft.nonce === nonce && draft.content === content,
+  );
+  if (duplicate !== -1) drafts.splice(duplicate, 1);
+  drafts.push({ nonce, content });
+  if (drafts.length > MAX_PENDING_SLIDE_EDIT_DRAFTS) drafts.shift();
+  pendingSlideEditDrafts.set(root, drafts);
+}
+
+function consumeSlideEditDraft(
+  root: HTMLElement,
+  nonce: string,
+  content: string,
+) {
+  const drafts = pendingSlideEditDrafts.get(root);
+  const index =
+    drafts?.findIndex(
+      (draft) => draft.nonce === nonce && draft.content === content,
+    ) ?? -1;
+  if (!drafts || index < 0) return false;
+  drafts.splice(index, 1);
+  return true;
+}
 
 /**
  * What a stamped `.slide-content` root was rendered from. Undefined for roots
@@ -873,6 +914,24 @@ export function getRenderedSlideSource(
 ): RenderedSlideSource | undefined {
   return renderedSlideSources.get(root);
 }
+
+/**
+ * Dispatched (bubbling) on a `.slide-content` root that holds an open text
+ * edit, right before other HTML replaces it: another slide's, or a newer
+ * version of this one. The editor must end and save the edit synchronously;
+ * a root still being edited is not replaced.
+ */
+export const SLIDE_CONTENT_REPLACE_EVENT = "slides:before-content-replace";
+
+/**
+ * The event's detail when the incoming HTML is a newer version of the edited
+ * slide: its stored source, which the edit must be saved on top of.
+ */
+export interface SlideContentReplaceDetail {
+  content: string;
+}
+
+const EDITING_SELECTOR = '[contenteditable="true"]';
 
 function registerRenderedSlideSource(
   root: HTMLElement,
@@ -950,11 +1009,13 @@ export function renderRawSlideHtml(
 function RawSlideHtmlContent({
   html,
   scopeId,
+  slideId,
   source,
   mermaidBlocks,
 }: {
   html: string;
   scopeId: string;
+  slideId: string;
   source: RenderedSlideSource | null;
   mermaidBlocks: string[];
 }) {
@@ -967,6 +1028,57 @@ function RawSlideHtmlContent({
     const root = contentRef.current;
     if (!root) return;
     if (renderedHtmlRef.current !== html) {
+      const currentSource = getRenderedSlideSource(root);
+      const sameSlide = currentSource?.nonce === source?.nonce;
+      const isEditorDraftEcho =
+        sameSlide &&
+        source &&
+        consumeSlideEditDraft(root, source.nonce, source.stored);
+      if (isEditorDraftEcho && source && root.querySelector(EDITING_SELECTOR)) {
+        renderedHtmlRef.current = html;
+        registerRenderedSlideSource(root, source);
+        return;
+      }
+      const uploadProvenance = source
+        ? takeSlideImageUploadProvenance(slideId, source.stored)
+        : null;
+      if (root.querySelector(EDITING_SELECTOR)) {
+        // Preserve the live draft only for this upload's exact edited-node
+        // snapshot; a newer same-slide write must commit and rebase the edit.
+        if (
+          sameSlide &&
+          source &&
+          updateLiveImagesUnderEdit(
+            root,
+            renderedHtmlRef.current,
+            html,
+            uploadProvenance,
+          )
+        ) {
+          renderedHtmlRef.current = html;
+          registerRenderedSlideSource(root, source);
+          return;
+        }
+        const detail: SlideContentReplaceDetail | null =
+          sameSlide && source ? { content: source.stored } : null;
+        root.dispatchEvent(
+          new CustomEvent(SLIDE_CONTENT_REPLACE_EVENT, {
+            bubbles: true,
+            detail,
+          }),
+        );
+      }
+      if (root.querySelector(EDITING_SELECTOR)) {
+        // Rewriting the root would destroy the live edit's DOM and its caret.
+        // Every content write during an edit commits the edit first, so this
+        // is a missed commit, not something to paper over.
+        const error = new Error(
+          "[slides] refused to re-render a slide while its text is being edited",
+        );
+        console.error(error);
+        captureError(error, { tags: { area: "slides-save-boundary" } });
+        return;
+      }
       // Keep the live image node for upload-only changes so pointer-driven transforms survive.
       if (!swapImageSourcesInPlace(root, renderedHtmlRef.current, html)) {
         root.innerHTML = html;
@@ -1017,9 +1129,11 @@ function RawSlideHtmlContent({
 
 function BlankSlideContent({
   content,
+  slideId,
   stampNonce,
 }: {
   content: string;
+  slideId: string;
   stampNonce?: string;
 }) {
   const scopeId = `slide-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -1054,6 +1168,7 @@ function BlankSlideContent({
     <RawSlideHtmlContent
       html={htmlWithPlaceholders}
       scopeId={scopeId}
+      slideId={slideId}
       source={source}
       mermaidBlocks={mermaidBlocks}
     />
@@ -1320,6 +1435,7 @@ export function SlideInner({
         >
           <BlankSlideContent
             content={content}
+            slideId={slide.id}
             stampNonce={stampSource ? slide.id : undefined}
           />
         </AutoFitContent>

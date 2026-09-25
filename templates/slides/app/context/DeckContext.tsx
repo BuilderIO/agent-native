@@ -1112,13 +1112,18 @@ function settleQueuedContentDraft(
 ): boolean {
   const queue = pendingOpsQueue.get(deckId) ?? [];
   for (;;) {
-    const index = queue.findLastIndex(
-      (op) =>
+    let index = queue.length - 1;
+    for (; index >= 0; index--) {
+      const op = queue[index];
+      if (
         op.op === "full-replace" ||
         (op.op === "patch-slide"
           ? op.slideId === slideId && typeof op.fields.content === "string"
-          : "slideId" in op && op.slideId === slideId),
-    );
+          : "slideId" in op && op.slideId === slideId)
+      ) {
+        break;
+      }
+    }
     if (index < 0) break;
     const op = queue[index];
     if (op.op !== "patch-slide") return false;

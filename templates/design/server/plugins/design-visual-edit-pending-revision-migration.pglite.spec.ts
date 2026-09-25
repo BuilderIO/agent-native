@@ -7,7 +7,10 @@ import {
 } from "@agent-native/core/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { designVisualEditPendingBigintRevisionMigration } from "./db.js";
+import {
+  designLiveCollaborationOptInMigration,
+  designVisualEditPendingBigintRevisionMigration,
+} from "./db.js";
 
 beforeAll(async () => {
   vi.stubEnv("DATABASE_URL", "pglite:memory://");
@@ -40,6 +43,16 @@ beforeAll(async () => {
   );
   await withMigrationRuntime(async () => {
     await migrate({});
+  });
+
+  await exec.execute("CREATE TABLE designs (id TEXT PRIMARY KEY)");
+  await exec.execute("INSERT INTO designs (id) VALUES ('existing_design')");
+  const collaborationMigrations = runMigrations(
+    [designLiveCollaborationOptInMigration],
+    { table: "design_collaboration_migrations" },
+  );
+  await withMigrationRuntime(async () => {
+    await collaborationMigrations({});
   });
 });
 
@@ -92,5 +105,22 @@ describe("visual-edit pending revision forward migration", () => {
       revision: 1750000000000,
       client_revision: 1750000000001,
     });
+  });
+
+  it("defaults collaboration to off for existing and new designs", async () => {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT id, live_collaboration_enabled
+            FROM designs
+            ORDER BY id`,
+    });
+    expect(rows).toEqual([
+      { id: "existing_design", live_collaboration_enabled: false },
+    ]);
+
+    await getDbExec().execute("INSERT INTO designs (id) VALUES ('new_design')");
+    const { rows: newRows } = await getDbExec().execute({
+      sql: `SELECT live_collaboration_enabled FROM designs WHERE id = 'new_design'`,
+    });
+    expect(newRows[0]?.live_collaboration_enabled).toBe(false);
   });
 });

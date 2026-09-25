@@ -26,6 +26,7 @@ const messages = {
     team: "團隊",
   },
   settings: {
+    agentObservability: "代理可觀測性",
     title: "設定",
     description: "此應用的語言和工作區偏好設定。",
     labs: "實驗室",
@@ -679,6 +680,8 @@ const messages = {
     keepEditing: "繼續編輯",
     leaveWithoutSaving: "不儲存並退出",
     editorMarkupNotSaved: "此編輯未儲存，因為它會在投影片中加入編輯器標記。",
+    textEditConflictNotSaved:
+      "你的文字編輯未儲存，因為同一段文字同時在其他地方被變更。",
   },
   designSystemSetup: {
     importedBrand: "匯入的品牌",

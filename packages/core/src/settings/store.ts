@@ -374,14 +374,22 @@ export async function deleteSettingsByPrefix(
  */
 export async function listSettingsByPrefix(
   prefix: string,
+  options?: { limit?: number },
 ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();
   const escaped = prefix.replace(/[!%_]/g, (c) => `!${c}`);
+  const limit = options?.limit;
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
+    throw new RangeError(
+      "Settings prefix limit must be a non-negative integer.",
+    );
+  }
   const { rows } = await client.execute({
-    sql: `SELECT key, value FROM ${table} WHERE key LIKE ? ESCAPE '!'`,
-    args: [`${escaped}%`],
+    sql: `SELECT key, value FROM ${table} WHERE key LIKE ? ESCAPE '!'
+      ${limit === undefined ? "" : "ORDER BY key ASC LIMIT ?"}`,
+    args: limit === undefined ? [`${escaped}%`] : [`${escaped}%`, limit],
   });
   return rows.map((row) => ({
     key: String(row.key),

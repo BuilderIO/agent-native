@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.188.0",
+  "version": "0.189.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -28,6 +28,7 @@
     "tsconfig.base.json",
     "src/eject",
     "src/integrations/eject",
+    "src/assets/fonts/LICENSE_*",
     "!src/**/*.spec.ts",
     "!src/**/*.spec.tsx",
     "!src/**/*.test.ts",
@@ -268,6 +269,7 @@
     "./secrets": "./dist/secrets/index.js",
     "./secrets/crypto": "./dist/secrets/crypto.js",
     "./org": "./dist/org/index.js",
+    "./org/free-email-providers": "./dist/org/free-email-providers.js",
     "./org-team": "./dist/org-team/index.js",
     "./client/org": "./dist/client/org/index.js",
     "./client/org-switcher": "./dist/client/org/OrgSwitcher.js",

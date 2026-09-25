@@ -661,6 +661,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "即時協作",
+      description:
+        "允許無法存取擁有者 localhost 的人檢視及編輯此設計的即時副本。",
+      enabled: "開啟",
+      disabled: "關閉",
+      saving: "正在儲存…",
+      enableError: "無法更新即時協作。",
+    },
     vectorEndpoints: {
       startPoint: "起點",
       endPoint: "終點",

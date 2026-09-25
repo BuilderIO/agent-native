@@ -491,10 +491,18 @@ ALTER COLUMN revision TYPE BIGINT USING revision::BIGINT;
 ALTER TABLE design_visual_edit_pending
 ALTER COLUMN client_revision TYPE BIGINT USING client_revision::BIGINT`,
   },
+  {
+    version: 37,
+    name: "design-live-collaboration-opt-in",
+    sql: `ALTER TABLE designs ADD COLUMN IF NOT EXISTS live_collaboration_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =
-  designMigrations[designMigrations.length - 1]!;
+  designMigrations.find((migration) => migration.version === 36)!;
+export const designLiveCollaborationOptInMigration = designMigrations.find(
+  (migration) => migration.version === 37,
+)!;
 export const runDesignMigrations = runMigrations(designMigrations, {
   table: "design_migrations",
 });

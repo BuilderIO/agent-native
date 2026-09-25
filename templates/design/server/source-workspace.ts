@@ -239,6 +239,18 @@ export function withDesignSourceMutationTransaction<T>(
   });
 }
 
+export function withDesignSourceReadTransaction<T>(
+  designId: string,
+  callback: (tx: DesignSourceMutationTransaction) => Promise<T>,
+): Promise<T> {
+  return getDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+    );
+    return callback(tx);
+  });
+}
+
 export interface SourceWorkspaceContext {
   designId: string;
   sourceType: DesignSourceType;

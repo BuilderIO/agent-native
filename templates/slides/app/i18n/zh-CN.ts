@@ -26,6 +26,7 @@ const messages = {
     team: "团队",
   },
   settings: {
+    agentObservability: "代理可观测性",
     title: "设置",
     description: "此应用的语言和工作区偏好设置。",
     labs: "实验室",
@@ -685,6 +686,8 @@ const messages = {
     keepEditing: "继续编辑",
     leaveWithoutSaving: "不保存退出",
     editorMarkupNotSaved: "此编辑未保存，因为它会向幻灯片添加编辑器标记。",
+    textEditConflictNotSaved:
+      "你的文本编辑未保存，因为同一段文本同时在其他地方被更改。",
   },
   designSystemSetup: {
     importedBrand: "导入的品牌",

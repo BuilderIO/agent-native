@@ -246,6 +246,31 @@ export default {
     weekStartLabel: "주 시작일",
     weekStartSunday: "일요일 - 토요일",
     weekStartMonday: "월요일 - 일요일",
+    eventRules: "초대 규칙",
+    eventRuleAccept: "자동 수락",
+    eventRuleDecline: "자동 거절",
+    eventRuleHide: "자동 숨기기",
+    eventRulePlaceholderAccept: "예: 팀과의 일대일 미팅 자동 수락",
+    eventRulePlaceholderDecline: "예: 영업 데모와 업무 시간 외 일정 거절",
+    eventRulePlaceholderHide: "예: 집중 시간과 알림 숨기기",
+    eventRulesSave: "규칙 저장",
+    eventRulesRecentActivity: "최근 활동",
+    eventRulesNoActivity: "아직 활동이 없습니다",
+    eventRuleActivityAccepted: "수락함",
+    eventRuleActivityDeclined: "거절함",
+    eventRuleActivityHidden: "숨김",
+    eventRuleUndoDone: "작업을 실행 취소했습니다",
+    eventRuleUndoFailed: "이 작업을 실행 취소하지 못했습니다",
+    eventRulesActive:
+      "규칙은 연결된 계정의 기본 캘린더에서 5분마다 실행됩니다.",
+    eventRulesDisabled:
+      "상시 실행되는 Calendar 작업자에서 RUN_BACKGROUND_JOBS=1을 활성화하세요.",
+    eventRulesDeploymentDisabled:
+      "이 배포에서는 예약 자동화가 비활성화되어 있습니다.",
+    eventRulesChecking: "자동화 상태 확인 중…",
+    eventRulesConflict:
+      "수락 및 거절 규칙이 모두 일치하여 초대를 건너뛰었습니다.",
+    eventRulesUnregistered: "이 서버에 Calendar 자동화가 등록되지 않았습니다.",
   },
   eventDialog: {
     eventUpdated: "이벤트가 업데이트되었습니다",

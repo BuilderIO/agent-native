@@ -160,6 +160,7 @@ export const FIRST_PARTY_TEMPLATE_SCOPED_METRIC_KEYS = [
   "activation-funnel",
   "signup-method-conversion",
   "onboarding-step-dropoff",
+  "onboarding-setup-choice",
   "sharing-actions-by-app",
 ] as const;
 const FIRST_PARTY_TEMPLATE_SQL_LIST = FIRST_PARTY_TEMPLATE_NAMES.map(
@@ -730,6 +731,50 @@ const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (
   FROM funnel_events e
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
+const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
+  SELECT linked_email, MIN(auth_user_id) AS auth_user_id
+  FROM (
+    SELECT lower(COALESCE(
+      CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
+      CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
+    )) AS linked_email,
+    NULLIF(e.properties::jsonb ->> 'auth_user_id', '') AS auth_user_id
+    FROM analytics_events e
+    WHERE ${DASHBOARD_TIME_RANGE_FILTER}
+      AND ${DASHBOARD_APP_FILTER}
+      AND ${FIRST_PARTY_TEMPLATE_FILTER}
+  ) AS identities
+  WHERE linked_email IS NOT NULL
+    AND auth_user_id IS NOT NULL
+  GROUP BY linked_email
+  HAVING COUNT(DISTINCT auth_user_id) = 1
+), scoped_onboarding_events AS (
+  SELECT e.*,
+    COALESCE(
+      NULLIF(e.properties::jsonb ->> 'auth_user_id', ''),
+      auth_identity_bridge.auth_user_id,
+      NULLIF(e.user_key, ''),
+      NULLIF(e.user_id, ''),
+      NULLIF(e.anonymous_id, '')
+    ) AS funnel_user_key,
+    COALESCE(
+      CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END,
+      CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
+      CASE WHEN NULLIF(e.properties::jsonb ->> 'auth_user_id', '') LIKE '%@%.%' THEN e.properties::jsonb ->> 'auth_user_id' END
+    ) AS funnel_user_email
+  FROM analytics_events e
+  LEFT JOIN auth_identity_bridge ON auth_identity_bridge.linked_email = lower(COALESCE(
+    CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
+    CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
+  ))
+  WHERE ${DASHBOARD_TIME_RANGE_FILTER}
+    AND ${DASHBOARD_APP_FILTER}
+    AND ${FIRST_PARTY_TEMPLATE_FILTER}
+), onboarding_events AS (
+  SELECT * FROM scoped_onboarding_events
+  WHERE ${FUNNEL_EMAIL_FILTER}
+    AND lower(coalesce(funnel_user_email, '')) NOT LIKE '%+autoz%'
+)`;
 const SIGNIFICANT_ACTION_FILTER = `((event_name IN ('action_completed', 'core_action_completed') AND COALESCE(properties::jsonb ->> 'success', 'true') = 'true') OR event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
 /**
  * `action.response` fast-success rows are sampled at 10% client-side
@@ -861,7 +906,148 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
   ) action ON true
 ) SELECT 1 AS stage_order, 'Signup page viewed' AS stage, COUNT(*) FILTER (WHERE page_at IS NOT NULL) AS users FROM action_stage UNION ALL SELECT 2, 'Signup CTA clicked', COUNT(*) FILTER (WHERE cta_at IS NOT NULL) FROM action_stage UNION ALL SELECT 3, 'Signed up', COUNT(*) FILTER (WHERE signed_up_at IS NOT NULL) FROM action_stage UNION ALL SELECT 4, 'Onboarding started', COUNT(*) FILTER (WHERE started_at IS NOT NULL) FROM action_stage UNION ALL SELECT 5, 'Onboarding step reached', COUNT(*) FILTER (WHERE step_at IS NOT NULL) FROM action_stage UNION ALL SELECT 6, 'Onboarding completed', COUNT(*) FILTER (WHERE completed_at IS NOT NULL) FROM action_stage UNION ALL SELECT 7, 'Entered app', COUNT(*) FILTER (WHERE entered_at IS NOT NULL) FROM action_stage UNION ALL SELECT 8, 'First significant action', COUNT(*) FILTER (WHERE action_at IS NOT NULL) FROM action_stage ORDER BY stage_order`;
 const SIGNUP_METHOD_CONVERSION_SQL = `${FUNNEL_EVENTS_CTE}, clicks AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'method', ''), 'unknown') AS method, COUNT(DISTINCT funnel_user_key) AS clicks FROM funnel_events WHERE event_name = 'auth.signup_clicked' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), signups AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'signup_method', ''), CASE WHEN lower(properties::jsonb ->> 'auth_provider') = 'google' THEN 'google' ELSE 'unknown' END) AS method, COUNT(DISTINCT funnel_user_key) AS signups FROM funnel_events WHERE event_name = 'signup' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1), methods AS (SELECT method FROM clicks UNION SELECT method FROM signups) SELECT methods.method, COALESCE(clicks.clicks, 0) AS clicks, COALESCE(signups.signups, 0) AS signups, COALESCE(signups.signups::float / NULLIF(clicks.clicks, 0), 0) AS conversion_rate FROM methods LEFT JOIN clicks ON clicks.method = methods.method LEFT JOIN signups ON signups.method = methods.method ORDER BY clicks DESC NULLS LAST, methods.method`;
-const ONBOARDING_STEP_DROPOFF_SQL = `${FUNNEL_EVENTS_CTE}, views AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), 'unknown') AS flow, COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COALESCE(NULLIF(properties::jsonb ->> 'step_index', ''), '999') AS step_index, COUNT(DISTINCT funnel_user_key) AS users_reached FROM funnel_events WHERE event_name = 'onboarding_step_viewed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2, 3), completions AS (SELECT COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), 'unknown') AS flow, COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id, COUNT(DISTINCT funnel_user_key) AS users_completed FROM funnel_events WHERE event_name = 'onboarding_step_completed' AND ${FUNNEL_SCOPE_FILTER} GROUP BY 1, 2) SELECT views.flow, views.step_id, views.step_index, views.users_reached, COALESCE(completions.users_completed, 0) AS users_completed, COALESCE(completions.users_completed::float / NULLIF(views.users_reached, 0), 0) AS completion_rate FROM views LEFT JOIN completions ON completions.flow = views.flow AND completions.step_id = views.step_id ORDER BY views.step_index, views.flow, views.step_id`;
+const ONBOARDING_STEP_DROPOFF_SQL = `${ONBOARDING_EVENTS_CTE}, viewers AS (
+  SELECT DISTINCT funnel_user_key,
+    COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), 'unknown') AS flow,
+    COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), 'unknown') AS step_id,
+    COALESCE(NULLIF(properties::jsonb ->> 'step_index', ''), '999') AS step_index
+  FROM onboarding_events
+  WHERE event_name = 'onboarding_step_viewed'
+    AND funnel_user_key IS NOT NULL
+), views AS (
+  SELECT flow, step_id, step_index, COUNT(DISTINCT funnel_user_key) AS users_reached
+  FROM viewers
+  GROUP BY flow, step_id, step_index
+), user_outcomes AS (
+  SELECT viewers.funnel_user_key, viewers.flow, viewers.step_id, viewers.step_index,
+    MAX(CASE WHEN events.event_name = 'onboarding_step_completed' THEN 1 ELSE 0 END) AS completed,
+    MAX(CASE WHEN events.event_name = 'onboarding_step_skipped' THEN 1 ELSE 0 END) AS skipped
+  FROM viewers
+  LEFT JOIN onboarding_events AS events
+    ON events.funnel_user_key = viewers.funnel_user_key
+    AND events.event_name IN ('onboarding_step_completed', 'onboarding_step_skipped')
+    AND COALESCE(NULLIF(events.properties::jsonb ->> 'flow', ''), 'unknown') = viewers.flow
+    AND COALESCE(NULLIF(events.properties::jsonb ->> 'step_id', ''), 'unknown') = viewers.step_id
+  GROUP BY viewers.funnel_user_key, viewers.flow, viewers.step_id, viewers.step_index
+), outcomes AS (
+  SELECT flow, step_id, step_index,
+    SUM(completed) AS users_completed,
+    SUM(skipped) AS users_skipped,
+    SUM(CASE WHEN completed = 1 OR skipped = 1 THEN 1 ELSE 0 END) AS users_with_outcome
+  FROM user_outcomes
+  GROUP BY flow, step_id, step_index
+)
+SELECT views.flow, views.step_id, views.step_index, views.users_reached,
+  COALESCE(outcomes.users_completed, 0) AS users_completed,
+  COALESCE(outcomes.users_skipped, 0) AS users_skipped,
+  views.users_reached - COALESCE(outcomes.users_with_outcome, 0) AS users_no_recorded_outcome,
+  COALESCE(outcomes.users_completed::float / NULLIF(views.users_reached, 0), 0) AS completion_rate
+FROM views
+LEFT JOIN outcomes ON outcomes.flow = views.flow AND outcomes.step_id = views.step_id AND outcomes.step_index = views.step_index
+ORDER BY views.step_index, views.flow, views.step_id`;
+const ONBOARDING_SETUP_CHOICE_SQL = `${ONBOARDING_EVENTS_CTE}, choice_viewers AS (
+  SELECT DISTINCT funnel_user_key
+  FROM onboarding_events
+  WHERE event_name = 'onboarding_step_viewed'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), '') = 'first_run'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), '') = 'choice'
+    AND funnel_user_key IS NOT NULL
+), choices AS (
+  SELECT funnel_user_key,
+    COALESCE(NULLIF(properties::jsonb ->> 'method_id', ''), 'unknown') AS method_id,
+    NULLIF(properties::jsonb ->> 'onboarding_attempt_id', '') AS attempt_id,
+    timestamp::timestamptz AS clicked_at,
+    id
+  FROM onboarding_events
+  WHERE event_name = 'onboarding_method_clicked'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), '') = 'first_run'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), '') = 'choice'
+    AND funnel_user_key IS NOT NULL
+), ranked_choices AS (
+  SELECT choices.*,
+    ROW_NUMBER() OVER (PARTITION BY funnel_user_key ORDER BY clicked_at, id) AS choice_number
+  FROM choices
+  JOIN choice_viewers USING (funnel_user_key)
+), first_choice_summary AS (
+  SELECT method_id, COUNT(DISTINCT funnel_user_key) AS first_choice_users
+  FROM ranked_choices
+  WHERE choice_number = 1
+  GROUP BY method_id
+), selection_summary AS (
+  SELECT method_id,
+    COUNT(DISTINCT funnel_user_key) AS selected_users,
+    COUNT(*) AS method_clicks,
+    COUNT(DISTINCT attempt_id) AS selection_attempts
+  FROM choices
+  GROUP BY method_id
+), starts AS (
+  SELECT funnel_user_key,
+    COALESCE(NULLIF(properties::jsonb ->> 'method_id', ''), 'unknown') AS method_id,
+    NULLIF(properties::jsonb ->> 'onboarding_attempt_id', '') AS attempt_id
+  FROM onboarding_events
+  WHERE event_name = 'onboarding_method_started'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), '') = 'first_run'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), '') = 'choice'
+    AND funnel_user_key IS NOT NULL
+), method_outcomes AS (
+  SELECT funnel_user_key,
+    COALESCE(NULLIF(properties::jsonb ->> 'method_id', ''), 'unknown') AS method_id,
+    NULLIF(properties::jsonb ->> 'onboarding_attempt_id', '') AS attempt_id,
+    COALESCE(NULLIF(properties::jsonb ->> 'outcome', ''), 'unknown') AS outcome
+  FROM onboarding_events
+  WHERE event_name = 'onboarding_method_outcome'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), '') = 'first_run'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), '') = 'choice'
+    AND funnel_user_key IS NOT NULL
+), attempts AS (
+  SELECT starts.funnel_user_key, starts.method_id, starts.attempt_id,
+    MAX(CASE WHEN method_outcomes.outcome IN ('connected', 'already_connected') THEN 1 ELSE 0 END) AS connected,
+    MAX(CASE WHEN method_outcomes.outcome = 'failed' THEN 1 ELSE 0 END) AS failed,
+    MAX(CASE WHEN method_outcomes.outcome = 'handoff_failed' THEN 1 ELSE 0 END) AS handoff_failed,
+    MAX(CASE WHEN method_outcomes.outcome = 'settings_opened' THEN 1 ELSE 0 END) AS settings_opened,
+    MAX(CASE WHEN method_outcomes.outcome IS NOT NULL THEN 1 ELSE 0 END) AS has_outcome
+  FROM starts
+  LEFT JOIN method_outcomes
+    ON method_outcomes.funnel_user_key = starts.funnel_user_key
+    AND method_outcomes.method_id = starts.method_id
+    AND method_outcomes.attempt_id = starts.attempt_id
+  GROUP BY starts.funnel_user_key, starts.method_id, starts.attempt_id
+), attempt_summary AS (
+  SELECT method_id,
+    COUNT(DISTINCT CASE WHEN connected = 1 THEN attempt_id END) AS connection_success_attempts,
+    COUNT(DISTINCT CASE WHEN failed = 1 THEN attempt_id END) AS connection_failure_attempts,
+    COUNT(DISTINCT CASE WHEN handoff_failed = 1 THEN attempt_id END) AS handoff_failure_attempts,
+    COUNT(DISTINCT CASE WHEN connected = 1 THEN funnel_user_key END) AS connection_success_users,
+    COUNT(DISTINCT CASE WHEN failed = 1 THEN funnel_user_key END) AS connection_failure_users,
+    COUNT(DISTINCT CASE WHEN connected = 0 AND failed = 0 AND has_outcome = 0 THEN attempt_id END) AS connection_no_outcome_attempts,
+    COUNT(DISTINCT CASE WHEN settings_opened = 1 THEN attempt_id END) AS settings_handoff_attempts
+  FROM attempts
+  GROUP BY method_id
+), method_list AS (
+  SELECT 'builder_create_account' AS method_id, 'Create Builder.io account' AS method_label
+  UNION ALL SELECT 'builder_sign_in', 'Sign in with Builder.io account'
+  UNION ALL SELECT 'custom_keys', 'Configure custom keys'
+)
+SELECT method_list.method_id, method_list.method_label,
+  (SELECT COUNT(DISTINCT funnel_user_key) FROM choice_viewers) AS choice_screen_viewers,
+  COALESCE(first_choice_summary.first_choice_users, 0) AS first_choice_users,
+  COALESCE(first_choice_summary.first_choice_users::float / NULLIF((SELECT COUNT(DISTINCT funnel_user_key) FROM choice_viewers), 0), 0) AS first_choice_rate,
+  COALESCE(selection_summary.selected_users, 0) AS selected_users,
+  COALESCE(selection_summary.method_clicks, 0) AS method_clicks,
+  COALESCE(selection_summary.selection_attempts, 0) AS selection_attempts,
+  COALESCE(attempt_summary.connection_success_attempts, 0) AS connection_success_attempts,
+  COALESCE(attempt_summary.connection_failure_attempts, 0) AS connection_failure_attempts,
+  COALESCE(attempt_summary.handoff_failure_attempts, 0) AS handoff_failure_attempts,
+  COALESCE(attempt_summary.connection_success_users, 0) AS connection_success_users,
+  COALESCE(attempt_summary.connection_failure_users, 0) AS connection_failure_users,
+  COALESCE(attempt_summary.connection_no_outcome_attempts, 0) AS connection_no_outcome_attempts,
+  COALESCE(attempt_summary.settings_handoff_attempts, 0) AS settings_handoff_attempts,
+  attempt_summary.connection_success_attempts::float / NULLIF(attempt_summary.connection_success_attempts + attempt_summary.connection_failure_attempts, 0) AS connection_success_rate
+FROM method_list
+LEFT JOIN first_choice_summary ON first_choice_summary.method_id = method_list.method_id
+LEFT JOIN selection_summary ON selection_summary.method_id = method_list.method_id
+LEFT JOIN attempt_summary ON attempt_summary.method_id = method_list.method_id
+ORDER BY method_list.method_id`;
 const SHARING_ACTIONS_BY_APP_SQL = `${FUNNEL_EVENTS_CTE} SELECT ${TEMPLATE_EXPR} AS app, event_name AS action, COUNT(*) AS events, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name IN ('share_view', 'share_cta_click', 'share_invite_sent', 'share_visibility_change', 'share_link_copied') AND ${FUNNEL_SCOPE_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY 1, 2 ORDER BY app, events DESC`;
 
 // --- Action reliability & latency (canonical action.response metric) -----
@@ -1793,13 +1979,93 @@ const ENTRIES: FirstPartyMetric[] = [
     config: {
       xKey: "step_id",
       description:
-        "Distinct visitors who reached and completed each first-run or checklist onboarding step, ordered by the emitted step index.",
+        "Distinct people who viewed, completed, skipped, or had no recorded outcome for each first-run or checklist step. Completion and skip counts can overlap if a person retries; no outcome means neither event was recorded. This is per-step reach, not a sequential funnel. +autoz identities are excluded.",
       columns: [
         { key: "step_index", label: "Order" },
+        { key: "flow", label: "Flow" },
         { key: "step_id", label: "Step" },
         { key: "users_reached", label: "Reached", format: "number" },
         { key: "users_completed", label: "Completed", format: "number" },
+        { key: "users_skipped", label: "Skipped", format: "number" },
+        {
+          key: "users_no_recorded_outcome",
+          label: "No outcome",
+          format: "number",
+        },
         { key: "completion_rate", label: "Completion", format: "percent" },
+      ],
+    },
+  },
+  {
+    key: "onboarding-setup-choice",
+    title: "First-run Setup Choices",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ONBOARDING_SETUP_CHOICE_SQL),
+    config: {
+      description:
+        "Choice-screen viewers, first selected setup path, repeat selections, and linked Builder connection outcomes. Rates use choice-screen viewers or resolved Builder outcomes as their denominator; started attempts with no outcome are unknown or abandoned, not assumed failures. Handoff failures are reported separately from Builder connection failures. A successful Builder outcome confirms credentials connected, not that a new external account was created. Account-exists is counted as a failed create-account attempt. +autoz identities are excluded.",
+      columns: [
+        { key: "method_label", label: "Setup choice" },
+        {
+          key: "choice_screen_viewers",
+          label: "Choice viewers",
+          format: "number",
+        },
+        {
+          key: "first_choice_users",
+          label: "First choice users",
+          format: "number",
+        },
+        {
+          key: "first_choice_rate",
+          label: "First choice rate",
+          format: "percent",
+        },
+        { key: "selected_users", label: "Ever selected", format: "number" },
+        { key: "method_clicks", label: "Selections", format: "number" },
+        {
+          key: "connection_success_users",
+          label: "Connected users",
+          format: "number",
+        },
+        {
+          key: "connection_failure_users",
+          label: "Failed users",
+          format: "number",
+        },
+        {
+          key: "connection_success_attempts",
+          label: "Connected attempts",
+          format: "number",
+        },
+        {
+          key: "connection_failure_attempts",
+          label: "Failed attempts",
+          format: "number",
+        },
+        {
+          key: "handoff_failure_attempts",
+          label: "Handoff failures",
+          format: "number",
+        },
+        {
+          key: "connection_no_outcome_attempts",
+          label: "No outcome",
+          format: "number",
+        },
+        {
+          key: "connection_success_rate",
+          label: "Resolved success rate",
+          format: "percent",
+        },
+        {
+          key: "settings_handoff_attempts",
+          label: "Settings handoffs",
+          format: "number",
+        },
       ],
     },
   },

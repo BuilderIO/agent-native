@@ -270,7 +270,11 @@ export function appMountPath(appLocalRoute: string): string {
   if (basePath && pathMatchesBasePath(pathname, basePath)) return basePath;
 
   const marker = normalizeBasePath(appLocalRoute);
-  if (!marker) return basePath;
+  if (!marker) {
+    return isWorkspaceRuntime() && pathname !== "/"
+      ? normalizeBasePath(pathname)
+      : basePath;
+  }
   const markerSegment = marker.slice(1);
 
   const mounts = workspaceAppMountPaths();

@@ -120,20 +120,30 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
     };
   }
   if (isActionRunContext(source)) {
+    const callerMatchesRequest = source.userEmail === requestContext?.userEmail;
     return {
       userId: source.userEmail,
-      ...(source.userEmail === requestContext?.userEmail
+      ...(callerMatchesRequest
         ? { authUserId: requestContext?.authUserId }
         : {}),
-      sessionId: ambientSessionId,
+      sessionId: callerMatchesRequest ? ambientSessionId : undefined,
       telemetryOrigin: "server",
     };
   }
+  const canUseAmbientIdentity = source.userId
+    ? source.userId === requestContext?.userEmail
+    : !source.anonymousId;
+  const canUseAmbientSession =
+    canUseAmbientIdentity &&
+    (!source.authUserId || source.authUserId === requestContext?.authUserId);
   return {
     userId: source.userId,
-    authUserId: source.authUserId,
+    authUserId:
+      source.authUserId ??
+      (canUseAmbientIdentity ? requestContext?.authUserId : undefined),
     anonymousId: source.anonymousId,
-    sessionId: source.sessionId ?? ambientSessionId,
+    sessionId:
+      source.sessionId ?? (canUseAmbientSession ? ambientSessionId : undefined),
     occurredAt: source.occurredAt,
     telemetryOrigin: source.telemetryOrigin ?? "server",
   };

@@ -14,6 +14,9 @@ vi.mock("@agent-native/core/client/changelog", () => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: vi.fn(async () => undefined),
+  useActionMutation: () => ({ isPending: false, mutate: vi.fn() }),
+  useActionQuery: () => ({ data: undefined, isError: false, isLoading: false }),
+  actionErrorMessage: () => null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

@@ -5,7 +5,10 @@ import { z } from "zod";
 import { fail, defineAction } from "../../action.js";
 import { getTraceSummary, insertInstructionUpdate } from "../store.js";
 import type { InstructionUpdate } from "../types.js";
-import { requireObservabilityOrgAdmin } from "./authorization.js";
+import {
+  requireObservabilityOrgAdmin,
+  requireObservabilityReviewRunScope,
+} from "./authorization.js";
 
 const schema = z.object({
   runId: z.string().trim().min(1).max(200),
@@ -21,6 +24,7 @@ export default defineAction({
   schema,
   run: async (args, ctx) => {
     const { userId, orgId } = await requireObservabilityOrgAdmin(ctx);
+    requireObservabilityReviewRunScope(args.runId);
     const summary = await getTraceSummary(args.runId, { orgId });
     if (!summary)
       fail("That agent output is no longer available.", { statusCode: 404 });

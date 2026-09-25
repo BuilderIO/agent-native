@@ -90,6 +90,12 @@ const ALLOWED_ATTRS = new Set([
   "width",
 ]);
 
+/** List numbering, which only means something on its own tag. */
+const TAG_ATTRS: Readonly<Record<string, ReadonlySet<string>>> = {
+  ol: new Set(["reversed", "start", "type"]),
+  li: new Set(["value"]),
+};
+
 const URL_ATTRS = new Set(["href", "src", "poster", "xlink:href"]);
 
 function escapeHtml(value: string): string {
@@ -284,6 +290,7 @@ function cleanNode(
     if (name === "srcdoc" || name === "srcset") continue;
     if (
       !ALLOWED_ATTRS.has(name) &&
+      !TAG_ATTRS[tag]?.has(name) &&
       !name.startsWith("data-") &&
       !name.startsWith("aria-")
     ) {

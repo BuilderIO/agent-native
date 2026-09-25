@@ -1541,6 +1541,7 @@ type VisualEditSharedSnapshot = {
   fileId: string;
   html: string | null;
   updatedAt: string | null;
+  captureRevision: string;
   publishedRevision: string;
 };
 
@@ -1555,13 +1556,14 @@ function SharedSnapshotPoller({
   fileId: string;
   knownPublishedRevision: string | null;
   active: boolean;
-  onSnapshot: (snapshot: VisualEditSharedSnapshot) => void;
+  onSnapshot: (snapshot: VisualEditSharedSnapshot | null) => void;
 }) {
   const { data, refetch } = useActionQuery<{
     designId: string;
     fileId: string;
     html: string | null;
     updatedAt: string | null;
+    captureRevision: string | null;
     publishedRevision: string | null;
     unchanged: boolean;
   }>(
@@ -1573,6 +1575,7 @@ function SharedSnapshotPoller({
     },
   );
   const wasActiveRef = useRef(active);
+  const latestCaptureRevisionRef = useRef({ designId, fileId, revision: 0n });
 
   useEffect(() => {
     if (active && !wasActiveRef.current) void refetch();
@@ -1580,20 +1583,31 @@ function SharedSnapshotPoller({
   }, [active, refetch]);
 
   useEffect(() => {
-    if (
-      data?.publishedRevision &&
-      !data.unchanged &&
-      data.designId === designId &&
-      data.fileId === fileId
-    ) {
-      onSnapshot({
-        designId,
-        fileId,
-        html: data.html,
-        updatedAt: data.updatedAt,
-        publishedRevision: data.publishedRevision,
-      });
+    if (!data || data.designId !== designId || data.fileId !== fileId) {
+      return;
     }
+    if (
+      latestCaptureRevisionRef.current.designId !== designId ||
+      latestCaptureRevisionRef.current.fileId !== fileId
+    ) {
+      latestCaptureRevisionRef.current = { designId, fileId, revision: 0n };
+    }
+    const captureRevision = BigInt(data.captureRevision ?? "0");
+    if (captureRevision < latestCaptureRevisionRef.current.revision) return;
+    latestCaptureRevisionRef.current.revision = captureRevision;
+    if (!data.publishedRevision) {
+      onSnapshot(null);
+      return;
+    }
+    if (data.unchanged) return;
+    onSnapshot({
+      designId,
+      fileId,
+      html: data.html,
+      updatedAt: data.updatedAt,
+      captureRevision: data.captureRevision ?? "0",
+      publishedRevision: data.publishedRevision,
+    });
   }, [data, designId, fileId, onSnapshot]);
 
   return null;
@@ -1871,13 +1885,12 @@ export function DesignCanvas({
   const lastRuntimeReplacementContentRef = useRef(runtimeReplacementContent);
   // Bridge-ready handshake (see EDITOR_CHROME_BRIDGE_SCRIPT's
   // agent-native:editor-chrome-ready post on install). One-shot commands —
-  // begin-text-edit, set-editor-chrome-scale, style-change, delete-element,
+  // begin-text-edit, style-change, delete-element,
   // replace-document-content — are fire-and-forget postMessages with no retry:
   // if the iframe document is still loading (fresh srcdoc, screen switch, or a
   // mid-flight reload) the bridge script hasn't attached its message listener
-  // yet and the command is silently dropped. replayIframeEditorState only
-  // re-sends steady-state selection/hover/tweak/motion values, never these
-  // one-shot commands, so a dropped one-shot never recovers on its own.
+  // yet and the command is silently dropped. Persistent editor state, including
+  // chrome scale, is replayed on every ready handshake.
   // Queue them here until ready fires (or the iframe finishes loading, as a
   // fallback for older/interact-mode documents that never inject the chrome
   // bridge and thus never post ready) and flush in order.
@@ -2280,6 +2293,24 @@ export function DesignCanvas({
   // it. The load handler below needs this to skip redundant pushes.
   const renderedContentRef = useRef(renderedContent);
   renderedContentRef.current = renderedContent;
+  const pendingRuntimeLayerSnapshotReservationsRef = useRef(
+    new Map<
+      string,
+      {
+        promise: Promise<{ reservationToken: string } | { error: unknown }>;
+        timeout: number;
+      }
+    >(),
+  );
+  useEffect(
+    () => () => {
+      for (const reservation of pendingRuntimeLayerSnapshotReservationsRef.current.values()) {
+        window.clearTimeout(reservation.timeout);
+      }
+      pendingRuntimeLayerSnapshotReservationsRef.current.clear();
+    },
+    [],
+  );
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
@@ -2438,6 +2469,7 @@ export function DesignCanvas({
     fileId: string;
     html: string | null;
     updatedAt: string | null;
+    captureRevision: string;
     publishedRevision: string;
   } | null>(null);
   const matchingSharedSnapshot =
@@ -2446,7 +2478,8 @@ export function DesignCanvas({
       ? cachedSharedSnapshot
       : null;
   const handleSharedSnapshot = useCallback(
-    (snapshot: VisualEditSharedSnapshot) => setCachedSharedSnapshot(snapshot),
+    (snapshot: VisualEditSharedSnapshot | null) =>
+      setCachedSharedSnapshot(snapshot),
     [],
   );
   // The screen's own URL wins: it carries the route path and may address the
@@ -4244,23 +4277,105 @@ export function DesignCanvas({
       }
       if (!e.data || !e.data.type) return;
       if (
+        e.data.type === "agent-native:runtime-layer-snapshot-error" ||
+        e.data.type === "agent-native:runtime-layer-snapshot-unchanged"
+      ) {
+        const requestId = e.data.payload?.requestId;
+        const documentId = e.data.payload?.documentId;
+        if (
+          Number.isSafeInteger(requestId) &&
+          typeof documentId === "string" &&
+          typeof e.data.payload?.reservationToken === "string"
+        ) {
+          const reservationKey = `${documentId}:${requestId as number}`;
+          const pending =
+            pendingRuntimeLayerSnapshotReservationsRef.current.get(
+              reservationKey,
+            );
+          if (pending) {
+            window.clearTimeout(pending.timeout);
+            pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+              reservationKey,
+            );
+          }
+        }
+        return;
+      }
+      if (
         e.data.type ===
         "agent-native:runtime-layer-snapshot-reservation-request"
       ) {
         if (!Number.isSafeInteger(e.data.requestId)) return;
+        const requestId = e.data.requestId as number;
+        const documentId =
+          typeof e.data.documentId === "string" ? e.data.documentId : "";
+        if (!documentId) {
+          postOneShotBridgeMessage({
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId,
+          });
+          return;
+        }
+        const reservationKey = `${documentId}:${requestId}`;
         const grantSnapshot = (reservationToken?: string) =>
           postOneShotBridgeMessage({
             type: "grant-runtime-layer-snapshot-reservation",
-            requestId: e.data.requestId,
+            requestId,
+            documentId,
             ...(reservationToken ? { reservationToken } : {}),
           });
-        if (!onReserveVisualEditSnapshot || sourceType !== "localhost") {
-          grantSnapshot();
-        } else {
-          void onReserveVisualEditSnapshot(screenId)
-            .then(({ reservationToken }) => grantSnapshot(reservationToken))
-            .catch(() => grantSnapshot());
+        if (
+          sourceType === "localhost" &&
+          !snapshotOnly &&
+          onReserveVisualEditSnapshot &&
+          !pendingRuntimeLayerSnapshotReservationsRef.current.has(
+            reservationKey,
+          )
+        ) {
+          const promise = Promise.resolve()
+            .then(() => onReserveVisualEditSnapshot(screenId))
+            .then(
+              ({ reservationToken }) => ({ reservationToken }),
+              (error: unknown) => ({ error }),
+            );
+          const timeout = window.setTimeout(() => {
+            const current =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
+            if (current?.promise === promise) {
+              pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+                reservationKey,
+              );
+            }
+          }, 15_000);
+          pendingRuntimeLayerSnapshotReservationsRef.current.set(
+            reservationKey,
+            { promise, timeout },
+          );
+          void promise.then((result) => {
+            const pending =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
+            if (pending?.promise !== promise) return;
+            window.clearTimeout(pending.timeout);
+            pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+              reservationKey,
+            );
+            if (!("reservationToken" in result)) {
+              console.warn(
+                "[design:visual-edit] shared snapshot reservation failed",
+                { screenId, error: result.error },
+              );
+              return;
+            }
+            grantSnapshot(result.reservationToken);
+          });
         }
+        // Local Layers must not wait for the owner-only shared snapshot reservation.
+        // The iframe captures again with its reservation token before publishing.
+        grantSnapshot();
         return;
       }
       if (e.data.type === "agent-native:live-route-path") {
@@ -4317,10 +4432,21 @@ export function DesignCanvas({
             const queueOnce = (message: Record<string, unknown>) => {
               const alreadyQueued = pendingOneShotMessagesRef.current.some(
                 (queued) =>
-                  (queued as { type?: unknown; requestId?: unknown } | null)
-                    ?.type === message.type &&
-                  (queued as { requestId?: unknown } | null)?.requestId ===
-                    message.requestId,
+                  (
+                    queued as {
+                      type?: unknown;
+                      requestId?: unknown;
+                      documentId?: unknown;
+                    } | null
+                  )?.type === message.type &&
+                  (
+                    queued as {
+                      requestId?: unknown;
+                      documentId?: unknown;
+                    } | null
+                  )?.requestId === message.requestId &&
+                  (queued as { documentId?: unknown } | null)?.documentId ===
+                    message.documentId,
               );
               if (!alreadyQueued) {
                 pendingOneShotMessagesRef.current.push(message);
@@ -4391,18 +4517,39 @@ export function DesignCanvas({
           payload.html.length <= 2_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
-          onRuntimeLayerSnapshot?.({
+          const snapshot = {
             html: payload.html,
             nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
             documentId:
               typeof payload.documentId === "string"
                 ? payload.documentId
                 : undefined,
-            reservationToken:
-              typeof payload.reservationToken === "string"
-                ? payload.reservationToken
-                : undefined,
-          });
+          };
+          const reservationToken =
+            typeof payload.reservationToken === "string"
+              ? payload.reservationToken
+              : undefined;
+          const requestId = Number.isSafeInteger(payload.requestId)
+            ? (payload.requestId as number)
+            : undefined;
+          onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
+          if (
+            reservationToken &&
+            requestId !== undefined &&
+            snapshot.documentId
+          ) {
+            const reservationKey = `${snapshot.documentId}:${requestId}`;
+            const pending =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
+            if (pending) {
+              window.clearTimeout(pending.timeout);
+              pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+                reservationKey,
+              );
+            }
+          }
         }
         return;
       }
@@ -5583,6 +5730,14 @@ export function DesignCanvas({
     const iframe = iframeRef.current;
     if (!iframe) return;
     iframe.contentWindow?.postMessage(
+      {
+        type: "set-editor-chrome-scale",
+        scaleX: effectiveEditorChromeScaleX,
+        scaleY: effectiveEditorChromeScaleY,
+      },
+      "*",
+    );
+    iframe.contentWindow?.postMessage(
       { type: "set-interaction-mode", interact: interactModeRef.current },
       "*",
     );
@@ -5730,6 +5885,8 @@ export function DesignCanvas({
     );
   }, [
     handToolActive,
+    effectiveEditorChromeScaleX,
+    effectiveEditorChromeScaleY,
     hoveredSelector,
     hoveredSelectorCandidates,
     hiddenSelectors,
@@ -5923,33 +6080,6 @@ export function DesignCanvas({
       previewStyles: statePreviewTarget?.previewStyles ?? null,
     });
   }, [postOneShotBridgeMessage, statePreviewTarget]);
-
-  // Push the constant-size chrome scale into the iframe LIVE (CSS vars only) when
-  // overview zoom settles. This is intentionally separate from the srcdoc build so
-  // a scale change never rebuilds srcdoc / reloads the iframe (which flashes the
-  // content white). The baked __EDITOR_CHROME_SCALE__ values cover first paint.
-  // Routed through the one-shot queue too: a zoom settle that lands while the
-  // iframe is mid-reload would otherwise be silently dropped, leaving the
-  // chrome at a stale scale until the next zoom change.
-  //
-  // readyIframeDocumentIdentity is a dep for the same reason it's one on the
-  // embedded-canvas-gesture-mode effect below: a document swap resets
-  // bridgeReadyRef and wipes pendingOneShotMessagesRef, silently dropping this
-  // message if it queued before the swap. Without this dep, a URL-backed frame
-  // that loads at a non-1 overview scale never gets a live scale push after the
-  // swap (only the baked-at-1 script value applies) until the next zoom change.
-  useEffect(() => {
-    postOneShotBridgeMessage({
-      type: "set-editor-chrome-scale",
-      scaleX: effectiveEditorChromeScaleX,
-      scaleY: effectiveEditorChromeScaleY,
-    });
-  }, [
-    effectiveEditorChromeScaleX,
-    effectiveEditorChromeScaleY,
-    postOneShotBridgeMessage,
-    readyIframeDocumentIdentity,
-  ]);
 
   // Overview/focused placement is presentation state, not document identity.
   // Update gesture routing in place when entering responsive Interact.
@@ -7827,7 +7957,7 @@ export function DesignCanvas({
           allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
           onLoad={(event) => {
-            markPreviewFrameReady();
+            if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },

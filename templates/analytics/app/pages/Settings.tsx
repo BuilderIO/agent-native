@@ -4,7 +4,9 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { TeamPage } from "@agent-native/core/client/org";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { TeamPage, useOrg } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -18,7 +20,7 @@ import {
   createCreativeContextAgentTab,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
-import { IconBell } from "@tabler/icons-react";
+import { IconActivity, IconBell } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -31,6 +33,7 @@ import {
   ANALYTICS_USER_PREFS_KEY,
   type AnalyticsUserPrefs,
 } from "../../shared/analytics-user-prefs";
+import { AnalyticsReviewArtifactPreview } from "../components/AnalyticsReviewArtifactPreview";
 import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
 import { ReplayStorageHint } from "./sessions/SessionsPage";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
@@ -40,6 +43,11 @@ export default function Settings() {
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
   const replayStorageStatus = useReplayStorageStatus();
+  const {
+    data: activeOrg,
+    isLoading: orgLoading,
+    isError: orgError,
+  } = useOrg();
   const { data: analyticsPrefs, isLoading: analyticsPrefsLoading } =
     useActionQuery<AnalyticsUserPrefs>("get-user-pref", {
       key: ANALYTICS_USER_PREFS_KEY,
@@ -142,6 +150,44 @@ export default function Settings() {
     agentAdditionalContent,
     agentAdditionalTabFactories,
   });
+  const observabilityBasePath = buildSettingsRoute("observability");
+  const observabilityTabs = useMemo<SettingsTabItem[]>(
+    () =>
+      !orgLoading &&
+      !orgError &&
+      activeOrg?.orgId &&
+      (activeOrg.role === "owner" || activeOrg.role === "admin")
+        ? [
+            {
+              id: "observability",
+              label: t("settings.agentObservability"),
+              icon: IconActivity,
+              group: "agent",
+              href: `${observabilityBasePath}/overview`,
+              content: (
+                <ObservabilityDashboard
+                  routeBasePath={observabilityBasePath}
+                  showHumanReview
+                  renderArtifactPreview={(artifact, compact) => (
+                    <AnalyticsReviewArtifactPreview
+                      artifactId={artifact.artifactId}
+                      compact={compact}
+                    />
+                  )}
+                />
+              ),
+            },
+          ]
+        : [],
+    [
+      activeOrg?.orgId,
+      activeOrg?.role,
+      observabilityBasePath,
+      orgError,
+      orgLoading,
+      t,
+    ],
+  );
   const labs = useMemo(
     () => [
       {
@@ -167,8 +213,9 @@ export default function Settings() {
         ),
       },
       ...agentSettingsTabs,
+      ...observabilityTabs,
     ],
-    [agentSettingsTabs, t],
+    [agentSettingsTabs, observabilityTabs, t],
   );
 
   const generalSearchEntries = useMemo(

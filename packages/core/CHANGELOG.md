@@ -51,6 +51,23 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.189.0
+
+### Minor Changes
+
+- debfb07: Add a primary Continue with Agent-Native action to hosted sign-in pages.
+- d261070: Add per-message and beginning-of-chat revert controls for autosaved resources.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 34822ca: Improve the mobile login and signup layout.
+- 08b601f: Integration logos now use each brand's current official mark. Figma, GitLab, Cloudflare, PayPal, Supabase, Neon, Asana, Canva, Intercom, Netlify, Zapier, Notion, HubSpot, Stripe, Linear, Sentry, and GitHub replace single-color glyphs or retired versions; FullStory, PostHog, monday.com, and Grafana replace stand-in, outdated, or 16px favicon icons; and the Jira entry and Jira API key tile show Jira's mark instead of the Atlassian triangle. Intercom, Linear, Netlify, and Sentry now invert in dark mode like the other dark marks, and Notion no longer does because its official block carries its own white face.
+- Updated dependencies
+  - @agent-native/agentkit@0.2.11
+  - @agent-native/recap-cli@0.5.41
+  - @agent-native/toolkit@0.21.1
+
 ## 0.188.0
 
 ### Minor Changes
@@ -3137,11 +3154,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 06cea8f: Keep the desktop chat composer blank while the identity gate is handling an unauthenticated saved thread.
-
-## 0.164.6
-
-### Patch Changes
-
-- 8e51925: Fix Electron chat feedback around app visibility, local development tools, and run recovery.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

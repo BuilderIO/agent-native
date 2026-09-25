@@ -1,7 +1,13 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
-import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import { useT } from "../i18n.js";
+import {
+  createReadOnlyMcpAppSrcDoc,
+  McpAppRenderer,
+} from "../mcp-apps/McpAppRenderer.js";
+import { useActionQuery } from "../use-action.js";
 
 type ChartPoint = { label: string; value: number };
 type DesignToken = { label: string; value: string };
@@ -29,8 +35,6 @@ const MAX_MARKDOWN_LINES = MAX_ROWS * 2 + 2;
 const DESIGN_HOST_ORIGIN = "https://design.agent-native.com";
 const BETA_DESIGN_HOST_ORIGIN = "https://beta.design.agent-native.com";
 const DESIGN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-const DESIGN_URL_PATTERN =
-  /(?:^|[\s([{<"'=])((?:https?:\/\/[^\s<>"'`]+|\/design\/[A-Za-z0-9_-]+(?:[?#][^\s<>"'`]*)?))/gm;
 const REBINDING_DNS_SUFFIXES = [
   "nip.io",
   "sslip.io",
@@ -39,6 +43,346 @@ const REBINDING_DNS_SUFFIXES = [
   "lvh.me",
   "vcap.me",
 ];
+const MAX_ACTIVE_COMPACT_FRAMES = 6;
+let activeCompactFrames = 0;
+const compactFrameQueue: Array<() => void> = [];
+
+function reserveCompactFrame(onReserve: () => void): () => void {
+  let active = false;
+  let released = false;
+  const grant = () => {
+    if (released) return;
+    active = true;
+    activeCompactFrames += 1;
+    onReserve();
+  };
+
+  if (activeCompactFrames < MAX_ACTIVE_COMPACT_FRAMES) grant();
+  else compactFrameQueue.push(grant);
+
+  return () => {
+    if (released) return;
+    released = true;
+    if (!active) return;
+    active = false;
+    activeCompactFrames -= 1;
+    while (
+      activeCompactFrames < MAX_ACTIVE_COMPACT_FRAMES &&
+      compactFrameQueue.length > 0
+    ) {
+      compactFrameQueue.shift()?.();
+    }
+  };
+}
+
+function ReviewPreviewFrame({
+  url,
+  artifactAppId,
+  artifactId,
+  previewLabel,
+  compact,
+  renderContent,
+  kind,
+}: {
+  url?: string;
+  artifactAppId?: "design" | "slides";
+  artifactId?: string;
+  previewLabel: string;
+  compact: boolean;
+  renderContent?: ReactNode;
+  kind: "artifact" | "design" | "analytics-dashboard";
+}) {
+  const t = useT();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const releaseRef = useRef<(() => void) | null>(null);
+  const [mounted, setMounted] = useState(!compact);
+  const [loaded, setLoaded] = useState(false);
+  const [safePreview, setSafePreview] = useState<{
+    source: string;
+    document: string;
+  }>();
+  const [rejectedPreviewSource, setRejectedPreviewSource] = useState<string>();
+  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
+  const designQuery = useActionQuery<Record<string, unknown>>(
+    "get-design",
+    { id: artifactId ?? "", includeFileContent: false },
+    {
+      enabled: mounted && artifactAppId === "design" && Boolean(artifactId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const designFiles = Array.isArray(designQuery.data?.files)
+    ? designQuery.data.files.filter((file): file is Record<string, unknown> =>
+        isRecord(file),
+      )
+    : [];
+  const designFile =
+    designFiles.find(
+      (file) =>
+        typeof file.filename === "string" &&
+        file.filename.toLowerCase() === "index.html",
+    ) ??
+    designFiles.find(
+      (file) =>
+        (typeof file.filename === "string" &&
+          file.filename.toLowerCase().endsWith(".html")) ||
+        (typeof file.fileType === "string" &&
+          file.fileType.toLowerCase().includes("html")),
+    );
+  const designFileId =
+    typeof designFile?.id === "string" ? designFile.id : undefined;
+  const designFileQuery = useActionQuery<Record<string, unknown>>(
+    "get-design",
+    {
+      id: artifactId ?? "",
+      fileId: designFileId ?? "",
+      includeFileContent: true,
+    },
+    {
+      enabled:
+        mounted &&
+        artifactAppId === "design" &&
+        Boolean(artifactId && designFileId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const deckQuery = useActionQuery<Record<string, unknown>>(
+    "get-deck",
+    { id: artifactId ?? "", compact: "true" },
+    {
+      enabled: mounted && artifactAppId === "slides" && Boolean(artifactId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const deckMetadataSlides = Array.isArray(deckQuery.data?.slides)
+    ? deckQuery.data.slides.filter((slide): slide is Record<string, unknown> =>
+        isRecord(slide),
+      )
+    : [];
+  const firstSlideId =
+    compact && typeof deckMetadataSlides[0]?.id === "string"
+      ? deckMetadataSlides[0].id
+      : undefined;
+  const defaultSlideId =
+    typeof deckMetadataSlides[0]?.id === "string"
+      ? deckMetadataSlides[0].id
+      : undefined;
+  const activeSlideId = compact
+    ? firstSlideId
+    : (deckMetadataSlides.find((slide) => slide.id === selectedSlideId)?.id ??
+      defaultSlideId);
+  const selectedSlideQuery = useActionQuery<Record<string, unknown>>(
+    "get-deck",
+    {
+      id: artifactId ?? "",
+      slideId: activeSlideId ?? "",
+      compact: "false",
+    },
+    {
+      enabled: mounted && artifactAppId === "slides" && Boolean(activeSlideId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const designFileContents = Array.isArray(designFileQuery.data?.files)
+    ? designFileQuery.data.files.filter(
+        (file): file is Record<string, unknown> => isRecord(file),
+      )
+    : [];
+  const slideData = selectedSlideQuery.data;
+  const slides = Array.isArray(slideData?.slides)
+    ? slideData.slides.filter((slide): slide is Record<string, unknown> =>
+        isRecord(slide),
+      )
+    : [];
+  const artifactHtml =
+    artifactAppId === "design"
+      ? designFileContents[0]?.content
+      : slides[0]?.content;
+  const srcDoc =
+    typeof artifactHtml === "string" && artifactHtml.trim()
+      ? artifactHtml
+      : undefined;
+  const safeSrcDoc =
+    safePreview && safePreview.source === srcDoc
+      ? safePreview.document
+      : undefined;
+  const srcDocRejected = Boolean(srcDoc && rejectedPreviewSource === srcDoc);
+
+  useEffect(() => {
+    if (!srcDoc) {
+      setSafePreview(undefined);
+      setRejectedPreviewSource(undefined);
+      return;
+    }
+    let active = true;
+    setSafePreview(undefined);
+    setRejectedPreviewSource(undefined);
+    void createReadOnlyMcpAppSrcDoc(srcDoc)
+      .then((safeDocument) => {
+        if (active) setSafePreview({ source: srcDoc, document: safeDocument });
+      })
+      .catch(() => {
+        if (active) setRejectedPreviewSource(srcDoc);
+      });
+    return () => {
+      active = false;
+    };
+  }, [srcDoc]);
+  const artifactError =
+    artifactAppId === "design"
+      ? designQuery.isError || designFileQuery.isError
+      : deckQuery.isError || selectedSlideQuery.isError;
+  const artifactLoaded =
+    artifactAppId === "design"
+      ? designQuery.isSuccess && (!designFileId || designFileQuery.isSuccess)
+      : deckQuery.isSuccess && (!activeSlideId || selectedSlideQuery.isSuccess);
+  const unavailable =
+    artifactAppId &&
+    (artifactError || srcDocRejected || (artifactLoaded && !srcDoc));
+
+  useEffect(() => {
+    if (!compact) return;
+    const container = containerRef.current;
+    if (!container) return;
+    if (typeof IntersectionObserver === "undefined") {
+      releaseRef.current = reserveCompactFrame(() => setMounted(true));
+      return () => {
+        releaseRef.current?.();
+        releaseRef.current = null;
+      };
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !releaseRef.current) {
+          releaseRef.current = reserveCompactFrame(() => setMounted(true));
+        } else if (!entry?.isIntersecting && releaseRef.current) {
+          releaseRef.current();
+          releaseRef.current = null;
+          setMounted(false);
+          setLoaded(false);
+        }
+      },
+      { rootMargin: "240px" },
+    );
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      releaseRef.current?.();
+      releaseRef.current = null;
+    };
+  }, [compact]);
+
+  useEffect(() => setLoaded(false), [url, safeSrcDoc]);
+
+  useEffect(() => setSelectedSlideId(null), [artifactId]);
+
+  const dataKind =
+    kind === "analytics-dashboard"
+      ? compact
+        ? "analytics-dashboard-thumbnail"
+        : "analytics-dashboard"
+      : compact
+        ? `${kind}-iframe-thumbnail`
+        : `${kind}-iframe`;
+  const showSlideStrip =
+    !compact && artifactAppId === "slides" && deckMetadataSlides.length > 1;
+  return (
+    <div
+      ref={containerRef}
+      aria-label={previewLabel}
+      className={
+        compact
+          ? "relative size-full overflow-hidden bg-background"
+          : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
+      }
+      data-preview-kind={dataKind}
+      data-preview-state={
+        renderContent !== undefined
+          ? mounted
+            ? "ready"
+            : "loading"
+          : unavailable
+            ? "unavailable"
+            : artifactAppId && !safeSrcDoc
+              ? "loading"
+              : "ready"
+      }
+      role={showSlideStrip ? "group" : "img"}
+    >
+      {renderContent !== undefined ? (
+        mounted ? (
+          renderContent
+        ) : (
+          <div className="absolute inset-0 animate-pulse bg-muted" />
+        )
+      ) : (
+        <>
+          {showSlideStrip && (
+            <div
+              aria-label={previewLabel}
+              className="absolute inset-x-0 top-0 z-10 flex gap-1 overflow-x-auto border-b border-border bg-background/95 p-1"
+              data-review-slide-strip
+              role="group"
+            >
+              {deckMetadataSlides.map((slide, index) => {
+                const slideId =
+                  typeof slide.id === "string" ? slide.id : undefined;
+                if (!slideId) return null;
+                const label =
+                  typeof slide.title === "string" && slide.title.trim()
+                    ? slide.title
+                    : `${previewLabel} ${index + 1}`;
+                return (
+                  <button
+                    key={slideId}
+                    type="button"
+                    aria-label={label}
+                    aria-pressed={activeSlideId === slideId}
+                    onClick={() => setSelectedSlideId(slideId)}
+                    className="size-8 shrink-0 rounded border border-border text-xs text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-muted aria-pressed:text-foreground"
+                  >
+                    {index + 1}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {!loaded && (
+            <div
+              className={
+                unavailable
+                  ? "absolute inset-0 flex items-center justify-center bg-muted px-3 text-center text-xs text-muted-foreground"
+                  : "absolute inset-0 animate-pulse bg-muted"
+              }
+              role={unavailable ? "status" : undefined}
+            >
+              {unavailable ? t("observability.reviewPreviewUnavailable") : null}
+            </div>
+          )}
+          {mounted && (!artifactAppId || safeSrcDoc) && (
+            <iframe
+              aria-hidden="true"
+              className={
+                compact
+                  ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
+                  : showSlideStrip
+                    ? "absolute inset-x-0 bottom-0 top-10 border-0"
+                    : "absolute inset-0 size-full border-0"
+              }
+              loading="lazy"
+              onLoad={() => setLoaded(true)}
+              referrerPolicy="no-referrer"
+              sandbox={artifactAppId ? "" : "allow-scripts"}
+              {...(artifactAppId ? { srcDoc: safeSrcDoc } : { src: url })}
+              tabIndex={-1}
+              title={previewLabel}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -150,33 +494,6 @@ function safeDesignPreviewUrl(
   } catch {
     return undefined;
   }
-}
-
-function safeDesignArtifactPreviewUrl(
-  value: unknown,
-  baseOrigin = typeof window === "undefined"
-    ? undefined
-    : window.location.origin,
-): string | undefined {
-  const candidate = boundedString(value);
-  const match = candidate?.match(
-    /^\/(?:design|present)\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/,
-  );
-  return match
-    ? safeDesignPreviewUrl(`/design/${match[1]}`, baseOrigin)
-    : undefined;
-}
-
-function findDesignPreviewUrl(
-  text: string,
-  baseOrigin?: string,
-): string | undefined {
-  for (const match of text.matchAll(DESIGN_URL_PATTERN)) {
-    const candidate = match[1].replace(/[),.;!?]+$/, "");
-    const previewUrl = safeDesignPreviewUrl(candidate, baseOrigin);
-    if (previewUrl) return previewUrl;
-  }
-  return undefined;
 }
 
 function splitTableRow(line: string): string[] {
@@ -363,15 +680,6 @@ export function parseOutputPreview(
     // Plain text and Markdown outputs are expected and remain the fallback.
   }
 
-  const previewUrl = findDesignPreviewUrl(text, baseOrigin);
-  if (previewUrl) {
-    return {
-      kind: "design",
-      previewUrl,
-      tokens: [],
-    };
-  }
-
   const imageMatch = text.match(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/i);
   const imageUrl = imageMatch ? safeImageUrl(imageMatch[2]) : undefined;
   if (imageUrl) {
@@ -389,98 +697,96 @@ export function OutputPreview({
   answer,
   previewLabel,
   inlineApp,
-  inlineAppTitle,
   compact = false,
   maxAppHeight,
-  designPreviewPath,
+  artifactPreviewUrl,
+  artifactPreviewIsImage = false,
+  artifactPreviewAppId,
+  artifactPreviewId,
+  artifactPreviewContent,
+  artifactOnly = false,
 }: {
   answer: string;
   previewLabel: string;
   inlineApp?: AgentMcpAppPayload;
-  inlineAppTitle?: string;
   compact?: boolean;
   maxAppHeight?: number;
-  designPreviewPath?: string;
+  artifactPreviewUrl?: string;
+  artifactPreviewIsImage?: boolean;
+  artifactPreviewAppId?: "design" | "slides" | "analytics";
+  artifactPreviewId?: string;
+  artifactPreviewContent?: ReactNode;
+  artifactOnly?: boolean;
 }) {
   const preview = parseOutputPreview(answer);
-  const designPreviewUrl =
-    safeDesignArtifactPreviewUrl(designPreviewPath) ??
-    (preview.kind === "design" ? preview.previewUrl : undefined);
-
-  if (designPreviewUrl) {
+  if (artifactPreviewUrl && artifactPreviewIsImage) {
     return (
-      <div
-        aria-label={
-          preview.kind === "design"
-            ? (preview.title ?? previewLabel)
-            : previewLabel
-        }
+      <img
+        src={artifactPreviewUrl}
+        alt={previewLabel}
         className={
           compact
-            ? "relative size-full overflow-hidden bg-background"
-            : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
+            ? "size-full object-cover"
+            : "max-h-[min(70dvh,45rem)] max-w-full object-contain"
         }
         data-preview-kind={
-          compact ? "design-iframe-thumbnail" : "design-iframe"
+          compact ? "artifact-image-thumbnail" : "artifact-image"
         }
-        role="img"
-      >
-        <iframe
-          aria-hidden="true"
-          className={
-            compact
-              ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
-              : "absolute inset-0 size-full border-0"
-          }
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          src={designPreviewUrl}
-          tabIndex={-1}
-          title={
-            preview.kind === "design"
-              ? (preview.title ?? previewLabel)
-              : previewLabel
-          }
-        />
-      </div>
+        loading="lazy"
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+  if (artifactPreviewContent !== undefined) {
+    return (
+      <ReviewPreviewFrame
+        artifactId={artifactPreviewId}
+        previewLabel={previewLabel}
+        compact={compact}
+        renderContent={artifactPreviewContent}
+        kind="analytics-dashboard"
+      />
+    );
+  }
+  if (artifactPreviewAppId === "design" && artifactPreviewId) {
+    return (
+      <ReviewPreviewFrame
+        artifactAppId="design"
+        artifactId={artifactPreviewId}
+        previewLabel={previewLabel}
+        compact={compact}
+        kind="design"
+      />
+    );
+  }
+  if (
+    artifactPreviewAppId === "slides" &&
+    artifactPreviewId &&
+    artifactPreviewUrl
+  ) {
+    return (
+      <ReviewPreviewFrame
+        artifactAppId="slides"
+        artifactId={artifactPreviewId}
+        previewLabel={previewLabel}
+        compact={compact}
+        kind="artifact"
+      />
     );
   }
 
   if (inlineApp && !compact) {
     return (
-      <div className="min-w-0 space-y-4">
-        {answer.trim() && preview.kind === "text" && (
-          <OutputPreview answer={answer} previewLabel={previewLabel} />
-        )}
-        <McpAppRenderer
-          app={inlineApp}
-          readOnly
-          className="min-w-0"
-          maxHeight={maxAppHeight}
-        />
-      </div>
+      <McpAppRenderer
+        app={inlineApp}
+        readOnly
+        className="min-w-0"
+        maxHeight={maxAppHeight}
+      />
     );
   }
 
   const contentClassName = "text-sm text-foreground";
-
-  if (compact && (inlineApp || inlineAppTitle)) {
-    return (
-      <div
-        aria-label={previewLabel}
-        className="flex size-full min-w-0 items-end p-2"
-        data-preview-kind="app-thumbnail"
-        role="img"
-      >
-        <span className="truncate text-[10px] font-medium text-foreground">
-          {inlineAppTitle ??
-            inlineApp?.tool?.title ??
-            inlineApp?.tool?.name ??
-            inlineApp?.toolName}
-        </span>
-      </div>
-    );
-  }
 
   if (preview.kind === "chart") {
     const maxValue = Math.max(...preview.data.map((point) => point.value), 1);
@@ -647,6 +953,7 @@ export function OutputPreview({
   }
 
   if (preview.kind === "design") {
+    if (artifactOnly && !preview.imageUrl) return null;
     if (compact && preview.imageUrl) {
       return (
         <img
@@ -660,22 +967,7 @@ export function OutputPreview({
       );
     }
     if (compact) {
-      return (
-        <div
-          aria-label={
-            [preview.title, preview.summary].filter(Boolean).join(": ") ||
-            previewLabel
-          }
-          className="size-full overflow-hidden p-2"
-          data-preview-kind="design-thumbnail"
-          role="img"
-        >
-          <span className="line-clamp-3 block text-left text-[10px] leading-3 text-muted-foreground">
-            {[preview.title, preview.summary].filter(Boolean).join(" — ") ||
-              previewLabel}
-          </span>
-        </div>
-      );
+      return null;
     }
     return (
       <div className={contentClassName} data-preview-kind="design">
@@ -710,6 +1002,8 @@ export function OutputPreview({
       </div>
     );
   }
+
+  if (compact || (artifactOnly && preview.kind === "text")) return null;
 
   return (
     <p

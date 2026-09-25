@@ -26,6 +26,7 @@ const messages = {
     team: "팀",
   },
   settings: {
+    agentObservability: "에이전트 관찰성",
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
     labs: "Labs",
@@ -696,6 +697,8 @@ const messages = {
     leaveWithoutSaving: "저장하지 않고 나가기",
     editorMarkupNotSaved:
       "이 편집은 슬라이드에 편집기 마크업이 추가되므로 저장되지 않았습니다.",
+    textEditConflictNotSaved:
+      "같은 텍스트가 동시에 다른 곳에서 변경되어 텍스트 편집이 저장되지 않았습니다.",
   },
   designSystemSetup: {
     importedBrand: "가져온 브랜드",

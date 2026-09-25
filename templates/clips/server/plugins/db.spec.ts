@@ -23,6 +23,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const failureBackfillSource = readFileSync(
+  new URL("../jobs/recording-failure-backfill.ts", import.meta.url),
+  "utf8",
+);
 
 interface DrizzleColumn {
   name: string;
@@ -164,6 +168,78 @@ describe("organization recording visibility default migration", () => {
     expect(dbTsSource).toContain(
       "UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at",
     );
+  });
+});
+
+describe("recording failure code migration", () => {
+  it("maps legacy reasons in bounded recurring batches after adding columns", () => {
+    expect(failureBackfillSource).toContain(
+      "failure_code = ${LEGACY_FAILURE_CODE_CASE}",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason IN ('Recording cancelled by user', 'Recording cancelled during countdown', 'Upload cancelled') THEN 'user_cancelled'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason LIKE 'Video storage could not start an upload: S3 CreateMultipartUpload failed%' THEN 'multipart_start_failed'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason LIKE 'Video storage is not connected yet%' THEN 'storage_setup_required'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason ILIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'",
+    );
+    expect(failureBackfillSource).toContain(
+      "WHEN failure_reason ILIKE 'Couldn''t prepare the recording for re-upload (reset-chunks %). <!DOCTYPE html>%' THEN 'chunk_html_error'",
+    );
+    expect(failureBackfillSource).toContain("ELSE 'unknown'");
+    const backfillUpdate = failureBackfillSource.slice(
+      failureBackfillSource.indexOf("sql: `UPDATE recordings SET"),
+    );
+    const outerUpdatePredicate = backfillUpdate.slice(
+      backfillUpdate.indexOf("ORDER BY id LIMIT $2"),
+      backfillUpdate.indexOf("RETURNING id"),
+    );
+    expect(outerUpdatePredicate).toContain("AND status = 'failed'");
+    expect(outerUpdatePredicate).toContain(
+      "AND ${NEEDS_FAILURE_CODE_BACKFILL}",
+    );
+    expect(failureBackfillSource).toContain(
+      "const NEEDS_FAILURE_CODE_BACKFILL =",
+    );
+    expect(failureBackfillSource).toContain("failure_code IS NULL");
+    expect(failureBackfillSource).toContain("failure_code = 'unknown'");
+    expect(failureBackfillSource).toContain(
+      "failure_code IS DISTINCT FROM (${LEGACY_FAILURE_CODE_CASE})",
+    );
+    expect(failureBackfillSource).toContain("ORDER BY id LIMIT $2");
+    expect(failureBackfillSource).toContain("BATCH_SIZE = 250");
+    expect(failureBackfillSource).toContain("SWEEP_INTERVAL_MS = 60_000");
+    expect(failureBackfillSource).toContain(
+      "export async function runRecordingFailureBackfillOnce",
+    );
+    expect(dbTsSource).not.toContain("scheduleRecordingFailureBackfill");
+    const migrationStart = dbTsSource.indexOf(
+      'name: "recording-failure-codes-platform"',
+    );
+    const migrationEnd = dbTsSource.indexOf("version:", migrationStart + 10);
+    const failureMigration = dbTsSource.slice(migrationStart, migrationEnd);
+    expect(failureMigration).toContain(
+      "ADD COLUMN IF NOT EXISTS failure_code TEXT",
+    );
+    expect(failureMigration).toContain(
+      "ADD COLUMN IF NOT EXISTS recording_platform TEXT",
+    );
+    expect(failureMigration).not.toMatch(/UPDATE recordings/i);
+    expect(dbTsSource).toMatch(
+      /version: 75,[\s\S]*?name: "recording-failure-backfill-cursor"[\s\S]*?ADD COLUMN IF NOT EXISTS cursor_id TEXT/,
+    );
+    expect(dbTsSource).toMatch(
+      /version: 76,[\s\S]*?name: "recording-failure-backfill-completion"[\s\S]*?ADD COLUMN IF NOT EXISTS completed_at TEXT/,
+    );
+    expect(failureBackfillSource).not.toContain("'Upload aborted by user'");
   });
 });
 

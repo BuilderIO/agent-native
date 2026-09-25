@@ -135,11 +135,14 @@ export interface RequestRunContext {
   /**
    * True when this run is executing inside the durable background-function
    * worker (the `_process-run` self-dispatch), not the synchronous foreground
-   * request. Template `extraContext` / system-prompt builders can read this to
-   * skip heavy, hang-prone enrichment (large data-dictionary DB reads, etc.)
-   * in the worker so it reliably claims its run within the setup budget.
+   * request. Template prompt builders can use this to skip unbounded enrichment;
+   * bounded preloads must still run because this worker rebuilds the prompt.
    */
   isBackgroundWorker?: boolean;
+  /** Low-cardinality Analytics context counts carried into run-completion telemetry. */
+  analyticsJevPrefetch?: {
+    preloadedReferenceCount: number;
+  };
   /** Tool calls made so far in the current agent loop. */
   toolCalls?: Array<{ name: string; input: unknown }>;
   /** Tool results returned so far in the current agent loop. */

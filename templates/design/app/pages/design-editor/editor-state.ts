@@ -741,9 +741,9 @@ export function flushFileContentSavesOnBackground(
   pendingByFileId: FileContentSaveRequestsById,
   latestUnacknowledgedByFileId: FileContentSaveRequestsById,
   timerIds: readonly number[],
-  save: (pending: FileContentSaveRequest) => void,
+  save: (pending: FileContentSaveRequest) => unknown | Promise<unknown>,
   clearTimer: (timerId: number) => void,
-): void {
+): Promise<void> {
   const newestByFileId = new Map<string, FileContentSaveRequest>();
   for (const pending of Object.values(latestUnacknowledgedByFileId)) {
     newestByFileId.set(pending.id, pending);
@@ -754,8 +754,15 @@ export function flushFileContentSavesOnBackground(
       newestByFileId.set(pending.id, pending);
     }
   }
-  for (const pending of newestByFileId.values()) save(pending);
+  const saves = [...newestByFileId.values()].map((pending) => {
+    try {
+      return Promise.resolve(save(pending));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  });
   for (const timerId of timerIds) clearTimer(timerId);
+  return Promise.all(saves).then(() => undefined);
 }
 
 /**

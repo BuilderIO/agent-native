@@ -568,6 +568,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "实时协作",
+      description:
+        "允许无法访问所有者 localhost 的人查看和编辑此设计的实时副本。",
+      enabled: "开启",
+      disabled: "关闭",
+      saving: "正在保存…",
+      enableError: "无法更新实时协作。",
+    },
     vectorEndpoints: {
       startPoint: "起点",
       endPoint: "终点",

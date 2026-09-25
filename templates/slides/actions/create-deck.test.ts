@@ -698,7 +698,7 @@ describe("create-deck — generation lifecycle tracking", () => {
   );
 
   it("joins generation start and completion with one opaque attempt id", async () => {
-    await action.run({
+    const result = await action.run({
       title: "T",
       slides: [{ id: "s1", content: "<div>Slide</div>" }],
     });
@@ -715,6 +715,10 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(started?.properties.generation_attempt_id).toEqual(
       expect.any(String),
     );
+    expect(JSON.parse(insertedRow!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
+    expect(result.id).toBe(completed?.properties.output_id);
     expect(started?.properties).not.toHaveProperty("title");
     expect(started?.properties).not.toHaveProperty("prompt");
     expect(completed?.properties).toMatchObject({
@@ -722,6 +726,37 @@ describe("create-deck — generation lifecycle tracking", () => {
       slide_count: 1,
       duration_ms: expect.any(Number),
     });
+  });
+
+  it("clears prior incremental context when an action-owned bulk attempt replaces a deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        generationContext: {
+          generationAttemptId: "previous-attempt",
+          generationMode: "action",
+        },
+      }),
+    };
+
+    await action.run({
+      title: "T2",
+      slides: [{ id: "s1", content: "<div>Replacement</div>" }],
+      deckId: "deck-1",
+    });
+
+    const started = trackedEvents().find(
+      (event) => event.name === "generation_started",
+    );
+    expect(JSON.parse(updatedFields!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
+    expect(started?.properties.generation_attempt_id).not.toBe(
+      "previous-attempt",
+    );
   });
 
   it.each(["new deck", "replacement deck"] as const)(

@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.21.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.21.0
 
 ### Minor Changes
@@ -883,11 +889,5 @@
 ### Patch Changes
 
 - ec523c4: Show the current sharing visibility icon directly in shared ShareButton triggers and use the users-group glyph for organization visibility.
-
-## 0.4.1
-
-### Patch Changes
-
-- e1ad535: Portal dropdown submenu content so nested menus are not clipped by parent menu overflow.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

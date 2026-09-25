@@ -98,6 +98,7 @@ export interface DesignData {
   description?: string;
   projectType: string;
   designSystemId?: string | null;
+  liveCollaborationEnabled?: boolean;
   visibility?: "private" | "org" | "public";
   data?: string | null;
   accessRole?: DesignAccessRole;

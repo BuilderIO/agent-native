@@ -580,6 +580,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Live collaboration",
+      description:
+        "Let people without the owner's localhost see and edit a live copy of this design.",
+      enabled: "On",
+      disabled: "Off",
+      saving: "Saving…",
+      enableError: "Couldn't update live collaboration.",
+    },
     vectorEndpoints: {
       startPoint: "Start point",
       endPoint: "End point",

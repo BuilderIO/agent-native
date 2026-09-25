@@ -35,6 +35,7 @@ let schema: typeof import("../server/db/schema.js");
 let updateDocument: typeof import("./update-document.js").default;
 let restoreDocumentVersion: typeof import("./restore-document-version.js").default;
 let listDocumentHistory: typeof import("./list-document-history.js").default;
+let listDocumentVersions: typeof import("./list-document-versions.js").default;
 let listDocumentHistoryCheckpoints: typeof import("./list-document-history-checkpoints.js").default;
 let getDocumentHistoryCheckpoint: typeof import("./get-document-history-checkpoint.js").default;
 
@@ -45,6 +46,7 @@ beforeAll(async () => {
   restoreDocumentVersion = (await import("./restore-document-version.js"))
     .default;
   listDocumentHistory = (await import("./list-document-history.js")).default;
+  listDocumentVersions = (await import("./list-document-versions.js")).default;
   listDocumentHistoryCheckpoints = (
     await import("./list-document-history-checkpoints.js")
   ).default;
@@ -104,6 +106,179 @@ function inlineDatabaseBlock(args: {
 }
 
 describe("grouped document history", () => {
+  it("deduplicates concurrent chat-start checkpoints at the insert boundary", async () => {
+    const document = await currentDocument();
+    const transition = (runId: string) =>
+      recordDocumentHistoryTransition({
+        db: getDb(),
+        ownerEmail: OWNER,
+        documentId: DOCUMENT_ID,
+        before: { title: document.title, content: document.content },
+        after: { title: document.title, content: document.content },
+        cause: {
+          groupId: `agent:${OWNER}:${runId}`,
+          groupKind: "agent_run",
+          actorEmail: OWNER,
+          actorKind: "agent",
+          origin: "agent-chat",
+          operation: "chat start",
+          chatContext: {
+            threadId: "thread-concurrent",
+            runId,
+            phase: "start",
+          },
+          skipBeforeCheckpoint: true,
+        },
+        now: new Date().toISOString(),
+      });
+
+    await Promise.all([
+      transition("concurrent-run-1"),
+      transition("concurrent-run-2"),
+    ]);
+
+    const versions = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, DOCUMENT_ID));
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({
+      groupId: `agent:${OWNER}:concurrent-run-1`,
+      operation: "chat start",
+      checkpointKind: "after",
+    });
+    expect(versions[0]?.id).toBe(
+      `agent-chat-start:${encodeURIComponent(OWNER)}:${encodeURIComponent(DOCUMENT_ID)}:thread-concurrent`,
+    );
+  });
+
+  it("stores a single chat-start checkpoint with its phase", async () => {
+    const document = await currentDocument();
+    await recordDocumentHistoryTransition({
+      db: getDb(),
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      before: { title: document.title, content: document.content },
+      after: { title: document.title, content: document.content },
+      cause: {
+        groupId: "agent:history-owner@example.com:run-1",
+        groupKind: "agent_run",
+        actorEmail: OWNER,
+        actorKind: "agent",
+        origin: "agent-chat",
+        operation: "chat start",
+        chatContext: {
+          threadId: "thread-1",
+          runId: "run-1",
+          phase: "start",
+        },
+        skipBeforeCheckpoint: true,
+      },
+      now: new Date().toISOString(),
+    });
+
+    const versions = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, DOCUMENT_ID));
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({ checkpointKind: "after" });
+    expect(JSON.parse(versions[0].chatContext!)).toMatchObject({
+      threadId: "thread-1",
+      phase: "start",
+    });
+  });
+
+  it("finds a chat-start checkpoint for a serialized thread ID", async () => {
+    const document = await currentDocument();
+    const threadId = 'thread "quoted" %_\\path';
+    await recordDocumentHistoryTransition({
+      db: getDb(),
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      before: { title: document.title, content: document.content },
+      after: { title: document.title, content: document.content },
+      cause: {
+        groupId: "agent:history-owner@example.com:serialized-thread",
+        groupKind: "agent_run",
+        actorEmail: OWNER,
+        actorKind: "agent",
+        origin: "agent-chat",
+        operation: "chat start",
+        chatContext: { threadId, runId: "run-serialized", phase: "start" },
+        skipBeforeCheckpoint: true,
+      },
+      now: new Date().toISOString(),
+    });
+
+    const result = await asOwner(() =>
+      listDocumentVersions.run({
+        documentId: DOCUMENT_ID,
+        includeContent: false,
+        limit: 1,
+        threadId,
+      }),
+    );
+    expect(result.versions).toHaveLength(1);
+    expect(result.versions[0]?.chatContext).toMatchObject({
+      threadId,
+      phase: "start",
+    });
+  });
+
+  it("keeps a malformed recent checkpoint without treating it as the chat start", async () => {
+    const threadId = 'legacy "%_\\thread';
+    const malformedTime = new Date(Date.now() - 60_000).toISOString();
+    await getDb()
+      .insert(schema.documentVersions)
+      .values([
+        {
+          id: "malformed-chat-context",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          title: "Legacy checkpoint",
+          content: "content",
+          chatContext: `{"phase":"start","threadId":${JSON.stringify(threadId)},broken}`,
+          createdAt: malformedTime,
+        },
+        {
+          id: "newer-ordinary-checkpoint",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          title: "Recent checkpoint",
+          content: "recent",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+    const bounded = await asOwner(() =>
+      listDocumentVersions.run({
+        documentId: DOCUMENT_ID,
+        includeContent: false,
+        limit: 1,
+        threadId,
+      }),
+    );
+    expect(bounded.versions.map((version) => version.id)).toEqual([
+      "newer-ordinary-checkpoint",
+    ]);
+
+    const recent = await asOwner(() =>
+      listDocumentVersions.run({
+        documentId: DOCUMENT_ID,
+        includeContent: false,
+        limit: 100,
+        threadId,
+      }),
+    );
+    expect(recent.versions).toContainEqual(
+      expect.objectContaining({
+        id: "malformed-chat-context",
+        editable: false,
+      }),
+    );
+  });
+
   it("retains every saved checkpoint in session A and attributes session B to its own result", async () => {
     let current = await currentDocument();
     for (const content of ["session A first", "session A final"]) {
