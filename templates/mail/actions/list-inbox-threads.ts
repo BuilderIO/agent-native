@@ -31,7 +31,7 @@ import {
   type InboxThreadItem,
   type ListInboxThreadsResult,
 } from "../shared/inbox-threads.js";
-import type { EmailMessage, Label } from "../shared/types.js";
+import type { Label } from "../shared/types.js";
 
 const FRESHNESS_MAX_AGE_MS = 15_000;
 const SYNC_BUDGET_MS = 6_000;
