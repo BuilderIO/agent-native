@@ -74,15 +74,47 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
-const WORKTREE_BRANCH_PERMISSION_RE =
+const WORKTREE_PERMISSION_CORRECTION_RE =
   /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:are\s+)?needed\b[^.!?\n]{0,100}\bworktrees?\b/i;
+const WORKTREE_BRANCH_CONTEXT_RE =
+  /\b(?:(?:creat(?:e|ing)|switch(?:ing)?|mov(?:e|ing)|rotat(?:e|ing)|chang(?:e|ing))\s+(?:a\s+)?branch(?:es)?|branch(?:es)?\s+(?:creation|changes?|movement|rotation|switch(?:es)?)|shared branch issues?)\b/i;
+const WORKTREE_BRANCH_PERMISSION_RE = {
+  test(text) {
+    // Ignore general worktree permission requests unless the same correction names branch work.
+    return [
+      ...text.matchAll(
+        new RegExp(WORKTREE_PERMISSION_CORRECTION_RE.source, "gi"),
+      ),
+    ].some((match) => {
+      const start = Math.max(0, match.index - 160);
+      const end = Math.min(text.length, match.index + match[0].length + 500);
+      return WORKTREE_BRANCH_CONTEXT_RE.test(text.slice(start, end));
+    });
+  },
+};
 const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
   [true, "Stop asking for permissions to create branches in worktrees."],
   [
     true,
     "We should only ask permission for branch changes when not in a worktree.",
   ],
-  [true, "No permissions are needed when in task-owned worktrees."],
+  [
+    true,
+    "No permissions are needed for changing branches in task-owned worktrees.",
+  ],
+  [
+    true,
+    "Stop asking for permissions in worktrees. This is only to prevent shared branch issues.",
+  ],
+  [
+    false,
+    "Do not ask permission to access production data from this worktree.",
+  ],
+  [false, "No approvals are needed for reading customer data in worktrees."],
+  [
+    false,
+    "Do not ask permission to access production in this worktree; the feature branch was created yesterday.",
+  ],
   [false, "Ask before changing branches in the shared checkout."],
   [false, "The worktree has a branch checked out."],
 ];
