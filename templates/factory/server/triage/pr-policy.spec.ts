@@ -288,10 +288,42 @@ describe("pull-request governance", () => {
       "No HTML sanitization vulnerability was found.",
       "No sanitizer vulnerability was found.",
       "The sanitizer vulnerability was fixed.",
+      "The sanitizer's vulnerability was fixed.",
     ]) {
       expect(
         hasActiveCredibleSafetyFinding([{ state: "commented", body }], []),
       ).toBe(false);
+    }
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "The CSP and authentication bypass are safe.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "No API key vulnerabilities were found.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(false);
+    for (const body of [
+      "The API token is exposed in client output.",
+      "An API key is leaked to logs.",
+      "The webhook token is returned to an untrusted caller.",
+    ]) {
+      expect(
+        hasActiveCredibleSafetyFinding([{ state: "commented", body }], []),
+      ).toBe(true);
     }
     expect(
       hasActiveCredibleSafetyFinding(
@@ -849,6 +881,10 @@ describe("pull-request governance", () => {
       "templates/factory/server/triage/github-ingestion.spec.ts",
       "templates/factory/server/triage/pr-monitor.spec.ts",
       "templates/content/scripts/migrate-production.ts",
+      "templates/forms/db/schema.ts",
+      "templates/forms/scripts/db/reset-database.ts",
+      "templates/forms/actions/update-user-role.ts",
+      "templates/forms/server/csrf-protection.ts",
       "templates/forms/actions/delete-form.ts",
       "templates/clips/actions/delete-recording-permanent.ts",
       "templates/tasks/actions/bulk-delete-tasks.ts",
@@ -860,6 +896,7 @@ describe("pull-request governance", () => {
       "templates/design/actions/migrate-board-objects-to-file.ts",
       "templates/design/actions/migrate-board-objects-to-file.spec.ts",
       ".github/CODEOWNERS",
+      ".github/dependabot.yml",
       "scripts/guard-no-drizzle-push.mjs",
       "scripts/guard-trusted-acceptance-workflow.ts",
       "scripts/guard-trusted-acceptance-workflow.spec.ts",
