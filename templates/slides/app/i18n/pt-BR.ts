@@ -23,7 +23,6 @@ const messages = {
     brand: "Slides",
     decks: "Decks",
     designSystems: "Sistemas de design",
-    team: "Equipe",
   },
   settings: {
     title: "Configurações",
@@ -36,6 +35,13 @@ const messages = {
     emailNotificationsDescription:
       "Receba um e-mail quando alguém comentar ou responder na sua apresentação.",
     saveFailed: "Falha ao salvar",
+    notificationsEmail: "E-mail",
+    commentsAndReplies: "Comentários e respostas",
+    commentsAndRepliesDescription:
+      "Quando alguém comenta ou responde na sua apresentação.",
+    retry: "Tentar novamente",
+    mcpAbout:
+      "Conecte o Slides ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Slides por você: criar apresentações, adicionar slides e exportar para o PowerPoint. Ele só vê o que você pode ver.",
     languageTitle: "Idioma",
     languageDescription:
       "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
@@ -167,8 +173,6 @@ const messages = {
     slideUnavailable: "Slide indisponível",
     couldNotLoadSlide: "Não foi possível carregar o slide.",
     openInApp: "Abrir no app",
-    teamDescription:
-      "Configure uma equipe para compartilhar apresentações com colegas.",
   },
 
   designSystems: {

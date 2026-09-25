@@ -23,7 +23,6 @@ const messages = {
     brand: "स्लाइड",
     decks: "डेक",
     designSystems: "डिज़ाइन सिस्टम",
-    team: "टीम",
   },
   settings: {
     title: "सेटिंग्स",
@@ -35,6 +34,12 @@ const messages = {
     emailNotificationsDescription:
       "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",
     saveFailed: "सहेजने में विफल",
+    notificationsEmail: "ईमेल",
+    commentsAndReplies: "टिप्पणियाँ और जवाब",
+    commentsAndRepliesDescription: "जब कोई आपके डेक पर टिप्पणी करे या उसमें जवाब दे।",
+    retry: "फिर कोशिश करें",
+    mcpAbout:
+      "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
     languageTitle: "भाषा",
     languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
     languageLabel: "इंटरफ़ेस भाषा",
@@ -165,8 +170,6 @@ const messages = {
     slideUnavailable: "Slide indisponível",
     couldNotLoadSlide: "Não foi possível carregar o slide.",
     openInApp: "ऐप में खोलें",
-    teamDescription:
-      "Configure uma equipe para compartilhar apresentações com colegas.",
   },
 
   designSystems: {

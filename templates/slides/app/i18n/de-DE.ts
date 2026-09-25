@@ -23,7 +23,6 @@ const messages = {
     brand: "Folien",
     decks: "Decks",
     designSystems: "Designsysteme",
-    team: "Team",
   },
   settings: {
     title: "Einstellungen",
@@ -36,6 +35,13 @@ const messages = {
     emailNotificationsDescription:
       "Erhalte eine E-Mail, wenn jemand dein Deck kommentiert oder in einem Thread antwortet.",
     saveFailed: "Speichern fehlgeschlagen",
+    notificationsEmail: "E-Mail",
+    commentsAndReplies: "Kommentare und Antworten",
+    commentsAndRepliesDescription:
+      "Wenn jemand dein Deck kommentiert oder darin antwortet.",
+    retry: "Erneut versuchen",
+    mcpAbout:
+      "Verbinde Slides mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
     languageTitle: "Sprache",
     languageDescription:
       "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
@@ -170,8 +176,6 @@ const messages = {
     slideUnavailable: "Folie nicht verfügbar",
     couldNotLoadSlide: "Folie konnte nicht geladen werden.",
     openInApp: "In App öffnen",
-    teamDescription:
-      "Richte ein Team ein, um Präsentationen mit Kolleginnen und Kollegen zu teilen.",
   },
 
   designSystems: {

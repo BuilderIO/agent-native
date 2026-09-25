@@ -1,6 +1,5 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -14,14 +13,18 @@ import {
   CreativeContextSettingsLink,
   createCreativeContextAgentTab,
   useCreativeContextLab,
+  type CreativeContextAgentTabFactory,
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { SLIDES_LABS } from "@shared/labs";
 import { useMemo } from "react";
-import { toast } from "sonner";
 
-import { Switch } from "@/components/ui/switch";
-import { useSlidesPrefs } from "@/hooks/use-slides-prefs";
+import {
+  COMMENT_EMAILS_ROW_ID,
+  LegacyEmailNotificationsRow,
+  NotificationSettings,
+} from "@/components/settings/notification-settings";
+import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import messages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -30,16 +33,25 @@ export function meta() {
   return [{ title: messages.raw.routeSettingsTitle }];
 }
 
+// The redesigned Settings gives the library its own page and header.
+const createCreativeContextSettingsTab: CreativeContextAgentTabFactory = (
+  context,
+) => createCreativeContextAgentTab({ ...context, variant: "settings" });
+
 export default function SettingsRoute() {
   const t = useT();
+  const redesign = useSettingsRedesign().enabled;
   const creativeContextEnabled = useCreativeContextLab();
   const agentSettingsTabs = useAgentSettingsTabs({
     agentAdditionalTabFactories: creativeContextEnabled
-      ? [createCreativeContextAgentTab]
+      ? [
+          redesign
+            ? createCreativeContextSettingsTab
+            : createCreativeContextAgentTab,
+        ]
       : [],
   });
   useSetPageTitle(t("settings.title"));
-  const { prefs, loading: prefsLoading, save: savePrefs } = useSlidesPrefs();
   const labs = useMemo(
     () => [
       ...SLIDES_LABS.map((lab) => ({
@@ -74,66 +86,63 @@ export default function SettingsRoute() {
     [t],
   );
 
+  const notificationsSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "slides-comment-emails",
+        label: t("settings.commentsAndReplies"),
+        keywords: "email notifications deck comments replies alerts",
+        hash: COMMENT_EMAILS_ROW_ID,
+      },
+    ],
+    [t],
+  );
+
+  // With the flag on, language lives on Account › Preferences, comment emails
+  // on the Notifications page, and the library on its own page, so Slides
+  // adds no groups to its General page. With it off, today's General tab
+  // stays as it was.
+  const appSettings = redesign
+    ? {
+        notifications: <NotificationSettings />,
+        notificationsSearchEntries,
+      }
+    : {
+        generalSearchEntries,
+        general: (
+          <div className="mx-auto w-full max-w-2xl space-y-6">
+            <p className="text-sm leading-6 text-muted-foreground">
+              {t("settings.description")}
+            </p>
+
+            {creativeContextEnabled ? <CreativeContextSettingsLink /> : null}
+
+            <SettingsGroup>
+              <SettingsRow
+                id="language"
+                label={t("settings.languageTitle")}
+                description={t("settings.languageDescription")}
+                control={
+                  <div className="w-56">
+                    <LanguagePicker label={t("settings.languageLabel")} />
+                  </div>
+                }
+              />
+              <LegacyEmailNotificationsRow />
+            </SettingsGroup>
+          </div>
+        ),
+      };
+
   return (
     <SettingsTabsPage
+      {...appSettings}
       account={<AccountSettingsCard />}
-      teamLabel={t("navigation.team")}
       extraTabs={agentSettingsTabs}
       labs={labs}
       labsIntro={t("settings.labsIntro")}
       labsLabel={t("settings.labs")}
-      generalSearchEntries={generalSearchEntries}
-      general={
-        <div className="mx-auto w-full max-w-2xl space-y-6">
-          <p className="text-sm leading-6 text-muted-foreground">
-            {t("settings.description")}
-          </p>
-
-          {creativeContextEnabled ? <CreativeContextSettingsLink /> : null}
-
-          <SettingsGroup>
-            <SettingsRow
-              id="language"
-              label={t("settings.languageTitle")}
-              description={t("settings.languageDescription")}
-              control={
-                <div className="w-56">
-                  <LanguagePicker label={t("settings.languageLabel")} />
-                </div>
-              }
-            />
-            <SettingsRow
-              id="notifications"
-              label={t("settings.emailNotifications")}
-              description={t("settings.emailNotificationsDescription")}
-              control={
-                <Switch
-                  aria-label={t("settings.emailNotifications")}
-                  checked={prefs.emailNotifications !== false}
-                  disabled={prefsLoading}
-                  onCheckedChange={(checked) => {
-                    savePrefs({ emailNotifications: checked }).catch((err) => {
-                      toast.error(
-                        err instanceof Error
-                          ? err.message
-                          : t("settings.saveFailed"),
-                      );
-                    });
-                  }}
-                />
-              }
-            />
-          </SettingsGroup>
-        </div>
-      }
-      team={
-        <div className="mx-auto w-full max-w-3xl">
-          <TeamPage
-            showTitle={false}
-            createOrgDescription={t("raw.teamDescription")}
-          />
-        </div>
-      }
+      mcpAbout={t("settings.mcpAbout")}
       whatsNew={
         <div className="mx-auto w-full max-w-2xl">
           <ChangelogSettingsCard markdown={changelog} />

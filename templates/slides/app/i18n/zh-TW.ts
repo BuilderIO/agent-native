@@ -23,7 +23,6 @@ const messages = {
     brand: "幻燈片",
     decks: "幻燈片",
     designSystems: "設計系統",
-    team: "團隊",
   },
   settings: {
     title: "設定",
@@ -35,6 +34,12 @@ const messages = {
     emailNotificationsDescription:
       "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
     saveFailed: "儲存失敗",
+    notificationsEmail: "電子郵件",
+    commentsAndReplies: "留言和回覆",
+    commentsAndRepliesDescription: "有人在你的簡報中留言或回覆時。",
+    retry: "重試",
+    mcpAbout:
+      "將 Slides 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Slides 中工作：建立簡報、新增投影片並匯出為 PowerPoint。它只能看到你有權看到的內容。",
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",
@@ -160,7 +165,6 @@ const messages = {
     slideUnavailable: "無法使用幻燈片",
     couldNotLoadSlide: "無法載入幻燈片。",
     openInApp: "在應用中開啟",
-    teamDescription: "設定團隊，與同事共用簡報。",
   },
   designSystems: {
     new: "新建設計系統",

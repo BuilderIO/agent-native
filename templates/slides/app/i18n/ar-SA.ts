@@ -23,7 +23,6 @@ const messages = {
     brand: "الشرائح",
     decks: "العروض",
     designSystems: "أنظمة التصميم",
-    team: "الفريق",
   },
   settings: {
     title: "الإعدادات",
@@ -35,6 +34,12 @@ const messages = {
     emailNotificationsDescription:
       "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",
     saveFailed: "فشل الحفظ",
+    notificationsEmail: "البريد الإلكتروني",
+    commentsAndReplies: "التعليقات والردود",
+    commentsAndRepliesDescription: "عندما يعلّق شخص على عرضك أو يرد فيه.",
+    retry: "إعادة المحاولة",
+    mcpAbout:
+      "اربط Slides بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Slides نيابةً عنك: إنشاء العروض التقديمية وإضافة الشرائح والتصدير إلى PowerPoint. ولا يرى إلا ما يمكنك رؤيته.",
     languageTitle: "اللغة",
     languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
     languageLabel: "لغة الواجهة",
@@ -165,8 +170,6 @@ const messages = {
     slideUnavailable: "Slide indisponível",
     couldNotLoadSlide: "Não foi possível carregar o slide.",
     openInApp: "فتح في التطبيق",
-    teamDescription:
-      "Configure uma equipe para compartilhar apresentações com colegas.",
   },
 
   designSystems: {
