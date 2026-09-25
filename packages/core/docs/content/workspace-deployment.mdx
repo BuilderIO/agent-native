@@ -140,6 +140,8 @@ Hosted workspace builds require `A2A_SECRET` in the deploy provider environment.
 
 Wiring up a provider build command instead of deploying by hand? Add `--build-only` to the same command, for example `npx @agent-native/core@latest deploy --preset vercel --build-only`. It writes the output directly, so no `vercel.json` is required for workspace routing.
 
+App builds run one at a time by default. To build several at once, set `deployment.workspace.buildConcurrency` in `agent-native.config.ts` to a number or `"auto"` (sized to the builder's cores and memory), override it per environment with `AGENT_NATIVE_DEPLOY_CONCURRENCY`, or per run with `--concurrency <n|auto>`. Each concurrent app build can use about 4 GB of memory; if a build is killed for running out of memory, lower the value.
+
 Prefer a separate domain per app instead of one shared origin? Every app in the workspace is still independently deployable. Run `cd apps/<name> && pnpm build` like a standalone scaffold.
 
 </Callout>

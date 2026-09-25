@@ -39,6 +39,8 @@ npx @agent-native/core@latest deploy --preset netlify
 
 La compilación del espacio de trabajo escribe los activos estáticos bajo `dist/_workspace_static/` y enruta cada aplicación a su propia función de Netlify sin redirecciones de activos forzadas, de modo que archivos como `/mail/assets/...` se sirven de forma estática antes de que la función del servidor gestione las rutas de las aplicaciones.
 
+¿Compilas varias apps? Define `deployment.workspace.buildConcurrency: "auto"` en `agent-native.config.ts` para compilarlas en paralelo, según los núcleos y la memoria de la máquina de compilación. Consulta [Despliegue del espacio de trabajo](/docs/workspace-deployment).
+
 ## Keep-warm y bases de datos con escalado a cero {#netlify-keep-warm}
 
 Cuando está habilitada, la compilación de Netlify emite una función programada que solicita `/_agent-native/health` **cada minuto**. Eso mantiene calientes la función del servidor y su base de datos, de modo que el siguiente visitante tras un periodo de inactividad no pague un arranque en frío (1–5 s en Neon).

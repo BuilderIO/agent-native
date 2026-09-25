@@ -36,6 +36,8 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 O build do espaço de trabalho copia a saída `vercel` do Nitro de cada app para o `.vercel/output` raiz, dá a cada função seu próprio ambiente de caminho de montagem, e grava a configuração de rota que serve os apps em `/<app-id>`.
 
+Compilando vários apps? Defina `deployment.workspace.buildConcurrency: "auto"` em `agent-native.config.ts` para compilá-los em paralelo; na máquina de build padrão da Vercel (4 núcleos, 8 GB), dois são executados ao mesmo tempo. Veja [Implantação do espaço de trabalho](/docs/workspace-deployment).
+
 ## O que vem a seguir
 
 - [**Implantação**](/docs/deployment) — escolha um banco de dados persistente e um preset antes da sua primeira implantação em produção

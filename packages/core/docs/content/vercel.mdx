@@ -36,6 +36,8 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 The workspace build copies each app's Nitro `vercel` output into the root `.vercel/output`, gives each function its own mount-path environment, and writes the route config that serves apps at `/<app-id>`.
 
+Building several apps? Set `deployment.workspace.buildConcurrency: "auto"` in `agent-native.config.ts` to build them in parallel; on Vercel's standard build machine (4 cores, 8 GB) that runs two at a time. See [Workspace Deployment](/docs/workspace-deployment).
+
 ## What's next
 
 - [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy

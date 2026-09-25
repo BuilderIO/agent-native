@@ -38,6 +38,8 @@ npx @agent-native/core@latest deploy --preset netlify
 
 कार्यस्थान build `dist/_workspace_static/` के तहत static assets लिखता है और हर ऐप को बिना forced asset redirects के उसके अपने Netlify function पर route करता है, इसलिए `/mail/assets/...` जैसी फ़ाइलें server function के ऐप routes handle करने से पहले statically serve हो जाती हैं।
 
+कई ऐप बिल्ड कर रहे हैं? बिल्ड मशीन के कोर और मेमोरी के अनुसार उन्हें समानांतर में बिल्ड करने के लिए `agent-native.config.ts` में `deployment.workspace.buildConcurrency: "auto"` सेट करें। [वर्कस्पेस डिप्लॉयमेंट](/docs/workspace-deployment) देखें।
+
 ## Keep-warm और scale-to-zero डेटाबेस {#netlify-keep-warm}
 
 Enable होने पर, Netlify build एक scheduled function emit करता है जो **हर मिनट** `/_agent-native/health` पर request भेजता है। इससे server function और उसका डेटाबेस गर्म रहते हैं ताकि idle period के बाद अगले visitor को cold start (Neon पर 1–5s) न चुकानी पड़े।

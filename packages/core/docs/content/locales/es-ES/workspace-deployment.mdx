@@ -142,6 +142,8 @@ Las compilaciones de espacios de trabajo alojados requieren `A2A_SECRET` en el e
 
 ¿Estás configurando el comando de compilación de un proveedor en lugar de implementar a mano? Añade `--build-only` al mismo comando, por ejemplo `npx @agent-native/core@latest deploy --preset vercel --build-only`. Esto escribe la salida directamente, por lo que no se requiere ningún `vercel.json` para el enrutamiento del espacio de trabajo.
 
+Por defecto, las compilaciones de las apps se ejecutan de una en una. Para compilar varias a la vez, define `deployment.workspace.buildConcurrency` en `agent-native.config.ts` con un número o `"auto"` (ajustado a los núcleos y la memoria de la máquina de compilación), sustitúyelo por entorno con `AGENT_NATIVE_DEPLOY_CONCURRENCY` o por ejecución con `--concurrency <n|auto>`. Cada compilación simultánea de una app puede usar unos 4 GB de memoria; si una compilación se detiene por falta de memoria, reduce el valor.
+
 ¿Prefieres un dominio independiente por aplicación en lugar de un origen compartido? Cada aplicación del espacio de trabajo se puede seguir implementando de forma independiente. Ejecuta `cd apps/<name> && pnpm build` como si fuera un andamiaje independiente.
 
 </Callout>

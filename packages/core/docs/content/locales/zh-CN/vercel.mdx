@@ -35,6 +35,8 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 这个工作区构建会把每个应用的 Nitro `vercel` 输出复制到根目录的 `.vercel/output` 中,为每个函数配置自己的挂载路径环境,并写出把各个应用服务在 `/<app-id>` 下的路由配置。
 
+需要构建多个应用？在 `agent-native.config.ts` 中设置 `deployment.workspace.buildConcurrency: "auto"` 即可并行构建；在 Vercel 的标准构建机器（4 核、8 GB）上会同时运行两个。请参阅[工作区部署](/docs/workspace-deployment)。
+
 ## 下一步
 
 - [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设

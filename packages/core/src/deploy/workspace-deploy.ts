@@ -14,9 +14,11 @@
  * run `agent-native build` as before. This orchestrator is for teams that
  * want the whole workspace behind one domain.
  */
-import { execFileSync } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
+import readline from "readline";
 
 import {
   AGENT_BACKGROUND_PROCESSOR_A2A,
@@ -27,7 +29,10 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
-import type { AgentNativeWorkspaceRootPage } from "../config.js";
+import {
+  normalizeBuildConcurrency,
+  type AgentNativeWorkspaceRootPage,
+} from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -168,9 +173,34 @@ export interface WorkspaceDeployOptions {
   buildOnly?: boolean;
   /** Target preset. Defaults to `cloudflare_pages`. */
   preset?: WorkspaceDeployPreset;
+  /**
+   * Maximum number of app builds to run at once. Overrides `--concurrency`,
+   * `AGENT_NATIVE_DEPLOY_CONCURRENCY`, and
+   * `deployment.workspace.buildConcurrency`. Defaults to 1; `"auto"` sizes the
+   * pool to the machine's cores and memory.
+   */
+  concurrency?: number | "auto";
   /** @internal Override process execution in tests. */
   execFile?: typeof execFileSync;
+  /** @internal Override concurrent app builds in tests. */
+  runAppBuild?: RunAppBuild;
 }
+
+interface PreparedAppBuild {
+  app: string;
+  preset: WorkspaceDeployPreset;
+  env: NodeJS.ProcessEnv;
+}
+
+interface AppBuildTiming {
+  app: string;
+  ms: number;
+}
+
+type RunAppBuild = (
+  build: PreparedAppBuild,
+  workspaceRoot: string,
+) => Promise<void>;
 
 export async function runWorkspaceDeploy(
   opts: WorkspaceDeployOptions = {},
@@ -244,16 +274,46 @@ export async function runWorkspaceDeploy(
   );
 
   const execFile = opts.execFile ?? execFileSync;
-  for (const app of apps) {
-    buildOneApp(
-      workspaceRoot,
-      appsDir,
-      app,
-      preset,
-      execFile,
-      workspaceApps,
-      workspaceAuthMode,
+  const concurrency = resolveBuildConcurrency(
+    opts.concurrency,
+    rawArgs,
+    config.deployment?.workspace?.buildConcurrency,
+  );
+  const timings: AppBuildTiming[] = [];
+  if (concurrency > 1) {
+    const builds = apps.map((app) =>
+      prepareAppBuild(appsDir, app, preset, workspaceApps, workspaceAuthMode),
     );
+    timings.push(
+      ...(await runAppBuildsConcurrently(
+        workspaceRoot,
+        builds,
+        concurrency,
+        opts.runAppBuild ?? runAppBuildProcess,
+      )),
+    );
+  }
+  for (const app of apps) {
+    if (concurrency <= 1) {
+      const build = prepareAppBuild(
+        appsDir,
+        app,
+        preset,
+        workspaceApps,
+        workspaceAuthMode,
+      );
+      logAppBuildStart(build);
+      const started = Date.now();
+      execFile("pnpm", ["--filter", app, "build"], {
+        cwd: workspaceRoot,
+        env: build.env,
+        stdio: "inherit",
+      });
+      timings.push({ app, ms: Date.now() - started });
+    }
+    // Outputs are assembled one app at a time, in app order, even when builds
+    // ran concurrently: the copy steps write shared routing and function
+    // directories.
     moveAppBuildIntoWorkspaceOutput(
       workspaceRoot,
       appsDir,
@@ -265,6 +325,7 @@ export async function runWorkspaceDeploy(
       workspaceAuthMode,
     );
   }
+  logAppBuildTimings(timings, concurrency);
   writeWorkspaceAppManifests(
     workspaceRoot,
     distDir,
@@ -312,15 +373,13 @@ export async function runWorkspaceDeploy(
   );
 }
 
-function buildOneApp(
-  workspaceRoot: string,
+function prepareAppBuild(
   appsDir: string,
   app: string,
   preset: WorkspaceDeployPreset,
-  execFile: typeof execFileSync,
   workspaceApps: WorkspaceAppManifestEntry[],
   workspaceAuthMode: "shared" | "isolated",
-): void {
+): PreparedAppBuild {
   const appDir = path.join(appsDir, app);
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
@@ -391,17 +450,120 @@ function buildOneApp(
       env.DATABASE_URL;
   }
 
-  console.log(
-    `[workspace-deploy] Building ${app} (base=/${app}, preset=${preset})`,
-  );
-
   cleanAppBuildOutputs(appDir);
 
-  execFile("pnpm", ["--filter", app, "build"], {
-    cwd: workspaceRoot,
-    env,
-    stdio: "inherit",
+  return { app, preset, env };
+}
+
+function logAppBuildStart(build: PreparedAppBuild): void {
+  console.log(
+    `[workspace-deploy] Building ${build.app} (base=/${build.app}, preset=${build.preset})`,
+  );
+}
+
+async function runAppBuildsConcurrently(
+  workspaceRoot: string,
+  builds: PreparedAppBuild[],
+  concurrency: number,
+  runAppBuild: RunAppBuild,
+): Promise<AppBuildTiming[]> {
+  console.log(
+    `[workspace-deploy] Running up to ${concurrency} app builds at once`,
+  );
+  const timings: AppBuildTiming[] = [];
+  const failures: { app: string; error: unknown }[] = [];
+  let next = 0;
+  const worker = async () => {
+    // Stop taking new builds after a failure, but let in-flight builds finish
+    // so their output and errors are not cut off mid-stream.
+    while (next < builds.length && failures.length === 0) {
+      const build = builds[next++];
+      logAppBuildStart(build);
+      const started = Date.now();
+      try {
+        await runAppBuild(build, workspaceRoot);
+        timings.push({ app: build.app, ms: Date.now() - started });
+      } catch (error) {
+        failures.push({ app: build.app, error });
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, builds.length) }, worker),
+  );
+  if (failures.length > 0) {
+    const details = failures
+      .map(
+        ({ app, error }) =>
+          `${app}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      .join("; ");
+    throw new Error(
+      `${failures.length} app build(s) failed (${details}). Builds not yet started were skipped.`,
+    );
+  }
+  return timings;
+}
+
+function logAppBuildTimings(
+  timings: AppBuildTiming[],
+  concurrency: number,
+): void {
+  if (timings.length === 0) return;
+  const slowest = timings.reduce((a, b) => (b.ms > a.ms ? b : a));
+  const total = timings.reduce((sum, t) => sum + t.ms, 0);
+  console.log(
+    `[workspace-deploy] Built ${timings.length} app(s): ${formatSeconds(total)} of build time at concurrency ${concurrency}; slowest ${slowest.app} (${formatSeconds(slowest.ms)})`,
+  );
+}
+
+function formatSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function runAppBuildProcess(
+  build: PreparedAppBuild,
+  workspaceRoot: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("pnpm", ["--filter", build.app, "build"], {
+      cwd: workspaceRoot,
+      env: build.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    prefixLines(child.stdout, process.stdout, build.app);
+    prefixLines(child.stderr, process.stderr, build.app);
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      // The kernel OOM killer sends SIGKILL (exit 137); with builds running
+      // side by side that almost always means too many at once.
+      const oomHint =
+        signal === "SIGKILL" || code === 137
+          ? " (likely out of memory: lower --concurrency)"
+          : "";
+      reject(
+        new Error(
+          signal
+            ? `pnpm --filter ${build.app} build was killed by ${signal}${oomHint}`
+            : `pnpm --filter ${build.app} build exited with code ${code}${oomHint}`,
+        ),
+      );
+    });
   });
+}
+
+function prefixLines(
+  input: NodeJS.ReadableStream,
+  output: NodeJS.WritableStream,
+  app: string,
+): void {
+  readline
+    .createInterface({ input, crlfDelay: Infinity })
+    .on("line", (line) => output.write(`[${app}] ${line}\n`));
 }
 
 function moveAppBuildIntoWorkspaceOutput(
@@ -2023,6 +2185,50 @@ function parsePresetArg(args: string[]): WorkspaceDeployPreset | null {
     }
   }
   return null;
+}
+
+function parseConcurrencyArg(args: string[]): string | null {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--concurrency" && args[i + 1]) {
+      return args[i + 1];
+    }
+    if (arg.startsWith("--concurrency=")) {
+      return arg.slice("--concurrency=".length);
+    }
+  }
+  return null;
+}
+
+function resolveBuildConcurrency(
+  optionConcurrency: number | "auto" | undefined,
+  args: string[],
+  configConcurrency: number | "auto" | undefined,
+): number {
+  const flag = parseConcurrencyArg(args);
+  const value =
+    normalizeBuildConcurrency(optionConcurrency, "concurrency") ??
+    (flag === null
+      ? undefined
+      : normalizeBuildConcurrency(flag, "--concurrency")) ??
+    configConcurrency;
+  if (value === undefined) return 1;
+  return value === "auto" ? autoBuildConcurrency() : value;
+}
+
+// Measured peak per concurrent app build (Vite client + SSR, then Nitro) is
+// about 3.7 GiB. Running more builds than memory allows swaps or gets
+// OOM-killed on small CI builders long before cores run out.
+const APP_BUILD_MEMORY_BYTES = 4 * 1024 ** 3;
+
+function autoBuildConcurrency(): number {
+  // Container limits (cgroups) are invisible to os.totalmem(), which reports
+  // the host; without this, a capped CI container would be oversubscribed.
+  const limit = process.constrainedMemory();
+  const memory = limit > 0 && limit < os.totalmem() ? limit : os.totalmem();
+  const byCores = os.availableParallelism() - 1;
+  const byMemory = Math.floor(memory / APP_BUILD_MEMORY_BYTES);
+  return Math.max(1, Math.min(byCores, byMemory));
 }
 
 function resolvePreset(

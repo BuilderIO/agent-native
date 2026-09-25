@@ -140,6 +140,8 @@ Builds de espaço de trabalho hospedado exigem `A2A_SECRET` no ambiente do prove
 
 Está configurando um comando de build de provedor em vez de implantar manualmente? Adicione `--build-only` ao mesmo comando, por exemplo `npx @agent-native/core@latest deploy --preset vercel --build-only`. Isso grava a saída diretamente, então nenhum `vercel.json` é necessário para o roteamento do espaço de trabalho.
 
+Por padrão, os builds dos apps são executados um de cada vez. Para compilar vários ao mesmo tempo, defina `deployment.workspace.buildConcurrency` em `agent-native.config.ts` como um número ou `"auto"` (ajustado aos núcleos e à memória da máquina de build), substitua-o por ambiente com `AGENT_NATIVE_DEPLOY_CONCURRENCY` ou por execução com `--concurrency <n|auto>`. Cada build de app simultâneo pode usar cerca de 4 GB de memória; se um build for interrompido por falta de memória, reduza o valor.
+
 Prefere um domínio separado por app em vez de uma origem compartilhada? Todo app no espaço de trabalho ainda pode ser implantado de forma independente. Execute `cd apps/<name> && pnpm build` como um scaffold independente.
 
 </Callout>

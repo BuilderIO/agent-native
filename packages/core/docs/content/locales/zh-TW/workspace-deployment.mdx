@@ -140,6 +140,8 @@ npx @agent-native/core@latest deploy
 
 要接上提供者自己的建置指令，而不是手動部署嗎？在同一個指令後面加上 `--build-only`，例如 `npx @agent-native/core@latest deploy --preset vercel --build-only`。它會直接寫入輸出結果，因此工作區路由不需要 `vercel.json`。
 
+預設情況下，應用程式會逐一建置。如需同時建置多個應用程式，請在 `agent-native.config.ts` 中將 `deployment.workspace.buildConcurrency` 設為一個數字或 `"auto"`（依建置機器的 CPU 核心數與記憶體決定），也可以依環境使用 `AGENT_NATIVE_DEPLOY_CONCURRENCY`、依單次執行使用 `--concurrency <n|auto>` 覆寫。每個並行的應用程式建置大約會使用 4 GB 記憶體；若建置因記憶體不足而被終止，請調低該值。
+
 想要每個應用程式各自使用獨立網域，而不是共用一個來源嗎？工作區中的每個應用程式仍然可以獨立部署。像獨立的 scaffold 一樣執行 `cd apps/<name> && pnpm build` 即可。
 
 </Callout>

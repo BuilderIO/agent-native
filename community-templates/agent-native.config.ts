@@ -6,6 +6,7 @@ export default defineAgentNativeConfig({
       appsDirectory: ".",
       authMode: "shared",
       rootPage: "directory",
+      buildConcurrency: "auto",
     },
   },
 });

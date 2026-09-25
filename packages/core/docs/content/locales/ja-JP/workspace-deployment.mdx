@@ -140,6 +140,8 @@ npx @agent-native/core@latest deploy
 
 手動でデプロイする代わりにプロバイダーのビルドコマンドを組み込みますか？ 同じコマンドに `--build-only` を追加します。例えば `npx @agent-native/core@latest deploy --preset vercel --build-only` のようにします。これは出力を直接書き出すため、ワークスペースのルーティングに `vercel.json` は不要です。
 
+アプリのビルドは既定では 1 つずつ実行されます。複数を同時にビルドするには、`agent-native.config.ts` の `deployment.workspace.buildConcurrency` に数値または `"auto"`（ビルドマシンのコア数とメモリに合わせて決定）を設定します。環境ごとに `AGENT_NATIVE_DEPLOY_CONCURRENCY` で、実行ごとに `--concurrency <n|auto>` で上書きできます。同時に実行される各アプリのビルドは約 4 GB のメモリを使用することがあります。メモリ不足でビルドが強制終了された場合は、値を下げてください。
+
 1 つの共有オリジンではなく、アプリごとに別々のドメインを使いたいですか？ ワークスペース内のどのアプリも引き続き独立してデプロイ可能です。スタンドアロンのスキャフォールドと同様に `cd apps/<name> && pnpm build` を実行してください。
 
 </Callout>

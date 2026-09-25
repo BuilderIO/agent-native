@@ -140,6 +140,8 @@ Hosted कार्यस्थान builds के लिए deploy provider en
 
 हाथ से deploy करने के बजाय किसी provider का build command wire कर रहे हैं? उसी command में `--build-only` जोड़ें, उदाहरण के लिए `npx @agent-native/core@latest deploy --preset vercel --build-only`। यह आउटपुट सीधे लिखता है, इसलिए कार्यस्थान routing के लिए किसी `vercel.json` की ज़रूरत नहीं।
 
+डिफ़ॉल्ट रूप से ऐप बिल्ड एक-एक करके चलते हैं। एक साथ कई ऐप बिल्ड करने के लिए `agent-native.config.ts` में `deployment.workspace.buildConcurrency` को कोई संख्या या `"auto"` (बिल्ड मशीन के कोर और मेमोरी के अनुसार) पर सेट करें, हर एनवायरनमेंट के लिए `AGENT_NATIVE_DEPLOY_CONCURRENCY` से, या हर रन के लिए `--concurrency <n|auto>` से इसे ओवरराइड करें। हर समानांतर ऐप बिल्ड लगभग 4 GB मेमोरी इस्तेमाल कर सकता है; अगर कोई बिल्ड मेमोरी खत्म होने से रुक जाए, तो मान कम करें।
+
 एक shared origin के बजाय हर ऐप के लिए अलग domain पसंद करते हैं? कार्यस्थान का हर ऐप अब भी स्वतंत्र रूप से तैनात किया जा सकता है। एक standalone scaffold की तरह `cd apps/<name> && pnpm build` चलाएं।
 
 </Callout>

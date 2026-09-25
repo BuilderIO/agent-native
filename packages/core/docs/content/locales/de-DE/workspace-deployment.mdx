@@ -140,6 +140,8 @@ Gehostete Workspace-Builds erfordern `A2A_SECRET` in der Umgebung des Deploy-Anb
 
 Verdrahten Sie stattdessen einen Anbieter-Build-Befehl, statt von Hand bereitzustellen? Fügen Sie `--build-only` demselben Befehl hinzu, zum Beispiel `npx @agent-native/core@latest deploy --preset vercel --build-only`. Es schreibt die Ausgabe direkt, sodass für das Workspace-Routing keine `vercel.json` erforderlich ist.
 
+App-Builds laufen standardmäßig nacheinander. Um mehrere gleichzeitig zu bauen, setzen Sie `deployment.workspace.buildConcurrency` in `agent-native.config.ts` auf eine Zahl oder `"auto"` (passend zu Kernen und Arbeitsspeicher des Build-Rechners), überschreiben Sie den Wert pro Umgebung mit `AGENT_NATIVE_DEPLOY_CONCURRENCY` oder pro Lauf mit `--concurrency <n|auto>`. Jeder gleichzeitige App-Build kann etwa 4 GB Arbeitsspeicher belegen; wird ein Build wegen Speichermangels abgebrochen, senken Sie den Wert.
+
 Bevorzugen Sie eine separate Domain pro App statt eines gemeinsamen Ursprungs? Jede App im Arbeitsbereich bleibt weiterhin unabhängig bereitstellbar. Führen Sie `cd apps/<name> && pnpm build` wie bei einem eigenständigen Scaffold aus.
 
 </Callout>

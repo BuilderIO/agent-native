@@ -1394,6 +1394,7 @@ Options:
   --preset <name>               Workspace deploy preset:
                                 cloudflare_pages (default), netlify, or vercel
   --build-only                  Build workspace deploy artifacts without publishing
+  --concurrency <n|auto>        Workspace deploy app builds to run at once (default 1)
   --eager                       With workspace dev, start every app immediately
   --prewarm                     With workspace dev, warm non-default apps in the background
   --no-prewarm                  With workspace dev, keep non-default apps lazy

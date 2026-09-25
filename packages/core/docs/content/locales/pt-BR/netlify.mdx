@@ -39,6 +39,8 @@ npx @agent-native/core@latest deploy --preset netlify
 
 O build do espaço de trabalho grava assets estáticos em `dist/_workspace_static/` e roteia cada app para sua própria função Netlify sem redirecionamentos forçados de assets, então arquivos como `/mail/assets/...` são servidos estaticamente antes que a função do servidor trate as rotas do app.
 
+Compilando vários apps? Defina `deployment.workspace.buildConcurrency: "auto"` em `agent-native.config.ts` para compilá-los em paralelo, conforme os núcleos e a memória da máquina de build. Veja [Implantação do espaço de trabalho](/docs/workspace-deployment).
+
 ## Keep-warm e bancos de dados com escala a zero {#netlify-keep-warm}
 
 Quando habilitado, o build da Netlify emite uma função agendada que solicita `/_agent-native/health` **a cada minuto**. Isso mantém a função do servidor e seu banco de dados aquecidos, para que o próximo visitante após um período de inatividade não pague um cold start (1–5s no Neon).
