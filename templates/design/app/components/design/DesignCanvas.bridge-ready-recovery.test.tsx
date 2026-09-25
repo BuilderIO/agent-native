@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas one-shot bridge queue", () => {
-  it("updates local layers before a shared snapshot reservation resolves", async () => {
+  it("publishes local layers immediately and correlates reservation tokens by request id", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end("<!doctype html><html><body>Runtime</body></html>");
@@ -112,62 +112,85 @@ describe("DesignCanvas one-shot bridge queue", () => {
       "iframe[data-design-preview-iframe]",
     )!;
 
-    const sendSnapshot = async (html: string) => {
+    const sendBridgeMessage = async (data: Record<string, unknown>) => {
       await act(async () => {
         window.dispatchEvent(
           new MessageEvent("message", {
-            data: {
-              type: "agent-native:runtime-layer-snapshot",
-              payload: { html, nodeCount: 2 },
-            },
+            data,
             origin: bridgeUrl,
             source: iframe.contentWindow,
           }),
         );
       });
     };
-    await sendSnapshot("<body>Older</body>");
-    await sendSnapshot("<body>Latest</body>");
+    const requestReservation = (requestId: number) =>
+      sendBridgeMessage({
+        type: "agent-native:runtime-layer-snapshot-reservation-request",
+        requestId,
+      });
+    const sendSnapshot = (requestId: number, html: string) =>
+      sendBridgeMessage({
+        type: "agent-native:runtime-layer-snapshot",
+        payload: { requestId, html, nodeCount: 2 },
+      });
+    const expectImmediateSnapshot = async (requestId: number, html: string) => {
+      await sendSnapshot(requestId, html);
+      expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+        html,
+        nodeCount: 2,
+        documentId: undefined,
+        reservationToken: undefined,
+      });
+    };
+    const resolveReservation = async (index: number, token: string) => {
+      await act(async () => {
+        reservations[index]!.resolve({ reservationToken: token });
+        await reservations[index]!.promise;
+      });
+    };
 
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(2);
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledWith({
-      html: "<body>Older</body>",
-      nodeCount: 2,
-      documentId: undefined,
-      reservationToken: undefined,
-    });
-    expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
-      html: "<body>Latest</body>",
-      nodeCount: 2,
-      documentId: undefined,
-      reservationToken: undefined,
-    });
+    await requestReservation(41);
+    await requestReservation(42);
     expect(onReserveVisualEditSnapshot).toHaveBeenCalledTimes(2);
+    expect(onReserveVisualEditSnapshot).toHaveBeenNthCalledWith(
+      1,
+      "screen-live",
+    );
     expect(onReserveVisualEditSnapshot).toHaveBeenNthCalledWith(
       2,
       "screen-live",
     );
 
-    await act(async () => {
-      reservations[1]!.resolve({ reservationToken: "9" });
-      await reservations[1]!.promise;
-    });
+    await expectImmediateSnapshot(41, "<body>First</body>");
+    await expectImmediateSnapshot(42, "<body>Second</body>");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(2);
+
+    await resolveReservation(1, "reservation-for-42");
     expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
-      html: "<body>Latest</body>",
+      html: "<body>Second</body>",
       nodeCount: 2,
       documentId: undefined,
-      reservationToken: "9",
+      reservationToken: "reservation-for-42",
     });
-    await act(async () => {
-      reservations[0]!.resolve({ reservationToken: "8" });
-      await reservations[0]!.promise;
-    });
+
+    await resolveReservation(0, "reservation-for-41");
     expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
-    expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
-      html: "<body>Latest</body>",
+    expect(onRuntimeLayerSnapshot.mock.calls[2]?.[0]).toEqual({
+      html: "<body>Second</body>",
       nodeCount: 2,
       documentId: undefined,
-      reservationToken: "9",
+      reservationToken: "reservation-for-42",
+    });
+
+    await requestReservation(43);
+    await expectImmediateSnapshot(43, "<body>Third</body>");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
+    await resolveReservation(2, "reservation-for-43");
+    expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+      html: "<body>Third</body>",
+      nodeCount: 2,
+      documentId: undefined,
+      reservationToken: "reservation-for-43",
     });
   });
 

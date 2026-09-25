@@ -4,8 +4,34 @@ const mocks = vi.hoisted(() => {
   const update = { set: vi.fn(), where: vi.fn() };
   update.set.mockReturnValue(update);
   update.where.mockResolvedValue(undefined);
+  const designSelect = {
+    from: vi.fn(),
+    where: vi.fn(),
+    for: vi.fn(),
+    limit: vi.fn(),
+  };
+  designSelect.from.mockReturnValue(designSelect);
+  designSelect.where.mockReturnValue(designSelect);
+  designSelect.for.mockReturnValue(designSelect);
+  designSelect.limit.mockResolvedValue([{ id: "design-one" }]);
+  const snapshotDelete = { where: vi.fn(), returning: vi.fn() };
+  snapshotDelete.where.mockReturnValue(snapshotDelete);
+  snapshotDelete.returning.mockResolvedValue([]);
+  const tx = {
+    select: vi.fn(() => designSelect),
+    update: vi.fn(() => update),
+    delete: vi.fn(() => snapshotDelete),
+  };
   return {
-    designs: { id: "designs.id", liveCollaborationEnabled: "designs.enabled" },
+    designs: {
+      id: "designs.id",
+      liveCollaborationEnabled: "designs.enabled",
+      updatedAt: "designs.updatedAt",
+    },
+    snapshots: {
+      designId: "snapshots.designId",
+      blobHandle: "snapshots.blobHandle",
+    },
     design: { liveCollaborationEnabled: false },
     assertAccess: vi.fn(),
     currentAccess: vi.fn(() => ({
@@ -13,8 +39,16 @@ const mocks = vi.hoisted(() => {
       authCapability: "capability:visual-edit:design:design-one",
     })),
     getRequestUserEmail: vi.fn((): string | undefined => "owner@example.test"),
-    getDb: vi.fn(() => ({ update: vi.fn(() => update) })),
+    withDesignSourceMutationTransaction: vi.fn(
+      async (_designId: string, callback: (tx: unknown) => Promise<unknown>) =>
+        callback(tx),
+    ),
+    queueCleanup: vi.fn(),
+    deleteBlobs: vi.fn(),
+    tx,
     update,
+    designSelect,
+    snapshotDelete,
   };
 });
 
@@ -35,8 +69,18 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((left, right) => ({ left, right })),
 }));
 vi.mock("../server/db/index.js", () => ({
-  getDb: mocks.getDb,
-  schema: { designs: mocks.designs },
+  schema: {
+    designs: mocks.designs,
+    designVisualEditSnapshots: mocks.snapshots,
+  },
+}));
+vi.mock("../server/source-workspace.js", () => ({
+  withDesignSourceMutationTransaction:
+    mocks.withDesignSourceMutationTransaction,
+}));
+vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
+  deleteVisualEditSnapshotBlobs: mocks.deleteBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction: mocks.queueCleanup,
 }));
 
 import getCollaborationAction from "./get-visual-edit-collaboration.js";
@@ -56,9 +100,13 @@ describe("visual-edit collaboration preference", () => {
       userEmail: "owner@example.test",
       authCapability: "capability:visual-edit:design:design-one",
     });
-    mocks.getDb.mockClear();
+    mocks.withDesignSourceMutationTransaction.mockClear();
+    mocks.queueCleanup.mockClear();
+    mocks.deleteBlobs.mockClear();
     mocks.update.set.mockClear();
     mocks.update.where.mockClear();
+    mocks.tx.delete.mockClear();
+    mocks.snapshotDelete.returning.mockResolvedValue([]);
   });
 
   it("gets the persisted preference with viewer access", async () => {
@@ -96,6 +144,8 @@ describe("visual-edit collaboration preference", () => {
     expect(mocks.update.set).toHaveBeenCalledWith(
       expect.objectContaining({ liveCollaborationEnabled: true }),
     );
+    expect(mocks.withDesignSourceMutationTransaction).toHaveBeenCalled();
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
     expect(getCollaborationAction).toMatchObject({ requiresAuth: false });
 
     mocks.getRequestUserEmail.mockReturnValueOnce(undefined);
@@ -105,6 +155,26 @@ describe("visual-edit collaboration preference", () => {
         { caller: "frontend" },
       ),
     ).rejects.toMatchObject({ errorCode: "visual_edit_account_required" });
+  });
+
+  it("deletes snapshot rows and queues blob cleanup when collaboration is disabled", async () => {
+    mocks.snapshotDelete.returning.mockResolvedValue([
+      { blobHandle: "snapshot-blob" },
+      { blobHandle: null },
+    ]);
+
+    await expect(
+      updateCollaborationAction.run(
+        { designId: "design-one", enabled: false },
+        { caller: "frontend" },
+      ),
+    ).resolves.toEqual({ designId: "design-one", enabled: false });
+
+    expect(mocks.queueCleanup).toHaveBeenCalledWith(mocks.tx, [
+      "snapshot-blob",
+      null,
+    ]);
+    expect(mocks.deleteBlobs).toHaveBeenCalledWith(["snapshot-blob", null]);
   });
 
   it("does not let a signed-in viewer's visual-edit capability grant editor access", async () => {

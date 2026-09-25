@@ -2188,7 +2188,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot(reservationToken) {
+    function postRuntimeLayerSnapshot(reservationToken, requestId) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2202,7 +2202,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-error",
-            payload: snapshot
+            payload: { ...snapshot, requestId }
           },
           "*"
         );
@@ -2210,10 +2210,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var snapshotReservationToken = reservationToken || "";
       if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-unchanged",
+            payload: { requestId }
+          },
+          "*"
+        );
         return;
       }
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+      if (requestId !== void 0) snapshot.requestId = requestId;
       if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
@@ -19862,7 +19870,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         postRuntimeLayerSnapshot(
-          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0
+          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0,
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
         );
         return;
       }

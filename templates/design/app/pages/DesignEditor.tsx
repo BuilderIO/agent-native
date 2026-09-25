@@ -992,6 +992,7 @@ import {
   mergeAuthoredAndLiveRect,
   type ReflowCandidate,
 } from "./design-editor/layout-operations";
+import { reconcileLiveCollaborationOverride } from "./design-editor/live-collaboration-override";
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   hasMinimalInspectorSelection,
@@ -4135,6 +4136,7 @@ function DesignEditor() {
     error: designQueryError,
     isError: designQueryFailed,
     isLoading: designLoading,
+    dataUpdatedAt: designDataUpdatedAt,
     refetch: refetchDesign,
   } = useActionQuery<DesignData | string>(
     "get-design",
@@ -4258,13 +4260,24 @@ function DesignEditor() {
   }
   const visualEditSnapshotPublicationState =
     visualEditSnapshotPublicationStateRef.current;
-  const [liveCollaborationOverride, setLiveCollaborationOverride] = useState<
-    boolean | null
-  >(null);
+  const [liveCollaborationOverride, setLiveCollaborationOverride] = useState<{
+    enabled: boolean;
+    observedDataUpdatedAt: number;
+  } | null>(null);
   const [liveCollaborationSaving, setLiveCollaborationSaving] = useState(false);
   const liveCollaborationEnabled =
-    liveCollaborationOverride ?? design?.liveCollaborationEnabled === true;
+    liveCollaborationOverride?.enabled ??
+    design?.liveCollaborationEnabled === true;
   useEffect(() => setLiveCollaborationOverride(null), [id]);
+  useEffect(() => {
+    setLiveCollaborationOverride((override) =>
+      reconcileLiveCollaborationOverride(
+        override,
+        design?.liveCollaborationEnabled,
+        designDataUpdatedAt,
+      ),
+    );
+  }, [design?.liveCollaborationEnabled, designDataUpdatedAt]);
   const handleLiveCollaborationChange = useCallback(
     async (enabled: boolean) => {
       if (!id || !isSignedIn || !canEditDesign || liveCollaborationSaving)
@@ -4275,7 +4288,10 @@ function DesignEditor() {
           designId: string;
           enabled: boolean;
         }>("update-visual-edit-collaboration", { designId: id, enabled });
-        setLiveCollaborationOverride(result.enabled);
+        setLiveCollaborationOverride({
+          enabled: result.enabled,
+          observedDataUpdatedAt: designDataUpdatedAt,
+        });
         if (result.enabled) {
           setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
         } else {
@@ -4283,8 +4299,18 @@ function DesignEditor() {
             visualEditSnapshotPublicationState,
           );
         }
-        await refetchDesign().catch(() => undefined);
-        setLiveCollaborationOverride(null);
+        try {
+          const refreshed = await refetchDesign();
+          if (
+            refreshed.isSuccess &&
+            isDesignData(refreshed.data) &&
+            typeof refreshed.data.liveCollaborationEnabled === "boolean"
+          ) {
+            setLiveCollaborationOverride(null);
+          }
+        } catch {
+          // Keep the successful mutation value visible until a later query confirms it.
+        }
       } catch (error) {
         toast.error(
           actionErrorMessage(error) ??
@@ -4299,6 +4325,7 @@ function DesignEditor() {
       id,
       isSignedIn,
       liveCollaborationSaving,
+      designDataUpdatedAt,
       refetchDesign,
       t,
       visualEditSnapshotPublicationState,

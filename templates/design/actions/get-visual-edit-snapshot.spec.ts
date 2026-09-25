@@ -15,9 +15,18 @@ const mocks = vi.hoisted(() => {
   };
   fileQuery.from.mockReturnValue(fileQuery);
   fileQuery.where.mockReturnValue(fileQuery);
-  const select = vi.fn((selection) =>
-    selection?.content === "files.content" ? fileQuery : query,
-  );
+  const designQuery = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
+  designQuery.from.mockReturnValue(designQuery);
+  designQuery.where.mockReturnValue(designQuery);
+  const select = vi.fn((selection) => {
+    if (
+      selection?.data === "designs.data" ||
+      selection?.liveCollaborationEnabled === "designs.enabled"
+    ) {
+      return designQuery;
+    }
+    return selection?.content === "files.content" ? fileQuery : query;
+  });
 
   return {
     files: {
@@ -25,6 +34,11 @@ const mocks = vi.hoisted(() => {
       designId: "files.designId",
       content: "files.content",
       fileType: "files.fileType",
+    },
+    designs: {
+      id: "designs.id",
+      data: "designs.data",
+      liveCollaborationEnabled: "designs.enabled",
     },
     snapshots: {
       designId: "snapshots.designId",
@@ -47,6 +61,7 @@ const mocks = vi.hoisted(() => {
     getDb: vi.fn(() => ({ select })),
     query,
     fileQuery,
+    designQuery,
     design: {
       liveCollaborationEnabled: true,
       data: JSON.stringify({
@@ -88,9 +103,17 @@ vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
   schema: {
     designFiles: mocks.files,
-    designs: {},
+    designs: mocks.designs,
     designVisualEditSnapshots: mocks.snapshots,
   },
+}));
+vi.mock("../server/source-workspace.js", () => ({
+  withDesignSourceMutationTransaction: vi.fn(
+    (
+      _designId: string,
+      callback: (tx: { select: typeof mocks.select }) => unknown,
+    ) => callback({ select: mocks.select }),
+  ),
 }));
 
 import getSnapshotAction from "./get-visual-edit-snapshot.js";
@@ -114,10 +137,13 @@ describe("get visual-edit fallback snapshot", () => {
     mocks.fileQuery.limit.mockResolvedValue([
       { content: "http://localhost:5173/", fileType: "html" },
     ]);
+    mocks.designQuery.limit.mockResolvedValue([mocks.design]);
+    mocks.query.limit.mockResolvedValue([]);
   });
 
   it("requires design viewer access and scopes the snapshot to its screen", async () => {
     const result = {
+      html: "",
       blobHandle: JSON.stringify(mocks.blob),
       updatedAt: "2026-09-24T00:00:00.000Z",
       publishedRevision: 3n,
@@ -246,8 +272,10 @@ describe("get visual-edit fallback snapshot", () => {
       publishedRevision: "3",
       unchanged: true,
     });
-    expect(mocks.select).toHaveBeenCalledTimes(2);
+    expect(mocks.select).toHaveBeenCalledTimes(3);
     expect(mocks.select).toHaveBeenCalledWith({
+      html: "snapshots.html",
+      blobHandle: "snapshots.blobHandle",
       updatedAt: "snapshots.updatedAt",
       publishedRevision: "snapshots.publishedRevision",
     });
@@ -279,22 +307,18 @@ describe("get visual-edit fallback snapshot", () => {
       publishedRevision: "3",
       unchanged: true,
     });
-    expect(mocks.select).toHaveBeenCalledTimes(2);
+    expect(mocks.select).toHaveBeenCalledTimes(3);
   });
 
   it("fetches a new revision even when its timestamp matches the cached one", async () => {
-    mocks.query.limit
-      .mockResolvedValueOnce([
-        { updatedAt: "2026-09-24T00:00:00.000Z", publishedRevision: 4n },
-      ])
-      .mockResolvedValueOnce([
-        {
-          html: "<html><body>New revision</body></html>",
-          blobHandle: null,
-          updatedAt: "2026-09-24T00:00:00.000Z",
-          publishedRevision: 4n,
-        },
-      ]);
+    mocks.query.limit.mockResolvedValue([
+      {
+        html: "<html><body>New revision</body></html>",
+        blobHandle: null,
+        updatedAt: "2026-09-24T00:00:00.000Z",
+        publishedRevision: 4n,
+      },
+    ]);
 
     await expect(
       getSnapshotAction.run(

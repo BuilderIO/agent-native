@@ -31,6 +31,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { chromium } from "@playwright/test";
+import { build } from "esbuild";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
@@ -82,10 +83,11 @@ function hydratedEditorChromeBridgeScript(
   runtimeLayerSnapshotEnabled = false,
   screenId = "bridge-guard",
   boardSurface = true,
+  script = editorChromeBridgeScript,
 ): string {
   // Most bridge guards exercise the infinite-canvas/Figma policy. Pass false
   // explicitly when a test is asserting the screen's direct-click exception.
-  return editorChromeBridgeScript
+  return script
     .replace("__READ_ONLY__", "false")
     .replace("__TEXT_EDITING_ENABLED__", "false")
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
@@ -9162,7 +9164,7 @@ it(
 );
 
 it(
-  "serializes snapshot reservations and publishes a newer capture after pending DOM changes",
+  "serializes snapshot reservations and correlates the coalesced capture with its request id",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -9171,11 +9173,28 @@ it(
       await page.setContent(
         "<!doctype html><html><body><h1>Canvas</h1></body></html>",
       );
+      // Test the in-progress bridge source without rewriting the generated file.
+      const sourceBuild = await build({
+        entryPoints: [join(bridgeDir, "editor-chrome.bridge.ts")],
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: "es2020",
+        write: false,
+        external: [],
+      });
+      const sourceScript = sourceBuild.outputFiles[0]?.text;
+      if (!sourceScript) throw new Error("Bridge source compilation failed");
       await collectBridgeMessages(page, {
         grantSnapshotReservations: false,
       });
       await page.addScriptTag({
-        content: hydratedEditorChromeBridgeScript(true),
+        content: hydratedEditorChromeBridgeScript(
+          true,
+          "bridge-guard",
+          true,
+          sourceScript,
+        ),
       });
       await page.waitForFunction(
         () =>
@@ -9195,6 +9214,10 @@ it(
             "agent-native:runtime-layer-snapshot-reservation-request",
         ),
       );
+      await page.locator("h1").evaluate((element) => {
+        element.textContent = "Latest canvas";
+      });
+      await page.waitForTimeout(350);
       await page.evaluate(() => {
         window.postMessage({ type: "request-runtime-layer-snapshot" }, "*");
         window.postMessage({ type: "request-runtime-layer-snapshot" }, "*");
@@ -9219,6 +9242,8 @@ it(
               message.type ===
               "agent-native:runtime-layer-snapshot-reservation-request",
           ).length === 2,
+        undefined,
+        { timeout: 5_000 },
       );
       const requestIds = await page.evaluate(() =>
         ((window as any).__bridgeMessages ?? [])
@@ -9244,13 +9269,48 @@ it(
           "*",
         );
       }, requestIds[1]);
-      await page.waitForFunction(() =>
-        ((window as any).__bridgeMessages ?? []).some(
+      await page.waitForFunction(
+        (requestId) =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot" &&
+              message.payload?.requestId === requestId &&
+              message.payload?.reservationToken === "capture-two",
+          ),
+        requestIds[1],
+        { timeout: 5_000 },
+      );
+      const reservedSnapshots = await page.evaluate(() =>
+        ((window as any).__bridgeMessages ?? [])
+          .filter(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot" &&
+              message.payload?.reservationToken,
+          )
+          .map((message: any) => ({
+            requestId: message.payload.requestId,
+            reservationToken: message.payload.reservationToken,
+            html: message.payload.html,
+          })),
+      );
+      expect(reservedSnapshots).toEqual([
+        {
+          requestId: requestIds[1],
+          reservationToken: "capture-two",
+          html: expect.stringContaining("Latest canvas"),
+        },
+      ]);
+      const snapshots = await page.evaluate(() =>
+        ((window as any).__bridgeMessages ?? []).filter(
           (message: any) =>
-            message.type === "agent-native:runtime-layer-snapshot" &&
-            message.payload?.reservationToken === "capture-two",
+            message.type === "agent-native:runtime-layer-snapshot",
         ),
       );
+      expect(snapshots).toHaveLength(1);
+      expect(snapshots[0].payload).toMatchObject({
+        requestId: requestIds[1],
+        reservationToken: "capture-two",
+      });
     } finally {
       await browser.close();
     }

@@ -4,9 +4,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { parseVisualEditSnapshotBlobHandle } from "../server/lib/visual-edit-snapshot-blobs.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { assertLocalhostScreenMetadata } from "./publish-visual-edit-snapshot.js";
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
@@ -51,107 +52,105 @@ export default defineAction({
       };
     }
 
-    const db = getDb();
-    const [file] = await db
-      .select({
-        content: schema.designFiles.content,
-        fileType: schema.designFiles.fileType,
-      })
-      .from(schema.designFiles)
-      .where(
-        and(
-          eq(schema.designFiles.designId, designId),
-          eq(schema.designFiles.id, fileId),
-        ),
-      )
-      .limit(1);
-    if (!file) {
-      fail("The screen does not belong to this design.", {
-        errorCode: "visual_edit_snapshot_file_mismatch",
-      });
-    }
-    if (file.fileType.toLowerCase() !== "html") {
-      fail("Visual-edit snapshots can only be read for HTML screens.", {
-        errorCode: "visual_edit_snapshot_not_html",
-      });
-    }
-    assertLocalhostScreenMetadata(design.data, fileId, file.content);
-
     const table = schema.designVisualEditSnapshots;
     const where = and(eq(table.designId, designId), eq(table.fileId, fileId));
-    const [latest] = await db
-      .select({
-        updatedAt: table.updatedAt,
-        publishedRevision: table.publishedRevision,
-      })
-      .from(table)
-      .where(where)
-      .limit(1);
+    const snapshot = await withDesignSourceMutationTransaction(
+      designId,
+      async (tx) => {
+        const [currentDesign] = await tx
+          .select({
+            data: schema.designs.data,
+            liveCollaborationEnabled: schema.designs.liveCollaborationEnabled,
+          })
+          .from(schema.designs)
+          .where(eq(schema.designs.id, designId))
+          .limit(1);
+        if (currentDesign?.liveCollaborationEnabled !== true) return null;
 
-    if (!latest) {
-      return {
-        designId,
-        fileId,
-        html: null,
-        updatedAt: null,
-        publishedRevision: null,
-        unchanged: false,
-      };
-    }
-    const latestRevision = latest.publishedRevision.toString();
-    const alreadyHasLatest =
-      knownPublishedRevision != null
-        ? latestRevision === knownPublishedRevision
-        : Boolean(knownUpdatedAt && latest.updatedAt === knownUpdatedAt);
-    if (alreadyHasLatest) {
-      return {
-        designId,
-        fileId,
-        html: null,
-        updatedAt: latest.updatedAt,
-        publishedRevision: latestRevision,
-        unchanged: true,
-      };
-    }
+        const [file] = await tx
+          .select({
+            content: schema.designFiles.content,
+            fileType: schema.designFiles.fileType,
+          })
+          .from(schema.designFiles)
+          .where(
+            and(
+              eq(schema.designFiles.designId, designId),
+              eq(schema.designFiles.id, fileId),
+            ),
+          )
+          .limit(1);
+        if (!file) {
+          fail("The screen does not belong to this design.", {
+            errorCode: "visual_edit_snapshot_file_mismatch",
+          });
+        }
+        if (file.fileType.toLowerCase() !== "html") {
+          fail("Visual-edit snapshots can only be read for HTML screens.", {
+            errorCode: "visual_edit_snapshot_not_html",
+          });
+        }
+        assertLocalhostScreenMetadata(currentDesign.data, fileId, file.content);
 
-    const [snapshot] = await db
-      .select({
-        html: table.html,
-        blobHandle: table.blobHandle,
-        updatedAt: table.updatedAt,
-        publishedRevision: table.publishedRevision,
-      })
-      .from(table)
-      .where(where)
-      .limit(1);
-    const hasSnapshot = Boolean(snapshot?.blobHandle || snapshot?.html);
-    if (!hasSnapshot || !snapshot) {
-      return {
-        designId,
-        fileId,
-        html: null,
-        updatedAt: null,
-        publishedRevision: latestRevision,
-        unchanged: false,
-      };
+        const [row] = await tx
+          .select({
+            html: table.html,
+            blobHandle: table.blobHandle,
+            updatedAt: table.updatedAt,
+            publishedRevision: table.publishedRevision,
+          })
+          .from(table)
+          .where(where)
+          .limit(1);
+        if (!row) return { kind: "empty" as const, publishedRevision: null };
+
+        const publishedRevision = row.publishedRevision.toString();
+        const unchanged =
+          knownPublishedRevision != null
+            ? publishedRevision === knownPublishedRevision
+            : Boolean(knownUpdatedAt && row.updatedAt === knownUpdatedAt);
+        if (unchanged) {
+          return {
+            kind: "unchanged" as const,
+            updatedAt: row.updatedAt,
+            publishedRevision,
+          };
+        }
+        if (!row.blobHandle && !row.html) {
+          return { kind: "empty" as const, publishedRevision };
+        }
+        return {
+          kind: "snapshot" as const,
+          html: row.html,
+          blobHandle: row.blobHandle,
+          updatedAt: row.updatedAt,
+          publishedRevision,
+        };
+      },
+    );
+
+    const empty = {
+      designId,
+      fileId,
+      html: null,
+      updatedAt: null,
+      publishedRevision: null,
+      unchanged: false,
+    };
+    if (!snapshot) return empty;
+    if (snapshot.kind === "empty") {
+      return { ...empty, publishedRevision: snapshot.publishedRevision };
     }
-    const snapshotRevision = snapshot.publishedRevision.toString();
-    const alreadyHasSnapshot =
-      knownPublishedRevision != null
-        ? snapshotRevision === knownPublishedRevision
-        : Boolean(knownUpdatedAt && snapshot.updatedAt === knownUpdatedAt);
-    if (alreadyHasSnapshot) {
+    if (snapshot.kind === "unchanged") {
       return {
-        designId,
-        fileId,
-        html: null,
+        ...empty,
         updatedAt: snapshot.updatedAt,
-        publishedRevision: snapshotRevision,
+        publishedRevision: snapshot.publishedRevision,
         unchanged: true,
       };
     }
 
-    let html: string;
+    let html = snapshot.html;
     if (snapshot.blobHandle) {
       const blob = await readPrivateBlob(
         parseVisualEditSnapshotBlobHandle(snapshot.blobHandle),
@@ -160,20 +159,50 @@ export default defineAction({
         throw new Error("Stored visual-edit snapshot exceeds the 1 MiB limit.");
       }
       html = new TextDecoder("utf-8", { fatal: true }).decode(blob.data);
-    } else {
-      // Existing pre-blob rows stay readable until an owner publishes their next snapshot.
-      html = snapshot.html;
-      if (new TextEncoder().encode(html).byteLength > MAX_SNAPSHOT_BYTES) {
-        throw new Error("Stored visual-edit snapshot exceeds the 1 MiB limit.");
-      }
     }
+    if (new TextEncoder().encode(html).byteLength > MAX_SNAPSHOT_BYTES) {
+      throw new Error("Stored visual-edit snapshot exceeds the 1 MiB limit.");
+    }
+
+    // Keep remote blob I/O outside the lock, then reject opt-out or replacement races.
+    const stillCurrent = await withDesignSourceMutationTransaction(
+      designId,
+      async (tx) => {
+        const [currentDesign] = await tx
+          .select({
+            liveCollaborationEnabled: schema.designs.liveCollaborationEnabled,
+          })
+          .from(schema.designs)
+          .where(eq(schema.designs.id, designId))
+          .limit(1);
+        if (currentDesign?.liveCollaborationEnabled !== true) return false;
+        const [current] = await tx
+          .select({
+            html: table.html,
+            blobHandle: table.blobHandle,
+            updatedAt: table.updatedAt,
+            publishedRevision: table.publishedRevision,
+          })
+          .from(table)
+          .where(where)
+          .limit(1);
+        return Boolean(
+          current &&
+          current.html === snapshot.html &&
+          current.blobHandle === snapshot.blobHandle &&
+          current.updatedAt === snapshot.updatedAt &&
+          current.publishedRevision.toString() === snapshot.publishedRevision,
+        );
+      },
+    );
+    if (!stillCurrent) return empty;
 
     return {
       designId,
       fileId,
       html,
       updatedAt: snapshot.updatedAt,
-      publishedRevision: snapshotRevision,
+      publishedRevision: snapshot.publishedRevision,
       unchanged: false,
     };
   },

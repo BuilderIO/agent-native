@@ -2285,6 +2285,24 @@ export function DesignCanvas({
   const renderedContentRef = useRef(renderedContent);
   renderedContentRef.current = renderedContent;
   const runtimeLayerSnapshotGenerationRef = useRef(0);
+  const pendingRuntimeLayerSnapshotReservationsRef = useRef(
+    new Map<
+      number,
+      {
+        promise: Promise<{ reservationToken: string } | { error: unknown }>;
+        timeout: number;
+      }
+    >(),
+  );
+  useEffect(
+    () => () => {
+      for (const reservation of pendingRuntimeLayerSnapshotReservationsRef.current.values()) {
+        window.clearTimeout(reservation.timeout);
+      }
+      pendingRuntimeLayerSnapshotReservationsRef.current.clear();
+    },
+    [],
+  );
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
@@ -4250,10 +4268,55 @@ export function DesignCanvas({
       }
       if (!e.data || !e.data.type) return;
       if (
+        e.data.type === "agent-native:runtime-layer-snapshot-error" ||
+        e.data.type === "agent-native:runtime-layer-snapshot-unchanged"
+      ) {
+        const requestId = e.data.payload?.requestId;
+        if (Number.isSafeInteger(requestId)) {
+          const pending =
+            pendingRuntimeLayerSnapshotReservationsRef.current.get(
+              requestId as number,
+            );
+          if (pending) {
+            window.clearTimeout(pending.timeout);
+            pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+              requestId as number,
+            );
+          }
+        }
+        return;
+      }
+      if (
         e.data.type ===
         "agent-native:runtime-layer-snapshot-reservation-request"
       ) {
         if (!Number.isSafeInteger(e.data.requestId)) return;
+        if (
+          sourceType === "localhost" &&
+          !snapshotOnly &&
+          onReserveVisualEditSnapshot
+        ) {
+          const requestId = e.data.requestId as number;
+          const promise = Promise.resolve()
+            .then(() => onReserveVisualEditSnapshot(screenId))
+            .then(
+              ({ reservationToken }) => ({ reservationToken }),
+              (error: unknown) => ({ error }),
+            );
+          const timeout = window.setTimeout(() => {
+            const current =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(requestId);
+            if (current?.promise === promise) {
+              pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+                requestId,
+              );
+            }
+          }, 15_000);
+          pendingRuntimeLayerSnapshotReservationsRef.current.set(requestId, {
+            promise,
+            timeout,
+          });
+        }
         const grantSnapshot = (reservationToken?: string) =>
           postOneShotBridgeMessage({
             type: "grant-runtime-layer-snapshot-reservation",
@@ -4405,31 +4468,58 @@ export function DesignCanvas({
             typeof payload.reservationToken === "string"
               ? payload.reservationToken
               : undefined;
+          const requestId = Number.isSafeInteger(payload.requestId)
+            ? (payload.requestId as number)
+            : undefined;
+          const reservations =
+            pendingRuntimeLayerSnapshotReservationsRef.current;
+          const pendingReservation =
+            requestId === undefined
+              ? reservations.values().next().value
+              : reservations.get(requestId);
+          if (pendingReservation) {
+            window.clearTimeout(pendingReservation.timeout);
+            for (const [pendingId, reservation] of reservations) {
+              if (reservation === pendingReservation) {
+                reservations.delete(pendingId);
+                break;
+              }
+            }
+          }
           onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
-          if (
-            !reservationToken &&
+          const reservationPromise =
+            pendingReservation?.promise ??
+            (requestId === undefined &&
             onReserveVisualEditSnapshot &&
             sourceType === "localhost"
-          ) {
-            void onReserveVisualEditSnapshot(screenId)
-              .then(({ reservationToken: reservedToken }) => {
-                if (
-                  runtimeLayerSnapshotGenerationRef.current !==
-                  snapshotGeneration
-                ) {
-                  return;
-                }
-                onRuntimeLayerSnapshot?.({
-                  ...snapshot,
-                  reservationToken: reservedToken,
-                });
-              })
-              .catch((error: unknown) => {
+              ? Promise.resolve()
+                  .then(() => onReserveVisualEditSnapshot(screenId))
+                  .then(
+                    ({ reservationToken: reservedToken }) => ({
+                      reservationToken: reservedToken,
+                    }),
+                    (error: unknown) => ({ error }),
+                  )
+              : null);
+          if (!reservationToken && reservationPromise) {
+            void reservationPromise.then((result) => {
+              if (!("reservationToken" in result)) {
                 console.warn(
                   "[design:visual-edit] shared snapshot reservation failed",
-                  { screenId, error },
+                  { screenId, error: result.error },
                 );
+                return;
+              }
+              if (
+                runtimeLayerSnapshotGenerationRef.current !== snapshotGeneration
+              ) {
+                return;
+              }
+              onRuntimeLayerSnapshot?.({
+                ...snapshot,
+                reservationToken: result.reservationToken,
               });
+            });
           }
         }
         return;
