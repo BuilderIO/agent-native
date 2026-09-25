@@ -48,6 +48,8 @@ import {
   resolveAssistantRequestId,
   findAssistantChatHistoryBeginningVersion,
   findMatchingAssistantChatHistoryVersion,
+  AssistantChatHistoryBeginningRevertButton,
+  AssistantChatHistoryContext,
   AssistantMessage,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
@@ -240,6 +242,47 @@ describe("assistant request ID resolution", () => {
 });
 
 describe("assistant chat history matching", () => {
+  it("hides beginning revert while a chat run is active", async () => {
+    const restoreVersion = vi.fn(async () => {});
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const testContainer = document.createElement("div");
+    document.body.appendChild(testContainer);
+    const testRoot = createRoot(testContainer);
+    try {
+      await act(async () => {
+        testRoot.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <ChatRunningContext.Provider value>
+              <AssistantChatHistoryContext.Provider
+                value={{
+                  beginningVersion: {
+                    id: "beginning",
+                    createdAt: "2026-01-01T00:00:00.000Z",
+                  },
+                  findVersion: () => null,
+                  restoreVersion,
+                }}
+              >
+                <AssistantChatHistoryBeginningRevertButton />
+              </AssistantChatHistoryContext.Provider>
+            </ChatRunningContext.Provider>
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      expect(testContainer.querySelector("button")).toBeNull();
+      expect(restoreVersion).not.toHaveBeenCalled();
+    } finally {
+      act(() => testRoot.unmount());
+      testContainer.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("requires a completed side effect and picks the latest version in the turn", () => {
     const versions = [
       {

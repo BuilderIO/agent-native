@@ -49,7 +49,9 @@ export default defineAction({
           .where(where)
           .orderBy(desc(schema.documentVersions.createdAt))
           .limit(args.limit);
-    const escapedThreadId = args.threadId?.replace(/[\\%_]/g, "\\$&");
+    const escapedThreadId = args.threadId
+      ? JSON.stringify(args.threadId).replace(/[\\%_]/g, "\\$&")
+      : undefined;
     const beginningVersions = args.threadId
       ? args.includeContent
         ? await db
@@ -61,7 +63,7 @@ export default defineAction({
                 like(schema.documentVersions.chatContext, '%"phase":"start"%'),
                 like(
                   schema.documentVersions.chatContext,
-                  `%"threadId":"${escapedThreadId}"%`,
+                  `%"threadId":${escapedThreadId}%`,
                 ),
               ),
             )
@@ -82,7 +84,7 @@ export default defineAction({
                 like(schema.documentVersions.chatContext, '%"phase":"start"%'),
                 like(
                   schema.documentVersions.chatContext,
-                  `%"threadId":"${escapedThreadId}"%`,
+                  `%"threadId":${escapedThreadId}%`,
                 ),
               ),
             )
@@ -118,7 +120,7 @@ export default defineAction({
             .orderBy(desc(schema.documentVersions.createdAt))
             .limit(args.limit);
     const versionsById = new Map(
-      [...versions, ...beginningVersions].map((version) => [
+      [...beginningVersions, ...versions].map((version) => [
         version.id,
         version,
       ]),
@@ -126,8 +128,12 @@ export default defineAction({
 
     const mergedVersions = [...versionsById.values()].filter((version) => {
       if (!args.threadId || !beginningVersions.includes(version)) return true;
-      const context = parseDocumentVersionChatContext(version.chatContext);
-      return context?.threadId === args.threadId && context.phase === "start";
+      try {
+        const context = parseDocumentVersionChatContext(version.chatContext);
+        return context?.threadId === args.threadId && context.phase === "start";
+      } catch {
+        return false;
+      }
     });
     const sortedVersions = mergedVersions.sort(
       (left, right) =>

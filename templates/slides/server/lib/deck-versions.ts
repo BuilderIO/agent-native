@@ -211,6 +211,10 @@ export async function createDeckChatBeginningSnapshot(
   source: DeckSnapshotSource,
   run: { threadId: string; runId: string },
 ): Promise<{ created: boolean; id?: string; reason?: string }> {
+  const escapedThreadId = JSON.stringify(run.threadId).replace(
+    /[\\%_]/g,
+    "\\$&",
+  );
   const rows = await getDb()
     .select({ chatContext: schema.deckVersions.chatContext })
     .from(schema.deckVersions)
@@ -219,14 +223,21 @@ export async function createDeckChatBeginningSnapshot(
         eq(schema.deckVersions.deckId, source.id),
         eq(schema.deckVersions.ownerEmail, source.ownerEmail),
         like(schema.deckVersions.chatContext, '%"phase":"start"%'),
-        like(schema.deckVersions.chatContext, `%"threadId":"${run.threadId}"%`),
+        like(
+          schema.deckVersions.chatContext,
+          `%"threadId":${escapedThreadId}%`,
+        ),
       ),
     )
     .limit(1);
   if (
     rows.some((row) => {
-      const context = parseDeckVersionChatContext(row.chatContext);
-      return context?.threadId === run.threadId && context.phase === "start";
+      try {
+        const context = parseDeckVersionChatContext(row.chatContext);
+        return context?.threadId === run.threadId && context.phase === "start";
+      } catch {
+        return false;
+      }
     })
   ) {
     return { created: false, reason: "beginning-exists" };

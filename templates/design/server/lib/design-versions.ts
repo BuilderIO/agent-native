@@ -625,6 +625,7 @@ async function captureDesignVersion(
     chatContext?: DesignVersionChatContext;
     deletionGeometry?: ComponentDeletionGeometry;
     preferStoredFileContent?: boolean;
+    idempotencyKey?: string;
   },
   access: DesignAccess,
   database?: DesignDatabase,
@@ -741,12 +742,16 @@ async function captureDesignVersion(
   }
   const id = `design-version-${createHash("sha256")
     .update(
-      stableStringify({
-        designId,
-        previousVersionId: latest?.id ?? "initial",
-        chatContextKey: chatContextKey(options.chatContext),
-        stateHash,
-      }),
+      stableStringify(
+        options.idempotencyKey
+          ? { designId, idempotencyKey: options.idempotencyKey }
+          : {
+              designId,
+              previousVersionId: latest?.id ?? "initial",
+              chatContextKey: chatContextKey(options.chatContext),
+              stateHash,
+            },
+      ),
     )
     .digest("hex")}`;
   const snapshot = JSON.stringify({
@@ -887,6 +892,10 @@ export async function createDesignChatBeginningSnapshot(
 ) {
   return withDesignVersionLock(designId, async () => {
     const access = await assertAccess("design", designId, "editor");
+    const escapedThreadId = JSON.stringify(run.threadId).replace(
+      /[\\%_]/g,
+      "\\$&",
+    );
     const rows = await getDb()
       .select({ chatContext: schema.designVersions.chatContext })
       .from(schema.designVersions)
@@ -896,15 +905,21 @@ export async function createDesignChatBeginningSnapshot(
           like(schema.designVersions.chatContext, '%"phase":"start"%'),
           like(
             schema.designVersions.chatContext,
-            `%"threadId":"${run.threadId}"%`,
+            `%"threadId":${escapedThreadId}%`,
           ),
         ),
       )
       .limit(1);
     if (
       rows.some((row) => {
-        const context = parseStoredChatContext(row.chatContext);
-        return context?.threadId === run.threadId && context.phase === "start";
+        try {
+          const context = parseStoredChatContext(row.chatContext);
+          return (
+            context?.threadId === run.threadId && context.phase === "start"
+          );
+        } catch {
+          return false;
+        }
       })
     ) {
       return null;
@@ -914,6 +929,7 @@ export async function createDesignChatBeginningSnapshot(
       {
         label: "Before chat",
         chatContext: { ...run, phase: "start" },
+        idempotencyKey: `chat-start:${run.threadId}`,
       },
       access,
     );
@@ -1208,7 +1224,9 @@ export async function listDesignVersions(
       desc(schema.designVersions.id),
     )
     .limit(limit);
-  const escapedThreadId = threadId?.replace(/[\\%_]/g, "\\$&");
+  const escapedThreadId = threadId
+    ? JSON.stringify(threadId).replace(/[\\%_]/g, "\\$&")
+    : undefined;
   const beginningRows = await db
     .select({
       id: schema.designVersions.id,
@@ -1225,7 +1243,7 @@ export async function listDesignVersions(
             like(schema.designVersions.chatContext, '%"phase":"start"%'),
             like(
               schema.designVersions.chatContext,
-              `%"threadId":"${escapedThreadId}"%`,
+              `%"threadId":${escapedThreadId}%`,
             ),
           )
         : and(
@@ -1240,8 +1258,12 @@ export async function listDesignVersions(
     .limit(threadId ? 1 : limit);
   const exactBeginningRows = threadId
     ? beginningRows.filter((row) => {
-        const context = parseStoredChatContext(row.chatContext);
-        return context?.threadId === threadId && context.phase === "start";
+        try {
+          const context = parseStoredChatContext(row.chatContext);
+          return context?.threadId === threadId && context.phase === "start";
+        } catch {
+          return false;
+        }
       })
     : beginningRows;
   const rowsById = new Map(

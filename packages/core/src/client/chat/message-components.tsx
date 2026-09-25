@@ -1201,6 +1201,7 @@ function AssistantChatHistoryRevertButton({
   persistent?: boolean;
 }) {
   const t = useT();
+  const chatRunning = React.useContext(ChatRunningContext);
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<"confirming" | "restoring" | "error">(
     "confirming",
@@ -1209,6 +1210,7 @@ function AssistantChatHistoryRevertButton({
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
+      if (nextOpen && chatRunning) return;
       if (!nextOpen && state === "restoring") return;
       setOpen(nextOpen);
       if (nextOpen) {
@@ -1218,10 +1220,11 @@ function AssistantChatHistoryRevertButton({
         setError(null);
       }
     },
-    [state],
+    [chatRunning, state],
   );
 
   const handleRestore = useCallback(async () => {
+    if (chatRunning) return;
     setState("restoring");
     setError(null);
     try {
@@ -1239,7 +1242,7 @@ function AssistantChatHistoryRevertButton({
       );
       setState("error");
     }
-  }, [onRestore, onRestored, t]);
+  }, [chatRunning, onRestore, onRestored, t]);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -1250,6 +1253,7 @@ function AssistantChatHistoryRevertButton({
               <button
                 type="button"
                 aria-label={label ?? t("agentChat.message.revertHere")}
+                disabled={chatRunning}
                 className={cn(
                   "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
                   !persistent && messageFooterFadeClassName,
@@ -1286,6 +1290,7 @@ function AssistantChatHistoryRevertButton({
               </button>
               <button
                 type="button"
+                disabled={chatRunning}
                 onClick={() => void handleRestore()}
                 className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
               >
@@ -1320,8 +1325,9 @@ function AssistantChatHistoryRevertButton({
 export function AssistantChatHistoryBeginningRevertButton() {
   const t = useT();
   const history = React.useContext(AssistantChatHistoryContext);
+  const chatRunning = React.useContext(ChatRunningContext);
   const version = history?.beginningVersion;
-  if (!history || !version) return null;
+  if (!history || !version || chatRunning) return null;
   return (
     <div className="flex justify-end">
       <AssistantChatHistoryRevertButton
@@ -2476,11 +2482,11 @@ export function AssistantMessage() {
     [historyContext, historyMessage],
   );
   const showHistoryRevert =
-    isComplete && !historyReverted && historyVersion !== null;
+    !chatRunning && isComplete && !historyReverted && historyVersion !== null;
   const handleHistoryRestore = useCallback(async () => {
-    if (!historyContext || !historyVersion) return;
+    if (chatRunning || !historyContext || !historyVersion) return;
     await historyContext.restoreVersion(historyVersion);
-  }, [historyContext, historyVersion]);
+  }, [chatRunning, historyContext, historyVersion]);
   const cpCtx = React.useContext(CheckpointContext);
 
   useEffect(() => {

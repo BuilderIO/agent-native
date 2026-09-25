@@ -112,6 +112,10 @@ async function autosaveDocumentAtChatBoundary(
   const chatContext = { threadId: run.threadId, runId: run.runId, phase };
 
   if (phase === "start") {
+    const escapedThreadId = JSON.stringify(run.threadId).replace(
+      /[\\%_]/g,
+      "\\$&",
+    );
     const existing = await db
       .select({ chatContext: schema.documentVersions.chatContext })
       .from(schema.documentVersions)
@@ -122,15 +126,21 @@ async function autosaveDocumentAtChatBoundary(
           like(schema.documentVersions.chatContext, '%"phase":"start"%'),
           like(
             schema.documentVersions.chatContext,
-            `%"threadId":"${run.threadId}"%`,
+            `%"threadId":${escapedThreadId}%`,
           ),
         ),
       )
       .limit(1);
     if (
       existing.some((row) => {
-        const context = parseDocumentVersionChatContext(row.chatContext);
-        return context?.threadId === run.threadId && context?.phase === "start";
+        try {
+          const context = parseDocumentVersionChatContext(row.chatContext);
+          return (
+            context?.threadId === run.threadId && context?.phase === "start"
+          );
+        } catch {
+          return false;
+        }
       })
     ) {
       return;
