@@ -229,6 +229,7 @@ export function runCrossScreenElementDrop(
     targetAnchorRect,
     targetLocalPoint,
     sourcePointerOffset,
+    sourceComputedSize,
     sourceHtmlSnapshot,
     sourceProvenance,
     targetAnchorProvenance,
@@ -256,6 +257,7 @@ export function runCrossScreenElementDrop(
     targetCanvasPoint?: { x: number; y: number };
     targetLocalPoint?: { x: number; y: number };
     sourcePointerOffset?: { x: number; y: number };
+    sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;
     sourceProvenance?: unknown;
     targetAnchorProvenance?: unknown;
@@ -862,6 +864,7 @@ export function runCrossScreenElementDrop(
                     targetLocalPoint,
                   }),
                   sourcePointerOffset,
+                  sourceComputedSize,
                 )
               : removeAbsolutePositioningFromNodeInHtml(styled, subjectNodeId);
           return new DOMParser()
@@ -1137,6 +1140,7 @@ export function runCrossScreenElementDrop(
         destNodeAttrId,
         point,
         sourcePointerOffset,
+        sourceComputedSize,
       ),
       branch,
     });

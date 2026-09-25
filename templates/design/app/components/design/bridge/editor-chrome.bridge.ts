@@ -4218,22 +4218,123 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  type TypedStyleValue =
+    | { status: "available"; value: string | undefined }
+    | { status: "failed"; error: unknown };
+
+  function typedStyleValue(el: Element, property: string): TypedStyleValue {
+    var typedElement = el as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap !== "function") {
+      return { status: "available", value: undefined };
+    }
+    try {
+      return {
+        status: "available",
+        value: typedElement.computedStyleMap().get(property)?.toString().trim(),
+      };
+    } catch (error) {
+      return { status: "failed", error };
+    }
+  }
+
+  function dimensionHasAutoMargin(el: Element, property: string): boolean {
+    var margins =
+      property === "width"
+        ? ["margin-left", "margin-right"]
+        : ["margin-top", "margin-bottom"];
+    return margins.some(function (margin) {
+      var value = typedStyleValue(el, margin);
+      // CSSOM resolves auto margins to pixels. If Typed OM cannot distinguish
+      // them, skip stretch preservation rather than freezing an uncertain size.
+      return (
+        value.status === "failed" ||
+        value.value === undefined ||
+        value.value.toLowerCase() === "auto"
+      );
+    });
+  }
+
+  function flexMainAxisDimension(parentStyle: CSSStyleDeclaration) {
+    var inlineAxis = /^(vertical|sideways)/.test(parentStyle.writingMode)
+      ? "height"
+      : "width";
+    if (!/^column/.test(parentStyle.flexDirection)) return inlineAxis;
+    return inlineAxis === "width" ? "height" : "width";
+  }
+
+  function gridItemDimensionIsStretched(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+    parentStyle: CSSStyleDeclaration,
+    typedSize: TypedStyleValue,
+  ): boolean {
+    if (
+      typedSize.status === "failed" ||
+      typedSize.value?.toLowerCase() !== "auto" ||
+      dimensionHasAutoMargin(el, property)
+    ) {
+      return false;
+    }
+    var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
+    if (alignment === "auto") {
+      alignment =
+        property === "width"
+          ? parentStyle.justifyItems
+          : parentStyle.alignItems;
+    }
+    if (alignment === "stretch") return true;
+    if (alignment !== "normal" || cs.aspectRatio !== "auto") return false;
+    return !/^(audio|canvas|embed|iframe|img|object|video)$/.test(
+      el.tagName.toLowerCase(),
+    );
+  }
+
+  function flexItemDimensionIsStretched(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+    parentStyle: CSSStyleDeclaration,
+  ): boolean {
+    var mainAxis = flexMainAxisDimension(parentStyle);
+    if (property === mainAxis || dimensionHasAutoMargin(el, property)) {
+      return false;
+    }
+    var alignment =
+      cs.alignSelf === "auto" ? parentStyle.alignItems : cs.alignSelf;
+    return alignment === "normal" || alignment === "stretch";
+  }
+
   function portableSizeIsLayoutResolved(
     el: Element,
     property: string,
     cs: CSSStyleDeclaration,
+    typedSize: string,
   ): boolean {
     if ((el as HTMLElement).style?.getPropertyValue(property)) return false;
-    if (property !== "width" || cs.position !== "static") return false;
+    if (typedSize !== cs[property]) return false;
+    if (cs.position === "absolute" || cs.position === "fixed") return false;
     var parent = el.parentElement;
     if (!parent) return false;
     var parentStyle = window.getComputedStyle(parent);
     if (/^(inline-)?flex$/.test(parentStyle.display)) {
-      return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+      var mainAxis = flexMainAxisDimension(parentStyle);
+      return property === mainAxis
+        ? cs.flexBasis !== "auto" && cs.flexBasis !== "content"
+        : flexItemDimensionIsStretched(el, property, cs, parentStyle);
     }
     if (/^(inline-)?grid$/.test(parentStyle.display)) {
-      return cs.justifySelf === "normal" || cs.justifySelf === "stretch";
+      return gridItemDimensionIsStretched(
+        el,
+        property,
+        cs,
+        parentStyle,
+        typedSize,
+      );
     }
+    if (property !== "width") return false;
     if (cs.display !== "block" && cs.display !== "flow-root") return false;
     var parentContentWidth =
       parent.clientWidth -
@@ -4301,10 +4402,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return cacheFailure();
         }
         var size = String(typedValue).trim();
+        var preservesSizingMode =
+          /%|calc\(|clamp\(|(?:min|max)\(|(?:fit|fill)-content|(?:min|max)-content/i.test(
+            size,
+          );
         if (
           size &&
           (size !== "auto" || hostStyle?.getPropertyValue(property)) &&
-          !portableSizeIsLayoutResolved(el, property, cs)
+          (!portableSizeIsLayoutResolved(el, property, cs, size) ||
+            preservesSizingMode)
         ) {
           styles[property] = size;
         }
@@ -6506,6 +6612,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var activeCrossScreenSourceHtml: string | undefined = undefined;
+  var activeCrossScreenComputedSize:
+    | { width?: number; height?: number }
+    | undefined;
   var activeCrossScreenDeleteRequestId: string | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
@@ -15953,6 +16062,124 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  function computedSizeInPixels(value: string): number | undefined {
+    var match = /^\s*(\d+(?:\.\d+)?)px\s*$/i.exec(value);
+    if (!match) return undefined;
+    var size = Number(match[1]);
+    return Number.isFinite(size) ? size : undefined;
+  }
+
+  function flexItemMainSizeChangesWithoutFlexing(
+    el: Element,
+    property: "width" | "height",
+  ): boolean {
+    var style = (el as HTMLElement).style;
+    if (!style) return false;
+    var originalSize = el.getBoundingClientRect()[property];
+    var declarations = ["flex-grow", "flex-shrink", "transition"].map(
+      function (name) {
+        return {
+          name,
+          value: style.getPropertyValue(name),
+          priority: style.getPropertyPriority(name),
+        };
+      },
+    );
+    try {
+      // The synchronous override is restored before the browser can paint.
+      style.setProperty("transition", "none", "important");
+      style.setProperty("flex-grow", "0", "important");
+      style.setProperty("flex-shrink", "0", "important");
+      return (
+        Math.abs(el.getBoundingClientRect()[property] - originalSize) > 0.5
+      );
+    } finally {
+      declarations.forEach(function (declaration) {
+        if (declaration.value) {
+          style.setProperty(
+            declaration.name,
+            declaration.value,
+            declaration.priority,
+          );
+        } else {
+          style.removeProperty(declaration.name);
+        }
+      });
+    }
+  }
+
+  function crossScreenAutoLayoutSizeFallback(
+    el: Element | null,
+    snapshot: unknown,
+    computed: CSSStyleDeclaration | null,
+  ): { width?: number; height?: number } | undefined {
+    if (
+      !el ||
+      !computed ||
+      computed.position === "absolute" ||
+      computed.position === "fixed"
+    ) {
+      return undefined;
+    }
+    var parent = el.parentElement;
+    if (!parent) return undefined;
+    var parentStyle = window.getComputedStyle(parent);
+    var isFlex = /^(inline-)?flex$/.test(parentStyle.display);
+    var isGrid = /^(inline-)?grid$/.test(parentStyle.display);
+    if (!isFlex && !isGrid) return undefined;
+    var snapshotRoot = (
+      snapshot as {
+        nodes?: Array<{ path?: unknown; styles?: unknown }>;
+      } | null
+    )?.nodes?.find(
+      (node) => Array.isArray(node.path) && node.path.length === 0,
+    );
+    var styles = snapshotRoot?.styles;
+    if (!styles || typeof styles !== "object") return undefined;
+    var mainAxis = isFlex ? flexMainAxisDimension(parentStyle) : undefined;
+    var flexMainSizeIsResolved = false;
+    if (isFlex && mainAxis) {
+      flexMainSizeIsResolved =
+        (computed.flexBasis !== "auto" && computed.flexBasis !== "content") ||
+        ((Number(computed.flexGrow) > 0 || Number(computed.flexShrink) > 0) &&
+          flexItemMainSizeChangesWithoutFlexing(el, mainAxis));
+    }
+    var resolvedByAutoLayout = function (property: "width" | "height") {
+      if (isGrid) {
+        return gridItemDimensionIsStretched(
+          el,
+          property,
+          computed,
+          parentStyle,
+          typedStyleValue(el, property),
+        );
+      }
+      if (property === mainAxis) {
+        return flexMainSizeIsResolved;
+      }
+      return flexItemDimensionIsStretched(el, property, computed, parentStyle);
+    };
+    var result: { width?: number; height?: number } = {};
+    (["width", "height"] as const).forEach((property) => {
+      var snapshotSize = styles[property];
+      var snapshotSizeIsAuto =
+        typeof snapshotSize === "string" &&
+        snapshotSize.trim().toLowerCase() === "auto";
+      if (
+        (Object.prototype.hasOwnProperty.call(styles, property) &&
+          !snapshotSizeIsAuto) ||
+        !resolvedByAutoLayout(property)
+      ) {
+        return;
+      }
+      var size = computedSizeInPixels(computed[property]);
+      if (size !== undefined) result[property] = size;
+    });
+    return result.width !== undefined || result.height !== undefined
+      ? result
+      : undefined;
+  }
+
   // Chromium reports Event.timeStamp relative to the document time origin,
   // while synthetic and older events can carry an epoch timestamp. Normalize
   // both forms before sending a source timestamp to the host document.
@@ -16002,6 +16229,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // does not silently lose Ignore Auto Layout.
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
+      activeCrossScreenComputedSize = undefined;
       activeCrossScreenDragIdentity = null;
       activeCrossScreenDeleteRequestId = undefined;
       (window.parent as Window).postMessage(
@@ -16017,6 +16245,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ? options.styleSnapshot
           : collectPortableStyleSnapshot(el ?? null);
       activeCrossScreenSourceHtml = el?.outerHTML;
+      var computed = el ? window.getComputedStyle(el) : null;
+      activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
+        el ?? null,
+        activeCrossScreenStyleSnapshot,
+        computed,
+      );
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -16071,6 +16305,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : undefined,
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
+        sourceComputedSize: activeCrossScreenComputedSize,
         // Explicit sibling flag, not just `styleSnapshot === null` — the
         // host must not have to infer capture-failed from a value shape
         // that could change; see collectPortableStyleSnapshot's doc.
@@ -16096,6 +16331,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
+      activeCrossScreenComputedSize = undefined;
       activeCrossScreenDragIdentity = null;
       activeCrossScreenDeleteRequestId = undefined;
     }

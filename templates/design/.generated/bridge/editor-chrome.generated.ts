@@ -3729,18 +3729,75 @@ export const editorChromeBridgeScript: string = `"use strict";
         (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
       );
     }
-    function portableSizeIsLayoutResolved(el, property, cs) {
+    function typedStyleValue(el, property) {
+      var typedElement = el;
+      if (typeof typedElement.computedStyleMap !== "function") {
+        return { status: "available", value: void 0 };
+      }
+      try {
+        return {
+          status: "available",
+          value: typedElement.computedStyleMap().get(property)?.toString().trim()
+        };
+      } catch (error) {
+        return { status: "failed", error };
+      }
+    }
+    function dimensionHasAutoMargin(el, property) {
+      var margins = property === "width" ? ["margin-left", "margin-right"] : ["margin-top", "margin-bottom"];
+      return margins.some(function(margin) {
+        var value = typedStyleValue(el, margin);
+        return value.status === "failed" || value.value === void 0 || value.value.toLowerCase() === "auto";
+      });
+    }
+    function flexMainAxisDimension(parentStyle) {
+      var inlineAxis = /^(vertical|sideways)/.test(parentStyle.writingMode) ? "height" : "width";
+      if (!/^column/.test(parentStyle.flexDirection)) return inlineAxis;
+      return inlineAxis === "width" ? "height" : "width";
+    }
+    function gridItemDimensionIsStretched(el, property, cs, parentStyle, typedSize) {
+      if (typedSize.status === "failed" || typedSize.value?.toLowerCase() !== "auto" || dimensionHasAutoMargin(el, property)) {
+        return false;
+      }
+      var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
+      if (alignment === "auto") {
+        alignment = property === "width" ? parentStyle.justifyItems : parentStyle.alignItems;
+      }
+      if (alignment === "stretch") return true;
+      if (alignment !== "normal" || cs.aspectRatio !== "auto") return false;
+      return !/^(audio|canvas|embed|iframe|img|object|video)$/.test(
+        el.tagName.toLowerCase()
+      );
+    }
+    function flexItemDimensionIsStretched(el, property, cs, parentStyle) {
+      var mainAxis = flexMainAxisDimension(parentStyle);
+      if (property === mainAxis || dimensionHasAutoMargin(el, property)) {
+        return false;
+      }
+      var alignment = cs.alignSelf === "auto" ? parentStyle.alignItems : cs.alignSelf;
+      return alignment === "normal" || alignment === "stretch";
+    }
+    function portableSizeIsLayoutResolved(el, property, cs, typedSize) {
       if (el.style?.getPropertyValue(property)) return false;
-      if (property !== "width" || cs.position !== "static") return false;
+      if (typedSize !== cs[property]) return false;
+      if (cs.position === "absolute" || cs.position === "fixed") return false;
       var parent = el.parentElement;
       if (!parent) return false;
       var parentStyle = window.getComputedStyle(parent);
       if (/^(inline-)?flex$/.test(parentStyle.display)) {
-        return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+        var mainAxis = flexMainAxisDimension(parentStyle);
+        return property === mainAxis ? cs.flexBasis !== "auto" && cs.flexBasis !== "content" : flexItemDimensionIsStretched(el, property, cs, parentStyle);
       }
       if (/^(inline-)?grid$/.test(parentStyle.display)) {
-        return cs.justifySelf === "normal" || cs.justifySelf === "stretch";
+        return gridItemDimensionIsStretched(
+          el,
+          property,
+          cs,
+          parentStyle,
+          typedSize
+        );
       }
+      if (property !== "width") return false;
       if (cs.display !== "block" && cs.display !== "flow-root") return false;
       var parentContentWidth = parent.clientWidth - parseFloat(parentStyle.paddingLeft || "0") - parseFloat(parentStyle.paddingRight || "0");
       return parentContentWidth > 0 && Math.abs(el.getBoundingClientRect().width - parentContentWidth) < 1;
@@ -3789,7 +3846,10 @@ export const editorChromeBridgeScript: string = `"use strict";
             return cacheFailure();
           }
           var size = String(typedValue).trim();
-          if (size && (size !== "auto" || hostStyle?.getPropertyValue(property)) && !portableSizeIsLayoutResolved(el, property, cs)) {
+          var preservesSizingMode = /%|calc\\(|clamp\\(|(?:min|max)\\(|(?:fit|fill)-content|(?:min|max)-content/i.test(
+            size
+          );
+          if (size && (size !== "auto" || hostStyle?.getPropertyValue(property)) && (!portableSizeIsLayoutResolved(el, property, cs, size) || preservesSizingMode)) {
             styles[property] = size;
           }
         }
@@ -5185,6 +5245,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenSourceHtml = void 0;
+    var activeCrossScreenComputedSize;
     var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
     var spacingDrag = null;
@@ -11687,6 +11748,91 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
+    function computedSizeInPixels(value) {
+      var match = /^\\s*(\\d+(?:\\.\\d+)?)px\\s*$/i.exec(value);
+      if (!match) return void 0;
+      var size = Number(match[1]);
+      return Number.isFinite(size) ? size : void 0;
+    }
+    function flexItemMainSizeChangesWithoutFlexing(el, property) {
+      var style = el.style;
+      if (!style) return false;
+      var originalSize = el.getBoundingClientRect()[property];
+      var declarations = ["flex-grow", "flex-shrink", "transition"].map(
+        function(name) {
+          return {
+            name,
+            value: style.getPropertyValue(name),
+            priority: style.getPropertyPriority(name)
+          };
+        }
+      );
+      try {
+        style.setProperty("transition", "none", "important");
+        style.setProperty("flex-grow", "0", "important");
+        style.setProperty("flex-shrink", "0", "important");
+        return Math.abs(el.getBoundingClientRect()[property] - originalSize) > 0.5;
+      } finally {
+        declarations.forEach(function(declaration) {
+          if (declaration.value) {
+            style.setProperty(
+              declaration.name,
+              declaration.value,
+              declaration.priority
+            );
+          } else {
+            style.removeProperty(declaration.name);
+          }
+        });
+      }
+    }
+    function crossScreenAutoLayoutSizeFallback(el, snapshot, computed) {
+      if (!el || !computed || computed.position === "absolute" || computed.position === "fixed") {
+        return void 0;
+      }
+      var parent = el.parentElement;
+      if (!parent) return void 0;
+      var parentStyle = window.getComputedStyle(parent);
+      var isFlex = /^(inline-)?flex$/.test(parentStyle.display);
+      var isGrid = /^(inline-)?grid$/.test(parentStyle.display);
+      if (!isFlex && !isGrid) return void 0;
+      var snapshotRoot = snapshot?.nodes?.find(
+        (node) => Array.isArray(node.path) && node.path.length === 0
+      );
+      var styles = snapshotRoot?.styles;
+      if (!styles || typeof styles !== "object") return void 0;
+      var mainAxis = isFlex ? flexMainAxisDimension(parentStyle) : void 0;
+      var flexMainSizeIsResolved = false;
+      if (isFlex && mainAxis) {
+        flexMainSizeIsResolved = computed.flexBasis !== "auto" && computed.flexBasis !== "content" || (Number(computed.flexGrow) > 0 || Number(computed.flexShrink) > 0) && flexItemMainSizeChangesWithoutFlexing(el, mainAxis);
+      }
+      var resolvedByAutoLayout = function(property) {
+        if (isGrid) {
+          return gridItemDimensionIsStretched(
+            el,
+            property,
+            computed,
+            parentStyle,
+            typedStyleValue(el, property)
+          );
+        }
+        if (property === mainAxis) {
+          return flexMainSizeIsResolved;
+        }
+        return flexItemDimensionIsStretched(el, property, computed, parentStyle);
+      };
+      var result = {};
+      ["width", "height"].forEach((property) => {
+        var snapshotSize = styles[property];
+        var snapshotSizeIsAuto = typeof snapshotSize === "string" && snapshotSize.trim().toLowerCase() === "auto";
+        if (Object.prototype.hasOwnProperty.call(styles, property) && !snapshotSizeIsAuto || !resolvedByAutoLayout(property)) {
+          return;
+        }
+        var size = computedSizeInPixels(computed[property]);
+        if (size !== void 0) result[property] = size;
+      });
+      return result.width !== void 0 || result.height !== void 0 ? result : void 0;
+    }
     function eventEpochMilliseconds(ev) {
       if (ev?.isTrusted === false) {
         return performance.timeOrigin + performance.now();
@@ -11701,6 +11847,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (phase === "cancel") {
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
+        activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
         window.parent.postMessage(
@@ -11713,6 +11860,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeCrossScreenDeleteRequestId = \`cross-screen-source-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2)}\`;
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
         activeCrossScreenSourceHtml = el?.outerHTML;
+        var computed = el ? window.getComputedStyle(el) : null;
+        activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
+          el ?? null,
+          activeCrossScreenStyleSnapshot,
+          computed
+        );
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -11753,6 +11906,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           } : void 0,
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
+          sourceComputedSize: activeCrossScreenComputedSize,
           // Explicit sibling flag, not just \`styleSnapshot === null\` — the
           // host must not have to infer capture-failed from a value shape
           // that could change; see collectPortableStyleSnapshot's doc.
@@ -11774,6 +11928,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         bridgeIgnoreAutoLayoutKeyPressed = false;
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
+        activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
       }

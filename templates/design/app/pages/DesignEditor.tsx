@@ -17102,6 +17102,7 @@ function DesignEditor() {
       targetCanvasPoint?: { x: number; y: number };
       targetLocalPoint?: { x: number; y: number };
       sourcePointerOffset?: { x: number; y: number };
+      sourceComputedSize?: { width?: number; height?: number };
       sourceHtmlSnapshot?: string;
       duplicate?: boolean;
       sourceCloneHtml?: string;

@@ -8027,7 +8027,8 @@ export function DesignCanvas({
       liveEditBridgeConfigurationPending ||
       (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
       sameOriginBridgePending ||
-      liveEditDocumentPending ||
+      (liveEditDocumentPending &&
+        liveEditSameInstanceStalledError?.bridgeKey !== liveEditBridgeKey) ||
       liveEditRegistrationFailurePending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
@@ -8096,7 +8097,10 @@ export function DesignCanvas({
                 }
               </Button>
             </div>
-          ) : waitingForLiveEditBridge || sameOriginBridgePending ? (
+          ) : waitingForLiveEditBridge ||
+            sameOriginBridgePending ||
+            liveEditDocumentPending ||
+            liveEditBridgeConfigurationPending ? (
             <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
               {
                 "Preparing live editor..." /* i18n-ignore transient localhost live-edit bridge loading state */

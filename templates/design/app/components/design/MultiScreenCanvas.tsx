@@ -1380,6 +1380,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     sourceProvenance?: SourceNodeProvenance;
     sourcePointerOffset?: Point;
     sourceElementSize?: { width: number; height: number };
+    sourceComputedSize?: { width?: number; height?: number };
     modifiers?: {
       metaKey?: boolean;
       ctrlKey?: boolean;
@@ -3479,6 +3480,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         sourceProvenance?: SourceNodeProvenance;
         sourcePointerOffset?: Point;
         sourceElementSize?: { width: number; height: number };
+        sourceComputedSize?: { width?: number; height?: number };
         modifiers?: {
           metaKey?: boolean;
           ctrlKey?: boolean;
@@ -3695,6 +3697,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     )
                   : lastBoardPoint,
               sourcePointerOffset: payload.sourcePointerOffset,
+              sourceComputedSize: payload.sourceComputedSize,
               sourceHtmlSnapshot: payload.sourceHtmlSnapshot,
               duplicate: payload.duplicate,
               sourceCloneHtml: payload.sourceCloneHtml,
@@ -3772,6 +3775,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             targetCanvasPoint: lastBoardPoint,
             targetLocalPoint: targetLocalPoint ?? undefined,
             sourcePointerOffset: payload.sourcePointerOffset,
+            sourceComputedSize: payload.sourceComputedSize,
             sourceHtmlSnapshot: payload.sourceHtmlSnapshot,
             duplicate: payload.duplicate,
             sourceCloneHtml: payload.sourceCloneHtml,
@@ -3842,6 +3846,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         };
         styleSnapshot?: unknown;
         styleSnapshotCaptureFailed?: boolean;
+        sourceComputedSize?: { width?: number; height?: number };
         releasedAt?: number;
         duplicate?: boolean;
         sourceCloneHtml?: string;
@@ -3857,6 +3862,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         msg.elementRect.width > 0 &&
         msg.elementRect.height > 0
           ? { width: msg.elementRect.width, height: msg.elementRect.height }
+          : undefined;
+      const sourceComputedSize =
+        msg.sourceComputedSize &&
+        [msg.sourceComputedSize.width, msg.sourceComputedSize.height].some(
+          (value) =>
+            typeof value === "number" && Number.isFinite(value) && value >= 0,
+        )
+          ? {
+              width:
+                typeof msg.sourceComputedSize.width === "number" &&
+                Number.isFinite(msg.sourceComputedSize.width) &&
+                msg.sourceComputedSize.width >= 0
+                  ? msg.sourceComputedSize.width
+                  : undefined,
+              height:
+                typeof msg.sourceComputedSize.height === "number" &&
+                Number.isFinite(msg.sourceComputedSize.height) &&
+                msg.sourceComputedSize.height >= 0
+                  ? msg.sourceComputedSize.height
+                  : undefined,
+            }
           : undefined;
       const sourceModifiers = msg.modifiers
         ? {
@@ -3986,6 +4012,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceProvenance,
           sourcePointerOffset,
           sourceElementSize,
+          sourceComputedSize,
           modifiers: {
             ...sourceModifiers,
             ignoreAutoLayout:
@@ -4061,6 +4088,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             sourceProvenance,
             sourcePointerOffset,
             sourceElementSize,
+            sourceComputedSize,
             modifiers: sourceModifiers,
             sourceHtmlSnapshot,
             duplicate: msg.duplicate === true,
@@ -4246,6 +4274,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceElementSize:
             sourceElementSize ??
             crossScreenDragMsgRef.current?.sourceElementSize,
+          sourceComputedSize:
+            sourceComputedSize ??
+            crossScreenDragMsgRef.current?.sourceComputedSize,
           modifiers:
             sourceModifiers ?? crossScreenDragMsgRef.current?.modifiers,
           sourceHtmlSnapshot:
@@ -4340,6 +4371,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               sourceProvenance,
               sourcePointerOffset,
               sourceElementSize,
+              sourceComputedSize,
               modifiers: sourceModifiers,
               sourceHtmlSnapshot,
               duplicate: msg.duplicate === true,
