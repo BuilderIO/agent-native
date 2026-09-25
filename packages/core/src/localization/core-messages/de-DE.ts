@@ -1072,6 +1072,61 @@ const messages: AgentChatTranslation = {
   "settingsShell.search.voiceTranscription": "Sprachtranskription",
   "settingsShell.searchPlaceholder": "Einstellungen durchsuchen",
   "settingsShell.unread": "Neu",
+  "settingsResources.personal": "Persönlich",
+  "settingsResources.organization": "Organisation",
+  "settingsResources.fromDispatch": "Aus Dispatch",
+  "settingsResources.readOnly": "Schreibgeschützt",
+  "settingsResources.readOnlyHint": "Nur Inhaber und Admins können das ändern",
+  "settingsResources.editInDispatch": "In Dispatch bearbeiten",
+  "settingsResources.openDispatch": "Dispatch öffnen",
+  "settingsResources.allApps": "Alle Apps",
+  "settingsResources.allAppsHint": "Dispatch teilt das mit jeder App",
+  "settingsResources.dispatchEmpty": "Nichts aus Dispatch geteilt.",
+  "settingsResources.loadFailed":
+    "Diese Ressourcen konnten nicht geladen werden.",
+  "settingsResources.moreActions": "Weitere Aktionen",
+  "settingsResources.open": "Öffnen",
+  "settingsResources.download": "Herunterladen",
+  "settingsResources.remove": "Entfernen",
+  "settingsResources.removeTitle": "{{name}} entfernen?",
+  "settingsResources.removeFailed": "{{name}} konnte nicht entfernt werden.",
+  "settingsResources.saveFailed": "{{name}} konnte nicht gespeichert werden.",
+  "settingsResources.uploadFailed": "{{name}} konnte nicht hochgeladen werden.",
+  "settingsResources.cancel": "Abbrechen",
+  "settingsResources.save": "Speichern",
+  "settingsResources.create": "Erstellen",
+  "settingsResources.instructions.empty":
+    "Sag dem Agenten, wie er mit dir arbeiten soll.",
+  "settingsResources.instructions.orgEmpty":
+    "Noch keine Anweisungen für {{org}}.",
+  "settingsResources.instructions.add": "Anweisungen hinzufügen",
+  "settingsResources.instructions.fieldLabel":
+    "Wie soll der Agent mit dir arbeiten?",
+  "settingsResources.instructions.placeholder":
+    "Antworte kurz. Verwende metrische Einheiten.",
+  "settingsResources.instructions.savedAs":
+    "Wird als AGENTS.md in deinen persönlichen Ressourcen gespeichert.",
+  "settingsResources.memory.empty":
+    "Hier speichert der Agent, was er über dich lernt.",
+  "settingsResources.memory.orgEmpty": "Noch keine geteilten Erinnerungen.",
+  "settingsResources.memory.add": "Erinnerung hinzufügen",
+  "settingsResources.learnings.empty":
+    "Korrekturen, die du dem Agenten gibst, werden als Learnings gespeichert.",
+  "settingsResources.learnings.add": "Learning hinzufügen",
+  "settingsResources.skills.empty":
+    "Speichere einen Ablauf einmal, und der Agent kann ihn wiederverwenden.",
+  "settingsResources.skills.orgEmpty": "Noch keine geteilten Skills.",
+  "settingsResources.skills.add": "Skill hinzufügen",
+  "settingsResources.skills.describe": "Dem Agenten beschreiben",
+  "settingsResources.skills.upload": "Skill-Datei hochladen",
+  "settingsResources.skills.describePlaceholder":
+    "Ein Skill, der Pull Requests auf Sicherheitsprobleme prüft",
+  "settingsResources.files.empty":
+    "Füge eine Datei hinzu, um deinem Agenten mehr Kontext zu geben.",
+  "settingsResources.files.orgEmpty": "Noch keine geteilten Dateien.",
+  "settingsResources.files.add": "Datei hinzufügen",
+  "settingsResources.files.upload": "Datei hochladen",
+  "settingsResources.files.create": "Datei erstellen",
 };
 
 export default messages;

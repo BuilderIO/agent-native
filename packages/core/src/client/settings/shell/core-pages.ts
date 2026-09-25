@@ -32,9 +32,18 @@ import {
   canManageOrganizationPages,
   defineSettingsPage,
   type SettingsPageDefinition,
+  type SettingsPageSearchEntry,
 } from "./registry.js";
 
 const label = (key: string) => `agentChat.settingsShell.page.${key}`;
+
+/** The read-only group of resources Dispatch shares with every app. */
+const fromDispatchSearchEntry: SettingsPageSearchEntry = {
+  id: "from-dispatch",
+  labelKey: "agentChat.settingsResources.fromDispatch",
+  keywords: "dispatch workspace shared inherited all apps",
+  anchor: "from-dispatch",
+};
 
 /**
  * Core pages in spec order (§4.2). Each renders today's component for its
@@ -113,6 +122,7 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     component: lazy(() => import("./pages/instructions.js")),
     legacyTabIds: ["agent:resources:instructions"],
     keywords: "instructions agents md behavior",
+    searchEntries: [fromDispatchSearchEntry],
   }),
   defineSettingsPage({
     id: "memory",
@@ -140,7 +150,8 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: IconBolt,
     component: lazy(() => import("./pages/skills.js")),
     legacyTabIds: ["agent:resources:skills"],
-    keywords: "skills capabilities",
+    keywords: "skills capabilities workflows add upload skill file",
+    searchEntries: [fromDispatchSearchEntry],
   }),
   defineSettingsPage({
     id: "files",
@@ -150,7 +161,8 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: IconFolder,
     component: lazy(() => import("./pages/files.js")),
     legacyTabIds: ["agent:resources", "agent:resources:files"],
-    keywords: "files uploads documents context resources",
+    keywords: "files uploads documents context resources upload create file",
+    searchEntries: [fromDispatchSearchEntry],
   }),
   defineSettingsPage({
     id: "sub-agents",

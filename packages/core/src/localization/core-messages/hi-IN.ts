@@ -999,6 +999,58 @@ const messages: AgentChatTranslation = {
   "settingsShell.search.voiceTranscription": "वॉइस ट्रांसक्रिप्शन",
   "settingsShell.searchPlaceholder": "सेटिंग्स खोजें",
   "settingsShell.unread": "नया",
+  "settingsResources.personal": "व्यक्तिगत",
+  "settingsResources.organization": "संगठन",
+  "settingsResources.fromDispatch": "Dispatch से",
+  "settingsResources.readOnly": "केवल पढ़ने के लिए",
+  "settingsResources.readOnlyHint": "केवल मालिक और एडमिन इसे बदल सकते हैं",
+  "settingsResources.editInDispatch": "इसे Dispatch में संपादित करें",
+  "settingsResources.openDispatch": "Dispatch खोलें",
+  "settingsResources.allApps": "सभी ऐप्स",
+  "settingsResources.allAppsHint": "Dispatch इसे हर ऐप के साथ साझा करता है",
+  "settingsResources.dispatchEmpty": "Dispatch से कुछ भी साझा नहीं किया गया है।",
+  "settingsResources.loadFailed": "ये संसाधन लोड नहीं हो सके।",
+  "settingsResources.moreActions": "और कार्रवाइयां",
+  "settingsResources.open": "खोलें",
+  "settingsResources.download": "डाउनलोड करें",
+  "settingsResources.remove": "हटाएं",
+  "settingsResources.removeTitle": "{{name}} हटाएं?",
+  "settingsResources.removeFailed": "{{name}} हटाया नहीं जा सका।",
+  "settingsResources.saveFailed": "{{name}} सहेजा नहीं जा सका।",
+  "settingsResources.uploadFailed": "{{name}} अपलोड नहीं हो सका।",
+  "settingsResources.cancel": "रद्द करें",
+  "settingsResources.save": "सहेजें",
+  "settingsResources.create": "बनाएं",
+  "settingsResources.instructions.empty":
+    "एजेंट को बताएं कि उसे आपके साथ कैसे काम करना है।",
+  "settingsResources.instructions.orgEmpty":
+    "{{org}} के लिए अभी कोई निर्देश नहीं हैं।",
+  "settingsResources.instructions.add": "निर्देश जोड़ें",
+  "settingsResources.instructions.fieldLabel":
+    "एजेंट को आपके साथ कैसे काम करना चाहिए?",
+  "settingsResources.instructions.placeholder":
+    "जवाब छोटे रखें। मीट्रिक इकाइयों का उपयोग करें।",
+  "settingsResources.instructions.savedAs":
+    "आपके व्यक्तिगत संसाधनों में AGENTS.md के रूप में सहेजा जाता है।",
+  "settingsResources.memory.empty": "एजेंट आपके बारे में जो सीखता है, उसे यहां सहेजता है।",
+  "settingsResources.memory.orgEmpty": "अभी कोई साझा मेमोरी नहीं है।",
+  "settingsResources.memory.add": "मेमोरी जोड़ें",
+  "settingsResources.learnings.empty":
+    "आप एजेंट को जो सुधार देते हैं, वे सीख के रूप में सहेजे जाते हैं।",
+  "settingsResources.learnings.add": "सीख जोड़ें",
+  "settingsResources.skills.empty":
+    "किसी वर्कफ़्लो को एक बार सहेजें और एजेंट उसे दोबारा इस्तेमाल कर सकता है।",
+  "settingsResources.skills.orgEmpty": "अभी कोई साझा स्किल नहीं है।",
+  "settingsResources.skills.add": "स्किल जोड़ें",
+  "settingsResources.skills.describe": "एजेंट को बताएं",
+  "settingsResources.skills.upload": "स्किल फ़ाइल अपलोड करें",
+  "settingsResources.skills.describePlaceholder":
+    "एक स्किल जो पुल रिक्वेस्ट में सुरक्षा समस्याओं की समीक्षा करती है",
+  "settingsResources.files.empty": "अपने एजेंट को अधिक संदर्भ देने के लिए एक फ़ाइल जोड़ें।",
+  "settingsResources.files.orgEmpty": "अभी कोई साझा फ़ाइल नहीं है।",
+  "settingsResources.files.add": "फ़ाइल जोड़ें",
+  "settingsResources.files.upload": "फ़ाइल अपलोड करें",
+  "settingsResources.files.create": "फ़ाइल बनाएं",
 };
 
 export default messages;

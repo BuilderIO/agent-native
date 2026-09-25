@@ -1029,6 +1029,60 @@ const messages: AgentChatTranslation = {
   "settingsShell.search.voiceTranscription": "音声の文字起こし",
   "settingsShell.searchPlaceholder": "設定を検索",
   "settingsShell.unread": "新着",
+  "settingsResources.personal": "個人",
+  "settingsResources.organization": "組織",
+  "settingsResources.fromDispatch": "Dispatch から",
+  "settingsResources.readOnly": "読み取り専用",
+  "settingsResources.readOnlyHint": "オーナーと管理者のみ変更できます",
+  "settingsResources.editInDispatch": "Dispatch で編集してください",
+  "settingsResources.openDispatch": "Dispatch を開く",
+  "settingsResources.allApps": "すべてのアプリ",
+  "settingsResources.allAppsHint": "Dispatch がすべてのアプリと共有しています",
+  "settingsResources.dispatchEmpty":
+    "Dispatch から共有されているものはありません。",
+  "settingsResources.loadFailed": "これらのリソースを読み込めませんでした。",
+  "settingsResources.moreActions": "その他の操作",
+  "settingsResources.open": "開く",
+  "settingsResources.download": "ダウンロード",
+  "settingsResources.remove": "削除",
+  "settingsResources.removeTitle": "{{name}} を削除しますか？",
+  "settingsResources.removeFailed": "{{name}} を削除できませんでした。",
+  "settingsResources.saveFailed": "{{name}} を保存できませんでした。",
+  "settingsResources.uploadFailed": "{{name}} をアップロードできませんでした。",
+  "settingsResources.cancel": "キャンセル",
+  "settingsResources.save": "保存",
+  "settingsResources.create": "作成",
+  "settingsResources.instructions.empty":
+    "エージェントにあなたとの働き方を伝えましょう。",
+  "settingsResources.instructions.orgEmpty": "{{org}} の指示はまだありません。",
+  "settingsResources.instructions.add": "指示を追加",
+  "settingsResources.instructions.fieldLabel":
+    "エージェントにどのように働いてほしいですか？",
+  "settingsResources.instructions.placeholder":
+    "回答は短く。メートル法を使ってください。",
+  "settingsResources.instructions.savedAs":
+    "個人リソースに AGENTS.md として保存されます。",
+  "settingsResources.memory.empty":
+    "エージェントがあなたについて学んだことをここに保存します。",
+  "settingsResources.memory.orgEmpty": "共有メモリーはまだありません。",
+  "settingsResources.memory.add": "メモリーを追加",
+  "settingsResources.learnings.empty":
+    "エージェントに伝えた修正は学習として保存されます。",
+  "settingsResources.learnings.add": "学習を追加",
+  "settingsResources.skills.empty":
+    "ワークフローを一度保存すれば、エージェントが再利用できます。",
+  "settingsResources.skills.orgEmpty": "共有スキルはまだありません。",
+  "settingsResources.skills.add": "スキルを追加",
+  "settingsResources.skills.describe": "エージェントに説明する",
+  "settingsResources.skills.upload": "スキルファイルをアップロード",
+  "settingsResources.skills.describePlaceholder":
+    "プルリクエストのセキュリティ問題をレビューするスキル",
+  "settingsResources.files.empty":
+    "ファイルを追加して、エージェントにより多くのコンテキストを与えましょう。",
+  "settingsResources.files.orgEmpty": "共有ファイルはまだありません。",
+  "settingsResources.files.add": "ファイルを追加",
+  "settingsResources.files.upload": "ファイルをアップロード",
+  "settingsResources.files.create": "ファイルを作成",
 };
 
 export default messages;

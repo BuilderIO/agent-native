@@ -1065,6 +1065,63 @@ const messages: AgentChatTranslation = {
   "settingsShell.search.voiceTranscription": "Transcrição de voz",
   "settingsShell.searchPlaceholder": "Pesquisar configurações",
   "settingsShell.unread": "Novo",
+  "settingsResources.personal": "Pessoal",
+  "settingsResources.organization": "Organização",
+  "settingsResources.fromDispatch": "Do Dispatch",
+  "settingsResources.readOnly": "Somente leitura",
+  "settingsResources.readOnlyHint":
+    "Somente proprietários e administradores podem alterar isso",
+  "settingsResources.editInDispatch": "Edite no Dispatch",
+  "settingsResources.openDispatch": "Abrir Dispatch",
+  "settingsResources.allApps": "Todos os apps",
+  "settingsResources.allAppsHint":
+    "O Dispatch compartilha isso com todos os apps",
+  "settingsResources.dispatchEmpty": "Nada compartilhado do Dispatch.",
+  "settingsResources.loadFailed": "Não foi possível carregar estes recursos.",
+  "settingsResources.moreActions": "Mais ações",
+  "settingsResources.open": "Abrir",
+  "settingsResources.download": "Baixar",
+  "settingsResources.remove": "Remover",
+  "settingsResources.removeTitle": "Remover {{name}}?",
+  "settingsResources.removeFailed": "Não foi possível remover {{name}}.",
+  "settingsResources.saveFailed": "Não foi possível salvar {{name}}.",
+  "settingsResources.uploadFailed": "Não foi possível enviar {{name}}.",
+  "settingsResources.cancel": "Cancelar",
+  "settingsResources.save": "Salvar",
+  "settingsResources.create": "Criar",
+  "settingsResources.instructions.empty":
+    "Diga ao agente como trabalhar com você.",
+  "settingsResources.instructions.orgEmpty":
+    "Ainda não há instruções para {{org}}.",
+  "settingsResources.instructions.add": "Adicionar instruções",
+  "settingsResources.instructions.fieldLabel":
+    "Como o agente deve trabalhar com você?",
+  "settingsResources.instructions.placeholder":
+    "Responda de forma curta. Use unidades métricas.",
+  "settingsResources.instructions.savedAs":
+    "Salvo como AGENTS.md nos seus recursos pessoais.",
+  "settingsResources.memory.empty":
+    "O agente salva aqui o que aprende sobre você.",
+  "settingsResources.memory.orgEmpty": "Ainda não há memórias compartilhadas.",
+  "settingsResources.memory.add": "Adicionar memória",
+  "settingsResources.learnings.empty":
+    "As correções que você dá ao agente são salvas como aprendizados.",
+  "settingsResources.learnings.add": "Adicionar aprendizado",
+  "settingsResources.skills.empty":
+    "Salve um fluxo de trabalho uma vez e o agente poderá reutilizá-lo.",
+  "settingsResources.skills.orgEmpty":
+    "Ainda não há habilidades compartilhadas.",
+  "settingsResources.skills.add": "Adicionar habilidade",
+  "settingsResources.skills.describe": "Descrever para o agente",
+  "settingsResources.skills.upload": "Enviar um arquivo de habilidade",
+  "settingsResources.skills.describePlaceholder":
+    "Uma habilidade que revisa pull requests em busca de problemas de segurança",
+  "settingsResources.files.empty":
+    "Adicione um arquivo para dar mais contexto ao seu agente.",
+  "settingsResources.files.orgEmpty": "Ainda não há arquivos compartilhados.",
+  "settingsResources.files.add": "Adicionar arquivo",
+  "settingsResources.files.upload": "Enviar arquivo",
+  "settingsResources.files.create": "Criar arquivo",
 };
 
 export default messages;

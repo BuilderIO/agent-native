@@ -36,6 +36,17 @@ everything that can influence the agent. Design principles:
 | `jobs` | **Automations**: personal and organization Scheduled/Event tasks with pause/resume/delete. The `jobs` hash is stable for compatibility (see `automations` and `recurring-jobs`). |
 | `access` | Copyable MCP URL and A2A agent-card URL, per-client connect steps (Claude, ChatGPT, Cursor, Claude Code, Codex, Other) from `packages/core/src/shared/mcp-connect-content.ts` (shared with the `/mcp/connect` route — edit the shared module, never fork copy), static-token fallback link. Grants/scopes/revocation UI is future work. |
 
+## Settings Resource Pages
+
+With the `settings-redesign` flag on, Settings › Agent › Instructions, Memory,
+Skills, and Files (`packages/core/src/client/settings/shell/pages/`) render the
+same `ResourcesPanel` with `settingsGroups`: Personal, {Org name}, and From
+Dispatch groups (Memory swaps From Dispatch for Learnings). Add a group or an
+add action there, not a second panel. Row read-only state comes from the scope:
+organization rows for members and Dispatch rows for everyone; the server still
+enforces it. Resource trees refetch on `action` change events, which is how an
+agent's `save-memory` or `resources` write appears without a reload.
+
 ## Mounting In A Template
 
 1. Add an `/agent` route following the template's settings-route pattern

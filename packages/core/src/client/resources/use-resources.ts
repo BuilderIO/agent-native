@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import type {
   CustomAgentProfile,
@@ -7,6 +12,7 @@ import type {
   SkillMetadata,
 } from "../../resources/metadata.js";
 import { agentNativePath } from "../api-path.js";
+import { useChangeVersion } from "../use-change-version.js";
 import {
   mcpBuiltinVirtualId,
   type BuiltinCapability,
@@ -284,10 +290,15 @@ export function resourceDownloadUrl(id: string): string {
   );
 }
 
+// Agent resource tools (save-memory, resources write) reach the client only as
+// `action` change events; folding that counter into the key is what makes an
+// agent's write show up without a reload.
 export function useResources(scope: ResourceScope = "personal") {
   const query = new URLSearchParams({ scope });
+  const agentWrites = useChangeVersion("action");
   return useQuery<ResourceMeta[]>({
-    queryKey: ["resources", "list", scope],
+    queryKey: ["resources", "list", scope, agentWrites],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const data = await fetchJson<{ resources: ResourceMeta[] }>(
         agentNativePath(`/_agent-native/resources?${query.toString()}`),
@@ -301,8 +312,16 @@ export function useResourceTree(
   scope: ResourceScope = "personal",
   opts?: { includeAgentScratch?: boolean },
 ) {
+  const agentWrites = useChangeVersion("action");
   return useQuery<TreeNode[]>({
-    queryKey: ["resources", "tree", scope, opts?.includeAgentScratch ?? false],
+    queryKey: [
+      "resources",
+      "tree",
+      scope,
+      opts?.includeAgentScratch ?? false,
+      agentWrites,
+    ],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const query = new URLSearchParams({ scope });
       if (opts?.includeAgentScratch) query.set("includeAgentScratch", "true");

@@ -1013,6 +1013,59 @@ const messages = {
   "settingsShell.search.voiceTranscription": "Voice transcription",
   "settingsShell.searchPlaceholder": "Search settings",
   "settingsShell.unread": "New",
+  "settingsResources.personal": "Personal",
+  "settingsResources.organization": "Organization",
+  "settingsResources.fromDispatch": "From Dispatch",
+  "settingsResources.readOnly": "Read only",
+  "settingsResources.readOnlyHint": "Only owners and admins can change this",
+  "settingsResources.editInDispatch": "Edit it in Dispatch",
+  "settingsResources.openDispatch": "Open Dispatch",
+  "settingsResources.allApps": "All apps",
+  "settingsResources.allAppsHint": "Dispatch shares this with every app",
+  "settingsResources.dispatchEmpty": "Nothing shared from Dispatch.",
+  "settingsResources.loadFailed": "Couldn't load these resources.",
+  "settingsResources.moreActions": "More actions",
+  "settingsResources.open": "Open",
+  "settingsResources.download": "Download",
+  "settingsResources.remove": "Remove",
+  "settingsResources.removeTitle": "Remove {{name}}?",
+  "settingsResources.removeFailed": "Couldn't remove {{name}}.",
+  "settingsResources.saveFailed": "Couldn't save {{name}}.",
+  "settingsResources.uploadFailed": "Couldn't upload {{name}}.",
+  "settingsResources.cancel": "Cancel",
+  "settingsResources.save": "Save",
+  "settingsResources.create": "Create",
+  "settingsResources.instructions.empty":
+    "Tell the agent how to work with you.",
+  "settingsResources.instructions.orgEmpty": "No instructions for {{org}} yet.",
+  "settingsResources.instructions.add": "Add instructions",
+  "settingsResources.instructions.fieldLabel":
+    "How should the agent work with you?",
+  "settingsResources.instructions.placeholder":
+    "Keep answers short. Use metric units.",
+  "settingsResources.instructions.savedAs":
+    "Saved as AGENTS.md in your personal resources.",
+  "settingsResources.memory.empty":
+    "The agent saves what it learns about you here.",
+  "settingsResources.memory.orgEmpty": "No shared memories yet.",
+  "settingsResources.memory.add": "Add memory",
+  "settingsResources.learnings.empty":
+    "Corrections you give the agent are saved as learnings.",
+  "settingsResources.learnings.add": "Add learning",
+  "settingsResources.skills.empty":
+    "Save a workflow once and the agent can reuse it.",
+  "settingsResources.skills.orgEmpty": "No shared skills yet.",
+  "settingsResources.skills.add": "Add skill",
+  "settingsResources.skills.describe": "Describe it to the agent",
+  "settingsResources.skills.upload": "Upload a skill file",
+  "settingsResources.skills.describePlaceholder":
+    "A skill that reviews pull requests for security issues",
+  "settingsResources.files.empty":
+    "Add a file to give your agent more context.",
+  "settingsResources.files.orgEmpty": "No shared files yet.",
+  "settingsResources.files.add": "Add file",
+  "settingsResources.files.upload": "Upload file",
+  "settingsResources.files.create": "Create file",
 } as const;
 
 export default messages;

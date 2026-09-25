@@ -1,5 +1,58 @@
-import { ResourceCollection } from "./resource-collection.js";
+import { IconFolder } from "@tabler/icons-react";
+import { useMemo } from "react";
+
+import { useT } from "../../../i18n.js";
+import type { ResourceSettingsGroupConfig } from "../../../resources/ResourceSettingsGroups.js";
+import { useSettingsPageHeader } from "../context.js";
+import {
+  AddFileMenu,
+  ResourceSettingsPage,
+  useDispatchGroup,
+  useOpenResourceRef,
+  useOrganizationResourceAccess,
+} from "./resource-settings-page.js";
 
 export default function FilesSettingsPage() {
-  return <ResourceCollection view="files" />;
+  const t = useT();
+  const { ref, open } = useOpenResourceRef();
+  const { canEditOrg } = useOrganizationResourceAccess();
+  const dispatchGroup = useDispatchGroup("files");
+
+  const header = useMemo(
+    () => ({
+      action: (
+        <AddFileMenu scope="personal" placement="header" onCreated={open} />
+      ),
+    }),
+    [open],
+  );
+  useSettingsPageHeader(header);
+
+  const groups = useMemo<ResourceSettingsGroupConfig[]>(
+    () => [
+      {
+        id: "personal",
+        view: "files",
+        sources: ["personal"],
+        emptyIcon: IconFolder,
+        emptyText: t("agentChat.settingsResources.files.empty"),
+      },
+      {
+        id: "organization",
+        view: "files",
+        sources: ["shared"],
+        emptyIcon: IconFolder,
+        emptyText: t("agentChat.settingsResources.files.orgEmpty"),
+        action: canEditOrg ? (
+          <AddFileMenu scope="shared" placement="group" onCreated={open} />
+        ) : undefined,
+      },
+      dispatchGroup,
+    ],
+    [canEditOrg, dispatchGroup, open, t],
+  );
+
+  return (
+    <ResourceSettingsPage view="files" groups={groups} openResourceRef={ref} />
+  );
 }

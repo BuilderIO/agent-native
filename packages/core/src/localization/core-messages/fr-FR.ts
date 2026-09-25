@@ -1081,6 +1081,62 @@ const messages: AgentChatTranslation = {
   "settingsShell.search.voiceTranscription": "Transcription vocale",
   "settingsShell.searchPlaceholder": "Rechercher dans les paramètres",
   "settingsShell.unread": "Nouveau",
+  "settingsResources.personal": "Personnel",
+  "settingsResources.organization": "Organisation",
+  "settingsResources.fromDispatch": "Depuis Dispatch",
+  "settingsResources.readOnly": "Lecture seule",
+  "settingsResources.readOnlyHint":
+    "Seuls les propriétaires et les administrateurs peuvent modifier ceci",
+  "settingsResources.editInDispatch": "Modifiez-le dans Dispatch",
+  "settingsResources.openDispatch": "Ouvrir Dispatch",
+  "settingsResources.allApps": "Toutes les apps",
+  "settingsResources.allAppsHint": "Dispatch partage ceci avec toutes les apps",
+  "settingsResources.dispatchEmpty": "Rien n'est partagé depuis Dispatch.",
+  "settingsResources.loadFailed": "Impossible de charger ces ressources.",
+  "settingsResources.moreActions": "Plus d'actions",
+  "settingsResources.open": "Ouvrir",
+  "settingsResources.download": "Télécharger",
+  "settingsResources.remove": "Retirer",
+  "settingsResources.removeTitle": "Retirer {{name}} ?",
+  "settingsResources.removeFailed": "Impossible de retirer {{name}}.",
+  "settingsResources.saveFailed": "Impossible d'enregistrer {{name}}.",
+  "settingsResources.uploadFailed": "Impossible d'importer {{name}}.",
+  "settingsResources.cancel": "Annuler",
+  "settingsResources.save": "Enregistrer",
+  "settingsResources.create": "Créer",
+  "settingsResources.instructions.empty":
+    "Dites à l'agent comment travailler avec vous.",
+  "settingsResources.instructions.orgEmpty":
+    "Aucune instruction pour {{org}} pour l'instant.",
+  "settingsResources.instructions.add": "Ajouter des instructions",
+  "settingsResources.instructions.fieldLabel":
+    "Comment l'agent doit-il travailler avec vous ?",
+  "settingsResources.instructions.placeholder":
+    "Réponds brièvement. Utilise les unités métriques.",
+  "settingsResources.instructions.savedAs":
+    "Enregistré sous AGENTS.md dans vos ressources personnelles.",
+  "settingsResources.memory.empty":
+    "L'agent enregistre ici ce qu'il apprend sur vous.",
+  "settingsResources.memory.orgEmpty": "Aucun souvenir partagé pour l'instant.",
+  "settingsResources.memory.add": "Ajouter un souvenir",
+  "settingsResources.learnings.empty":
+    "Les corrections que vous donnez à l'agent sont enregistrées comme apprentissages.",
+  "settingsResources.learnings.add": "Ajouter un apprentissage",
+  "settingsResources.skills.empty":
+    "Enregistrez un workflow une fois et l'agent pourra le réutiliser.",
+  "settingsResources.skills.orgEmpty":
+    "Aucune compétence partagée pour l'instant.",
+  "settingsResources.skills.add": "Ajouter une compétence",
+  "settingsResources.skills.describe": "La décrire à l'agent",
+  "settingsResources.skills.upload": "Importer un fichier de compétence",
+  "settingsResources.skills.describePlaceholder":
+    "Une compétence qui vérifie les pull requests à la recherche de failles de sécurité",
+  "settingsResources.files.empty":
+    "Ajoutez un fichier pour donner plus de contexte à votre agent.",
+  "settingsResources.files.orgEmpty": "Aucun fichier partagé pour l'instant.",
+  "settingsResources.files.add": "Ajouter un fichier",
+  "settingsResources.files.upload": "Importer un fichier",
+  "settingsResources.files.create": "Créer un fichier",
 };
 
 export default messages;

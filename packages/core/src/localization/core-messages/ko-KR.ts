@@ -1008,6 +1008,59 @@ const messages: AgentChatTranslation = {
   "settingsShell.search.voiceTranscription": "음성 전사",
   "settingsShell.searchPlaceholder": "설정 검색",
   "settingsShell.unread": "새 항목",
+  "settingsResources.personal": "개인",
+  "settingsResources.organization": "조직",
+  "settingsResources.fromDispatch": "Dispatch에서",
+  "settingsResources.readOnly": "읽기 전용",
+  "settingsResources.readOnlyHint": "소유자와 관리자만 변경할 수 있습니다",
+  "settingsResources.editInDispatch": "Dispatch에서 편집하세요",
+  "settingsResources.openDispatch": "Dispatch 열기",
+  "settingsResources.allApps": "모든 앱",
+  "settingsResources.allAppsHint": "Dispatch가 모든 앱과 공유합니다",
+  "settingsResources.dispatchEmpty": "Dispatch에서 공유된 항목이 없습니다.",
+  "settingsResources.loadFailed": "이 리소스를 불러오지 못했습니다.",
+  "settingsResources.moreActions": "추가 작업",
+  "settingsResources.open": "열기",
+  "settingsResources.download": "다운로드",
+  "settingsResources.remove": "제거",
+  "settingsResources.removeTitle": "{{name}}을(를) 제거할까요?",
+  "settingsResources.removeFailed": "{{name}}을(를) 제거하지 못했습니다.",
+  "settingsResources.saveFailed": "{{name}}을(를) 저장하지 못했습니다.",
+  "settingsResources.uploadFailed": "{{name}}을(를) 업로드하지 못했습니다.",
+  "settingsResources.cancel": "취소",
+  "settingsResources.save": "저장",
+  "settingsResources.create": "만들기",
+  "settingsResources.instructions.empty":
+    "에이전트에게 함께 일하는 방식을 알려 주세요.",
+  "settingsResources.instructions.orgEmpty": "아직 {{org}}의 지침이 없습니다.",
+  "settingsResources.instructions.add": "지침 추가",
+  "settingsResources.instructions.fieldLabel":
+    "에이전트가 어떻게 일하길 원하시나요?",
+  "settingsResources.instructions.placeholder":
+    "답변은 짧게. 미터법 단위를 사용하세요.",
+  "settingsResources.instructions.savedAs":
+    "개인 리소스에 AGENTS.md로 저장됩니다.",
+  "settingsResources.memory.empty":
+    "에이전트가 당신에 대해 알게 된 내용을 여기에 저장합니다.",
+  "settingsResources.memory.orgEmpty": "아직 공유된 메모리가 없습니다.",
+  "settingsResources.memory.add": "메모리 추가",
+  "settingsResources.learnings.empty":
+    "에이전트에게 준 수정 사항은 학습 내용으로 저장됩니다.",
+  "settingsResources.learnings.add": "학습 내용 추가",
+  "settingsResources.skills.empty":
+    "워크플로를 한 번 저장하면 에이전트가 재사용할 수 있습니다.",
+  "settingsResources.skills.orgEmpty": "아직 공유된 스킬이 없습니다.",
+  "settingsResources.skills.add": "스킬 추가",
+  "settingsResources.skills.describe": "에이전트에게 설명하기",
+  "settingsResources.skills.upload": "스킬 파일 업로드",
+  "settingsResources.skills.describePlaceholder":
+    "풀 리퀘스트의 보안 문제를 검토하는 스킬",
+  "settingsResources.files.empty":
+    "파일을 추가해 에이전트에게 더 많은 컨텍스트를 제공하세요.",
+  "settingsResources.files.orgEmpty": "아직 공유된 파일이 없습니다.",
+  "settingsResources.files.add": "파일 추가",
+  "settingsResources.files.upload": "파일 업로드",
+  "settingsResources.files.create": "파일 만들기",
 };
 
 export default messages;
