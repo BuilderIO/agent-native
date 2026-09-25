@@ -21,6 +21,12 @@ const fonts = [
     constName: "NOTO_NASKH_ARABIC_BASE64",
     file: "../src/assets/fonts/NotoNaskhArabic-Variable.ttf",
   },
+  // The Geist faces are Latin subsets of the v1.7.2 release TTFs: every
+  // serverless function that bundles @agent-native/core/server carries these
+  // bytes, and they only draw the English sign-in copy. Regenerate with
+  //   pyftsubset <ttf> --unicodes="U+0020-007E,U+00A0-00FF,U+2010-2027,U+2032-2033,U+20AC,U+2122" \
+  //     --layout-features='*' --name-IDs='*' --name-languages='*' --name-legacy --no-hinting
+  // (Geist Mono only needs U+0020-007E).
   {
     constName: "GEIST_REGULAR_BASE64",
     file: "../src/assets/fonts/Geist-Regular.ttf",

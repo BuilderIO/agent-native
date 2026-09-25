@@ -148,8 +148,9 @@ function isBuilderPreviewLocalDevEnabled(): boolean {
   ) {
     return false;
   }
-  const value =
-    process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]?.trim().toLowerCase();
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
   return value === "1" || value === "true";
 }
 
@@ -885,8 +886,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     checkEmailTitle: "अपना ईमेल देखें",
     resetPasswordTitle: "पासवर्ड रीसेट करें",
     createAccountSubtitle: "शुरू करने के लिए खाता बनाएं",
-    googleOnlySubtitle:
-      "जारी रखने के लिए अपना workspace Google खाता उपयोग करें",
+    googleOnlySubtitle: "जारी रखने के लिए अपना workspace Google खाता उपयोग करें",
     signInSubtitle: "अपने खाते में साइन इन करें",
     finishAccountSubtitle: "अपना खाता बनाना पूरा करें",
     resetPasswordSubtitle: "अपना पासवर्ड रीसेट करें",
@@ -912,8 +912,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     sendResetLink: "रीसेट लिंक भेजें",
     backToSignIn: "साइन इन पर वापस जाएं",
     localDevButton: "स्थानीय डेवलपर के रूप में जारी रखें",
-    localDevDescription:
-      "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
+    localDevDescription: "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
     localDevHelp: "स्थानीय विकास साइन-इन के बारे में जानें",
     localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
@@ -926,8 +925,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     closeGoogleChoices: "Google साइन-इन विकल्प बंद करें",
     signInToContinue: "जारी रखने के लिए साइन इन करें।",
     finishSignInFailed: "साइन इन अपने आप पूरा नहीं हो सका।",
-    enterPasswordAfterVerification:
-      "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
+    enterPasswordAfterVerification: "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
     finishSignInManually:
       "साइन इन अपने आप पूरा नहीं हो सका। जारी रखने के लिए साइन इन करें।",
     stillWaitingVerification:
@@ -950,8 +948,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resetEmailSent: "अगर वह ईमेल मौजूद है, तो reset लिंक भेजा जा रहा है।",
     resetEmailFailed: "रीसेट ईमेल नहीं भेजा जा सका।",
     googleNotConfigured: "Google OAuth configured नहीं है।",
-    migrateLocalFallback:
-      "स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
+    migrateLocalFallback: "स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
     googlePopupHelp: "इस साइट के लिए pop-ups allow करें और फिर कोशिश करें",
   },
   "ar-SA": {
