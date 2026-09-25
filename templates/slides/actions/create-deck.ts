@@ -437,6 +437,14 @@ export default defineAction({
           aspectRatio: aspectRatio ?? prevData.aspectRatio,
           designSystemId: designSystemId ?? prevData.designSystemId,
           creativeContext: creativeContextProvenance,
+          ...(actionOwnsGenerationLifecycle
+            ? {
+                generationContext: {
+                  generationAttemptId,
+                  generationMode: "action",
+                },
+              }
+            : {}),
         };
         await db.transaction(async (tx: any) => {
           await createDeckVersionSnapshot(

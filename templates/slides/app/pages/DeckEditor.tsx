@@ -2,7 +2,10 @@ import {
   sendToAgentChat,
   useGuidedQuestionFlow,
 } from "@agent-native/core/client/agent-chat";
-import { trackEvent } from "@agent-native/core/client/analytics";
+import {
+  getAnalyticsSessionId,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
@@ -711,11 +714,16 @@ export default function DeckEditor() {
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
   useEffect(() => {
-    if (!id || !deck || slideCount === 0 || viewedDeckIdsRef.current.has(id)) {
+    if (!id || !deck || slideCount === 0) {
       return;
     }
-    viewedDeckIdsRef.current.add(id);
-    const viewedKey = `slides:output-viewed:${id}`;
+    const viewKey = JSON.stringify([
+      getAnalyticsSessionId() ?? "no-session",
+      id,
+    ]);
+    if (viewedDeckIdsRef.current.has(viewKey)) return;
+    viewedDeckIdsRef.current.add(viewKey);
+    const viewedKey = "slides:output-viewed:" + viewKey;
     try {
       if (window.sessionStorage.getItem(viewedKey) === "1") return;
       window.sessionStorage.setItem(viewedKey, "1");

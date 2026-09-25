@@ -679,6 +679,40 @@ describe("create-deck — generation lifecycle tracking", () => {
     });
   });
 
+  it("replaces prior generation context when an action-owned attempt replaces a deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        generationContext: {
+          generationAttemptId: "previous-attempt",
+          generationMode: "action",
+        },
+      }),
+    };
+
+    await action.run({
+      title: "T2",
+      slides: [{ id: "s1", content: "<div>Replacement</div>" }],
+      deckId: "deck-1",
+    });
+
+    const started = trackedEvents().find(
+      (event) => event.name === "generation_started",
+    );
+    expect(JSON.parse(updatedFields!.data as string).generationContext).toEqual(
+      {
+        generationAttemptId: started?.properties.generation_attempt_id,
+        generationMode: "action",
+      },
+    );
+    expect(started?.properties.generation_attempt_id).not.toBe(
+      "previous-attempt",
+    );
+  });
+
   it.each(["new deck", "replacement deck"] as const)(
     "reports completion when the slides persist but the design system is unavailable for a %s",
     async (mode) => {

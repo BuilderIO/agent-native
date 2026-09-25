@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   attemptGenerating: false,
   attemptObservedRun: false,
   targetTabId: "target-tab",
+  analyticsSessionId: "session-1",
   revision: 0,
   listeners: new Set<() => void>(),
 }));
@@ -97,7 +98,11 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
     await importOriginal<
       typeof import("@agent-native/core/client/analytics")
     >();
-  return { ...original, trackEvent: vi.fn() };
+  return {
+    ...original,
+    getAnalyticsSessionId: () => mocks.analyticsSessionId,
+    trackEvent: vi.fn(),
+  };
 });
 vi.mock("@agent-native/core/client/collab", () => ({
   useCollaborativeDoc: () => ({
@@ -202,6 +207,7 @@ describe("DeckEditor generation signal wiring", () => {
       broadGenerating: true,
       attemptGenerating: false,
       attemptObservedRun: false,
+      analyticsSessionId: "session-1",
       revision: 0,
     });
     mocks.listeners.clear();
@@ -294,6 +300,30 @@ describe("DeckEditor generation signal wiring", () => {
     await act(async () => router?.navigate("/other"));
     await act(async () => router?.navigate("/deck/deck-1"));
     expect(outputViews()).toHaveLength(1);
+  });
+
+  it("emits a new output view for the same deck in a new analytics session", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/other", element: <div>Other</div> },
+      ],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    const outputViews = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed");
+    await waitFor(() => expect(outputViews()).toHaveLength(1));
+
+    mocks.analyticsSessionId = "session-2";
+    await act(async () => router?.navigate("/other"));
+    await act(async () => router?.navigate("/deck/deck-1"));
+
+    await waitFor(() => expect(outputViews()).toHaveLength(2));
   });
 
   it("clears generation state when the target tab finishes while another chat stays busy", async () => {

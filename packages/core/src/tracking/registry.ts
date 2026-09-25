@@ -132,6 +132,9 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   const canUseAmbientIdentity = source.userId
     ? source.userId === requestContext?.userEmail
     : !source.anonymousId;
+  const canUseAmbientSession =
+    canUseAmbientIdentity &&
+    (!source.authUserId || source.authUserId === requestContext?.authUserId);
   return {
     userId: source.userId,
     authUserId:
@@ -139,8 +142,7 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
       (canUseAmbientIdentity ? requestContext?.authUserId : undefined),
     anonymousId: source.anonymousId,
     sessionId:
-      source.sessionId ??
-      (canUseAmbientIdentity ? ambientSessionId : undefined),
+      source.sessionId ?? (canUseAmbientSession ? ambientSessionId : undefined),
     occurredAt: source.occurredAt,
     telemetryOrigin: source.telemetryOrigin ?? "server",
   };

@@ -133,6 +133,22 @@ describe("tracking registry", () => {
     expect(events[0]?.properties).not.toHaveProperty("auth_user_id");
   });
 
+  it("does not attach an ambient session to a conflicting explicit auth ID", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "session-1",
+      },
+      () => track("explicit_auth_event", {}, { authUserId: "other-auth-user" }),
+    );
+
+    expect(events[0]?.properties?.auth_user_id).toBe("other-auth-user");
+    expect(events[0]?.sessionId).toBeUndefined();
+  });
+
   it("removes auth_user_id when no verified identity is available", () => {
     const events = captureEvents();
 
