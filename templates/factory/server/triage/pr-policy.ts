@@ -452,8 +452,39 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.endsWith("/start-builder-for-item.ts") ||
       normalized.endsWith("/agent-chat.ts") ||
       normalized.endsWith("/builder-executor.ts") ||
+      normalized.startsWith("packages/core/src/server/builder-browser.") ||
+      normalized.startsWith("packages/core/src/server/core-routes-plugin.") ||
+      normalized.startsWith("packages/core/src/server/open-route.") ||
+      normalized.startsWith(
+        "packages/core/src/server/agent-chat/browser-team-tools.",
+      ) ||
+      normalized.startsWith(
+        "packages/core/src/server/builder-preview-relay.",
+      ) ||
+      normalized.startsWith("packages/core/src/server/agent-chat-plugin.") ||
+      normalized.startsWith("packages/core/src/server/action-routes.") ||
+      normalized.startsWith(
+        "packages/core/src/server/hosted-harness-policy.",
+      ) ||
+      normalized.startsWith("packages/core/src/cli/workspace-skill-policy.") ||
+      normalized.startsWith("packages/core/src/triggers/routes.") ||
+      normalized.startsWith("packages/core/src/collab/routes.") ||
+      normalized.startsWith("packages/core/src/collab/struct-routes.") ||
+      normalized.startsWith("packages/core/src/notifications/routes.") ||
       normalized.endsWith("/framework-route-prefix.ts") ||
+      normalized.endsWith("/framework-route-prefix.spec.ts") ||
       normalized.endsWith("/recap.ts") ||
+      normalized.includes("/browser-context/") ||
+      normalized.startsWith("packages/core/src/client/host-bridge.") ||
+      normalized.startsWith("packages/core/src/client/frame.") ||
+      normalized.startsWith("packages/core/src/client/builder-frame.") ||
+      normalized.startsWith("packages/core/src/client/blocks/library/html.") ||
+      normalized.startsWith(
+        "packages/core/src/client/blocks/library/diagram.",
+      ) ||
+      normalized.startsWith(
+        "packages/core/src/client/blocks/library/wireframe.",
+      ) ||
       normalized.includes("/pr-policy.") ||
       normalized.endsWith("/factory-scheduler-job.ts") ||
       normalized.startsWith("packages/core/src/client/mcp-apps/") ||
@@ -469,7 +500,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       /(^|\/)(?:package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb|pnpm-workspace\.yaml|\.npmrc|\.yarnrc(?:\.yml)?|turbo\.jsonc?|nx\.json|lerna\.json|dockerfile(?:\..*)?|docker-compose(?:\..*)?|\.nvmrc|\.node-version|vite\.config\..*|webpack\.config\..*|rollup\.config\..*|esbuild\.config\..*|tsconfig(?:\..*)?\.json|makefile)$/i.test(
         normalized,
       ) ||
-      /(^|[\/_\.-])(?:auth|authorize|authentication|authorization|identity|credentials?|secrets?|keys?|sessions?|permissions?|access|members?|membership|roles?|groups?|grants?|approvals?|scopes?|schemas?|csrf|cors|dependabot|renovate|federation|orgs?|guards?|a2a|webmcp|mcp|tenant|tenants|isolation|security|execution|sandbox|payments?|subscriptions?|billing|deploy|deployment|netlify|publish|release|migrations?|oauth|embed(?:ded|ding)?|iframeembed|iframe[-_]?bridge|agentnativeembedded|mcp-app-host|connect(?:ion|or)?s?|integrations?|extensions?|prompts?|safe[-_]?native[-_]?preview|preview[-_]?execution|rendered[-_]?page|service[-_]tokens?|short[-_]lived[-_]tokens?|realtime[-_]tokens?|internal[-_]tokens?|ssrf|url[-_]?safety|fetch[-_]?tool|db[-_]?admin|webhooks?)([\/_-]|\.|$)/.test(
+      /(^|[\/_\.-])(?:auth|authorize|authentication|authorization|identity|passwords?|credentials?|secrets?|keys?|sessions?|permissions?|access|members?|membership|roles?|groups?|grants?|approvals?|scopes?|schemas?|csrf|cors|dependabot|renovate|federation|orgs?|guards?|a2a|webmcp|mcp|tenant|tenants|isolation|security|execution|sandbox|payments?|subscriptions?|billing|deploy|deployment|netlify|publish|release|migrations?|oauth|embed(?:ded|ding)?|iframeembed|iframe[-_]?bridge|agentnativeembedded|mcp-app-host|connect(?:ion|or)?s?|integrations?|extensions?|prompts?|safe[-_]?native[-_]?preview|preview[-_]?execution|rendered[-_]?page|service[-_]tokens?|short[-_]lived[-_]tokens?|realtime[-_]tokens?|internal[-_]tokens?|ssrf|url[-_]?safety|fetch[-_]?tool|db[-_]?admin|webhooks?)([\/_-]|\.|$)/.test(
         securityPath,
       )
     );
