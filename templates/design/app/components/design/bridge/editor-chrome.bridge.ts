@@ -4182,15 +4182,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function typedStyleValue(el: Element, property: string): string | undefined {
+  type TypedStyleValue =
+    | { status: "available"; value: string | undefined }
+    | { status: "failed"; error: unknown };
+
+  function typedStyleValue(el: Element, property: string): TypedStyleValue {
     var typedElement = el as Element & {
       computedStyleMap?: () => StylePropertyMap;
     };
-    if (typeof typedElement.computedStyleMap !== "function") return undefined;
+    if (typeof typedElement.computedStyleMap !== "function") {
+      return { status: "available", value: undefined };
+    }
     try {
-      return typedElement.computedStyleMap().get(property)?.toString().trim();
-    } catch (_error) {
-      return undefined;
+      return {
+        status: "available",
+        value: typedElement.computedStyleMap().get(property)?.toString().trim(),
+      };
+    } catch (error) {
+      return { status: "failed", error };
     }
   }
 
@@ -4203,7 +4212,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var value = typedStyleValue(el, margin);
       // CSSOM resolves auto margins to pixels. If Typed OM cannot distinguish
       // them, skip stretch preservation rather than freezing an uncertain size.
-      return value === undefined || value.toLowerCase() === "auto";
+      return (
+        value.status === "failed" ||
+        value.value === undefined ||
+        value.value.toLowerCase() === "auto"
+      );
     });
   }
 
@@ -4220,10 +4233,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     property: string,
     cs: CSSStyleDeclaration,
     parentStyle: CSSStyleDeclaration,
-    typedSize: string,
+    typedSize: TypedStyleValue,
   ): boolean {
     if (
-      typedSize.toLowerCase() !== "auto" ||
+      typedSize.status === "failed" ||
+      typedSize.value?.toLowerCase() !== "auto" ||
       dimensionHasAutoMargin(el, property)
     ) {
       return false;
@@ -15731,7 +15745,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           property,
           computed,
           parentStyle,
-          typedStyleValue(el, property) || "",
+          typedStyleValue(el, property),
         );
       }
       if (property === mainAxis) {

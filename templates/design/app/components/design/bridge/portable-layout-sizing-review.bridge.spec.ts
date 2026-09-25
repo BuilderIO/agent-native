@@ -115,6 +115,30 @@ describe("portable auto-layout dimensions for cross-screen drops", () => {
     expect(start.sourceComputedSize?.width).toBeUndefined();
   });
 
+  it("keeps a Grid dimension unresolved when Typed OM fails to read it", async () => {
+    const start = await captureStart(
+      `<!doctype html><html><head><style>
+        .unreadable { width:auto; height:auto; }
+      </style><script>
+        const readStyleMap = Element.prototype.computedStyleMap;
+        Element.prototype.computedStyleMap = function () {
+          if (this.matches("[data-agent-native-node-id=unreadable]")) {
+            throw new Error("fixture Typed OM read failure");
+          }
+          return readStyleMap.call(this);
+        };
+      </script></head><body style="margin:0">
+        <main style="display:grid;justify-items:stretch;align-items:stretch;width:300px;height:200px;grid-template-columns:300px;grid-template-rows:200px">
+          <div class="unreadable" data-agent-native-node-id="unreadable">Unreadable Grid item</div>
+        </main>
+      </body></html>`,
+      '[data-agent-native-node-id="unreadable"]',
+    );
+    expect(rootStyles(start)).not.toHaveProperty("width");
+    expect(rootStyles(start)).not.toHaveProperty("height");
+    expect(start.sourceComputedSize).toBeUndefined();
+  });
+
   it("preserves stylesheet-fixed Grid dimensions instead of treating them as stretch", async () => {
     const start = await captureStart(
       `<!doctype html><html><head><style>

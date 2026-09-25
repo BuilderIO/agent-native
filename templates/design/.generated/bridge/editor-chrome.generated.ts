@@ -3699,18 +3699,23 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function typedStyleValue(el, property) {
       var typedElement = el;
-      if (typeof typedElement.computedStyleMap !== "function") return void 0;
+      if (typeof typedElement.computedStyleMap !== "function") {
+        return { status: "available", value: void 0 };
+      }
       try {
-        return typedElement.computedStyleMap().get(property)?.toString().trim();
-      } catch (_error) {
-        return void 0;
+        return {
+          status: "available",
+          value: typedElement.computedStyleMap().get(property)?.toString().trim()
+        };
+      } catch (error) {
+        return { status: "failed", error };
       }
     }
     function dimensionHasAutoMargin(el, property) {
       var margins = property === "width" ? ["margin-left", "margin-right"] : ["margin-top", "margin-bottom"];
       return margins.some(function(margin) {
         var value = typedStyleValue(el, margin);
-        return value === void 0 || value.toLowerCase() === "auto";
+        return value.status === "failed" || value.value === void 0 || value.value.toLowerCase() === "auto";
       });
     }
     function flexMainAxisDimension(parentStyle) {
@@ -3719,7 +3724,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return inlineAxis === "width" ? "height" : "width";
     }
     function gridItemDimensionIsStretched(el, property, cs, parentStyle, typedSize) {
-      if (typedSize.toLowerCase() !== "auto" || dimensionHasAutoMargin(el, property)) {
+      if (typedSize.status === "failed" || typedSize.value?.toLowerCase() !== "auto" || dimensionHasAutoMargin(el, property)) {
         return false;
       }
       var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
@@ -11515,7 +11520,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             property,
             computed,
             parentStyle,
-            typedStyleValue(el, property) || ""
+            typedStyleValue(el, property)
           );
         }
         if (property === mainAxis) {
