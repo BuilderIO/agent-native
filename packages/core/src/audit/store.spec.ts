@@ -32,6 +32,7 @@ const {
   insertAuditEvent,
   queryAuditEvents,
   queryAuditEventPage,
+  queryAuditApps,
   getAuditEventById,
   deleteOldAuditEvents,
   __resetAuditInitForTests,
@@ -341,6 +342,38 @@ describe("app, date range, and paging", () => {
     expect(mail.map((r) => [r.id, r.app])).toEqual([["m", "mail"]]);
     const all = await queryAuditEvents({ userEmail: "alice@x.com" });
     expect(all.find((r) => r.id === "legacy")?.app).toBeNull();
+  });
+
+  it("lists the apps the scope can read, without other tenants' apps", async () => {
+    await insertAuditEvent({ ...makeEvent({ id: "m" }), app: "mail" });
+    await insertAuditEvent({ ...makeEvent({ id: "m2" }), app: "mail" });
+    await insertAuditEvent({
+      ...makeEvent({
+        id: "c",
+        ownerEmail: "admin@x.com",
+        orgId: "org-1",
+        visibility: "admins",
+      }),
+      app: "clips",
+    });
+    await insertAuditEvent({
+      ...makeEvent({ id: "b", ownerEmail: "bob@y.com", orgId: "org-2" }),
+      app: "brain",
+    });
+    await insertAuditEvent(makeEvent({ id: "legacy" }));
+
+    expect(await queryAuditApps({ userEmail: "alice@x.com" })).toEqual([
+      "mail",
+    ]);
+    expect(
+      await queryAuditApps({
+        userEmail: "admin@x.com",
+        orgId: "org-1",
+        orgAdmin: true,
+        trail: "organization",
+      }),
+    ).toEqual(["clips"]);
+    expect(await queryAuditApps({})).toEqual([]);
   });
 
   it("bounds the range with sinceMs (inclusive) and beforeMs (exclusive)", async () => {

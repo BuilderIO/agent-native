@@ -30,6 +30,7 @@ export {
   insertAuditEvent,
   queryAuditEvents,
   queryAuditEventPage,
+  queryAuditApps,
   getAuditEventById,
   deleteOldAuditEvents,
   type AuditEventPage,

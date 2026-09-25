@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { resolveAuditReadScope } from "../read-scope.js";
-import { queryAuditEventPage } from "../store.js";
+import { queryAuditApps, queryAuditEventPage } from "../store.js";
 
 /**
  * List audit-log events the current user can see — their own actions plus the
@@ -65,30 +65,42 @@ export default defineAction({
       .describe(
         "Skip this many matching events, newest first. Pass the previous page's nextOffset.",
       ),
+    includeApps: z
+      .boolean()
+      .optional()
+      .describe(
+        "Also return `apps`: every app id with events in this scope, ignoring the other filters. Use it to list the choices for an app filter.",
+      ),
   }),
   http: { method: "GET" },
   run: async (args, ctx) => {
     const scope = await resolveAuditReadScope(ctx, args.scope);
-    const page = await queryAuditEventPage(scope, {
-      ...(args.targetType ? { targetType: args.targetType } : {}),
-      ...(args.targetId ? { targetId: args.targetId } : {}),
-      ...(args.actorKind ? { actorKind: args.actorKind } : {}),
-      ...(args.actorEmail ? { actorEmail: args.actorEmail } : {}),
-      ...(args.status ? { status: args.status } : {}),
-      ...(args.threadId ? { threadId: args.threadId } : {}),
-      ...(args.turnId ? { turnId: args.turnId } : {}),
-      ...(args.action ? { action: args.action } : {}),
-      ...(args.app ? { app: args.app } : {}),
-      ...(typeof args.sinceMs === "number" ? { sinceMs: args.sinceMs } : {}),
-      ...(typeof args.beforeMs === "number" ? { beforeMs: args.beforeMs } : {}),
-      ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
-      ...(typeof args.offset === "number" ? { offset: args.offset } : {}),
-    });
+    const [page, apps] = await Promise.all([
+      queryAuditEventPage(scope, {
+        ...(args.targetType ? { targetType: args.targetType } : {}),
+        ...(args.targetId ? { targetId: args.targetId } : {}),
+        ...(args.actorKind ? { actorKind: args.actorKind } : {}),
+        ...(args.actorEmail ? { actorEmail: args.actorEmail } : {}),
+        ...(args.status ? { status: args.status } : {}),
+        ...(args.threadId ? { threadId: args.threadId } : {}),
+        ...(args.turnId ? { turnId: args.turnId } : {}),
+        ...(args.action ? { action: args.action } : {}),
+        ...(args.app ? { app: args.app } : {}),
+        ...(typeof args.sinceMs === "number" ? { sinceMs: args.sinceMs } : {}),
+        ...(typeof args.beforeMs === "number"
+          ? { beforeMs: args.beforeMs }
+          : {}),
+        ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+        ...(typeof args.offset === "number" ? { offset: args.offset } : {}),
+      }),
+      args.includeApps ? queryAuditApps(scope) : undefined,
+    ]);
     return {
       events: page.events,
       count: page.events.length,
       hasMore: page.hasMore,
       nextOffset: page.nextOffset,
+      ...(apps ? { apps } : {}),
     };
   },
 });

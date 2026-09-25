@@ -128,9 +128,11 @@ in SQL to the caller — they never leak another tenant's rows:
 - `list-audit-events` — filter by `targetType`/`targetId`, `actorKind`
   (`agent` | `human` | `system`), `status`, `threadId`/`turnId`, `action`,
   `app`, `sinceMs` (inclusive), `beforeMs` (exclusive), with `limit` and
-  `offset` paging; returns `hasMore` and `nextOffset`. `scope: "organization"`
-  reads only the org's shared trail (`org` and `admins` events) and is refused
-  with a 403 for anyone but owners and admins. This is the Settings audit log.
+  `offset` paging; returns `hasMore` and `nextOffset`. `includeApps: true`
+  also returns `apps`, the app ids with events in the scope, for an app
+  filter. `scope: "organization"` reads only the org's shared trail (`org` and
+  `admins` events) and is refused with a 403 for anyone but owners and admins.
+  This is the Settings audit log.
 - `get-audit-event` — one event by id, with its redacted input payload. Owners
   and admins can open `admins` events.
 - `export-audit-events` — bulk CSV/NDJSON export (same filters minus `limit`
@@ -139,6 +141,13 @@ in SQL to the caller — they never leak another tenant's rows:
 
 Call them from the UI with `useActionQuery` to build an activity feed or a
 "who changed this" line — never hand-write a fetch to the audit table.
+
+Settings › Organization › Audit log (`/settings/audit`, owners and admins, with
+the `settings-redesign` flag on) is that trail's page, in
+`packages/core/src/client/settings/shell/pages/audit.tsx`. Its range and app
+filters are `sinceMs` and `app`; "Show N more" is the next `offset` page; a
+row opens `get-audit-event`. When a user asks what changed in the org, call
+`list-audit-events` with `scope: "organization"` instead of reading the page.
 
 ## Never
 

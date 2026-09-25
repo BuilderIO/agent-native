@@ -365,6 +365,24 @@ async function selectAuditRows(
   return (result.rows ?? []).map(mapRow);
 }
 
+/**
+ * The distinct apps that recorded rows the scope can read, ignoring every
+ * other filter, so an app filter lists the same choices while it narrows.
+ * Rows with no recorded app are not a choice.
+ */
+export async function queryAuditApps(scope: AuditReadScope): Promise<string[]> {
+  await ensureAuditTables();
+  if (!scope.userEmail && !scope.orgId) return [];
+  const scoped = scopeClause(scope);
+  const result = await getDbExec().execute({
+    sql: `SELECT DISTINCT app FROM agent_audit_log
+          WHERE ${scoped.sql} AND app IS NOT NULL
+          ORDER BY app`,
+    args: scoped.args,
+  });
+  return (result.rows ?? []).map((row: any) => String(row.app));
+}
+
 export async function getAuditEventById(
   id: string,
   scope: AuditReadScope,
