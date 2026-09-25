@@ -49,7 +49,7 @@ describe("SlideEditor with a newer version of the edited slide", () => {
   it("saves an open edit on top of it after the editor first showed an Excalidraw slide", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const onUpdateSlide = vi.fn(() => undefined);
+    const onUpdateSlide = vi.fn((_updates: Partial<Slide>) => undefined);
     const noop = () => {};
     const props = {
       onUpdateSlide,
