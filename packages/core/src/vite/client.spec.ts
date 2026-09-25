@@ -995,6 +995,45 @@ describe("dev server mounted path helpers", () => {
     );
   });
 
+  it("leaves the browser manifest relative for same-origin requests behind a Host-rewriting proxy", () => {
+    // The page and manifest share a public origin, but the proxy in front of
+    // the dev server forwards Host: localhost:8080. Rewriting from Host would
+    // point every route module at the viewer's own localhost.
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      pluginContainer: { load: vi.fn() },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
+    const next = vi.fn();
+    middleware!(
+      {
+        method: "GET",
+        url: "/@id/__x00__virtual:react-router/browser-manifest",
+        headers: {
+          origin: "https://abc123-development.builderio.xyz",
+          host: "localhost:8080",
+          "sec-fetch-site": "same-origin",
+        },
+      },
+      res,
+      next,
+    );
+
+    expect(server.pluginContainer.load).not.toHaveBeenCalled();
+    expect(res.end).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it("does not serve base-prefixed Vite modules without embed auth", () => {
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
