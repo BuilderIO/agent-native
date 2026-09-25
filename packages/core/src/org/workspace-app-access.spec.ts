@@ -22,11 +22,11 @@ vi.mock("./federation.js", () => ({
     mocks.validateFederatedOrganizationMembershipForCurrentRequest,
 }));
 
-import { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
 import {
   __resetWorkspaceAppAccessCacheForTests,
   invalidateWorkspaceAppAccessCache,
 } from "./workspace-app-access-cache.js";
+import { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
 
 describe("isWorkspaceAppAccessAllowed", () => {
   afterEach(() => {
