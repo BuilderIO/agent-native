@@ -728,6 +728,44 @@ export async function getOrgScopedThreadTitles(
   );
 }
 
+export async function getOrgScopedReviewThreads(
+  orgId: string,
+  requested: readonly { ownerEmail: string; threadId: string }[],
+): Promise<Map<string, { threadData: string | null; title: string | null }>> {
+  const keys = [
+    ...new Map(
+      requested
+        .filter(({ ownerEmail, threadId }) => ownerEmail && threadId)
+        .map((key) => [
+          `${key.ownerEmail.toLowerCase()}\0${key.threadId}`,
+          key,
+        ]),
+    ).values(),
+  ].slice(0, 100);
+  if (!orgId || keys.length === 0) return new Map();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, thread_data, title FROM chat_threads
+      WHERE org_id = ? AND (${keys
+        .map(() => "(LOWER(owner_email) = LOWER(?) AND id = ?)")
+        .join(" OR ")})`,
+    args: [
+      orgId,
+      ...keys.flatMap(({ ownerEmail, threadId }) => [ownerEmail, threadId]),
+    ],
+  });
+  return new Map(
+    (rows as Array<Record<string, unknown>>).map((row) => [
+      String(row.id),
+      {
+        threadData:
+          typeof row.thread_data === "string" ? row.thread_data : null,
+        title: typeof row.title === "string" ? row.title.slice(0, 240) : null,
+      },
+    ]),
+  );
+}
+
 export async function getHumanReviewSummaries(
   orgId: string,
   runIds?: readonly string[],

@@ -3,6 +3,7 @@ import {
   getHumanReviewSummaries,
   getOrgScopedThreadData,
   getOrgScopedThreadTitles,
+  getOrgScopedReviewThreads,
   getFeedback,
   getInstructionUpdates,
   getTraceSpansForRun,
@@ -268,22 +269,13 @@ export async function listOutputReviews(opts: {
     if (!updateByRun.has(update.runId)) updateByRun.set(update.runId, update);
   }
 
-  const summariesByOwner = new Map<string, string[]>();
-  for (const summary of summaries) {
-    if (!summary.userId || !summary.threadId) continue;
-    const threadIds = summariesByOwner.get(summary.userId) ?? [];
-    threadIds.push(summary.threadId);
-    summariesByOwner.set(summary.userId, threadIds);
-  }
-  const [threadResults, titleResults, humanSummaries] = await Promise.all([
-    Promise.all(
-      [...summariesByOwner].map(([owner, threadIds]) =>
-        getOrgScopedThreadData(opts.orgId, owner, threadIds),
-      ),
-    ),
-    Promise.all(
-      [...summariesByOwner].map(([owner, threadIds]) =>
-        getOrgScopedThreadTitles(opts.orgId, owner, threadIds),
+  const [threadRows, humanSummaries] = await Promise.all([
+    getOrgScopedReviewThreads(
+      opts.orgId,
+      summaries.flatMap((summary) =>
+        summary.userId && summary.threadId
+          ? [{ ownerEmail: summary.userId, threadId: summary.threadId }]
+          : [],
       ),
     ),
     getHumanReviewSummaries(
@@ -291,8 +283,14 @@ export async function listOutputReviews(opts: {
       summaries.map((summary) => summary.runId),
     ),
   ]);
-  const threads = new Map(threadResults.flatMap((result) => [...result]));
-  const titles = new Map(titleResults.flatMap((result) => [...result]));
+  const threads = new Map(
+    [...threadRows].map(([id, thread]) => [id, thread.threadData]),
+  );
+  const titles = new Map(
+    [...threadRows].flatMap(([id, thread]) =>
+      thread.title?.trim() ? [[id, thread.title]] : [],
+    ),
+  );
   const visibleRunIds = new Set(summaries.map((summary) => summary.runId));
   const feedbackByRun = groupByRun(
     feedback.filter((entry) => entry.runId && visibleRunIds.has(entry.runId)),
@@ -363,8 +361,8 @@ function redactEvidenceString(value: string): string {
       "[REDACTED]",
     )
     .replace(
-      /(\b(?:token|secret|password|api[_-]?key|authorization)\s*[:=]\s*)([^\s,;]+)/gi,
-      "$1[REDACTED]",
+      /(^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|authorization|credentials?)(?:[_-][A-Za-z0-9]+)*)(["']?\s*[:=]\s*["']?)([^\s"'`,;}\]]+)/gi,
+      "$1$2$3[REDACTED]",
     )
     .replace(
       /([?&](?:access_token|token|key|api_key|signature|sig|auth)=)[^&#\s]*/gi,
@@ -436,11 +434,13 @@ export async function getOutputReviewSummarySource(opts: {
       getOrgScopedThreadTitles(opts.orgId, summary.userId, [summary.threadId]),
       getOrgScopedThreadData(opts.orgId, summary.userId, [summary.threadId]),
     ]);
-    threadTitle = titles.get(summary.threadId) ?? null;
+    const title = titles.get(summary.threadId) ?? null;
+    threadTitle = title ? redactEvidenceString(title) : null;
     const threadData = threads.get(summary.threadId);
     if (threadData) {
       threadEvidenceAvailable = true;
       messages = readThreadMessages(threadData)
+        .filter((message) => message.runId === summary.runId)
         .slice(-MAX_SOURCE_MESSAGES)
         .map(({ role, text }) => ({
           role,

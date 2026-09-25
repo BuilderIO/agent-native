@@ -50,6 +50,7 @@ const {
   getTraceSpansForRun,
   getOrgScopedThreadData,
   getOrgScopedThreadTitles,
+  getOrgScopedReviewThreads,
   getHumanReviewSummaries,
   getFeedback,
   getInstructionUpdates,
@@ -169,6 +170,38 @@ describe("observability store: per-user isolation", () => {
         /WHERE org_id = \? AND LOWER\(owner_email\) = LOWER\(\?\)/,
       );
       expect(call.args).toEqual(["org-a", "alice@example.com", "thread-a"]);
+    });
+
+    it("batches thread data and titles with an org and owner check per row", async () => {
+      selectedRows = [
+        {
+          id: "thread-a",
+          thread_data: '{"messages":[]}',
+          title: "Alice's thread",
+        },
+      ];
+      const threads = await getOrgScopedReviewThreads("org-a", [
+        { ownerEmail: "alice@example.com", threadId: "thread-a" },
+        { ownerEmail: "bob@example.com", threadId: "thread-b" },
+      ]);
+      const queryCalls = execCalls.filter((call) =>
+        /FROM chat_threads/.test(call.sql),
+      );
+      expect(queryCalls).toHaveLength(1);
+      expect(queryCalls[0]!.sql).toMatch(
+        /SELECT id, thread_data, title FROM chat_threads\s+WHERE org_id = \? AND \(\(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
+      );
+      expect(queryCalls[0]!.args).toEqual([
+        "org-a",
+        "alice@example.com",
+        "thread-a",
+        "bob@example.com",
+        "thread-b",
+      ]);
+      expect(threads.get("thread-a")).toEqual({
+        threadData: '{"messages":[]}',
+        title: "Alice's thread",
+      });
     });
 
     it("reads persisted summaries for the active org and requested runs only", async () => {

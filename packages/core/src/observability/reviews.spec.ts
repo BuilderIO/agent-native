@@ -7,6 +7,7 @@ const mockGetInstructionUpdates = vi.hoisted(() => vi.fn());
 const mockIsOrgAdmin = vi.hoisted(() => vi.fn());
 const mockGetOrgScopedThreadData = vi.hoisted(() => vi.fn());
 const mockGetOrgScopedThreadTitles = vi.hoisted(() => vi.fn());
+const mockGetOrgScopedReviewThreads = vi.hoisted(() => vi.fn());
 const mockGetHumanReviewSummaries = vi.hoisted(() => vi.fn());
 const mockGetTraceSpansForRun = vi.hoisted(() => vi.fn());
 
@@ -15,6 +16,8 @@ vi.mock("./store.js", () => ({
     mockGetOrgScopedThreadData(...args),
   getOrgScopedThreadTitles: (...args: unknown[]) =>
     mockGetOrgScopedThreadTitles(...args),
+  getOrgScopedReviewThreads: (...args: unknown[]) =>
+    mockGetOrgScopedReviewThreads(...args),
   getHumanReviewSummaries: (...args: unknown[]) =>
     mockGetHumanReviewSummaries(...args),
   getTraceSpansForRun: (...args: unknown[]) => mockGetTraceSpansForRun(...args),
@@ -41,30 +44,29 @@ describe("listOutputReviews", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsOrgAdmin.mockResolvedValue(true);
+    const threadData = JSON.stringify({
+      messages: [
+        {
+          message: {
+            role: "user",
+            content: "Summarize this",
+            metadata: { custom: { submittedRunId: "run-1" } },
+          },
+        },
+        {
+          message: {
+            role: "assistant",
+            content: "Here is the summary.",
+            metadata: { runId: "run-1" },
+          },
+        },
+      ],
+    });
     mockGetOrgScopedThreadData.mockResolvedValue(
-      new Map([
-        [
-          "thread-1",
-          JSON.stringify({
-            messages: [
-              {
-                message: {
-                  role: "user",
-                  content: "Summarize this",
-                  metadata: { custom: { submittedRunId: "run-1" } },
-                },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content: "Here is the summary.",
-                  metadata: { runId: "run-1" },
-                },
-              },
-            ],
-          }),
-        ],
-      ]),
+      new Map([["thread-1", threadData]]),
+    );
+    mockGetOrgScopedReviewThreads.mockResolvedValue(
+      new Map([["thread-1", { threadData, title: "A real thread" }]]),
     );
     mockGetTraceSummaries.mockResolvedValue([
       {
@@ -163,6 +165,43 @@ describe("listOutputReviews", () => {
     );
   });
 
+  it("loads thread content and titles for multiple owners in one batch", async () => {
+    mockGetTraceSummaries.mockResolvedValueOnce(
+      ["alice", "bob", "carol"].map((owner, index) => ({
+        runId: `run-${index + 1}`,
+        threadId: `thread-${index + 1}`,
+        userId: `${owner}@example.com`,
+        model: "test-model",
+        createdAt: 123 - index,
+      })),
+    );
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map(
+        ["alice", "bob", "carol"].map((owner, index) => [
+          `thread-${index + 1}`,
+          {
+            threadData: JSON.stringify({ messages: [] }),
+            title: `${owner}'s thread`,
+          },
+        ]),
+      ),
+    );
+
+    const rows = await listOutputReviews({
+      sinceMs: 0,
+      limit: 10,
+      orgId: "org-a",
+    });
+
+    expect(rows).toHaveLength(3);
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledTimes(1);
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith("org-a", [
+      { ownerEmail: "alice@example.com", threadId: "thread-1" },
+      { ownerEmail: "bob@example.com", threadId: "thread-2" },
+      { ownerEmail: "carol@example.com", threadId: "thread-3" },
+    ]);
+  });
+
   it("uses only a saved ask or real thread title and excludes empty/threadless rows", async () => {
     mockGetTraceSummaries.mockResolvedValueOnce([
       {
@@ -180,7 +219,7 @@ describe("listOutputReviews", () => {
         createdAt: 122,
       },
     ]);
-    mockGetOrgScopedThreadTitles.mockResolvedValueOnce(new Map());
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(new Map());
     mockGetHumanReviewSummaries.mockResolvedValueOnce(new Map());
 
     await expect(
@@ -189,8 +228,7 @@ describe("listOutputReviews", () => {
   });
 
   it("keeps an org-scoped saved summary when its thread row is unavailable", async () => {
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(new Map());
-    mockGetOrgScopedThreadTitles.mockResolvedValueOnce(new Map());
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(new Map());
     mockGetHumanReviewSummaries.mockResolvedValueOnce(
       new Map([
         [
@@ -270,7 +308,15 @@ describe("listOutputReviews", () => {
     );
   });
 
-  it("keeps a saved inline MCP App with its run's answer", async () => {
+  it("redacts prefixed secrets and sends only messages from the selected run", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-1",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+    });
+    mockGetOrgScopedThreadTitles.mockResolvedValueOnce(
+      new Map([["thread-1", '{"AWS_SECRET_ACCESS_KEY":"title-secret"}']]),
+    );
     mockGetOrgScopedThreadData.mockResolvedValueOnce(
       new Map([
         [
@@ -280,41 +326,103 @@ describe("listOutputReviews", () => {
               {
                 message: {
                   role: "user",
-                  content: [{ type: "text", text: "Show a chart" }],
-                  metadata: { custom: { submittedRunId: "run-1" } },
+                  content: "AWS_SECRET_ACCESS_KEY=target-secret",
+                  metadata: { runId: "run-1" },
                 },
               },
               {
                 message: {
                   role: "assistant",
-                  content: [
-                    { type: "text", text: "Here is the chart." },
-                    {
-                      type: "tool-call",
-                      mcpApp: {
-                        serverId: "analytics",
-                        toolName: "chart",
-                        originalToolName: "chart",
-                        resourceUri: "ui://chart",
-                        toolInput: {},
-                        toolResult: {},
-                        tool: {
-                          name: "chart-tool",
-                          title: `Chart ${"x".repeat(140)}`,
-                        },
-                        resource: {
-                          uri: "ui://chart",
-                          mimeType: "text/html;profile=mcp-app",
-                          text: "<html><body>Chart</body></html>",
-                        },
-                      },
-                    },
-                  ],
+                  content: '{"AWS_SECRET_ACCESS_KEY":"json-secret"}',
                   metadata: { runId: "run-1" },
                 },
               },
+              ...Array.from({ length: 45 }, (_, index) => ({
+                message: {
+                  role: "user",
+                  content: `neighbor-${index} AWS_SECRET_ACCESS_KEY=neighbor-secret`,
+                  metadata: { runId: "run-2" },
+                },
+              })),
             ],
           }),
+        ],
+      ]),
+    );
+
+    const source = await getOutputReviewSummarySource({
+      runId: "run-1",
+      orgId: "org-a",
+    });
+
+    expect(source).toMatchObject({
+      found: true,
+      threadTitle: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]"}',
+      messages: [
+        {
+          role: "user",
+          text: "AWS_SECRET_ACCESS_KEY=[REDACTED]",
+        },
+        {
+          role: "assistant",
+          text: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]"}',
+        },
+      ],
+    });
+    expect(JSON.stringify(source)).not.toContain("neighbor-secret");
+    expect(JSON.stringify(source)).not.toContain("target-secret");
+    expect(JSON.stringify(source)).not.toContain("json-secret");
+    expect(JSON.stringify(source)).not.toContain("title-secret");
+  });
+
+  it("keeps a saved inline MCP App with its run's answer", async () => {
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "user",
+                    content: [{ type: "text", text: "Show a chart" }],
+                    metadata: { custom: { submittedRunId: "run-1" } },
+                  },
+                },
+                {
+                  message: {
+                    role: "assistant",
+                    content: [
+                      { type: "text", text: "Here is the chart." },
+                      {
+                        type: "tool-call",
+                        mcpApp: {
+                          serverId: "analytics",
+                          toolName: "chart",
+                          originalToolName: "chart",
+                          resourceUri: "ui://chart",
+                          toolInput: {},
+                          toolResult: {},
+                          tool: {
+                            name: "chart-tool",
+                            title: `Chart ${"x".repeat(140)}`,
+                          },
+                          resource: {
+                            uri: "ui://chart",
+                            mimeType: "text/html;profile=mcp-app",
+                            text: "<html><body>Chart</body></html>",
+                          },
+                        },
+                      },
+                    ],
+                    metadata: { runId: "run-1" },
+                  },
+                },
+              ],
+            }),
+            title: "A real thread",
+          },
         ],
       ]),
     );
@@ -436,7 +544,7 @@ describe("listOutputReviews", () => {
   });
 
   it("does not return a thread owned by another user", async () => {
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(new Map());
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(new Map());
     await expect(
       listOutputReviews({
         sinceMs: 0,
@@ -456,42 +564,45 @@ describe("listOutputReviews", () => {
         createdAt: 123,
       },
     ]);
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
       new Map([
         [
           "thread-1",
-          JSON.stringify({
-            messages: [
-              {
-                message: {
-                  role: "user",
-                  content: "First ask",
-                  metadata: { runId: "run-1" },
+          {
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    role: "user",
+                    content: "First ask",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content: "First answer",
-                  metadata: { runId: "run-1" },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "First answer",
+                    metadata: { runId: "run-1" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "user",
-                  content: "Second ask",
-                  metadata: { runId: "run-2" },
+                {
+                  message: {
+                    role: "user",
+                    content: "Second ask",
+                    metadata: { runId: "run-2" },
+                  },
                 },
-              },
-              {
-                message: {
-                  role: "assistant",
-                  content: "Second answer",
-                  metadata: { runId: "run-2" },
+                {
+                  message: {
+                    role: "assistant",
+                    content: "Second answer",
+                    metadata: { runId: "run-2" },
+                  },
                 },
-              },
-            ],
-          }),
+              ],
+            }),
+            title: "A real thread",
+          },
         ],
       ]),
     );
