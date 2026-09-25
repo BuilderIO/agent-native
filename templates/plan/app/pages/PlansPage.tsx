@@ -6658,20 +6658,6 @@ function PlanInviteSuggestionCard({
               })}
             </Button>
           )}
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-7"
-            aria-label={t("plansPage.share.teammateSuggestion.dismiss")}
-            onClick={() => {
-              actionCloseRef.current = true;
-              trackAction("plan_invite_suggestion_dismissed");
-              setVisible(false);
-            }}
-          >
-            <IconX className="size-4" />
-          </Button>
         </PopoverContent>
       )}
     </Popover>

@@ -395,7 +395,6 @@ const messages = {
         message: "チームを Plan に招待しましょう。",
         invite: "チームを招待",
         enableDomain: "@{{domain}} の全員に参加を許可",
-        dismiss: "提案を閉じる",
         enableFailed:
           "ドメイン参加を有効にできませんでした。もう一度お試しください。",
       },

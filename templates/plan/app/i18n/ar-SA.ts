@@ -388,7 +388,6 @@ const messages = {
         message: "ادعُ فريقك إلى Plan.",
         invite: "دعوة الفريق",
         enableDomain: "السماح لأي شخص من @{{domain}} بالانضمام",
-        dismiss: "تجاهل الاقتراح",
         enableFailed: "تعذّر تفعيل الانضمام عبر النطاق. حاول مرة أخرى.",
       },
       hostedCopy:

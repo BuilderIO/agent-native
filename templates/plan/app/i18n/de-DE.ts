@@ -398,7 +398,6 @@ const messages = {
         message: "Holen Sie Ihr Team zu Plan.",
         invite: "Team einladen",
         enableDomain: "Allen bei @{{domain}} den Beitritt erlauben",
-        dismiss: "Vorschlag ausblenden",
         enableFailed:
           "Domainbeitritt konnte nicht aktiviert werden. Bitte erneut versuchen.",
       },

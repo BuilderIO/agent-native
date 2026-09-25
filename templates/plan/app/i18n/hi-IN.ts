@@ -383,7 +383,6 @@ const messages = {
         message: "अपनी टीम को Plan में लाएँ।",
         invite: "टीम को आमंत्रित करें",
         enableDomain: "@{{domain}} के किसी भी व्यक्ति को जुड़ने दें",
-        dismiss: "सुझाव हटाएँ",
         enableFailed: "डोमेन से जुड़ना चालू नहीं हो सका। फिर कोशिश करें।",
       },
       hostedCopy:

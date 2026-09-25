@@ -735,7 +735,6 @@ const messages = {
         message: "Invita a tu equipo a Plan.",
         invite: "Invitar al equipo",
         enableDomain: "Permitir que cualquiera de @{{domain}} se una",
-        dismiss: "Descartar sugerencia",
         enableFailed:
           "No se pudo activar la unión por dominio. Inténtalo de nuevo.",
       },

@@ -398,7 +398,6 @@ const messages = {
         message: "Traga sua equipe para o Plan.",
         invite: "Convidar equipe",
         enableDomain: "Permitir que qualquer pessoa de @{{domain}} participe",
-        dismiss: "Dispensar sugestão",
         enableFailed:
           "Não foi possível ativar a entrada por domínio. Tente novamente.",
       },

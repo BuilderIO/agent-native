@@ -386,7 +386,6 @@ const messages = {
         message: "Bring teammates into Plan.",
         invite: "Invite teammates",
         enableDomain: "Let anyone at @{{domain}} join",
-        dismiss: "Dismiss suggestion",
         enableFailed: "Could not enable domain joining. Try again.",
       },
       hostedCopy:

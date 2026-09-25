@@ -386,7 +386,6 @@ const messages = {
         message: "팀원을 Plan에 초대하세요.",
         invite: "팀원 초대",
         enableDomain: "@{{domain}}의 누구나 참여 허용",
-        dismiss: "제안 닫기",
         enableFailed: "도메인 참여를 설정하지 못했습니다. 다시 시도하세요.",
       },
       hostedCopy:

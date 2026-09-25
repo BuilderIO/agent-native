@@ -738,7 +738,6 @@ const messages = {
         message: "Invitez votre équipe dans Plan.",
         invite: "Inviter l’équipe",
         enableDomain: "Autoriser toute personne de @{{domain}} à rejoindre",
-        dismiss: "Ignorer la suggestion",
         enableFailed: "Impossible d’activer l’accès par domaine. Réessayez.",
       },
       signedInRetry: "Je suis connecté - réessayez",
