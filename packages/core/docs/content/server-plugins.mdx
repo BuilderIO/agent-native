@@ -149,6 +149,13 @@ file lazily after the shared request guard. Both helpers remain release-safe. Th
   migrate:production` for this.
 </Callout>
 
+<Callout tone="info">
+  Apps sharing one database can run `migrate:production` concurrently (e.g.
+  `--workspace-concurrency` above `1`): a cross-process Postgres advisory lock
+  serializes the shared framework migrations. See
+  [Database](/docs/server-database#migrations) for details.
+</Callout>
+
 ## Writing Custom Plugins {#custom-plugins}
 
 The framework helpers (`createAuthPlugin`, `createAgentChatPlugin`, `runMigrations`) each return a Nitro plugin function. For anything outside those helpers, write a plugin using `defineNitroPlugin`:

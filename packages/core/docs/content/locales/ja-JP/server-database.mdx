@@ -260,6 +260,13 @@ export const getDb = createGetDb(schema);
   migrate:production` が用意されています。
 </Callout>
 
+<Callout tone="info">
+  1つのデータベースを共有するアプリは、以前は `migrate:production` を一度に1つずつ実行する必要がありました（例:
+  `pnpm -r --workspace-concurrency=1 --filter './apps/*' migrate:production`）。これは、どのアプリも同じ共有フレームワークマイグレーションを同じデータベースに適用するためです。`runFrameworkReleaseMigrations`
+  は現在、この共有作業の間プロセスをまたいだ PostgreSQL のアドバイザリロックを保持するため、同じデータベースを指すアプリは並行してマイグレーションできます。`--workspace-concurrency`
+  を `1` より大きくすると、各アプリのプロセス起動とプライベートテーブルのマイグレーションは重なり合い、共有するフレームワークマイグレーションの部分だけが直列化されます。
+</Callout>
+
 ### Drizzle Kit で新しいアプリマイグレーションを生成する {#drizzle-migrations}
 
 アプリの新しいスキーマ変更には `pnpm db:generate` を使い、レビュー可能な

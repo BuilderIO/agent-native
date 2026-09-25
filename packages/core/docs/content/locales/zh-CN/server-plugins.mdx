@@ -150,6 +150,12 @@ Nitro 按文件名的字母顺序启动插件。文件顺序只控制插件何�
   `pnpm migrate:production`。
 </Callout>
 
+<Callout tone="info">
+  共享同一个数据库的应用可以并发运行 `migrate:production`（例如将
+  `--workspace-concurrency` 设置为大于 `1`）：跨进程的 PostgreSQL
+  建议锁会将共享的框架迁移串行化。详见[数据库](/docs/server-database#migrations)。
+</Callout>
+
 如果你添加了自定义插件，可以给文件名加前缀来控制它们在这个顺序中的位置。
 
 ## 下一步 {#whats-next}

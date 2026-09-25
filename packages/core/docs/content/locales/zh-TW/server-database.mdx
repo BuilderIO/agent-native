@@ -254,6 +254,16 @@ export const getDb = createGetDb(schema);
   Chat 範本提供 `pnpm migrate:production`，用於在發佈步驟執行遷移。
 </Callout>
 
+<Callout tone="info">
+  共用同一個資料庫的應用程式以前必須逐一執行 `migrate:production`（例如 `pnpm
+  -r --workspace-concurrency=1 --filter './apps/*'
+  migrate:production`），因為每個應用程式都會對同一個資料庫套用相同的共用框架遷移。`runFrameworkReleaseMigrations`
+  現在會在這段共用工作期間持有跨行程的 PostgreSQL
+  建議鎖（advisory lock），因此指向同一資料庫的應用程式可以並行遷移——將
+  `--workspace-concurrency`
+  設為大於 `1`，各應用程式自己的行程啟動與私有資料表遷移即可重疊執行，只有彼此共用的框架遷移會被序列化。
+</Callout>
+
 ### 使用 Drizzle Kit 產生新的應用程式遷移 {#drizzle-migrations}
 
 對於新的應用程式架構變更，請使用 `pnpm db:generate` 產生可供審查的 SQL。

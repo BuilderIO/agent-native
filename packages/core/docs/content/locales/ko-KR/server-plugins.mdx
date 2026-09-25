@@ -153,6 +153,14 @@ Nitro는 파일 이름의 알파벳 순서로 플러그인을 시작합니다. �
   제공합니다.
 </Callout>
 
+<Callout tone="info">
+  하나의 데이터베이스를 공유하는 앱들은 `migrate:production`을 동시에 실행할
+  수 있습니다(예: `--workspace-concurrency`를 `1`보다 크게 설정). 프로세스 간
+  PostgreSQL 어드바이저리 락이 공유 프레임워크 마이그레이션을 직렬화합니다.
+  자세한 내용은 [데이터베이스](/docs/server-database#migrations)를
+  참고하세요.
+</Callout>
+
 커스텀 플러그인을 추가한다면, 파일 이름에 접두사를 붙여 순서 중 어디에 들어갈지 제어하세요.
 
 ## 다음 단계 {#whats-next}

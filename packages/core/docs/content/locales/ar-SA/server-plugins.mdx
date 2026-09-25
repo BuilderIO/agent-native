@@ -151,6 +151,14 @@ export default defineNitroPlugin((nitro) => {
   بدلاً من أول طلب. يوفر قالب Chat الأمر `pnpm migrate:production` لذلك.
 </Callout>
 
+<Callout tone="info">
+  يمكن للتطبيقات التي تشارك قاعدة بيانات واحدة تشغيل `migrate:production` في
+  آنٍ واحد (مثل رفع `--workspace-concurrency` فوق `1`): يعمل قفل استشاري
+  (advisory lock) في PostgreSQL عبر العمليات على تسلسل ترحيلات الإطار
+  المشتركة. راجع [قاعدة البيانات](/docs/server-database#migrations)
+  للتفاصيل.
+</Callout>
+
 إذا أضفت إضافات مخصصة، أضف بادئة لأسماء ملفاتها للتحكم في موضعها ضمن التسلسل.
 
 ## ما هي الخطوة التالية {#whats-next}

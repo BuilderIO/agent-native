@@ -26,6 +26,13 @@ const migrationLocks = (migrationGlobal.__agentNativeMigrationLocks ??= new Map<
 // mutex serializes the shared client's boot-time DDL. Postgres needs the same
 // in-process mutex because Vite can start multiple migration runners against
 // one database before any bookkeeping table exists.
+//
+// This is in-process only - it does nothing across two separate
+// `migrate:production` processes sharing a database. `runFrameworkReleaseMigrations`
+// (server/release-migrations.ts) additionally holds `withMigrationAdvisoryLock`
+// (./migration-lock.js), a cross-process Postgres advisory lock, around the
+// shared framework migrations every app in a workspace applies to the same
+// database.
 async function withMigrationLock<T>(
   url: string,
   run: () => Promise<T>,

@@ -312,6 +312,18 @@ tables, data backfills, and deferred JavaScript steps.
   migrate:production` for this.
 </Callout>
 
+<Callout tone="info">
+  Apps that share one database used to have to run `migrate:production` one
+  at a time (e.g. `pnpm -r --workspace-concurrency=1 --filter './apps/*'
+  migrate:production`), because every app applies the same shared framework
+  migrations to the same database. `runFrameworkReleaseMigrations` now holds a
+  cross-process Postgres advisory lock around that shared work, so apps
+  pointed at the same database can migrate concurrently — raise
+  `--workspace-concurrency` above `1` and each app's own process startup and
+  private-table migrations overlap, serialized only on the framework
+  migrations they share.
+</Callout>
+
 <Callout tone="warning">
   Give every new migration a stable `name` (e.g. `{ version: 4, name:
   "tasks-priority-index", sql: "..." }`). The plain `version` number is only a

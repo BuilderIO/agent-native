@@ -259,6 +259,18 @@ export const getDb = createGetDb(schema);
   الإصدار.
 </Callout>
 
+<Callout tone="info">
+  كانت التطبيقات التي تشارك قاعدة بيانات واحدة تضطر سابقًا إلى تشغيل
+  `migrate:production` واحدًا تلو الآخر (مثل `pnpm -r
+  --workspace-concurrency=1 --filter './apps/*' migrate:production`)، لأن كل
+  تطبيق يطبّق نفس ترحيلات الإطار المشتركة على نفس قاعدة البيانات. تحتفظ
+  `runFrameworkReleaseMigrations` الآن بقفل استشاري (advisory lock) في
+  PostgreSQL عبر العمليات طوال هذا العمل المشترك، لذا يمكن للتطبيقات التي
+  تشير إلى قاعدة البيانات نفسها أن تُرحّل في آنٍ واحد — ارفع
+  `--workspace-concurrency` فوق `1` ليتداخل بدء تشغيل كل تطبيق وترحيلات
+  جداوله الخاصة، مع تسلسل ترحيلات الإطار المشتركة فقط.
+</Callout>
+
 ### إنشاء ترحيلات التطبيق الجديدة باستخدام Drizzle Kit {#drizzle-migrations}
 
 بالنسبة إلى تغييرات مخطط التطبيق الجديدة، استخدم `pnpm db:generate` لإنشاء SQL
