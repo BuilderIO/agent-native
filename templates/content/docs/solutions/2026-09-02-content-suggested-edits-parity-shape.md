@@ -1423,3 +1423,8 @@ when the primary Blocks field vanished during Suggesting; the existing
 Copy/Discard banner now covers any unavailable suggestion body target. Ten
 focused suites pass (300 tests), including the editor layout suite, and Content
 typechecking passes.
+
+In a fresh collection-row preview, an unsaved suggestion remained recoverable
+after its only Blocks property was deleted in a second Chromium tab. The open
+preview displayed Copy my unsaved text and Discard draft; Discard exited
+Suggesting. The disposable collection and row were moved to local Trash.
