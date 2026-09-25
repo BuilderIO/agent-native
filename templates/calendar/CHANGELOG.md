@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-24
+
+### Fixed
+
+- Calendar no longer shows an internal server error banner when a shared workspace Google connection can't be authorized
+- Guest inputs wrap beneath existing guests so the active input stays visible
+
 ## 2026-09-23
 
 ### Improved
