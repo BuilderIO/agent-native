@@ -553,6 +553,29 @@ describe("pull-request governance", () => {
       "packages/core/src/db-admin/operations.ts",
       "packages/core/src/triggers/webhook.ts",
       "packages/core/src/triggers/webhook-store.ts",
+      "packages/core/src/triggers/dispatcher.ts",
+      "packages/core/src/triggers/dispatcher.spec.ts",
+      "packages/core/src/triggers/condition-evaluator.ts",
+      "packages/core/src/triggers/actions/manage-automation.ts",
+      "packages/core/src/triggers/actions/manage-automation.spec.ts",
+      "packages/core/src/jobs/frontmatter.ts",
+      "packages/core/src/jobs/frontmatter.spec.ts",
+      "packages/core/src/jobs/run-now.ts",
+      "packages/core/src/jobs/run-now.spec.ts",
+      "packages/core/src/jobs/background-automation-runner.ts",
+      "packages/core/src/jobs/scheduler.ts",
+      "packages/core/src/automations/service.ts",
+      "packages/core/src/automations/service.spec.ts",
+      "packages/core/src/notifications/store.ts",
+      "packages/core/src/notifications/store.spec.ts",
+      "packages/core/src/notifications/channels.ts",
+      "packages/core/src/notifications/channels.spec.ts",
+      "packages/core/src/notifications/actions.ts",
+      "packages/core/src/server/collab-plugin.ts",
+      "packages/core/src/server/collab-plugin.spec.ts",
+      "packages/core/src/server/origin-allowlist.ts",
+      "packages/core/src/server/prompts/framework-core-compact.ts",
+      "packages/core/src/guards/no-unscoped-queries.spec.ts",
       "packages/core/src/server/prompts/framework-core.ts",
       "packages/core/src/server/prompts/shared-rules.ts",
       "packages/core/src/server/builder-browser.ts",
@@ -583,6 +606,21 @@ describe("pull-request governance", () => {
       "packages/core/src/collab/routes.ts",
       "packages/core/src/collab/struct-routes.ts",
       "packages/core/src/notifications/routes.ts",
+      "templates/mail/app/lib/sanitize-html.ts",
+      "templates/slides/app/lib/sanitize-slide-html.ts",
+      "templates/design/shared/capture-sanitize.ts",
+      "templates/design/shared/capture-sanitize.spec.ts",
+      "templates/brain/server/lib/capture-sanitization.ts",
+      "templates/brain/server/lib/capture-sanitization.test.ts",
+      "templates/brain/actions/resanitize-captures.ts",
+      "templates/brain/actions/resanitize-captures.spec.ts",
+      "templates/plan/app/components/plan/wireframe/sanitize-html.spec.ts",
+      "templates/calendar/app/lib/sanitize-description.ts",
+      "templates/calendar/app/lib/sanitize-description.test.ts",
+      "templates/content/scripts/migrate-production.ts",
+      "templates/forms/actions/delete-form.ts",
+      "templates/clips/actions/delete-recording-permanent.ts",
+      "templates/calendar/amplify.yml",
       "packages/creative-context/src/server/safe-native-preview.ts",
       "packages/creative-context/src/connectors/rendered-page.ts",
       "packages/recap-cli/src/recap.ts",
@@ -594,6 +632,20 @@ describe("pull-request governance", () => {
           changedFiles: [path],
         }),
       ).toMatchObject({ ownerException: null, autoApprove: false });
+    }
+    for (const path of [
+      "templates/forms/app/schemas/lead.ts",
+      "packages/core/src/guards/no-raw-colors.ts",
+      "templates/slides/app/components/editor/PromptDialog.tsx",
+      "templates/tasks/app/components/shared/DeleteItemDialog.tsx",
+    ]) {
+      expect(isUltraScaryChange([path])).toBe(false);
+      expect(
+        decidePullRequestGovernance({
+          ...shomixPullRequest,
+          changedFiles: [path],
+        }),
+      ).toMatchObject({ ownerException: "shomix", autoApprove: true });
     }
   });
 

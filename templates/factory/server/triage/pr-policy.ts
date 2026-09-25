@@ -471,6 +471,35 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.startsWith("packages/core/src/collab/routes.") ||
       normalized.startsWith("packages/core/src/collab/struct-routes.") ||
       normalized.startsWith("packages/core/src/notifications/routes.") ||
+      normalized.startsWith("packages/core/src/notifications/") ||
+      normalized.startsWith("packages/core/src/jobs/") ||
+      normalized.startsWith("packages/core/src/triggers/") ||
+      normalized.startsWith("packages/core/src/automations/") ||
+      normalized.startsWith("packages/core/src/server/collab-plugin.") ||
+      normalized.startsWith("packages/core/src/server/origin-allowlist.") ||
+      normalized.startsWith("packages/core/src/server/prompts/") ||
+      normalized.startsWith("packages/core/src/guards/no-unscoped-queries.") ||
+      normalized.startsWith("templates/mail/app/lib/sanitize-html.") ||
+      normalized.startsWith("templates/slides/app/lib/sanitize-slide-html.") ||
+      normalized.startsWith("templates/design/shared/capture-sanitize.") ||
+      normalized.startsWith(
+        "templates/brain/server/lib/capture-sanitization.",
+      ) ||
+      normalized.startsWith("templates/brain/actions/resanitize-captures.") ||
+      normalized.startsWith(
+        "templates/plan/app/components/plan/wireframe/sanitize-html.",
+      ) ||
+      normalized.startsWith(
+        "templates/calendar/app/lib/sanitize-description.",
+      ) ||
+      normalized.endsWith("/migrate-production.ts") ||
+      /(^|\/)db\/schema\.tsx?$/.test(normalized) ||
+      /(^|\/)actions\/(?:delete|remove|purge|erase|destroy|drop|reset)-[^/]+\.(?:ts|tsx)$/.test(
+        normalized,
+      ) ||
+      /(^|\/)(?:amplify|netlify|wrangler|cloudflare|vercel|fly|render)\.(?:ya?ml|toml|jsonc?)$/i.test(
+        normalized,
+      ) ||
       normalized.endsWith("/framework-route-prefix.ts") ||
       normalized.endsWith("/framework-route-prefix.spec.ts") ||
       normalized.endsWith("/recap.ts") ||
@@ -500,7 +529,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       /(^|\/)(?:package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb|pnpm-workspace\.yaml|\.npmrc|\.yarnrc(?:\.yml)?|turbo\.jsonc?|nx\.json|lerna\.json|dockerfile(?:\..*)?|docker-compose(?:\..*)?|\.nvmrc|\.node-version|vite\.config\..*|webpack\.config\..*|rollup\.config\..*|esbuild\.config\..*|tsconfig(?:\..*)?\.json|makefile)$/i.test(
         normalized,
       ) ||
-      /(^|[\/_\.-])(?:auth|authorize|authentication|authorization|identity|passwords?|credentials?|secrets?|keys?|sessions?|permissions?|access|members?|membership|roles?|groups?|grants?|approvals?|scopes?|schemas?|csrf|cors|dependabot|renovate|federation|orgs?|guards?|a2a|webmcp|mcp|tenant|tenants|isolation|security|execution|sandbox|payments?|subscriptions?|billing|deploy|deployment|netlify|publish|release|migrations?|oauth|embed(?:ded|ding)?|iframeembed|iframe[-_]?bridge|agentnativeembedded|mcp-app-host|connect(?:ion|or)?s?|integrations?|extensions?|prompts?|safe[-_]?native[-_]?preview|preview[-_]?execution|rendered[-_]?page|service[-_]tokens?|short[-_]lived[-_]tokens?|realtime[-_]tokens?|internal[-_]tokens?|ssrf|url[-_]?safety|fetch[-_]?tool|db[-_]?admin|webhooks?)([\/_-]|\.|$)/.test(
+      /(^|[\/_\.-])(?:auth|authorize|authentication|authorization|identity|passwords?|credentials?|secrets?|keys?|sessions?|permissions?|access|members?|membership|roles?|groups?|grants?|approvals?|scopes?|csrf|cors|dependabot|renovate|federation|orgs?|a2a|webmcp|mcp|tenant|tenants|isolation|security|execution|sandbox|payments?|subscriptions?|billing|deploy|deployment|netlify|publish|release|migrations?|oauth|embed(?:ded|ding)?|iframeembed|iframe[-_]?bridge|agentnativeembedded|mcp-app-host|connect(?:ion|or)?s?|integrations?|extensions?|safe[-_]?native[-_]?preview|preview[-_]?execution|rendered[-_]?page|service[-_]tokens?|short[-_]lived[-_]tokens?|realtime[-_]tokens?|internal[-_]tokens?|ssrf|url[-_]?safety|fetch[-_]?tool|db[-_]?admin|webhooks?)([\/_-]|\.|$)/.test(
         securityPath,
       )
     );
