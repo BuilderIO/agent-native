@@ -248,6 +248,7 @@ import {
   findSmartBlock,
   holdsPaintedTextBox,
   getSlideCanvasTraversalElements as getSlideCanvasTraversalRoots,
+  preventSlideLinkNavigation,
   isInlineTextElement,
   isRichTextBlock,
   isSmartGroup,
@@ -8942,6 +8943,12 @@ export default function SlideEditor({
                     ref={containerRef}
                     data-main-slide-canvas="true"
                     className="shrink-0"
+                    onClickCapture={
+                      readOnly ? undefined : preventSlideLinkNavigation
+                    }
+                    onAuxClickCapture={
+                      readOnly ? undefined : preventSlideLinkNavigation
+                    }
                     style={{ width: canvasWidth, maxWidth: canvasWidth }}
                   >
                     <ContextMenu>

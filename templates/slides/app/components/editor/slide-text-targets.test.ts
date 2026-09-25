@@ -10,6 +10,7 @@ import {
   isSlideCanvasShortcutTarget,
   isSlideTextEditingTarget,
   isTextLeaf,
+  preventSlideLinkNavigation,
   resolveRichTextEditingBlock,
   resolveSlideTextSelectionTarget,
   shouldStampBuilderId,
@@ -281,6 +282,40 @@ describe("slide text targets", () => {
     expect(findSmartBlock(panel, root)).toBe(panel);
     expect(findSmartBlock(paragraph, root)).toBe(paragraph);
     root.remove();
+  });
+
+  it("keeps a click on a slide link from opening it, but not a link in editor chrome", () => {
+    document.body.innerHTML = `
+      <div data-main-slide-canvas="true">
+        <div class="slide-content"><p>Read <a href="/report" target="_blank"><b>the report</b></a></p></div>
+        <a id="chrome" href="/help">Help</a>
+      </div>
+    `;
+    const canvas = document.querySelector<HTMLElement>(
+      "[data-main-slide-canvas]",
+    )!;
+    canvas.addEventListener("click", preventSlideLinkNavigation, true);
+    canvas.addEventListener("auxclick", preventSlideLinkNavigation, true);
+    const click = (
+      target: Element,
+      type = "click",
+      init: MouseEventInit = {},
+    ) => {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    const run = document.querySelector("b")!;
+    expect(click(run)).toBe(true);
+    expect(click(run, "click", { metaKey: true })).toBe(true);
+    expect(click(run, "auxclick", { button: 1 })).toBe(true);
+    expect(click(document.querySelector("p")!)).toBe(false);
+    expect(click(document.querySelector("#chrome")!)).toBe(false);
+    document.body.innerHTML = "";
   });
 
   it("does not treat the autofit renderer shell as editable text", () => {

@@ -205,6 +205,15 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("never lets a slide link on the editing canvas navigate", () => {
+    expect(source).toMatch(
+      /onClickCapture=\{\s*readOnly \? undefined : preventSlideLinkNavigation\s*\}/,
+    );
+    expect(source).toMatch(
+      /onAuxClickCapture=\{\s*readOnly \? undefined : preventSlideLinkNavigation\s*\}/,
+    );
+  });
+
   it("edits a bullet row as part of its list", () => {
     const enterStart = source.indexOf("const enterInlineEdit");
     const enterEnd = source.indexOf("// Exit edit mode", enterStart);

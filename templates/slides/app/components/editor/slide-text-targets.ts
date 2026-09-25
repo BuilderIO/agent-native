@@ -103,6 +103,20 @@ export function getSlideCanvasTraversalElements(
   });
 }
 
+/**
+ * On the editing canvas a slide link is content to select and edit, not a way
+ * out of the editor: no click on it (Cmd/Ctrl-click adds to the selection, a
+ * middle click, a click that only selects its card) opens it.
+ */
+export function preventSlideLinkNavigation(
+  event: Pick<Event, "target" | "preventDefault">,
+) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest("a[href]")?.closest(".slide-content")) {
+    event.preventDefault();
+  }
+}
+
 /** Canvas-only shortcuts must not consume keys while focus is in editor chrome. */
 export function isSlideCanvasShortcutTarget(
   activeElement: Element | null,
