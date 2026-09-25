@@ -235,6 +235,35 @@ describe("preloadJevContextForPrompt", () => {
     expect(result).toBe("");
   });
 
+  it("keeps high-similarity reference fallback without starting expired Jev work", async () => {
+    const requestRunContext: Record<string, unknown> = {};
+    mocks.requestRunContext.mockReturnValue(requestRunContext);
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      apiKey: "jev-test-key",
+      appId: "analytics",
+      contextPrefetchDeadlineAt: Date.now() - 1,
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Approved active users definition.",
+          metadata: { kind: "analytics-reference", similarity: "0.82" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content: "Metric: active users.",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("Metric: active users.");
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+    expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
+    expect(requestRunContext.analyticsJevPrefetch).toEqual({
+      preloadedReferenceCount: 1,
+    });
+  });
+
   it("loads only the selected memory body and ranks its short index summary", async () => {
     const owner = "user@example.test";
     const memoryIndex = [
@@ -316,6 +345,37 @@ describe("preloadJevContextForPrompt", () => {
     expect(JSON.stringify(rankedCandidates)).not.toContain(
       "Read the verified data dictionary",
     );
+  });
+
+  it("does not inject a lexical memory fallback after Jev explicitly returns no-match", async () => {
+    const owner = "user@example.test";
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, path: string) =>
+        resourceOwner === owner && path === "memory/MEMORY.md"
+          ? {
+              content:
+                "# Memory Index\n- [query-preference](query-preference.md) — Prefer BigQuery STRING instead of ILIKE for Analytics.",
+            }
+          : resourceOwner === owner && path === "memory/query-preference.md"
+            ? {
+                content:
+                  "---\ntype: feedback\ndescription: query preference\n---\nDo not reuse this stale query preference.",
+              }
+            : null,
+    );
+    mocks.rankJevCandidates.mockResolvedValue([]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "Prefer BigQuery STRING instead of ILIKE for Analytics.",
+      apiKey: "jev-test-key",
+      owner,
+      orgId: "org-test",
+    });
+
+    expect(result).not.toContain("stale query preference");
+    expect(mocks.resourceGetByPath.mock.calls.map(([, path]) => path)).toEqual([
+      "memory/MEMORY.md",
+    ]);
   });
 
   it.each(["internalContinuation", "dispatchToBackground"] as const)(

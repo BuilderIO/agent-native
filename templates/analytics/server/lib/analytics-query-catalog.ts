@@ -460,18 +460,8 @@ function dictionaryCandidates(
   entries: DictionaryEntry[],
   search: string,
 ): AnalyticsQueryCatalogCandidate[] {
-  const hasHumanOrApprovedEntries = entries.some(
-    (entry) => entry.approved === true || entry.aiGenerated !== true,
-  );
-  return entries.flatMap((entry) => {
-    if (
-      isRetiredCatalogReference(entry) ||
-      (hasHumanOrApprovedEntries &&
-        entry.aiGenerated === true &&
-        entry.approved !== true)
-    ) {
-      return [];
-    }
+  const candidates = entries.flatMap((entry) => {
+    if (isRetiredCatalogReference(entry)) return [];
     const { score, matchedTerms } = matchScore(search, [
       { value: entry.metric, weight: 28 },
       { value: entry.commonQuestions, weight: 16 },
@@ -539,6 +529,16 @@ function dictionaryCandidates(
       },
     ];
   });
+  const hasRelevantHumanOrApprovedEntry = candidates.some(
+    (candidate) =>
+      candidate.approved === true || candidate.aiGenerated !== true,
+  );
+  return candidates.filter(
+    (candidate) =>
+      !hasRelevantHumanOrApprovedEntry ||
+      candidate.aiGenerated !== true ||
+      candidate.approved === true,
+  );
 }
 
 function candidateIsRunnable(

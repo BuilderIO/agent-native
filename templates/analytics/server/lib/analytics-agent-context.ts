@@ -51,6 +51,7 @@ const QUERY_TOOL_NAMES = new Set([
 export function summarizeAnalyticsRun(input: {
   events: readonly unknown[];
   preloadedReferenceCount: number;
+  queryActionNames?: readonly string[];
 }): Record<string, number | boolean> {
   type ToolEvent = {
     type: "tool_start" | "tool_done";
@@ -86,8 +87,12 @@ export function summarizeAnalyticsRun(input: {
   const completedTools = toolEvents.filter(
     (event) => event.type === "tool_done",
   );
+  const queryToolNames = new Set([
+    ...QUERY_TOOL_NAMES,
+    ...(input.queryActionNames ?? []),
+  ]);
   const queries = startedTools.filter((event) =>
-    QUERY_TOOL_NAMES.has(String(event.tool)),
+    queryToolNames.has(String(event.tool)),
   );
   const toolSearchCalls = startedTools.filter((event) =>
     /^tool[-_]search(?:$|[-_])/.test(String(event.tool)),
@@ -349,7 +354,7 @@ async function rankWithEmbeddings(
     .sort(
       (left, right) =>
         right.similarity - left.similarity ||
-        left.lexicalScore - right.lexicalScore ||
+        right.lexicalScore - left.lexicalScore ||
         candidateName(left.candidate).localeCompare(
           candidateName(right.candidate),
         ),
@@ -396,14 +401,16 @@ function emptyPromptReferences(): AnalyticsPromptReferences {
 }
 
 async function beforeDeadline<T>(
-  work: Promise<T>,
+  work: () => Promise<T>,
   deadlineAt: number,
 ): Promise<{ status: "completed"; value: T } | { status: "expired" }> {
   const remaining = deadlineAt - Date.now();
   if (remaining <= 0) return { status: "expired" };
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const result = await Promise.race([
-    work.then((value) => ({ status: "completed" as const, value })),
+    Promise.resolve()
+      .then(work)
+      .then((value) => ({ status: "completed" as const, value })),
     new Promise<{ status: "expired" }>((resolve) => {
       timeout = setTimeout(() => resolve({ status: "expired" }), remaining);
     }),
@@ -423,12 +430,13 @@ export async function retrieveAnalyticsPromptReferences(input: {
   let searchResults: AnalyticsQueryCatalogCandidate[];
   try {
     const search = await beforeDeadline(
-      searchAnalyticsQueryCatalog({
-        search: input.request,
-        email: input.email,
-        orgId: input.orgId,
-        limit: CATALOG_CANDIDATE_LIMIT,
-      }),
+      () =>
+        searchAnalyticsQueryCatalog({
+          search: input.request,
+          email: input.email,
+          orgId: input.orgId,
+          limit: CATALOG_CANDIDATE_LIMIT,
+        }),
       deadlineAt,
     );
     if (search.status === "expired") {
@@ -454,7 +462,8 @@ export async function retrieveAnalyticsPromptReferences(input: {
   }));
   try {
     const semanticRanking = await beforeDeadline(
-      rankWithEmbeddings(input.request, searchResults, () => cacheAllowed),
+      () =>
+        rankWithEmbeddings(input.request, searchResults, () => cacheAllowed),
       deadlineAt,
     );
     if (semanticRanking.status === "completed") {

@@ -20,7 +20,6 @@ const JEV_MODEL = "jev-latest";
 const MAX_JEV_THREAD_CONTEXT_CHARS = 6_000;
 const MAX_JEV_PRIOR_USER_MESSAGES = 4;
 const MAX_JEV_PRIOR_MESSAGE_CHARS = 1_100;
-const MAX_JEV_ASSISTANT_CONTEXT_CHARS = 300;
 const MAX_JEV_CURRENT_MESSAGE_CHARS = 3_600;
 const MAX_RETRIEVAL_CONTEXT_CHARS = 3_600;
 const MAX_RETRIEVAL_PRIOR_USER_MESSAGES = 2;
@@ -110,7 +109,7 @@ function visiblePriorMessages(input: {
       );
 }
 
-/** Keep JEV grounded in recent visible conversation, without replaying tools or results. */
+/** Keep Jev grounded in recent user requests without sending assistant results. */
 export function buildJevRequestContext(input: {
   request: string;
   history?: readonly AgentMessage[];
@@ -122,29 +121,14 @@ export function buildJevRequestContext(input: {
   let remaining = MAX_JEV_THREAD_CONTEXT_CHARS - currentBlock.length - 40;
   const recentLines: string[] = [];
   const priorUsers = priorMessages.filter((message) => message.role === "user");
-  const selectedIndexes = new Set(
-    priorUsers
-      .slice(-MAX_JEV_PRIOR_USER_MESSAGES)
-      .map((message) => priorMessages.indexOf(message)),
-  );
-  const latestAssistantIndex = priorMessages.findLastIndex(
-    (message) => message.role === "assistant",
-  );
-  if (latestAssistantIndex >= 0) selectedIndexes.add(latestAssistantIndex);
-  const selectedMessages = [...selectedIndexes]
-    .sort((a, b) => a - b)
-    .map((index) => priorMessages[index]!);
+  const selectedMessages = priorUsers.slice(-MAX_JEV_PRIOR_USER_MESSAGES);
   for (const message of selectedMessages.reverse()) {
     if (remaining < 80) break;
-    const maxChars =
-      message.role === "assistant"
-        ? MAX_JEV_ASSISTANT_CONTEXT_CHARS
-        : MAX_JEV_PRIOR_MESSAGE_CHARS;
     const content = compactJevText(
       message.content,
-      Math.min(maxChars, remaining - 16),
+      Math.min(MAX_JEV_PRIOR_MESSAGE_CHARS, remaining - 12),
     );
-    const line = `${message.role === "user" ? "User" : "Assistant"}: ${content}`;
+    const line = `User: ${content}`;
     if (line.length > remaining) break;
     recentLines.push(line);
     remaining -= line.length + 1;

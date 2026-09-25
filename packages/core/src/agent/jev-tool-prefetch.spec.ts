@@ -81,7 +81,7 @@ describe("preloadJevTools", () => {
         {
           role: "assistant",
           content: [
-            { type: "text", text: "Use the approved monthly user metric." },
+            { type: "text", text: "The top customer is Acme with 42 users." },
             {
               type: "tool-call",
               name: "query-data",
@@ -107,25 +107,24 @@ describe("preloadJevTools", () => {
     });
 
     expect(request).toContain("Earlier, define active users.");
-    expect(request).toContain("Use the approved monthly user metric.");
+    expect(request).not.toContain("The top customer is Acme");
     expect(request).toContain("Now compare active users to the prior period.");
     expect(request).toContain("Current request:\nCompare those by month");
     expect(request).not.toContain("omit result");
     expect(request).not.toContain("secret");
   });
 
-  it("limits Jev to user history and at most 300 characters of the last assistant", () => {
+  it("limits Jev context to the current request and recent user turns", () => {
     const request = buildJevRequestContext({
       request: "Compare the prior period",
       history: [
         { role: "user", content: "Earlier user question" },
-        { role: "assistant", content: `live result ${"x".repeat(900)}` },
+        { role: "assistant", content: "Customer email: user@example.test" },
       ],
     });
-    const assistantText = request.match(/Assistant: ([^\n]+)/)?.[1] ?? "";
 
     expect(request).toContain("Earlier user question");
-    expect(assistantText.length).toBeLessThanOrEqual(300);
+    expect(request).not.toContain("Customer email");
     expect(request).toContain("Current request:\nCompare the prior period");
   });
 

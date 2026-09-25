@@ -888,11 +888,11 @@ async function loadResourceIndexForPrompt(
 }
 
 async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
-  // Direct Jev keys send recent visible user text, short skill and memory
-  // descriptions, bounded dashboard/dictionary summaries, and at most 300
-  // chars of the latest assistant turn to a third party. Never send resource
-  // IDs/paths, memory or skill bodies, SQL, tool inputs/results, or customer
-  // row data.
+  // Jev receives the current request and recent user turns, short skill and
+  // memory summaries, and bounded Analytics labels with metric definitions,
+  // source/table names, or dashboard/panel details. These may be sensitive
+  // user-authored metadata. Keep assistant text/results, tool payloads,
+  // resource IDs/paths, memory/skill bodies, and full query SQL out of ranking.
   const candidates: JevPromptCandidate[] = [];
   let nextId = 0;
   const add = (
@@ -1044,17 +1044,19 @@ type PromptBudgetResult<T> =
   | { status: "expired" };
 
 async function withinPromptBudget<T>(
-  work: Promise<T>,
+  work: () => Promise<T>,
   deadlineAt: number,
 ): Promise<PromptBudgetResult<T>> {
   const remaining = deadlineAt - Date.now();
   if (remaining <= 0) return { status: "expired" };
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const result = await Promise.race([
-    work.then(
-      (value) => ({ status: "completed" as const, value }),
-      (error: unknown) => ({ status: "failed" as const, error }),
-    ),
+    Promise.resolve()
+      .then(work)
+      .then(
+        (value) => ({ status: "completed" as const, value }),
+        (error: unknown) => ({ status: "failed" as const, error }),
+      ),
     new Promise<{ status: "expired" }>((resolve) => {
       timeout = setTimeout(() => resolve({ status: "expired" }), remaining);
     }),
@@ -1083,20 +1085,21 @@ async function loadSelectedMemoryBodies(input: {
   let loaded: PromptBudgetResult<Array<{ id: string; content: string } | null>>;
   try {
     loaded = await withinPromptBudget(
-      Promise.all(
-        memories.map(async (candidate) => {
-          const resource = await resourceGetByPath(
-            input.owner!,
-            candidate.path!,
-            {
-              orgId: input.orgId,
-            },
-          );
-          return resource?.content.trim()
-            ? { id: candidate.id, content: resource.content }
-            : null;
-        }),
-      ),
+      () =>
+        Promise.all(
+          memories.map(async (candidate) => {
+            const resource = await resourceGetByPath(
+              input.owner!,
+              candidate.path!,
+              {
+                orgId: input.orgId,
+              },
+            );
+            return resource?.content.trim()
+              ? { id: candidate.id, content: resource.content }
+              : null;
+          }),
+        ),
       input.deadlineAt,
     );
   } catch (error) {
@@ -1209,14 +1212,15 @@ export async function preloadJevContextForPrompt(options: {
   if (hasJev) {
     try {
       const collection = await withinPromptBudget(
-        Promise.all([
-          collectJevPromptCandidates(),
-          collectJevMemoryPromptCandidates({
-            owner: options.owner,
-            orgId: options.orgId,
-            request,
-          }),
-        ]),
+        () =>
+          Promise.all([
+            collectJevPromptCandidates(),
+            collectJevMemoryPromptCandidates({
+              owner: options.owner,
+              orgId: options.orgId,
+              request,
+            }),
+          ]),
         deadlineAt,
       );
       if (collection.status === "completed") {
@@ -1270,39 +1274,39 @@ export async function preloadJevContextForPrompt(options: {
     Awaited<ReturnType<typeof rankJevCandidatesWithStatus>>
   >();
   if (hasJev) {
-    const rankingTasks = categories.map(async (category) => {
-      const group = candidatesByCategory.get(category) ?? [];
-      if (group.length === 0) return [category, null] as const;
-      const rank = await rankJevCandidatesWithStatus({
-        request,
-        apiKey,
-        personalApiKey,
-        builderAuth: options.builderAuth,
-        candidates: group,
-        candidateStateKey: `candidate_${category.replaceAll("-", "_")}`,
-        answerKey: `best_${category.replaceAll("-", "_")}`,
-        question:
-          category === "skill"
-            ? "Which skills are relevant to this task? Choose at most 3."
-            : category === "memory"
-              ? "Which prior user memories are important for this task? Choose at most 2 based only on their short summaries."
-              : "Which Analytics data-dictionary entries or dashboard panels best match this request? Choose at most 2; references are examples, not live results.",
-        limit: category === "skill" ? 3 : JEV_MEMORY_SELECTION_LIMIT,
-      });
-      const groupIds = new Set(group.map((candidate) => candidate.id));
-      const ids = rank.ids.filter((id) => groupIds.has(id));
-      return [
-        category,
-        ids.length === 0 && rank.status === "selected"
-          ? { status: "no-match" as const, ids: [] }
-          : { ...rank, ids },
-      ] as const;
-    });
-    try {
-      const ranked = await withinPromptBudget(
-        Promise.all(rankingTasks),
-        deadlineAt,
+    const rankAllCandidates = () =>
+      Promise.all(
+        categories.map(async (category) => {
+          const group = candidatesByCategory.get(category) ?? [];
+          if (group.length === 0) return [category, null] as const;
+          const rank = await rankJevCandidatesWithStatus({
+            request,
+            apiKey,
+            personalApiKey,
+            builderAuth: options.builderAuth,
+            candidates: group,
+            candidateStateKey: `candidate_${category.replaceAll("-", "_")}`,
+            answerKey: `best_${category.replaceAll("-", "_")}`,
+            question:
+              category === "skill"
+                ? "Which skills are relevant to this task? Choose at most 3."
+                : category === "memory"
+                  ? "Which prior user memories are important for this task? Choose at most 2 based only on their short summaries."
+                  : "Which Analytics data-dictionary entries or dashboard panels best match this request? Choose at most 2; references are examples, not live results.",
+            limit: category === "skill" ? 3 : JEV_MEMORY_SELECTION_LIMIT,
+          });
+          const groupIds = new Set(group.map((candidate) => candidate.id));
+          const ids = rank.ids.filter((id) => groupIds.has(id));
+          return [
+            category,
+            ids.length === 0 && rank.status === "selected"
+              ? { status: "no-match" as const, ids: [] }
+              : { ...rank, ids },
+          ] as const;
+        }),
       );
+    try {
+      const ranked = await withinPromptBudget(rankAllCandidates, deadlineAt);
       if (ranked.status === "completed") {
         for (const [category, result] of ranked.value) {
           if (result) rankings.set(category, result);
@@ -1351,7 +1355,7 @@ export async function preloadJevContextForPrompt(options: {
   const memoryRanking = rankings.get("memory");
   if (
     hasJev &&
-    memoryRanking?.status !== "selected" &&
+    (!memoryRanking || memoryRanking.status === "unavailable") &&
     memoryContext.fallbackIds.length > 0
   ) {
     for (const id of memoryContext.fallbackIds) selected.add(id);

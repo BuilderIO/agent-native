@@ -237,6 +237,10 @@ describe("Analytics prompt-reference preparation", () => {
     expect(summarizeAnalyticsRun).toHaveBeenCalledWith({
       events: run.events,
       preloadedReferenceCount: 2,
+      queryActionNames: expect.arrayContaining([
+        "hubspot-records",
+        "prometheus",
+      ]),
     });
   });
 });

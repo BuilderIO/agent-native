@@ -48,7 +48,8 @@ import {
 // Which actions return real data-source evidence is a fact each action states
 // on itself (`grounding: true`). Reading it off the definitions here is what
 // keeps the response guard from drifting behind a newly shipped source action.
-registerGroundingActions(deriveGroundingActionNames(actionsRegistry));
+const GROUNDING_ACTION_NAMES = deriveGroundingActionNames(actionsRegistry);
+registerGroundingActions(GROUNDING_ACTION_NAMES);
 
 const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 // A background job may legitimately spend minutes inside a provider/tool call,
@@ -1300,6 +1301,7 @@ export default createAgentChatPlugin({
       preloadedReferenceCount:
         getRequestRunContext()?.analyticsJevPrefetch?.preloadedReferenceCount ??
         0,
+      queryActionNames: GROUNDING_ACTION_NAMES,
     });
     const { track } = await import("@agent-native/core/tracking");
     await track("analytics_agent_run_outcome", properties);

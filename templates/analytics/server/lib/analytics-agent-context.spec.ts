@@ -163,6 +163,37 @@ describe("retrieveAnalyticsPromptReferences", () => {
     expect(JSON.stringify(documentEmbedding?.[0])).not.toContain("SELECT");
   });
 
+  it("uses lexical relevance to break equal embedding scores", async () => {
+    const weaker = {
+      ...candidates[0]!,
+      id: "tie-weaker",
+      metric: "Tie weaker metric",
+      definition: "Unique weaker summary",
+      score: 10,
+    };
+    const stronger = {
+      ...candidates[1]!,
+      dashboardTitle: "Tie stronger dashboard",
+      panelTitle: "Tie stronger panel",
+      query: "SELECT tie_stronger_metric",
+      score: 90,
+    };
+    mocks.searchAnalyticsQueryCatalog.mockResolvedValue([weaker, stronger]);
+    mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
+      inputs.map(() => [1, 0]),
+    );
+
+    const result = await retrieveAnalyticsPromptReferences({
+      request: "tie ranking request",
+      email: "owner@example.com",
+      orgId: null,
+    });
+
+    expect(result.jevPromptCandidates[0]?.name).toBe(
+      "Tie stronger dashboard: Tie stronger panel",
+    );
+  });
+
   it("uses the lexical catalog order when no embedding family is connected", async () => {
     mocks.availableEmbeddingFamilies.mockResolvedValue([]);
 
@@ -205,6 +236,31 @@ describe("retrieveAnalyticsPromptReferences", () => {
     ]);
   });
 
+  it("does not start embedding requests after catalog lookup exhausts the budget", async () => {
+    const now = vi
+      .spyOn(Date, "now")
+      .mockImplementationOnce(() => 1_000)
+      .mockImplementation(() => 2_000);
+
+    try {
+      const result = await retrieveAnalyticsPromptReferences({
+        request: "How many active users last month?",
+        email: "owner@example.com",
+        orgId: null,
+        deadlineAt: 1_500,
+      });
+
+      expect(mocks.searchAnalyticsQueryCatalog).toHaveBeenCalledOnce();
+      expect(mocks.availableEmbeddingFamilies).not.toHaveBeenCalled();
+      expect(mocks.embed).not.toHaveBeenCalled();
+      expect(result.jevPromptCandidates[0]?.name).toBe(
+        "Activation health: Activation by cohort",
+      );
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("fails open when catalog retrieval fails", async () => {
     mocks.searchAnalyticsQueryCatalog.mockRejectedValue(
       new Error("catalog unavailable"),
@@ -227,6 +283,7 @@ describe("summarizeAnalyticsRun", () => {
   it("counts started calls and reads the first query error from its completion event", () => {
     const properties = summarizeAnalyticsRun({
       preloadedReferenceCount: 2,
+      queryActionNames: ["hubspot-records", "prometheus"],
       events: [
         {
           event: {
@@ -272,6 +329,36 @@ describe("summarizeAnalyticsRun", () => {
         {
           event: {
             type: "tool_start",
+            tool: "hubspot-records",
+            id: "query-crm-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_done",
+            tool: "hubspot-records",
+            id: "query-crm-1",
+            isError: false,
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
+            tool: "prometheus",
+            id: "query-metrics-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_done",
+            tool: "prometheus",
+            id: "query-metrics-1",
+            isError: false,
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
             tool: "query-agent-native-analytics",
             id: "query-2",
             input: { sql: "SELECT other_private_data" },
@@ -284,7 +371,7 @@ describe("summarizeAnalyticsRun", () => {
       preloaded_reference_count: 2,
       tool_search_calls: 1,
       catalog_calls: 1,
-      query_calls: 2,
+      query_calls: 4,
       first_query_errored: true,
     });
     expect(JSON.stringify(properties)).not.toMatch(/private|SELECT|rows/i);
