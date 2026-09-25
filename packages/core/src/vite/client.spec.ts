@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
-import { readFirstRunOnboardingBuildMarker } from "./agent-native-config-loader.js";
+import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
   _devActionBridgeOrigin,
@@ -1601,7 +1601,9 @@ describe("agent-native app config", () => {
       expect(staged.nitro.replace[key]).toBe(JSON.stringify("connect"));
       expect(staged.define[key]).toBe(JSON.stringify("connect"));
       // The separate deploy build process reads the same resolved value.
-      expect(readFirstRunOnboardingBuildMarker(tmpDir)).toBe("connect");
+      expect(readAgentNativeBuildConfigMarker(tmpDir)?.firstRunOnboarding).toBe(
+        "connect",
+      );
 
       fs.writeFileSync(
         path.join(tmpDir, ".env.production"),
@@ -1609,6 +1611,46 @@ describe("agent-native app config", () => {
       );
       const fromEnvFile = await configFor({}, "production");
       expect(fromEnvFile.nitro.replace[key]).toBe(JSON.stringify("connect"));
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("embeds the server's hosted harness setting from the resolved app config", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-harness-"));
+    const key = "process.env.AGENT_NATIVE_BUILD_HARNESS";
+    const configFor = async (
+      options: Parameters<typeof agentNative>[0],
+      mode: string,
+    ) => {
+      const configPlugin = flatPlugins(agentNative(options)).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      return (await configPlugin.config({}, { command: "build", mode })) as any;
+    };
+
+    try {
+      process.chdir(tmpDir);
+
+      // Only set via agent-native.config.ts, like chat/mail/analytics/calendar —
+      // this is the exact shape that a runtime disk read cannot see once
+      // deployed, since the config file is never shipped into the function.
+      const configured = await configFor(
+        { agentNativeConfig: { version: 1, harness: true } },
+        "production",
+      );
+      expect(configured.nitro.replace[key]).toBe(JSON.stringify("true"));
+      expect(configured.define[key]).toBe(JSON.stringify("true"));
+      expect(readAgentNativeBuildConfigMarker(tmpDir)?.harness).toBe("true");
+
+      // Unconfigured apps embed a positive "null", never the un-embedded
+      // sentinel "" — that sentinel is reserved for builds run with an older
+      // core that never recorded a value at all.
+      const unconfigured = await configFor({}, "production");
+      expect(unconfigured.nitro.replace[key]).toBe(JSON.stringify("null"));
+      expect(readAgentNativeBuildConfigMarker(tmpDir)?.harness).toBe("null");
     } finally {
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });

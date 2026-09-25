@@ -87,8 +87,9 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
-  readFirstRunOnboardingBuildMarker,
+  readAgentNativeBuildConfigMarker,
   resolveFirstRunOnboardingBuildReplacement,
+  resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import {
   cloneServerBundleForFunction,
@@ -6136,6 +6137,7 @@ export function resolveNitroBuildReplacements(
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
   firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
+  harnessMode: string = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6218,6 +6220,11 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
       firstRunOnboardingMode,
     ),
+    // hosted-harness-policy.ts's config read has the same problem: apps set
+    // `harness` only in agent-native.config.ts, which is not shipped into the
+    // deployed function either. "" is "a build recorded nothing"; a recorded
+    // value is always a JSON string (see resolveHarnessBuildReplacement).
+    "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
   };
 }
 
@@ -6278,6 +6285,12 @@ async function buildWithNitro() {
     createAgentNativeConfigContext("build", nitroMode),
     { environment: nitroEnvironment },
   );
+  // `agent-native build` runs the Vite build (which can see config passed
+  // inline to `agentNative()`) and this deploy build as separate processes.
+  // Prefer whatever the Vite step already resolved; only re-resolve from the
+  // config this function loaded above when no marker exists (a build that
+  // skipped the Vite step, or an older core).
+  const buildConfigMarker = readAgentNativeBuildConfigMarker(cwd);
   // Resolve the workspace core (if present) up front so the bundle embeds
   // enterprise-wide AGENTS.md + skills alongside the template's.
   const nitroWorkspaceCore = await getWorkspaceCoreExports(cwd);
@@ -6361,11 +6374,13 @@ export default bundle;
       nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
       cwd,
-      readFirstRunOnboardingBuildMarker(cwd) ??
+      buildConfigMarker?.firstRunOnboarding ??
         resolveFirstRunOnboardingBuildReplacement(
           nitroAgentConfig,
           nitroEnvironment,
         ),
+      buildConfigMarker?.harness ??
+        resolveHarnessBuildReplacement(nitroAgentConfig),
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real

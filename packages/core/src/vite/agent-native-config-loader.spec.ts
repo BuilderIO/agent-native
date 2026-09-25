@@ -7,10 +7,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
-  clearFirstRunOnboardingBuildMarker,
-  readFirstRunOnboardingBuildMarker,
+  clearAgentNativeBuildConfigMarker,
+  readAgentNativeBuildConfigMarker,
   resolveFirstRunOnboardingBuildReplacement,
-  writeFirstRunOnboardingBuildMarker,
+  resolveHarnessBuildReplacement,
+  writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 
 const temporaryRoots: string[] = [];
@@ -168,40 +169,96 @@ describe("resolveFirstRunOnboardingBuildReplacement", () => {
   });
 });
 
-describe("first-run onboarding build marker", () => {
-  it("round-trips the mode, including a recorded unknown", () => {
+describe("resolveHarnessBuildReplacement", () => {
+  it("embeds the configured setting", () => {
+    expect(resolveHarnessBuildReplacement({ harness: true })).toBe("true");
+    expect(
+      resolveHarnessBuildReplacement({ harness: { runtimes: ["codex"] } }),
+    ).toBe(JSON.stringify({ runtimes: ["codex"] }));
+  });
+
+  it('embeds null (positively "not configured") when harness is unset', () => {
+    expect(resolveHarnessBuildReplacement({})).toBe("null");
+  });
+});
+
+describe("agent-native build config marker", () => {
+  it("round-trips first-run onboarding and harness together", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
     temporaryRoots.push(root);
 
-    expect(readFirstRunOnboardingBuildMarker(root)).toBeUndefined();
-    writeFirstRunOnboardingBuildMarker(root, "off");
-    expect(readFirstRunOnboardingBuildMarker(root)).toBe("off");
-    writeFirstRunOnboardingBuildMarker(root, "");
-    expect(readFirstRunOnboardingBuildMarker(root)).toBe("");
+    expect(readAgentNativeBuildConfigMarker(root)).toBeUndefined();
+    writeAgentNativeBuildConfigMarker(root, {
+      firstRunOnboarding: "off",
+      harness: "true",
+    });
+    expect(readAgentNativeBuildConfigMarker(root)).toEqual({
+      firstRunOnboarding: "off",
+      harness: "true",
+    });
+    writeAgentNativeBuildConfigMarker(root, {
+      firstRunOnboarding: "",
+      harness: "null",
+    });
+    expect(readAgentNativeBuildConfigMarker(root)).toEqual({
+      firstRunOnboarding: "",
+      harness: "null",
+    });
   });
 
   it("drops a previous build's marker when a new build starts", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
     temporaryRoots.push(root);
-    writeFirstRunOnboardingBuildMarker(root, "off");
+    writeAgentNativeBuildConfigMarker(root, {
+      firstRunOnboarding: "off",
+      harness: "null",
+    });
 
-    clearFirstRunOnboardingBuildMarker(root);
+    clearAgentNativeBuildConfigMarker(root);
 
-    expect(readFirstRunOnboardingBuildMarker(root)).toBeUndefined();
-    expect(() => clearFirstRunOnboardingBuildMarker(root)).not.toThrow();
+    expect(readAgentNativeBuildConfigMarker(root)).toBeUndefined();
+    expect(() => clearAgentNativeBuildConfigMarker(root)).not.toThrow();
   });
 
-  it("rejects a marker that is not a known mode", () => {
+  it("rejects a marker with an unknown first-run mode", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
     temporaryRoots.push(root);
     fs.mkdirSync(path.join(root, ".agent-native"));
     fs.writeFileSync(
-      path.join(root, ".agent-native", "first-run-onboarding"),
-      "sometimes",
+      path.join(root, ".agent-native", "build-config.json"),
+      JSON.stringify({ firstRunOnboarding: "sometimes", harness: "null" }),
     );
 
-    expect(() => readFirstRunOnboardingBuildMarker(root)).toThrow(
-      /Invalid first-run onboarding build marker/,
+    expect(() => readAgentNativeBuildConfigMarker(root)).toThrow(
+      /Invalid agent-native build config marker/,
+    );
+  });
+
+  it("rejects a marker whose harness field is not a string", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agent-native"));
+    fs.writeFileSync(
+      path.join(root, ".agent-native", "build-config.json"),
+      JSON.stringify({ firstRunOnboarding: "off", harness: true }),
+    );
+
+    expect(() => readAgentNativeBuildConfigMarker(root)).toThrow(
+      /Invalid agent-native build config marker/,
+    );
+  });
+
+  it("rejects a marker that is not valid JSON", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agent-native"));
+    fs.writeFileSync(
+      path.join(root, ".agent-native", "build-config.json"),
+      "not json",
+    );
+
+    expect(() => readAgentNativeBuildConfigMarker(root)).toThrow(
+      /Invalid agent-native build config marker/,
     );
   });
 });
