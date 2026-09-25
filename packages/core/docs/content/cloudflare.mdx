@@ -1,19 +1,9 @@
 ---
 title: "Cloudflare"
-description: "Deploy an agent-native app to Cloudflare Pages or Cloudflare Workers with the matching Nitro preset."
+description: "Deploy an agent-native app to Cloudflare Workers with the cloudflare_module Nitro preset."
 ---
 
 # Cloudflare
-
-## Cloudflare Pages {#cloudflare-pages}
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
-});
-```
-
-## Cloudflare Workers {#cloudflare-workers}
 
 Use Nitro's native module output for a Cloudflare Worker. This keeps SSR
 enabled and emits the Worker entry point plus static assets under
@@ -39,5 +29,5 @@ before deploying. A Worker filesystem is not a persistent application store.
 ## What's next
 
 - [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
-- [**Workspace Deployment**](/docs/workspace-deployment) — Cloudflare Pages is the default preset for the unified `deploy` command
+- [**Workspace Deployment**](/docs/workspace-deployment) — deploy every workspace app to one origin with Netlify or Vercel
 - [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**AWS Lambda**](/docs/aws-lambda), and [**Deno Deploy**](/docs/deno-deploy) — the other Nitro presets

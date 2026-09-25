@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-在底層，每個應用程式都以自己的**基本路徑**建置，也就是透過 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 設定的 URL 前綴（例如 `/mail`），接著再封裝成目標 Nitro 預設集。Cloudflare Pages 透過一個產生出來的**調度工作器**進行路由，這是一個位於 `dist/_worker.js` 的小型指令碼，會讀取傳入的路徑並將請求轉送給對應的應用程式。Netlify 為每個應用程式各使用一個 function，並搭配自動產生的重新導向規則。Vercel 則使用 Build Output API 寫入工作區層級的 `.vercel/output`。
+在底層，每個應用程式都以自己的**基本路徑**建置，也就是透過 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 設定的 URL 前綴（例如 `/mail`），接著再封裝成目標 Nitro 預設集。**Netlify** 是預設選項：每個應用程式各使用一個 function，並搭配自動產生的重新導向規則。Vercel 則使用 Build Output API 寫入工作區層級的 `.vercel/output`。
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare（預設）",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify（預設）",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },

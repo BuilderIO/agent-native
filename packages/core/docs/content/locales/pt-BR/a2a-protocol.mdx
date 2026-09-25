@@ -276,7 +276,7 @@ Quando `message/send` é chamado com `async: true`, o manipulador JSON-RPC enfil
 
 > [!IMPORTANT]
 > **Tempos limite de webhook e gateway sem servidor:**
-> Gateways de ambiente hospedado (como Netlify, Vercel ou Cloudflare Pages) impõem limites de execução rígidos (geralmente de 10 a 30 segundos) em rotas HTTP públicas. Como os loops de agente podem levar um tempo significativo para executar consultas, buscar contexto e executar ferramentas, você **deve usar `async: true`** ao chamar endpoints A2A ou manipular webhooks externo. Isso retorna imediatamente um status `working` para o gateway API, mantendo a conexão aberta apenas por alguns milissegundos, enquanto o `/process-task` POST autoacionado executa o loop do agente em segundo plano. Não bloqueie a solicitação HTTP primária aguardando a conclusão do loop do agente.
+> Gateways de ambiente hospedado (como Netlify, Vercel ou Cloudflare Workers) impõem limites de execução rígidos (geralmente de 10 a 30 segundos) em rotas HTTP públicas. Como os loops de agente podem levar um tempo significativo para executar consultas, buscar contexto e executar ferramentas, você **deve usar `async: true`** ao chamar endpoints A2A ou manipular webhooks externo. Isso retorna imediatamente um status `working` para o gateway API, mantendo a conexão aberta apenas por alguns milissegundos, enquanto o `/process-task` POST autoacionado executa o loop do agente em segundo plano. Não bloqueie a solicitação HTTP primária aguardando a conclusão do loop do agente.
 
 As mensagens contêm partes digitadas — texto, dados estruturados e arquivos podem viajar em uma única mensagem:
 
@@ -604,7 +604,7 @@ O endpoint do cartão do agente é sempre público (sem autenticação) para que
 
 A validação do portador é executada no limite da solicitação — no manipulador JSON-RPC — antes que o loop do agente veja a mensagem. Os auxiliares compartilhados em `packages/core/src/a2a/auth-policy.ts` decidem o que a implantação requer:
 
-- `isA2AProductionRuntime()` retorna `true` no Netlify, AWS Lambda, Cloudflare Pages/Workers, Vercel, Render, Fly e Cloud Run — mesmo quando `NODE_ENV` não é `"production"`. Alguns provedores sem servidor não definem `NODE_ENV` de forma consistente, então a política também lê sinalizadores específicos do provedor.
+- `isA2AProductionRuntime()` retorna `true` no Netlify, AWS Lambda, Cloudflare Workers, Vercel, Render, Fly e Cloud Run — mesmo quando `NODE_ENV` não é `"production"`. Alguns provedores sem servidor não definem `NODE_ENV` de forma consistente, então a política também lê sinalizadores específicos do provedor.
 - `hasConfiguredA2ASecret()` retorna `true` quando `A2A_SECRET` é definido.
 - `shouldAdvertiseJwtA2AAuth()` é o que o cartão de agente usa para decidir se deve publicar um esquema de segurança `jwtBearer`.
 

@@ -274,7 +274,7 @@ JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `ta
 
 > [!IMPORTANT]
 > **无服务器 Webhook 和网关超时：**
-> 托管环境网关（例如 Netlify、Vercel 或 Cloudflare Pages）对面向公众的 HTTP 路由施加严格的执行限制（通常为 10 到 30 秒）。由于代理循环可能需要大量时间来运行查询、获取上下文和执行工具，因此在调用 A2A 端点或处理外部 webhooks 时，您**必须使用 `async: true`**。这会立即将 `working` 状态返回到 API 网关，仅保持连接打开几毫秒，而自触发的 `/process-task` POST 在后台执行代理循环。不要阻止主 HTTP 请求等待代理循环完成。
+> 托管环境网关（例如 Netlify、Vercel 或 Cloudflare Workers）对面向公众的 HTTP 路由施加严格的执行限制（通常为 10 到 30 秒）。由于代理循环可能需要大量时间来运行查询、获取上下文和执行工具，因此在调用 A2A 端点或处理外部 webhooks 时，您**必须使用 `async: true`**。这会立即将 `working` 状态返回到 API 网关，仅保持连接打开几毫秒，而自触发的 `/process-task` POST 在后台执行代理循环。不要阻止主 HTTP 请求等待代理循环完成。
 
 消息包含键入的部分 - 文本、结构化数据和文件都可以在一条消息中传输：
 
@@ -587,7 +587,7 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 
 承载验证在代理循环看到消息之前在请求边界（JSON-RPC 处理程序中）运行。 `packages/core/src/a2a/auth-policy.ts` 中的共享助手决定部署需要什么：
 
-- `isA2AProductionRuntime()` 在 Netlify、AWS Lambda、Cloudflare Pages/Workers、Vercel、Render、Fly 和 Cloud Run 上返回 `true` — 即使 `NODE_ENV` 不是 `"production"`。一些无服务器提供商不会一致地设置 `NODE_ENV`，因此该策略也会读取特定于提供商的标志。
+- `isA2AProductionRuntime()` 在 Netlify、AWS Lambda、Cloudflare Workers、Vercel、Render、Fly 和 Cloud Run 上返回 `true` — 即使 `NODE_ENV` 不是 `"production"`。一些无服务器提供商不会一致地设置 `NODE_ENV`，因此该策略也会读取特定于提供商的标志。
 - 当 `A2A_SECRET` 设置时，`hasConfiguredA2ASecret()` 返回 `true`。
 - `shouldAdvertiseJwtA2AAuth()`是代理卡用来决定是否发布`jwtBearer`安全方案的依据。
 

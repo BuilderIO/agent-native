@@ -1,23 +1,13 @@
 ---
 title: "Cloudflare"
-description: "Implementa una aplicación nativa del agente en Cloudflare Pages o Cloudflare Workers con el ajuste preestablecido de Nitro correspondiente."
+description: "Implementa una aplicación agent-native en Cloudflare Workers con el ajuste preestablecido cloudflare_module de Nitro."
 ---
 
 # Cloudflare
 
-## Cloudflare Pages {#cloudflare-pages}
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
-});
-```
-
-## Cloudflare Workers {#cloudflare-workers}
-
-Usa la salida de módulos nativa de Nitro para un Cloudflare Worker. Esto
-mantiene el SSR habilitado y genera el punto de entrada del Worker más los
-activos estáticos bajo `.output/server` y `.output/public`:
+Usa la salida nativa de módulos de Nitro para un Cloudflare Worker. Esto mantiene
+SSR habilitado y emite el punto de entrada del Worker más los activos estáticos en
+`.output/server` y `.output/public`:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
@@ -25,7 +15,7 @@ export default defineConfig({
 });
 ```
 
-Compila e implementa el Worker generado con Wrangler:
+Build and deploy the generated Worker with Wrangler:
 
 ```bash
 pnpm build
@@ -34,11 +24,11 @@ npx wrangler deploy --config .output/server/wrangler.json
 
 También puedes seleccionar el ajuste preestablecido explícitamente con
 `NITRO_PRESET=cloudflare_module`. Configura una base de datos PostgreSQL externa
-duradera antes de implementar. El sistema de archivos de un Worker no es un
-almacén persistente para la aplicación.
+durable antes de implementar. El sistema de archivos de un Worker no es un
+almacén persistente de la aplicación.
 
 ## Qué sigue
 
 - [**Implementación**](/docs/deployment) — elige una base de datos persistente y un ajuste preestablecido antes de tu primera implementación en producción
-- [**Implementación de espacios de trabajo**](/docs/workspace-deployment) — Cloudflare Pages es el ajuste preestablecido predeterminado para el comando unificado `deploy`
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify) y [**Otras plataformas**](/docs/other-platforms) — los demás ajustes preestablecidos de Nitro
+- [**Implementación de espacio de trabajo**](/docs/workspace-deployment) — implementa cada aplicación del espacio de trabajo en un solo origen con Netlify o Vercel
+- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**AWS Lambda**](/docs/aws-lambda) y [**Deno Deploy**](/docs/deno-deploy) — los demás ajustes preestablecidos de Nitro

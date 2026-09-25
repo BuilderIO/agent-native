@@ -5,7 +5,7 @@ description: "Déployez une application agent-native sur Netlify avec le préré
 
 # Netlify
 
-Le préréglage Nitro `netlify` fonctionne bien et, en pratique, nous a donné des démarrages à froid bien plus rapides que Cloudflare Pages (~200ms TTFB contre ~9s) pour les templates qui communiquent avec un Postgres externe (Neon). Pour une configuration minimale en dehors du scaffold généré, définissez le préréglage dans `vite.config.ts` :
+Le préréglage Nitro `netlify` fonctionne bien et, en pratique, nous a donné des démarrages à froid rapides (~200ms TTFB) pour les templates qui communiquent avec un Postgres externe (Neon). Pour une configuration minimale en dehors du scaffold généré, définissez le préréglage dans `vite.config.ts` :
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
