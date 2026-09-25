@@ -576,7 +576,7 @@ const HTML_TAINT_SOURCE_PATTERN = String.raw`(?:(?:(?:user|attacker)[- ](?:contr
 const HTML_SINK_PATTERN = String.raw`(?:innerhtml|dangerouslysetinnerhtml|(?:render|insert|assign|reflect|pass|put)\w*\b.{0,50}\b(?:dom|html\s+rendering))`;
 const HTML_EVENT_HANDLER_ACTION_PATTERN = String.raw`(?:execute|run|fire|trigger|call|invok|evaluat|eval|perform|fetch|post|request|redirect|navigat|access|open|load|write|beacon|emit|message|stor|mutat|modif|alter|leak|exfiltrat|steal|read|send|transmit|disclos|expos|capture|harvest)\w*`;
 const HTML_EVENT_HANDLER_COOKIE_ACTION_PATTERN = String.raw`(?:set|update)\w*\b.{0,30}\bdocument\s*\.\s*cookie\b`;
-const HTML_EVENT_HANDLER_REFERENCE_PATTERN = String.raw`\bon[a-z]+(?:\s*(?:=|\s+(?:handler(?:\s+attribute)?|event(?:\s+attribute)?|attribute)))?`;
+const HTML_EVENT_HANDLER_REFERENCE_PATTERN = String.raw`(?:\bon[a-z]+(?:\s*(?:=|\s+(?:handler(?:\s+attribute)?|event(?:\s+attribute)?|attribute)))?|\b(?:event[- ]?)?handler\b)`;
 const HTML_UNSAFE_SIGNAL_PATTERN = String.raw`(?:unescaped|unsanitized|without\s+(?:proper\s+)?(?:escaping|encoding|sanitiz(?:ation|ing))|(?:not|never|isn't|is\s+not)\s+(?:properly\s+)?(?:escaped|encoded|sanitized|sanitised)|no\s+(?:proper\s+)?(?:escaping|encoding|sanitiz(?:ation|ing))|(?:execute|run)\w*\b.{0,20}\b(?:javascript|scripts?)|(?:${HTML_EVENT_HANDLER_REFERENCE_PATTERN}.{0,50}\b${HTML_EVENT_HANDLER_ACTION_PATTERN}|\b${HTML_EVENT_HANDLER_ACTION_PATTERN}.{0,50}${HTML_EVENT_HANDLER_REFERENCE_PATTERN}|${HTML_EVENT_HANDLER_REFERENCE_PATTERN}.{0,50}\b${HTML_EVENT_HANDLER_COOKIE_ACTION_PATTERN}|\b${HTML_EVENT_HANDLER_COOKIE_ACTION_PATTERN}.{0,50}${HTML_EVENT_HANDLER_REFERENCE_PATTERN}))`;
 const UNSAFE_HTML_SINK_FINDING_PATTERN = new RegExp(
   [
@@ -730,10 +730,11 @@ export function hasActiveCredibleSafetyFinding(
         const coveringNonFinding = nonFindings.find((match) => {
           const start = match.index ?? 0;
           const end = start + match[0].length;
-          const coversTerm = index >= start && index < end;
+          const termEnd = index + safetyTerm[0].length;
+          const coversTerm = index >= start && termEnd <= end;
           const coveredTerms = safetyTerms.filter((term) => {
             const termIndex = term.index ?? 0;
-            return termIndex >= start && termIndex < end;
+            return termIndex >= start && termIndex + term[0].length <= end;
           });
           const compound = COMPOUND_SAFETY_FINDING_PATTERN.exec(match[0]);
           const compoundStart = start + (compound?.index ?? 0);

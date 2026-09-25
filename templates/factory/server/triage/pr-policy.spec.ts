@@ -402,6 +402,7 @@ describe("pull-request governance", () => {
       "User-controlled SVG onload handler performs a fetch of document.cookie to an attacker-controlled endpoint.",
       "User-controlled SVG onload handler sets document.cookie to an attacker endpoint.",
       "No user-controlled SVG onload handler sets document.cookie, but another handler exfiltrates the session token.",
+      "No user-controlled SVG onload handler sets document.cookie, but the handler executes alert(1).",
       "Attacker-controlled SVG onload event posts document.cookie to an external endpoint.",
       "User-controlled SVG onload handler stores document.cookie at an attacker endpoint.",
       "Attacker-controlled SVG onload event mutates the parent document.",
