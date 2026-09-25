@@ -200,10 +200,12 @@ export default function PlanTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <PlansProductMock
-              label={t("templateLanding.plan.s001")}
-              className="h-[420px] sm:h-[620px] lg:h-[760px]"
-            />
+            <div className="mx-6 sm:mx-10">
+              <PlansProductMock
+                label={t("templateLanding.plan.s001")}
+                className="h-[420px] sm:h-[620px] lg:h-[760px]"
+              />
+            </div>
           }
         />
       </div>

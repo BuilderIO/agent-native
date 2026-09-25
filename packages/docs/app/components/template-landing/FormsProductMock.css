@@ -101,7 +101,7 @@
   flex: 0 0 auto;
   white-space: nowrap;
 }
-.forms-nav-item > span {
+.forms-nav-item > span:first-child {
   display: grid;
   width: 16px;
   flex: 0 0 16px;
@@ -123,7 +123,7 @@
   color: #262626;
   font-weight: 630;
 }
-.forms-nav-item.is-active > span {
+.forms-nav-item.is-active > span:first-child {
   border-color: #d3d3d1;
   background: #fff;
   color: #343434;

@@ -165,7 +165,7 @@ export default function DispatchTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <div className="mx-auto w-full max-w-[1218px]">
+            <div className="mx-6 sm:mx-10">
               <DispatchLandingMock
                 label={t("templateLanding.dispatch.s001")}
                 className="h-[360px] sm:h-[520px] lg:h-[640px]"

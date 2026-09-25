@@ -34,7 +34,7 @@
 
 .dispatch-landing-art--hero {
   width: 100%;
-  margin-inline: 0;
+  margin-inline: auto;
   box-shadow: none;
 }
 
@@ -367,7 +367,7 @@
 
 .dispatch-chat-thread {
   display: flex;
-  width: min(880px, 100%);
+  width: min(704px, 100%);
   min-height: 0;
   flex: 1;
   flex-direction: column;
@@ -748,7 +748,7 @@
 }
 
 .dispatch-composer-wrap {
-  width: min(880px, 100%);
+  width: min(704px, 100%);
   margin: 8px auto 0;
 }
 
@@ -1814,11 +1814,5 @@
     max-height: 112px;
     border-right: 0;
     border-bottom: 1px solid var(--dispatch-line);
-  }
-}
-
-@media (min-width: 640px) {
-  .dispatch-landing-art--hero {
-    width: calc(100% - 5rem);
   }
 }

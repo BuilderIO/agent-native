@@ -173,7 +173,7 @@ export default function FormsTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <div className="mx-auto w-full max-w-[1218px]">
+            <div className="mx-6 sm:mx-10">
               <FormsProductMock
                 label={t("templateLanding.forms.s001")}
                 className="h-[420px] sm:h-[620px] lg:h-[760px]"

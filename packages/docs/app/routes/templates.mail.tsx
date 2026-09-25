@@ -164,11 +164,13 @@ export default function MailTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <MailProductMock
-              variant="agent"
-              label={t("templateLanding.mail.s001")}
-              className="h-[420px] sm:h-[620px] lg:h-[760px]"
-            />
+            <div className="mx-6 sm:mx-10">
+              <MailProductMock
+                variant="agent"
+                label={t("templateLanding.mail.s001")}
+                className="h-[420px] sm:h-[620px] lg:h-[760px]"
+              />
+            </div>
           }
         />
       </div>
