@@ -238,36 +238,38 @@ async function accept(
   acceptedOperation: SuggestionOperation = operation,
   prepared = coordination(),
 ) {
-  const result = await adapter.apply({
-    resourceType: "document",
-    resourceId: documentId,
-    suggestion: {
-      id: `suggestion-${documentId}`,
-      revision: 1,
+  const result = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+    adapter.apply({
       resourceType: "document",
       resourceId: documentId,
-      adapterKind: adapter.kind,
-      adapterVersion: 1,
-      threadId: `thread-${documentId}`,
-      authorEmail: "commenter@example.com",
-      actorKind: "human",
-      baseRevision,
-      status: "pending",
-      summary: "Suggest edits",
-      ownerEmail,
-      orgId: null,
-      visibility: "private",
-      createdAt: "now",
-      updatedAt: "now",
-      metadata: null,
+      suggestion: {
+        id: `suggestion-${documentId}`,
+        revision: 1,
+        resourceType: "document",
+        resourceId: documentId,
+        adapterKind: adapter.kind,
+        adapterVersion: 1,
+        threadId: `thread-${documentId}`,
+        authorEmail: "commenter@example.com",
+        actorKind: "human",
+        baseRevision,
+        status: "pending",
+        summary: "Suggest edits",
+        ownerEmail,
+        orgId: null,
+        visibility: "private",
+        createdAt: "now",
+        updatedAt: "now",
+        metadata: null,
+        operations: [acceptedOperation],
+      },
       operations: [acceptedOperation],
-    },
-    operations: [acceptedOperation],
-    access: { role: "editor" },
-    ctx: {},
-    transaction: tx,
-    coordination: prepared,
-  });
+      access: { role: "editor" },
+      ctx: {},
+      transaction: tx,
+      coordination: prepared,
+    }),
+  );
   return { prepared, result };
 }
 
@@ -327,13 +329,15 @@ describe("Content suggested edits Blocks transaction", () => {
       .where(eq(schema.contentDatabases.documentId, databaseDocumentId));
     await getDbExec().transaction!(async (tx) => {
       await expect(
-        adapter.validateProposal({
-          resourceType: "document",
-          resourceId: documentId,
-          baseRevision: "rev-1",
-          operations: [operation],
-          ctx: { transaction: tx },
-        }),
+        runWithRequestContext({ userEmail: ownerEmail }, () =>
+          adapter.validateProposal({
+            resourceType: "document",
+            resourceId: documentId,
+            baseRevision: "rev-1",
+            operations: [operation],
+            ctx: { transaction: tx },
+          }),
+        ),
       ).resolves.toEqual([operation]);
     });
     await db
@@ -420,13 +424,15 @@ describe("Content suggested edits Blocks transaction", () => {
     );
     await getDbExec().transaction!(async (tx) => {
       await expect(
-        adapter.validateProposal({
-          resourceType: "document",
-          resourceId: documentId,
-          baseRevision: before.baseRevision,
-          operations: [operation],
-          ctx: { transaction: tx },
-        }),
+        runWithRequestContext({ userEmail: ownerEmail }, () =>
+          adapter.validateProposal({
+            resourceType: "document",
+            resourceId: documentId,
+            baseRevision: before.baseRevision,
+            operations: [operation],
+            ctx: { transaction: tx },
+          }),
+        ),
       ).resolves.toEqual([operation]);
     });
 

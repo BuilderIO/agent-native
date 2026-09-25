@@ -106,7 +106,7 @@ describe("Content document suggestion adapter", () => {
         ctx: { suggestionAccess: access },
       }),
     ).resolves.toEqual([operation]);
-    expect(exclusions).toHaveBeenCalledTimes(2);
+    expect(exclusions).toHaveBeenCalledTimes(3);
     expect(exclusions).toHaveBeenCalledWith(
       expect.objectContaining({
         sql: expect.stringContaining("content_database_items"),
@@ -178,7 +178,7 @@ describe("Content document suggestion adapter", () => {
         },
       }),
     ).resolves.toEqual([operation]);
-    expect(tx.execute).toHaveBeenCalledTimes(3);
+    expect(tx.execute).toHaveBeenCalledTimes(4);
     expect(exclusions).not.toHaveBeenCalled();
   });
 

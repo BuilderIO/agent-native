@@ -103,14 +103,64 @@ export default defineAction({
       });
     }
 
+    const memberships = await getDb()
+      .select({
+        databaseId: schema.contentDatabases.id,
+        databaseDocumentId: schema.contentDatabases.documentId,
+        systemRole: schema.contentDatabases.systemRole,
+        primaryId: schema.documentPropertyDefinitions.id,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.contentDatabases,
+        eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+      )
+      .leftJoin(
+        schema.documentPropertyDefinitions,
+        and(
+          eq(
+            schema.documentPropertyDefinitions.id,
+            schema.contentDatabases.primaryBlocksPropertyId,
+          ),
+          eq(
+            schema.documentPropertyDefinitions.databaseId,
+            schema.contentDatabases.id,
+          ),
+          eq(schema.documentPropertyDefinitions.type, "blocks"),
+        ),
+      )
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.documentId, doc.id),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      )
+      .orderBy(schema.contentDatabases.id);
+    const ordinaryMemberships = memberships.filter(
+      (membership) => membership.systemRole === null,
+    );
+    const accessiblePrimaryMemberships = [];
+    for (const membership of memberships) {
+      if (
+        membership.primaryId &&
+        (membership.systemRole === null
+          ? await resolveDocumentAccess(membership.databaseDocumentId)
+          : ordinaryMemberships.length === 0 &&
+            membership.systemRole === "files")
+      ) {
+        accessiblePrimaryMemberships.push(membership);
+      }
+    }
+    const selectedDatabaseId =
+      args.databaseId ?? accessiblePrimaryMemberships[0]?.databaseId;
     const database = await getDatabaseByDocumentId(doc.id);
-    const databaseMembership = args.databaseId
+    const databaseMembership = selectedDatabaseId
       ? await getDatabaseItemByDocumentId(doc.id, {
-          databaseId: args.databaseId,
+          databaseId: selectedDatabaseId,
         })
       : await getDatabaseItemByDocumentId(doc.id);
-    const propertyDatabase = args.databaseId
-      ? await getDatabaseById(args.databaseId)
+    const propertyDatabase = selectedDatabaseId
+      ? await getDatabaseById(selectedDatabaseId)
       : await resolvePropertyDatabaseForDocument(doc);
     const propertyDatabaseAccess = propertyDatabase
       ? await resolveDocumentAccess(propertyDatabase.documentId)
@@ -148,11 +198,15 @@ export default defineAction({
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
       : new Set<string>();
-    const properties = await listPropertiesForDocument(doc, args.databaseId, {
-      // A share authorizes the exact page and its membership-local fields,
-      // not the private database document that owns those definitions.
-      requireDatabaseAccess: propertyDatabaseAccess !== null,
-    });
+    const properties = await listPropertiesForDocument(
+      doc,
+      selectedDatabaseId,
+      {
+        // A share authorizes the exact page and its membership-local fields,
+        // not the private database document that owns those definitions.
+        requireDatabaseAccess: propertyDatabaseAccess !== null,
+      },
+    );
     const source = serializeDocumentSource(doc);
     const hasInlineDatabase = documentHasInlineDatabase(doc.content ?? "");
     let isExternallyLinked = false;
@@ -164,54 +218,24 @@ export default defineAction({
       !hasInlineDatabase
     ) {
       const db = getDb();
-      const [externalLink, memberships] = await Promise.all([
-        db
-          .select({ documentId: schema.documentSyncLinks.documentId })
-          .from(schema.documentSyncLinks)
-          .where(
-            and(
-              eq(schema.documentSyncLinks.documentId, doc.id),
-              ne(schema.documentSyncLinks.state, "unlinked"),
-            ),
-          )
-          .limit(1),
-        db
-          .select({ primaryId: schema.documentPropertyDefinitions.id })
-          .from(schema.contentDatabaseItems)
-          .innerJoin(
-            schema.contentDatabases,
-            eq(
-              schema.contentDatabases.id,
-              schema.contentDatabaseItems.databaseId,
-            ),
-          )
-          .leftJoin(
-            schema.documentPropertyDefinitions,
-            and(
-              eq(
-                schema.documentPropertyDefinitions.id,
-                schema.contentDatabases.primaryBlocksPropertyId,
-              ),
-              eq(
-                schema.documentPropertyDefinitions.databaseId,
-                schema.contentDatabases.id,
-              ),
-              eq(schema.documentPropertyDefinitions.type, "blocks"),
-            ),
-          )
-          .where(
-            and(
-              eq(schema.contentDatabaseItems.documentId, doc.id),
-              isNull(schema.contentDatabases.deletedAt),
-            ),
+      const externalLink = await db
+        .select({ documentId: schema.documentSyncLinks.documentId })
+        .from(schema.documentSyncLinks)
+        .where(
+          and(
+            eq(schema.documentSyncLinks.documentId, doc.id),
+            ne(schema.documentSyncLinks.state, "unlinked"),
           ),
-      ]);
+        )
+        .limit(1);
       isExternallyLinked = externalLink.length > 0;
       hasBodyTarget = hasSuggestionBodyTarget({
         hasDatabaseMembership: memberships.length > 0,
-        hasPrimaryBlocksField: memberships.some(
-          (item) => item.primaryId !== null,
-        ),
+        hasPrimaryBlocksField: args.databaseId
+          ? accessiblePrimaryMemberships.some(
+              (item) => item.databaseId === args.databaseId,
+            )
+          : accessiblePrimaryMemberships.length > 0,
       });
     }
     const canSuggest = canSuggestDocument({

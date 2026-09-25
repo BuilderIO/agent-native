@@ -1405,3 +1405,13 @@ Copy my unsaved text and Discard draft. Copy succeeded, Discard exited
 Suggesting, and the canonical body remained empty at revision 0. The fixture
 was returned to local Trash. This replay exercises the repaired failure path
 on the same Content row surface.
+
+The next PR review found that the generic suggestion action accepted a Page
+share while ignoring access to the ordinary collection supplying its primary
+Blocks field. The proposal and acceptance paths now require an accessible
+ordinary membership; a private Files system container remains an internal
+body context for a standalone shared Page. Direct and list reads select an
+accessible eligible membership consistently when a Page also belongs to a
+metadata-only collection. Database regressions verify row-only action denial,
+eligibility after a collection share, and stable context-free selection. Nine
+focused Content suites pass (183 tests), along with Content typechecking.

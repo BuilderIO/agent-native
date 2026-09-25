@@ -19,6 +19,7 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
+import { resolveDocumentAccess } from "../../actions/_document-access.js";
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
@@ -381,14 +382,8 @@ async function assertSuggestionBodyTarget(
     await transaction.execute({
       sql: `SELECT
               EXISTS (SELECT 1 FROM content_databases d WHERE d.document_id = ? AND d.deleted_at IS NULL) AS is_database,
-              EXISTS (SELECT 1 FROM content_database_items i INNER JOIN content_databases d ON d.id = i.database_id WHERE i.document_id = ? AND d.deleted_at IS NULL) AS has_membership,
-              EXISTS (
-                SELECT 1 FROM content_database_items i
-                INNER JOIN content_databases d ON d.id = i.database_id
-                INNER JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
-                WHERE i.document_id = ? AND d.deleted_at IS NULL
-              ) AS has_primary`,
-      args: [documentId, documentId, documentId],
+              EXISTS (SELECT 1 FROM content_database_items i INNER JOIN content_databases d ON d.id = i.database_id WHERE i.document_id = ? AND d.deleted_at IS NULL) AS has_membership`,
+      args: [documentId, documentId],
     })
   ).rows[0];
   if (row?.is_database) {
@@ -397,10 +392,40 @@ async function assertSuggestionBodyTarget(
       errorCode: "suggestion_body_unavailable",
     });
   }
+  const memberships = (
+    await transaction.execute({
+      sql: `SELECT d.document_id AS database_document_id, d.system_role, p.id AS primary_id
+            FROM content_database_items i
+            INNER JOIN content_databases d ON d.id = i.database_id
+            LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+            WHERE i.document_id = ? AND d.deleted_at IS NULL
+            ORDER BY d.id`,
+      args: [documentId],
+    })
+  ).rows;
+  const ordinaryMemberships = memberships.filter(
+    (membership) => membership.system_role === null,
+  );
+  let hasAccessiblePrimary = false;
+  for (const membership of ordinaryMemberships) {
+    if (
+      membership.primary_id &&
+      (await resolveDocumentAccess(String(membership.database_document_id)))
+    ) {
+      hasAccessiblePrimary = true;
+      break;
+    }
+  }
+  if (!hasAccessiblePrimary && !ordinaryMemberships.length) {
+    hasAccessiblePrimary = memberships.some(
+      (membership) =>
+        membership.system_role === "files" && membership.primary_id,
+    );
+  }
   if (
     !hasSuggestionBodyTarget({
       hasDatabaseMembership: Boolean(row?.has_membership),
-      hasPrimaryBlocksField: Boolean(row?.has_primary),
+      hasPrimaryBlocksField: hasAccessiblePrimary,
     })
   ) {
     fail(
