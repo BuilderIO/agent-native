@@ -48,7 +48,7 @@ afterAll(async () => {
 });
 
 describe("visual-edit pending revision forward migration", () => {
-  it("adds a BIGINT revision column and backfills data from shipped v31 INTEGER", async () => {
+  it("widens the existing revision column so old and new workers share revisions", async () => {
     const { rows: migrations } = await getDbExec().execute({
       sql: "SELECT MAX(version) AS version FROM visual_edit_revision_migrations",
     });
@@ -63,16 +63,29 @@ describe("visual-edit pending revision forward migration", () => {
       Object.fromEntries(
         columns.map(({ column_name, data_type }) => [column_name, data_type]),
       ),
-    ).toMatchObject({ revision: "integer", revision_bigint: "bigint" });
+    ).toMatchObject({ revision: "bigint" });
 
     const { rows } = await getDbExec().execute({
-      sql: `SELECT revision, revision_bigint
+      sql: `SELECT revision
             FROM design_visual_edit_pending
             WHERE design_id = 'design_v31_existing'`,
     });
     expect(rows[0]).toMatchObject({
       revision: 2147483000,
-      revision_bigint: 2147483000,
     });
+
+    // Old workers still write the legacy column name; new workers read that
+    // same column through the widened schema.
+    await getDbExec().execute({
+      sql: `UPDATE design_visual_edit_pending
+            SET revision = 1750000000000
+            WHERE design_id = 'design_v31_existing'`,
+    });
+    const { rows: oldWorkerWrite } = await getDbExec().execute({
+      sql: `SELECT revision
+            FROM design_visual_edit_pending
+            WHERE design_id = 'design_v31_existing'`,
+    });
+    expect(oldWorkerWrite[0]?.revision).toBe(1750000000000);
   });
 });

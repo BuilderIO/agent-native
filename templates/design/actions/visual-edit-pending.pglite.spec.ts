@@ -77,7 +77,7 @@ describe("visual-edit pending revision migration", () => {
       sql: `SELECT data_type
             FROM information_schema.columns
             WHERE table_name = 'design_visual_edit_pending'
-              AND column_name = 'revision_bigint'`,
+              AND column_name = 'revision'`,
     });
     expect(rows[0]?.data_type).toBe("bigint");
 

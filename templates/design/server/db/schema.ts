@@ -343,7 +343,7 @@ export const designVisualEditPending = table("design_visual_edit_pending", {
     .notNull()
     .default("empty"),
   prompt: text("prompt").notNull().default(""),
-  revision: bigint("revision_bigint", { mode: "number" }).notNull().default(0),
+  revision: bigint("revision", { mode: "number" }).notNull().default(0),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
 });

@@ -447,11 +447,9 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
   {
     version: 32,
     name: "design-visual-edit-pending-bigint-revision",
-    // guard:allow-unscoped — schema migration copies existing revisions into the additive BIGINT column.
-    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS revision_bigint BIGINT NOT NULL DEFAULT 0;
-UPDATE design_visual_edit_pending
-SET revision_bigint = revision
-WHERE revision_bigint = 0 AND revision IS NOT NULL`,
+    // guard:allow-unscoped — widen the revision in place so old and new workers keep sharing one high-water mark.
+    sql: `ALTER TABLE design_visual_edit_pending
+ALTER COLUMN revision TYPE BIGINT USING revision::BIGINT`,
   },
 ];
 
