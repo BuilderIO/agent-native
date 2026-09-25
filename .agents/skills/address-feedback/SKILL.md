@@ -176,7 +176,8 @@ evidence:
    - Follow existing project conventions and nearby patterns.
    - In a task-owned worktree, create or switch to a safe task branch when
      needed without asking; preserve local changes and never move a branch
-     used by another worktree. In a shared checkout, ask before switching.
+     used by another worktree. In a shared checkout, ask before creating or
+     switching branches unless the user authorized that exact operation.
      Stash, reset, force-push, and PR creation still require explicit scope.
    - Add or update focused tests when the bug risk warrants it.
 

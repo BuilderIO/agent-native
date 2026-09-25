@@ -85,6 +85,8 @@ const WORKTREE_BRANCH_PERMISSION_RE = {
       .split(/[.!?;\n]/)
       .some(
         (sentence) =>
+          !/\bshared\s+checkout\b/i.test(sentence) &&
+          /\bworktrees?\b/i.test(sentence) &&
           WORKTREE_PERMISSION_CORRECTION_RE.test(sentence) &&
           WORKTREE_BRANCH_CONTEXT_RE.test(sentence),
       );
@@ -97,6 +99,10 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
     "Stop asking for permission for new branches in task-owned worktrees.",
   ],
   [true, "In a worktree, no permission is needed to switch to a task branch."],
+  [
+    true,
+    "No permission is needed to create a branch in a task-owned worktree.",
+  ],
   [true, "Stop asking before creating a branch in a task-owned worktree."],
   [true, "Stop asking permission to create a new branch in a task worktree."],
   [true, "Stop asking whether you can create a branch in a worktree."],
@@ -133,6 +139,14 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
     "Stop asking for permissions in worktrees. This is only to prevent shared branch issues.",
   ],
   [false, "Ask before changing branches in the shared checkout."],
+  [
+    false,
+    "No permission is needed to create a new branch in a shared checkout.",
+  ],
+  [
+    false,
+    "No permission is needed to create a branch in a shared checkout worktree.",
+  ],
   [false, "The worktree has a branch checked out."],
 ];
 // ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
