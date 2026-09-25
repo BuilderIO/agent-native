@@ -206,7 +206,14 @@ for (const site of sites) {
         const response = await page.goto(`${origin}${path}`, {
           waitUntil: "domcontentloaded",
         });
-        if (!response?.ok()) continue;
+        // Only an app that does not mount MCP may lack /mcp/connect; any other
+        // failure would silently drop that opener from coverage.
+        if (path === "/mcp/connect" && response?.status() === 404) continue;
+        expect(
+          response?.ok(),
+          `${site.host}${path} returned ${response?.status()}, so its popup behaviour went untested`,
+        ).toBe(true);
+        if (!response) continue;
         const [popup, opened] = await Promise.all([
           page.context().waitForEvent("page"),
           page.evaluate(() => {

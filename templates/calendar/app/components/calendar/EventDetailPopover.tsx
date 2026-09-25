@@ -1586,7 +1586,7 @@ export function EventDetailPopover({
       if (!open) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "j" && meetingLink) {
         e.preventDefault();
-        window.open(meetingLink.url, "_blank");
+        window.open(meetingLink.url, "_blank", "noopener,noreferrer");
       }
     },
     [open, meetingLink],

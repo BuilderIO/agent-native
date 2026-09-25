@@ -1093,7 +1093,8 @@ export function EmailThread({
         key: "o",
         meta: true,
         handler: () => {
-          if (githubPrUrl) window.open(githubPrUrl, "_blank");
+          if (githubPrUrl)
+            window.open(githubPrUrl, "_blank", "noopener,noreferrer");
         },
       },
       { key: "e", handler: handleArchive },
@@ -1247,7 +1248,8 @@ export function EmailThread({
 
     // If we only found a link in the body (no header), just open it
     if (!("messageId" in unsubscribeInfo)) {
-      if (unsubscribeInfo.url) window.open(unsubscribeInfo.url, "_blank");
+      if (unsubscribeInfo.url)
+        window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
       return;
     }
 
@@ -1269,12 +1271,16 @@ export function EmailThread({
         toast.success(t("mail.toasts.unsubscribeSent"));
         // Also open the URL so user can confirm if needed
         if (data.url || unsubscribeInfo.url) {
-          window.open(data.url || unsubscribeInfo.url, "_blank");
+          window.open(
+            data.url || unsubscribeInfo.url,
+            "_blank",
+            "noopener,noreferrer",
+          );
         }
       } else {
         // Fallback: open the unsubscribe URL directly
         if (unsubscribeInfo.url) {
-          window.open(unsubscribeInfo.url, "_blank");
+          window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
         } else {
           toast.error(t("mail.toasts.couldNotUnsubscribe"));
         }
@@ -1282,7 +1288,7 @@ export function EmailThread({
     } catch {
       // Fallback: open URL directly
       if (unsubscribeInfo.url) {
-        window.open(unsubscribeInfo.url, "_blank");
+        window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
       }
     } finally {
       setUnsubscribing(false);

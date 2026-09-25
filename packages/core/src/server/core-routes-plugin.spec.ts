@@ -41,6 +41,8 @@ import {
   createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
 import type { H3AppShim } from "./framework-request-handler.js";
+import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
+import { signEmbedSessionToken } from "./embed-session.js";
 import { createSecurityHeadersMiddleware } from "./security-headers.js";
 
 describe("mountApplicationStateRoutes", () => {
@@ -107,6 +109,39 @@ describe("OAuth popup waiting route", () => {
     expect([null, "unsafe-none", "same-origin-allow-popups"]).toContain(
       openerPolicy,
     );
+  });
+
+  it("stays navigable when opened from an embedded app session", async () => {
+    const previousSecret = process.env.OAUTH_STATE_SECRET;
+    process.env.OAUTH_STATE_SECRET = "oauth-popup-embed-test-secret";
+    try {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/_agent-native/oauth/popup",
+        ttlSeconds: 60,
+      });
+      const app = createApp();
+      app.use(createSecurityHeadersMiddleware());
+      app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+      const popup = await app.fetch(
+        new Request("http://example.test/_agent-native/oauth/popup", {
+          headers: { cookie: `${EMBED_SESSION_COOKIE}=${token}` },
+        }),
+      );
+
+      // The embed session's strict COOP belongs to the framed document, not
+      // to the top-level popup it opens.
+      expect(popup.headers.get("cross-origin-opener-policy")).toBe(
+        "unsafe-none",
+      );
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.OAUTH_STATE_SECRET;
+      } else {
+        process.env.OAUTH_STATE_SECRET = previousSecret;
+      }
+    }
   });
 
   it("rejects writes", async () => {
