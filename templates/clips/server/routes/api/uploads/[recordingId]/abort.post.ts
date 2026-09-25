@@ -137,6 +137,16 @@ export async function handleAbortRecordingUpload(
       return { error: "Recording not found" };
     }
 
+    const preserveFailure =
+      existing.status === "failed" && existing.failureCode != null;
+    const persistedFailureCode =
+      existing.status === "failed" && existing.failureCode
+        ? normalizeRecordingFailureCode(existing.failureCode)
+        : failureCode;
+    const persistedFailureReason = preserveFailure
+      ? existing.failureReason || failureReason
+      : failureReason;
+
     const existingAttemptId = existing.uploadAttemptId ?? null;
     const existingGenerationId = existing.uploadGenerationId ?? null;
     if (
@@ -200,7 +210,7 @@ export async function handleAbortRecordingUpload(
       recordingId,
       status: "failed",
       aborted: true,
-      failureReason,
+      failureReason: persistedFailureReason,
       updatedAt: now,
     };
     const uploadStateClaimed = await compareAndSetManyAppState([
@@ -222,8 +232,8 @@ export async function handleAbortRecordingUpload(
       .update(schema.recordings)
       .set({
         status: "failed",
-        failureCode,
-        failureReason,
+        failureCode: persistedFailureCode,
+        failureReason: persistedFailureReason,
         updatedAt: now,
       })
       .where(
@@ -231,6 +241,9 @@ export async function handleAbortRecordingUpload(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           eq(schema.recordings.status, existing.status),
+          existing.failureCode === null || existing.failureCode === undefined
+            ? isNull(schema.recordings.failureCode)
+            : eq(schema.recordings.failureCode, existing.failureCode),
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
@@ -268,12 +281,15 @@ export async function handleAbortRecordingUpload(
       };
     }
 
-    if (existing.status !== "failed" || existing.failureCode !== failureCode) {
+    if (
+      existing.status !== "failed" ||
+      existing.failureCode !== persistedFailureCode
+    ) {
       trackRecordingFailure({
         recordingId,
         uploadAttemptId: aborted[0]?.uploadAttemptId,
         platform: aborted[0]?.recordingPlatform,
-        failureCode,
+        failureCode: persistedFailureCode,
         failureStage,
         httpStatus,
       });

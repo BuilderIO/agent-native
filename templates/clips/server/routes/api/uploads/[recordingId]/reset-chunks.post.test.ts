@@ -25,6 +25,7 @@ const mockShouldEnableStreamingUpload = vi.hoisted(() => vi.fn());
 const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
 const mockIsMediaVerificationPending = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
+const mockEq = vi.hoisted(() => vi.fn((..._args: unknown[]) => "eq"));
 const mockResetWins = vi.hoisted(() => ({ current: true }));
 const mockReplaceCleanupOnRelease = vi.hoisted(() => ({ current: false }));
 const mockExistingRecording = vi.hoisted(() => ({
@@ -83,7 +84,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => "and"),
-  eq: vi.fn(() => "eq"),
+  eq: (...args: unknown[]) => mockEq(...args),
   isNull: vi.fn(() => "is-null"),
 }));
 
@@ -107,6 +108,8 @@ vi.mock("../../../../db/index.js", () => ({
       failureReason: "recordings.failureReason",
       uploadProgress: "recordings.uploadProgress",
       updatedAt: "recordings.updatedAt",
+      failureCode: "recordings.failureCode",
+      recordingPlatform: "recordings.recordingPlatform",
     },
   },
 }));
@@ -149,6 +152,7 @@ vi.mock("../../../../lib/video-storage.js", () => ({
     mockAllowsSqlRecordingChunkScratch(...args),
 }));
 
+import { S3MultipartStartError } from "../../../../lib/s3-upload-provider.js";
 import handler from "./reset-chunks.post";
 
 describe("/api/uploads/:recordingId/reset-chunks route", () => {
@@ -261,6 +265,44 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
     expect(mockAbortSession).not.toHaveBeenCalled();
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+  });
+
+  it("persists multipart startup failure against the reset generation", async () => {
+    mockExistingRecording.current = {
+      id: "rec-1",
+      status: "failed",
+      videoUrl: null,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-old",
+    };
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/webm",
+      useGenerationFence: true,
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-old",
+    });
+    mockStartSession.mockRejectedValue(new S3MultipartStartError(503));
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      failureCode: "multipart_start_failed",
+      failureStage: "multipart_start",
+      httpStatus: 503,
+    });
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "failed",
+          failureCode: "multipart_start_failed",
+        }),
+      ]),
+    );
+    expect(mockEq).toHaveBeenCalledWith("recordings.status", "uploading");
+    expect(mockEq).toHaveBeenCalledWith(
+      "recordings.uploadGenerationId",
+      expect.not.stringMatching("generation-old"),
+    );
   });
 
   it("does not clear a recovery claim when the flag is disabled mid-retry", async () => {

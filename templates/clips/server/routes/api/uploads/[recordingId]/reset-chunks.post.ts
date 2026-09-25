@@ -523,7 +523,19 @@ export async function handleResetRecordingChunks(
                   and(
                     eq(schema.recordings.id, recordingId),
                     ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-                    eq(schema.recordings.status, existing.status),
+                    eq(schema.recordings.status, "uploading"),
+                    nextGenerationId === null
+                      ? isNull(schema.recordings.uploadGenerationId)
+                      : eq(
+                          schema.recordings.uploadGenerationId,
+                          nextGenerationId,
+                        ),
+                    existingAttemptId === null
+                      ? isNull(schema.recordings.uploadAttemptId)
+                      : eq(
+                          schema.recordings.uploadAttemptId,
+                          existingAttemptId,
+                        ),
                   ),
                 )
                 .returning({ id: schema.recordings.id });
@@ -536,6 +548,12 @@ export async function handleResetRecordingChunks(
                   failureStage: "multipart_start",
                   httpStatus: err.status,
                 });
+              } else {
+                setResponseStatus(event, 409);
+                return {
+                  error: "A newer upload retry is already active.",
+                  staleAttempt: true,
+                };
               }
               setResponseStatus(event, 502);
               return {

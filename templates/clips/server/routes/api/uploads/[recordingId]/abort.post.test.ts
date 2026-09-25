@@ -220,6 +220,40 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
+  it("preserves a specific server failure during later abort cleanup", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "failed",
+        videoUrl: null,
+        failureCode: "finalize_failed",
+        failureReason: "Finalization failed after upload",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Upload failed",
+      failureCode: "upload_failed",
+    });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          failureCode: "finalize_failed",
+          failureReason: "Finalization failed after upload",
+        }),
+      ]),
+    );
+    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+      expect.objectContaining({
+        nextValue: expect.objectContaining({
+          failureReason: "Finalization failed after upload",
+        }),
+      }),
+    ]);
+  });
+
   it("accepts only bounded stage and HTTP status diagnostics", async () => {
     mockReadBody.mockResolvedValue({
       reason: "chunk upload returned an HTML error response",
