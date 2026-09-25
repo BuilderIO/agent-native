@@ -5254,6 +5254,150 @@ describe("editor chrome bridge — text editing session", () => {
         await page.waitForSelector("[data-agent-native-text-editing]", {
           state: "detached",
         });
+        const restoredChrome = await page.evaluate(() => ({
+          shieldPointerEvents: (
+            document.querySelector(
+              '[data-agent-native-edit-overlay="shield"]',
+            ) as HTMLElement
+          ).style.pointerEvents,
+          visibleHandles: Array.from(
+            document.querySelectorAll(
+              "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]",
+            ),
+          ).filter((handle) => getComputedStyle(handle).display !== "none")
+            .length,
+        }));
+        expect(restoredChrome.shieldPointerEvents).toBe("auto");
+        expect(restoredChrome.visibleHandles).toBeGreaterThan(0);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "keeps native text selection available when the host replays editable state",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+        await page.evaluate(() => {
+          const bridge = (window as any).__anEditorChromeBridgeInstance;
+          bridge.updateConfig({ readOnly: false, textEditingEnabled: true });
+        });
+        const reconfiguredState = await page.evaluate(() => ({
+          shieldPointerEvents: (
+            document.querySelector(
+              '[data-agent-native-edit-overlay="shield"]',
+            ) as HTMLElement
+          ).style.pointerEvents,
+          visibleHandles: Array.from(
+            document.querySelectorAll(
+              "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]",
+            ),
+          ).filter((handle) => getComputedStyle(handle).display !== "none")
+            .length,
+        }));
+        expect(reconfiguredState).toEqual({
+          shieldPointerEvents: "none",
+          visibleHandles: 0,
+        });
+        await page.evaluate(() => {
+          window.postMessage({ type: "set-read-only", readOnly: false }, "*");
+        });
+
+        const points = await page.evaluate(() => {
+          const target = document.querySelector<HTMLElement>("#target")!;
+          const text = target.firstChild!;
+          const range = document.createRange();
+          range.setStart(text, 0);
+          range.setEnd(text, 5);
+          const bounds = range.getBoundingClientRect();
+          return {
+            startX: bounds.left + 0.5,
+            endX: bounds.right - 0.5,
+            y: bounds.top + bounds.height / 2,
+            hit: document.elementFromPoint(
+              bounds.left + bounds.width / 2,
+              bounds.top + bounds.height / 2,
+            )?.id,
+            shieldPointerEvents: (
+              document.querySelector(
+                '[data-agent-native-edit-overlay="shield"]',
+              ) as HTMLElement
+            ).style.pointerEvents,
+          };
+        });
+        expect(points.hit).toBe("target");
+        expect(points.shieldPointerEvents).toBe("none");
+        const visibleHandles = await page.evaluate(
+          () =>
+            Array.from(
+              document.querySelectorAll(
+                "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]",
+              ),
+            ).filter((handle) => getComputedStyle(handle).display !== "none")
+              .length,
+        );
+        expect(visibleHandles).toBe(0);
+        await page.mouse.move(points.startX, points.y);
+        await page.mouse.down();
+        await page.mouse.move(points.endX, points.y, { steps: 4 });
+        await page.mouse.up();
+
+        await expect
+          .poll(() =>
+            page.evaluate(() => window.getSelection()?.toString() ?? ""),
+          )
+          .toBe("Hello");
+        const state = await page.evaluate(() => ({
+          editing: Boolean(
+            document.querySelector("[data-agent-native-text-editing]"),
+          ),
+          focused:
+            document.activeElement ===
+            document.querySelector("[data-agent-native-text-editing]"),
+          shieldPointerEvents: (
+            document.querySelector(
+              '[data-agent-native-edit-overlay="shield"]',
+            ) as HTMLElement
+          ).style.pointerEvents,
+        }));
+        expect(state).toEqual({
+          editing: true,
+          focused: true,
+          shieldPointerEvents: "none",
+        });
+        await page.locator("#target").evaluate((target) => {
+          (target as HTMLElement).blur();
+        });
+        await expect
+          .poll(() =>
+            page.evaluate(() =>
+              Boolean(
+                document.querySelector("[data-agent-native-text-editing]"),
+              ),
+            ),
+          )
+          .toBe(false);
+        const restoredChrome = await page.evaluate(() => ({
+          shieldPointerEvents: (
+            document.querySelector(
+              '[data-agent-native-edit-overlay="shield"]',
+            ) as HTMLElement
+          ).style.pointerEvents,
+          visibleHandles: Array.from(
+            document.querySelectorAll(
+              "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]",
+            ),
+          ).filter((handle) => getComputedStyle(handle).display !== "none")
+            .length,
+        }));
+        expect(restoredChrome.shieldPointerEvents).toBe("auto");
+        expect(restoredChrome.visibleHandles).toBeGreaterThan(0);
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();

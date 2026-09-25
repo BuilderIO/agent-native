@@ -26235,7 +26235,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // Preserve the more specific Interact ownership when read-only state is
       // replayed after a mode change on a retained iframe.
       syncShieldPointerEvents();
-      setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !interactionMode && !activeTextEditEl,
+      );
       if (interactionMode) hideSelectionOverlay();
       else if (selectedEl?.isConnected)
         positionOverlay(selectionOverlay, selectedEl);
@@ -28043,11 +28045,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof next.textEditingEnabled === "boolean"
           ? next.textEditingEnabled
           : textEditingEnabledFlag;
-      var wasTextEditingEnabled = textEditingEnabled;
       if (readOnly !== nextReadOnly) {
         readOnly = nextReadOnly;
         if (readOnly) {
-          if (activeTextEditEl) activeTextEditEl.blur();
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
         }
@@ -28055,6 +28055,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
       textEditingEnabled =
         !readOnly && !interactionMode && textEditingEnabledFlag;
+      if (activeTextEditEl && (readOnly || !textEditingEnabled)) {
+        activeTextEditEl.blur();
+      }
       if (interactionMode) {
         setSelectionOverlayResizeChromeVisible(false);
         hideSelectionOverlay();
@@ -28062,13 +28065,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         marqueeSelectionOverlay.style.display = "none";
         syncShieldPointerEvents();
       } else {
-        setSelectionOverlayResizeChromeVisible(!readOnly);
+        setSelectionOverlayResizeChromeVisible(!readOnly && !activeTextEditEl);
         syncShieldPointerEvents();
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
-      }
-      if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
-        activeTextEditEl.blur();
       }
       if (typeof next.screenId === "string") {
         designCanvasScreenId = next.screenId;
