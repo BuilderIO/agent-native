@@ -468,6 +468,23 @@ describe("run store", () => {
     ]);
   });
 
+  it("bounds the live event feed when a limit is requested", async () => {
+    await getRunEventsSince("run-feed", 3, { limit: 10 });
+
+    const select = execCalls.find((call) =>
+      /SELECT seq, event_data FROM agent_run_events WHERE run_id = \? AND seq >= \?/i.test(
+        call.sql,
+      ),
+    );
+    expect(select?.sql).toMatch(/LIMIT \?/i);
+    expect(select?.args).toEqual([
+      "run-feed",
+      3,
+      CHECKPOINT_TERMINAL_EVENT_SEQ,
+      10,
+    ]);
+  });
+
   it("atomically rejects producer events after the run becomes terminal", async () => {
     await insertRunEvent(
       "run-terminal",

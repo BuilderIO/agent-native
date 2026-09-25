@@ -2840,6 +2840,7 @@ export async function persistRunCheckpointEvent(
 export async function getRunEventsSince(
   runId: string,
   fromSeq: number,
+  opts?: { limit?: number },
 ): Promise<Array<{ seq: number; eventData: string }>> {
   await ensureRunTables();
   const client = getDbExec();
@@ -2849,9 +2850,21 @@ export async function getRunEventsSince(
   // continue the turn from a half-saved message. The checkpoint is replayed on
   // the terminal/reconnect paths instead (`getLastTerminalRunEvent`,
   // `reconcileTerminalRunFromEvents`), which run after the row is terminal.
+  const limit =
+    opts?.limit != null && Number.isInteger(opts.limit) && opts.limit > 0
+      ? opts.limit
+      : null;
+  const args: Array<string | number> = [
+    runId,
+    fromSeq,
+    CHECKPOINT_TERMINAL_EVENT_SEQ,
+  ];
+  if (limit != null) args.push(limit);
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? AND seq < ? ORDER BY seq ASC`,
-    args: [runId, fromSeq, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? AND seq < ? ORDER BY seq ASC${
+      limit == null ? "" : " LIMIT ?"
+    }`,
+    args,
   });
   return rows.map((r) => {
     const row = r as { seq: number | string; event_data: string };

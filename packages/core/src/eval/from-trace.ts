@@ -17,6 +17,18 @@ const MAX_TOOLS = 8;
 const DEFAULT_THRESHOLD = 0.5;
 const RUN_ID_NAME_PREFIX = 8;
 
+/** Stable per-owner identity for one promoted run. Encoded so the parts cannot collide. */
+export function promotedDatasetIdempotencyKey(
+  runId: string,
+  userId?: string | null,
+): string {
+  return `from-trace:${encodeURIComponent(userId ?? "")}:${encodeURIComponent(runId)}`;
+}
+
+export function promotedDatasetDescription(runId: string): string {
+  return `Promoted from production run ${runId}`;
+}
+
 export type PromoteTraceError =
   | "not_found"
   | "run_not_completed"
@@ -368,6 +380,81 @@ export function serializePromotedEval(value: PromotedEval): PromotedEvalSpec {
   return value.spec;
 }
 
+function historyFromDatasetContext(
+  history: unknown,
+): Array<{ role: "user" | "assistant"; text: string }> | null {
+  if (history == null) return [];
+  if (!Array.isArray(history)) return null;
+  const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
+  for (const turn of history) {
+    const record = asRecord(turn);
+    if (!record) return null;
+    const role = record.role;
+    const text = record.text;
+    if ((role !== "user" && role !== "assistant") || typeof text !== "string") {
+      return null;
+    }
+    turns.push({ role, text });
+  }
+  return turns;
+}
+
+function toolNamesFromDatasetContext(tools: unknown): string[] | null {
+  if (tools == null) return [];
+  if (!Array.isArray(tools)) return null;
+  const names: string[] = [];
+  for (const name of tools) {
+    if (typeof name !== "string" || name.length === 0) return null;
+    if (names.includes(name) || names.length >= MAX_TOOLS) continue;
+    names.push(name);
+  }
+  return names;
+}
+
+/**
+ * Rebuild the JSON eval spec from a dataset row so a repeat promotion can
+ * return the stored case without replaying the run.
+ */
+export function promotedEvalSpecFromDataset(
+  dataset: EvalDataset,
+  runId: string,
+): PromotedEvalSpec | null {
+  const entry = dataset.entries[0];
+  if (!entry || typeof entry.input !== "string" || entry.input.length === 0) {
+    return null;
+  }
+  const context = entry.context ?? {};
+  if (
+    typeof context.runId === "string" &&
+    context.runId.length > 0 &&
+    context.runId !== runId
+  ) {
+    return null;
+  }
+  const history = historyFromDatasetContext(context.history);
+  const toolNames = toolNamesFromDatasetContext(context.tools);
+  if (!history || !toolNames) return null;
+  const needle =
+    typeof entry.expectedOutput === "string" ? entry.expectedOutput.trim() : "";
+  if (toolNames.length === 0 && needle.length === 0) return null;
+
+  const scorers: PromotedEvalScorerSpec[] = [
+    ...toolNames.map((toolName) => ({ type: "usesTool" as const, toolName })),
+    ...(needle.length > 0 ? [{ type: "contains" as const, needle }] : []),
+  ];
+  const name = `from-trace:${runId.slice(0, RUN_ID_NAME_PREFIX)}`;
+  return {
+    name,
+    input:
+      history.length > 0
+        ? { prompt: entry.input, history }
+        : { prompt: entry.input },
+    threshold: DEFAULT_THRESHOLD,
+    source: { kind: "trace", runId },
+    scorers,
+  };
+}
+
 export function generateEvalModuleSource(spec: PromotedEvalSpec): string {
   const usesToolNames = spec.scorers
     .filter(
@@ -481,9 +568,14 @@ export function promoteTraceToEval(
   const datasetName =
     input.options?.datasetName?.trim() || `from-trace:${runId}`;
   const dataset: EvalDataset = {
-    id: crypto.randomUUID(),
+    // Node 22.22+ exposes Web Crypto on globalThis. Do not import node:crypto.
+    id: globalThis.crypto.randomUUID(),
     name: datasetName,
-    description: `Promoted from production run ${runId}`,
+    description: promotedDatasetDescription(runId),
+    idempotencyKey: promotedDatasetIdempotencyKey(
+      runId,
+      input.options?.userId ?? null,
+    ),
     entries: [
       {
         input: evalInput.prompt,

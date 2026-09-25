@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   generateEvalModuleSource,
   promoteTraceToEval,
+  promotedDatasetIdempotencyKey,
+  promotedEvalSpecFromDataset,
   type PromoteTraceEvent,
   type PromoteTraceSpan,
 } from "./from-trace.js";
@@ -57,6 +59,33 @@ describe("promoteTraceToEval", () => {
       "run-abcdef123456",
     ]);
     expect(result.value.dataset.name).toBe("from-trace:run-abcdef123456");
+    expect(result.value.dataset.idempotencyKey).toBe(
+      "from-trace::run-abcdef123456",
+    );
+    expect(result.value.dataset.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    expect(
+      promotedEvalSpecFromDataset(result.value.dataset, "run-abcdef123456"),
+    ).toEqual(result.value.spec);
+  });
+
+  it("keys the dataset by owner and source run", () => {
+    const result = promoteTraceToEval({
+      runId: "run/with space",
+      run: { status: "completed" },
+      events: events({ type: "user-message", text: "hello" }),
+      spans: [
+        { spanType: "tool_call", name: "search-docs", status: "success" },
+      ],
+      options: { userId: "alice@example.com" },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.dataset.idempotencyKey).toBe(
+      promotedDatasetIdempotencyKey("run/with space", "alice@example.com"),
+    );
+    expect(result.value.dataset.userId).toBe("alice@example.com");
   });
 
   it("puts prior assistant text into history and uses the first user message as the prompt", () => {

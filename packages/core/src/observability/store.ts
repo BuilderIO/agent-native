@@ -160,7 +160,8 @@ export async function ensureObservabilityTables(): Promise<void> {
           entries TEXT NOT NULL DEFAULT '[]',
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL,
-          user_id TEXT
+          user_id TEXT,
+          idempotency_key TEXT
         )
       `;
 
@@ -243,6 +244,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           "idempotency_key",
           `ALTER TABLE agent_feedback ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
         );
+        await ensureColumnExists(
+          "agent_eval_datasets",
+          "idempotency_key",
+          `ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+        );
         await ensureIndexExists(
           "idx_trace_spans_run",
           `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
@@ -310,6 +316,10 @@ export async function ensureObservabilityTables(): Promise<void> {
         await ensureIndexExists(
           "idx_evals_user",
           `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_eval_datasets_idempotency",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_datasets_idempotency ON agent_eval_datasets (idempotency_key)`,
         );
         await ensureIndexExists(
           "idx_experiment_results_exp",
@@ -815,6 +825,142 @@ export async function getEvalDatasetByName(
   return rowToDataset(rows[0] as any);
 }
 
+const PROMOTED_DATASET_OWNER =
+  "(user_id = ? OR (? IS NULL AND user_id IS NULL))";
+
+async function selectPromotedEvalDatasetByKey(
+  idempotencyKey: string,
+  userId: string | null,
+): Promise<EvalDataset | null> {
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets
+      WHERE idempotency_key = ?
+        AND ${PROMOTED_DATASET_OWNER}
+      LIMIT 1`,
+    args: [idempotencyKey, userId, userId],
+  });
+  if (rows.length === 0) return null;
+  return rowToDataset(rows[0] as any);
+}
+
+/**
+ * The dataset already stored for this owner and source run, if any.
+ * A legacy row (same description, no key) is claimed in place so a concurrent
+ * insert cannot create a second promotion.
+ */
+export async function findPromotedEvalDataset(args: {
+  idempotencyKey: string;
+  description: string;
+  userId: string | null;
+}): Promise<EvalDataset | null> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_eval_datasets
+      WHERE ${PROMOTED_DATASET_OWNER}
+        AND (
+          idempotency_key = ?
+          OR (idempotency_key IS NULL AND description = ?)
+        )
+      ORDER BY CASE WHEN idempotency_key = ? THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1`,
+    args: [
+      args.userId,
+      args.userId,
+      args.idempotencyKey,
+      args.description,
+      args.idempotencyKey,
+    ],
+  });
+  if (rows.length === 0) return null;
+  const dataset = rowToDataset(rows[0] as any);
+  if (dataset.idempotencyKey === args.idempotencyKey) return dataset;
+
+  try {
+    const updated = await client.execute({
+      sql: `UPDATE agent_eval_datasets
+        SET idempotency_key = ?
+        WHERE id = ?
+          AND idempotency_key IS NULL
+          AND description = ?
+          AND ${PROMOTED_DATASET_OWNER}`,
+      args: [
+        args.idempotencyKey,
+        dataset.id,
+        args.description,
+        args.userId,
+        args.userId,
+      ],
+    });
+    if (Number(updated.rowsAffected) > 0) {
+      return { ...dataset, idempotencyKey: args.idempotencyKey };
+    }
+  } catch (err) {
+    const winner = await selectPromotedEvalDatasetByKey(
+      args.idempotencyKey,
+      args.userId,
+    );
+    if (winner) return winner;
+    throw err;
+  }
+
+  const winner = await selectPromotedEvalDatasetByKey(
+    args.idempotencyKey,
+    args.userId,
+  );
+  return winner ?? dataset;
+}
+
+/**
+ * Insert a promoted dataset, or return the row that already owns its
+ * idempotency key. Concurrent promotions of the same run cannot both insert.
+ */
+export async function savePromotedEvalDataset(
+  dataset: EvalDataset,
+): Promise<EvalDataset> {
+  const idempotencyKey = dataset.idempotencyKey;
+  if (!idempotencyKey) {
+    await insertEvalDataset(dataset);
+    return dataset;
+  }
+  const userId = dataset.userId ?? null;
+  const existing = await findPromotedEvalDataset({
+    idempotencyKey,
+    description: dataset.description,
+    userId,
+  });
+  if (existing) return existing;
+
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const inserted = await client.execute({
+    sql: `INSERT INTO agent_eval_datasets
+      (id, name, description, entries, created_at, updated_at, user_id, idempotency_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (idempotency_key) DO NOTHING`,
+    args: [
+      dataset.id,
+      dataset.name,
+      dataset.description,
+      JSON.stringify(dataset.entries),
+      dataset.createdAt,
+      dataset.updatedAt,
+      userId,
+      idempotencyKey,
+    ],
+  });
+  if (Number(inserted.rowsAffected) > 0) return dataset;
+
+  const raced = await findPromotedEvalDataset({
+    idempotencyKey,
+    description: dataset.description,
+    userId,
+  });
+  if (raced) return raced;
+  throw new Error("Failed to save promoted eval dataset");
+}
+
 export async function updateEvalDataset(
   id: string,
   updates: Partial<Pick<EvalDataset, "name" | "description" | "entries">>,
@@ -1191,6 +1337,7 @@ function rowToDataset(row: Record<string, any>): EvalDataset {
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     userId: row.user_id ? String(row.user_id) : null,
+    idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
   };
 }
 

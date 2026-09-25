@@ -66,7 +66,11 @@ non-zero if any eval scores below its threshold (so it gates CI/deploys).
 
 promote maps a completed production run into a defineEval case, persists an
 EvalDataset row, and optionally writes a *.eval.ts the CI gate already
-discovers. The hosted action never writes files.
+discovers. The hosted action never writes files. Repeating a promotion
+returns the existing dataset. A run whose event history exceeds the
+promotion limit is refused (events_truncated) instead of emitting a partial
+eval. With --write, the fixture is written before the dataset row is
+inserted; a failed write leaves no new dataset.
 
 Arguments:
   pattern            Only run eval files whose path contains this substring.
@@ -182,18 +186,54 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
   return { command: "run", pattern, json, threshold };
 }
 
+async function writePromotedEvalFile(
+  writePath: string,
+  source: string,
+): Promise<void> {
+  const target = path.resolve(process.cwd(), writePath);
+  const dir = path.dirname(target);
+  await fs.mkdir(dir, { recursive: true });
+  // Write aside the destination so a failed write cannot truncate a fixture
+  // that is already there, and cannot run after the dataset insert.
+  const tmp = path.join(dir, `.${path.basename(target)}.${process.pid}.tmp`);
+  try {
+    await fs.writeFile(tmp, source, "utf8");
+    await fs.rename(tmp, target);
+  } catch (err) {
+    try {
+      await fs.rm(tmp, { force: true });
+    } catch {
+      // coercion-ok: temp-file cleanup is best-effort; the write error is rethrown.
+    }
+    throw err;
+  }
+}
+
 async function runPromote(args: EvalPromoteCliArgs): Promise<void> {
-  const { promoteTraceEvalFromStore } =
+  const { loadTraceEvalPromotion, persistPromotedEvalDataset } =
     await import("../observability/actions/promote-trace-eval.js");
   const { generateEvalModuleSource } = await import("../eval/from-trace.js");
 
-  let result: Awaited<ReturnType<typeof promoteTraceEvalFromStore>>;
+  let result: Awaited<ReturnType<typeof loadTraceEvalPromotion>>["promotion"];
   try {
-    result = await promoteTraceEvalFromStore({
+    const loaded = await loadTraceEvalPromotion({
       runId: args.runId,
       mustContain: args.mustContain,
       datasetName: args.datasetName,
     });
+    // Fixture first. persist only runs after --write has succeeded.
+    if (args.write) {
+      await writePromotedEvalFile(
+        args.write,
+        generateEvalModuleSource(loaded.promotion.eval),
+      );
+    }
+    result = loaded.alreadyStored
+      ? loaded.promotion
+      : {
+          ...loaded.promotion,
+          dataset: await persistPromotedEvalDataset(loaded.promotion.dataset),
+        };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (args.json) {
@@ -202,12 +242,6 @@ async function runPromote(args: EvalPromoteCliArgs): Promise<void> {
       console.error(`\n  eval promote failed: ${message}\n`);
     }
     process.exit(1);
-  }
-
-  if (args.write) {
-    const target = path.resolve(process.cwd(), args.write);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, generateEvalModuleSource(result.eval), "utf8");
   }
 
   if (args.json) {

@@ -11,7 +11,9 @@ interface ExecCall {
 }
 
 const execCalls: ExecCall[] = [];
+const executeResults: Array<{ rows: any[]; rowsAffected: number }> = [];
 const ensuredColumns = vi.hoisted(() => [] as string[]);
+const ensuredIndexes = vi.hoisted(() => [] as string[]);
 
 function createCapturingDb() {
   return {
@@ -21,7 +23,7 @@ function createCapturingDb() {
       execCalls.push({ sql: rawSql, args });
       // Most calls just need to "succeed" with empty rows. SELECTs in this
       // store return an array shape; provide one to keep the mappers happy.
-      return { rows: [], rowsAffected: 0 };
+      return executeResults.shift() ?? { rows: [], rowsAffected: 0 };
     }),
   };
 }
@@ -39,7 +41,9 @@ vi.mock("../db/ddl-guard.js", () => ({
       ensuredColumns.push(`${table}.${column}:${sql}`);
     },
   ),
-  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn(async (name: string, sql: string) => {
+    ensuredIndexes.push(`${name}:${sql}`);
+  }),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -60,6 +64,8 @@ const {
   insertFeedback,
   insertEvalDataset,
   getEvalDatasetByName,
+  findPromotedEvalDataset,
+  savePromotedEvalDataset,
   upsertTraceSummary,
   upsertSatisfactionScore,
 } = await import("./store.js");
@@ -74,6 +80,7 @@ function lastSelect(): ExecCall {
 describe("observability store: per-user isolation", () => {
   beforeEach(() => {
     execCalls.length = 0;
+    executeResults.length = 0;
     vi.clearAllMocks();
   });
 
@@ -309,6 +316,118 @@ describe("observability store: per-user isolation", () => {
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
       expect(call!.args).toContain("alice");
+    });
+
+    it("claims one dataset per owner and source run", async () => {
+      await getEvalDatasetByName("warmup");
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.idempotency_key:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS idempotency_key TEXT",
+      );
+      expect(ensuredIndexes).toContain(
+        "idx_eval_datasets_idempotency:CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_datasets_idempotency ON agent_eval_datasets (idempotency_key)",
+      );
+
+      const key = "from-trace:alice%40example.com:run-1";
+      const description = "Promoted from production run run-1";
+      execCalls.length = 0;
+      const found = await findPromotedEvalDataset({
+        idempotencyKey: key,
+        description,
+        userId: "alice@example.com",
+      });
+      expect(found).toBeNull();
+      const lookup = execCalls.find((call) =>
+        /FROM agent_eval_datasets/i.test(call.sql),
+      );
+      expect(lookup?.sql).toMatch(/user_id = \?/);
+      expect(lookup?.sql).toMatch(/idempotency_key = \?/);
+      expect(lookup?.args).toEqual([
+        "alice@example.com",
+        "alice@example.com",
+        key,
+        description,
+        key,
+      ]);
+
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const saved = await savePromotedEvalDataset({
+        id: "ds-new",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(saved.id).toBe("ds-new");
+      const insert = execCalls.find((call) =>
+        /INSERT INTO agent_eval_datasets/.test(call.sql),
+      );
+      expect(insert?.sql).toMatch(/ON CONFLICT \(idempotency_key\) DO NOTHING/);
+      expect(insert?.args).toContain(key);
+      expect(insert?.args).toContain("alice@example.com");
+
+      const legacy = {
+        id: "ds-legacy",
+        name: "from-trace:run-1",
+        description,
+        entries: JSON.stringify([
+          { input: "hello", tags: ["from-trace", "run-1"] },
+        ]),
+        created_at: 1,
+        updated_at: 2,
+        user_id: "alice@example.com",
+        idempotency_key: null,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [legacy], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const claimed = await savePromotedEvalDataset({
+        id: "ds-retry",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 3,
+        updatedAt: 3,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(claimed.id).toBe("ds-legacy");
+      expect(claimed.idempotencyKey).toBe(key);
+      expect(
+        execCalls.some((call) =>
+          /INSERT INTO agent_eval_datasets/.test(call.sql),
+        ),
+      ).toBe(false);
+      const claim = execCalls.find((call) =>
+        /UPDATE agent_eval_datasets/i.test(call.sql),
+      );
+      expect(claim?.sql).toMatch(/SET idempotency_key = \?/);
+      expect(claim?.args?.[0]).toBe(key);
+
+      const winner = {
+        ...legacy,
+        id: "ds-winner",
+        idempotency_key: key,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [winner], rowsAffected: 0 });
+      const raced = await savePromotedEvalDataset({
+        id: "ds-loser",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 4,
+        updatedAt: 4,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(raced.id).toBe("ds-winner");
     });
 
     it("adds user_id to an existing agent_eval_datasets table before insert", async () => {

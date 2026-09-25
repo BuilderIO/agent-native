@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const store = vi.hoisted(() => ({
   getTraceSummary: vi.fn(),
   getTraceSpansForRun: vi.fn(),
-  insertEvalDataset: vi.fn(),
+  findPromotedEvalDataset: vi.fn(),
+  savePromotedEvalDataset: vi.fn(),
 }));
 const runStore = vi.hoisted(() => ({
   getRunById: vi.fn(),
@@ -19,7 +20,10 @@ vi.mock("../../db/client.js", () => ({
 vi.mock("../store.js", () => ({
   getTraceSummary: (...a: unknown[]) => store.getTraceSummary(...a),
   getTraceSpansForRun: (...a: unknown[]) => store.getTraceSpansForRun(...a),
-  insertEvalDataset: (...a: unknown[]) => store.insertEvalDataset(...a),
+  findPromotedEvalDataset: (...a: unknown[]) =>
+    store.findPromotedEvalDataset(...a),
+  savePromotedEvalDataset: (...a: unknown[]) =>
+    store.savePromotedEvalDataset(...a),
 }));
 vi.mock("../../agent/run-store.js", () => ({
   getRunById: (...a: unknown[]) => runStore.getRunById(...a),
@@ -30,7 +34,10 @@ vi.mock("../../chat-threads/store.js", () => ({
 }));
 
 const promoteTraceEval = (await import("./promote-trace-eval.js")).default;
-const { promoteTraceEvalFromStore } = await import("./promote-trace-eval.js");
+const { promoteTraceEvalFromStore, PROMOTE_RUN_EVENT_LIMIT } =
+  await import("./promote-trace-eval.js");
+const { promotedDatasetIdempotencyKey } =
+  await import("../../eval/from-trace.js");
 const { ActionContractError } = await import("../../action.js");
 
 function completedRun() {
@@ -67,7 +74,10 @@ function summary(userId = "alice@example.com") {
 beforeEach(() => {
   vi.clearAllMocks();
   threads.getThread.mockResolvedValue(null);
-  store.insertEvalDataset.mockResolvedValue(undefined);
+  store.findPromotedEvalDataset.mockResolvedValue(null);
+  store.savePromotedEvalDataset.mockImplementation(
+    async (dataset: unknown) => dataset,
+  );
   store.getTraceSpansForRun.mockResolvedValue([
     {
       id: "s1",
@@ -121,9 +131,15 @@ describe("promote-trace-eval", () => {
     expect(store.getTraceSummary).toHaveBeenCalledWith("run-1", {
       userId: "alice@example.com",
     });
-    expect(store.insertEvalDataset).toHaveBeenCalledTimes(1);
-    const dataset = store.insertEvalDataset.mock.calls[0]![0];
+    expect(runStore.getRunEventsSince).toHaveBeenCalledWith("run-1", 0, {
+      limit: PROMOTE_RUN_EVENT_LIMIT + 1,
+    });
+    expect(store.savePromotedEvalDataset).toHaveBeenCalledTimes(1);
+    const dataset = store.savePromotedEvalDataset.mock.calls[0]![0];
     expect(dataset.userId).toBe("alice@example.com");
+    expect(dataset.idempotencyKey).toBe(
+      promotedDatasetIdempotencyKey("run-1", "alice@example.com"),
+    );
     expect(dataset.entries).toHaveLength(1);
     expect(result.eval.scorers).toEqual([
       { type: "usesTool", toolName: "search-docs" },
@@ -169,7 +185,79 @@ describe("promote-trace-eval", () => {
 
     expect(threads.getThread).toHaveBeenCalledWith("thread-1");
     expect(result.eval.input.prompt).toBe("Search the docs");
-    expect(store.insertEvalDataset).toHaveBeenCalledTimes(1);
+    expect(store.savePromotedEvalDataset).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the existing dataset without reloading events", async () => {
+    store.getTraceSummary.mockResolvedValue(summary());
+    store.findPromotedEvalDataset.mockResolvedValue({
+      id: "ds-existing",
+      name: "from-trace:run-1",
+      description: "Promoted from production run run-1",
+      entries: [
+        {
+          input: "Search the docs",
+          context: {
+            runId: "run-1",
+            history: [],
+            tools: ["search-docs"],
+          },
+          tags: ["from-trace", "run-1"],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+      userId: "alice@example.com",
+      idempotencyKey: promotedDatasetIdempotencyKey(
+        "run-1",
+        "alice@example.com",
+      ),
+    });
+
+    const result = await promoteTraceEval.run(
+      { runId: "run-1" },
+      { userEmail: "alice@example.com" },
+    );
+
+    expect(store.findPromotedEvalDataset).toHaveBeenCalledWith({
+      idempotencyKey: promotedDatasetIdempotencyKey(
+        "run-1",
+        "alice@example.com",
+      ),
+      description: "Promoted from production run run-1",
+      userId: "alice@example.com",
+    });
+    expect(runStore.getRunEventsSince).not.toHaveBeenCalled();
+    expect(runStore.getRunById).not.toHaveBeenCalled();
+    expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
+    expect(result.dataset.id).toBe("ds-existing");
+    expect(result.eval.input.prompt).toBe("Search the docs");
+    expect(result.eval.scorers).toEqual([
+      { type: "usesTool", toolName: "search-docs" },
+    ]);
+  });
+
+  it("refuses a trace whose event history exceeds the promotion limit", async () => {
+    store.getTraceSummary.mockResolvedValue(summary());
+    runStore.getRunById.mockResolvedValue(completedRun());
+    runStore.getRunEventsSince.mockResolvedValue(
+      Array.from({ length: PROMOTE_RUN_EVENT_LIMIT + 1 }, (_, seq) => ({
+        seq,
+        eventData: "{}",
+      })),
+    );
+
+    await expect(
+      promoteTraceEval.run(
+        { runId: "run-1" },
+        { userEmail: "alice@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "events_truncated",
+      statusCode: 413,
+      details: { limit: PROMOTE_RUN_EVENT_LIMIT },
+    });
+    expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
   });
 
   it("returns not_found for another user's runId", async () => {
@@ -184,7 +272,8 @@ describe("promote-trace-eval", () => {
       errorCode: "not_found",
       statusCode: 404,
     });
-    expect(store.insertEvalDataset).not.toHaveBeenCalled();
+    expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
+    expect(store.findPromotedEvalDataset).not.toHaveBeenCalled();
     expect(runStore.getRunById).not.toHaveBeenCalled();
   });
 
@@ -211,7 +300,7 @@ describe("promote-trace-eval", () => {
       errorCode: "run_not_completed",
       statusCode: 409,
     });
-    expect(store.insertEvalDataset).not.toHaveBeenCalled();
+    expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
   });
 
   it("promoteTraceEvalFromStore inserts nothing when mapping fails", async () => {
@@ -226,6 +315,6 @@ describe("promote-trace-eval", () => {
         { userId: "alice@example.com" },
       ),
     ).rejects.toMatchObject({ errorCode: "no_user_prompt" });
-    expect(store.insertEvalDataset).not.toHaveBeenCalled();
+    expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
   });
 });

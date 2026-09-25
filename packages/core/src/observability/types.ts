@@ -113,6 +113,11 @@ export interface EvalDataset {
    * isolation; scoped reads pass `userId` the same way traces do.
    */
   userId?: string | null;
+  /**
+   * Per-owner identity of a trace promotion. Null on datasets that were
+   * not promoted from a run. A unique index makes repeat promotion upsert.
+   */
+  idempotencyKey?: string | null;
 }
 
 export interface EvalTestCase {
