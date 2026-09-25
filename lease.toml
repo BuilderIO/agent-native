@@ -1,6 +1,6 @@
 pr = 5933
 owner_thread = "01a0d870-28eb-7662-9029-a3bb01c39f26"
-version = 26
-expires_at = "2026-09-25T22:30:00Z"
+version = 27
+expires_at = "2026-09-25T23:30:00Z"
 observed_legacy_heartbeat_version = "absent"
 legacy_retired = true
