@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { useT } from "../i18n.js";
 import { SettingsRow } from "../settings/SettingsRow.js";
@@ -36,9 +36,12 @@ import { ErrorText } from "./TeamPrimitives.js";
 export function OrgIdentitySettings({
   org,
   requiredAuthProvider,
+  afterSignIn,
 }: {
   org: { orgId: string | null; allowedDomain: string | null; access?: unknown };
   requiredAuthProvider: string | null | undefined;
+  /** Rows rendered between Organization sign-in and Single sign-on. */
+  afterSignIn?: ReactNode;
 }) {
   const t = useT();
   const access = org.access as
@@ -183,6 +186,8 @@ export function OrgIdentitySettings({
           <ErrorText error={setAuthProvider.error} />
         ) : null}
       </SettingsRow>
+
+      {afterSignIn}
 
       {ssoEnabled && (
         <SettingsRow

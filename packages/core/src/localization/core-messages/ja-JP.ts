@@ -933,6 +933,45 @@ const messages: AgentChatTranslation = {
   "accountMenu.usage": "使用状況",
   "accountMenu.getApps": "アプリと拡張機能を入手",
   "accountMenu.back": "戻る",
+  "settingsOrg.general.organization": "組織",
+  "settingsOrg.general.name": "名前",
+  "settingsOrg.general.nameLocked": "名前はオーナーと管理者が変更できます。",
+  "settingsOrg.general.membership": "メンバーシップ",
+  "settingsOrg.general.yourRole": "あなたのロール",
+  "settingsOrg.general.deleteDescription":
+    "{{name}}、そのメンバー、データを完全に削除します。",
+  "settingsOrg.members.removeTitle": "{{name}}を削除しますか？",
+  "settingsOrg.members.removeDescription":
+    "{{org}}にアクセスできなくなります。所有しているものは選択した人に移ります。",
+  "settingsOrg.members.roleFor": "{{name}}のロール",
+  "settingsOrg.members.moreActions": "{{name}}のその他の操作",
+  "settingsOrg.members.groupsEmpty":
+    "メンバーをグループにまとめて、アプリへのアクセスを一緒に管理します。",
+  "settingsOrg.auth.signIn": "サインイン",
+  "settingsOrg.auth.joining": "参加",
+  "settingsOrg.auth.betweenApps": "アプリ間",
+  "settingsOrg.auth.methodsEmailOnly": "メールアドレスとパスワード。",
+  "settingsOrg.auth.methodsEmailAndOne":
+    "メールアドレスとパスワード、{{method}}。",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "メールアドレスとパスワード、{{first}}、{{second}}。",
+  "settingsOrg.auth.emailPassword": "メールアドレスとパスワード",
+  "settingsOrg.auth.emailPasswordNote": "すべてのデプロイで有効です。",
+  "settingsOrg.auth.methodConfigured":
+    "ホストでこれらの変数により設定されています。",
+  "settingsOrg.auth.methodNotConfigured":
+    "未設定です。ホストにこれらの変数を追加してから再デプロイしてください。",
+  "settingsOrg.auth.methodOn": "オン",
+  "settingsOrg.auth.methodOff": "オフ",
+  "settingsOrg.auth.requireHint":
+    "{{org}}の全員にいずれかを必須にするには、組織のサインインを使用します。",
+  "settingsOrg.auth.view": "表示",
+  "settingsOrg.auth.close": "閉じる",
+  "settingsOrg.apps.access": "アクセス",
+  "settingsOrg.apps.browse": "アプリを見る",
+  "settingsOrg.apps.defaults": "デフォルト",
+  "settingsOrg.search.domainAutoJoin": "メールドメインによる自動参加",
+  "settingsOrg.search.roles": "メンバーのロール",
   "settingsShell.appFallbackName": "アプリ",
   "settingsShell.backToApp": "{{app}} に戻る",
   "settingsShell.breadcrumbLabel": "パンくずリスト",

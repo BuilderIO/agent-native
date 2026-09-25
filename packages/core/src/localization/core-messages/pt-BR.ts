@@ -968,6 +968,46 @@ const messages: AgentChatTranslation = {
   "accountMenu.usage": "Uso",
   "accountMenu.getApps": "Obter apps e extensões",
   "accountMenu.back": "Voltar",
+  "settingsOrg.general.organization": "Organização",
+  "settingsOrg.general.name": "Nome",
+  "settingsOrg.general.nameLocked":
+    "Proprietários e administradores podem alterar o nome.",
+  "settingsOrg.general.membership": "Associação",
+  "settingsOrg.general.yourRole": "Sua função",
+  "settingsOrg.general.deleteDescription":
+    "Exclui permanentemente {{name}}, seus membros e seus dados.",
+  "settingsOrg.members.removeTitle": "Remover {{name}}?",
+  "settingsOrg.members.removeDescription":
+    "A pessoa perde o acesso a {{org}}. O que pertence a ela passa para a pessoa que você escolher.",
+  "settingsOrg.members.roleFor": "Função de {{name}}",
+  "settingsOrg.members.moreActions": "Mais ações para {{name}}",
+  "settingsOrg.members.groupsEmpty":
+    "Agrupe membros para gerenciar o acesso aos apps em conjunto.",
+  "settingsOrg.auth.signIn": "Login",
+  "settingsOrg.auth.joining": "Entrada",
+  "settingsOrg.auth.betweenApps": "Entre apps",
+  "settingsOrg.auth.methodsEmailOnly": "E-mail e senha.",
+  "settingsOrg.auth.methodsEmailAndOne": "E-mail e senha, e {{method}}.",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "E-mail e senha, {{first}} e {{second}}.",
+  "settingsOrg.auth.emailPassword": "E-mail e senha",
+  "settingsOrg.auth.emailPasswordNote": "Ativo em todas as implantações.",
+  "settingsOrg.auth.methodConfigured":
+    "Configurado no seu host com estas variáveis.",
+  "settingsOrg.auth.methodNotConfigured":
+    "Não configurado. Adicione estas variáveis no seu host e implante novamente.",
+  "settingsOrg.auth.methodOn": "Ativado",
+  "settingsOrg.auth.methodOff": "Desativado",
+  "settingsOrg.auth.requireHint":
+    "Para exigir um destes para todos em {{org}}, use Login da organização.",
+  "settingsOrg.auth.view": "Ver",
+  "settingsOrg.auth.close": "Fechar",
+  "settingsOrg.apps.access": "Acesso",
+  "settingsOrg.apps.browse": "Explorar apps",
+  "settingsOrg.apps.defaults": "Padrões",
+  "settingsOrg.search.domainAutoJoin":
+    "Entrada automática por domínio de e-mail",
+  "settingsOrg.search.roles": "Funções dos membros",
   "settingsShell.appFallbackName": "Aplicativo",
   "settingsShell.backToApp": "Voltar para {{app}}",
   "settingsShell.breadcrumbLabel": "Trilha de navegação",

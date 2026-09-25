@@ -941,6 +941,46 @@ const messages: AgentChatTranslation = {
   "accountMenu.usage": "الاستخدام",
   "accountMenu.getApps": "الحصول على التطبيقات والإضافات",
   "accountMenu.back": "رجوع",
+  "settingsOrg.general.organization": "المؤسسة",
+  "settingsOrg.general.name": "الاسم",
+  "settingsOrg.general.nameLocked": "يمكن للمالكين والمسؤولين تغيير الاسم.",
+  "settingsOrg.general.membership": "العضوية",
+  "settingsOrg.general.yourRole": "دورك",
+  "settingsOrg.general.deleteDescription":
+    "يحذف {{name}} وأعضاءها وبياناتها نهائيًا.",
+  "settingsOrg.members.removeTitle": "هل تريد إزالة {{name}}؟",
+  "settingsOrg.members.removeDescription":
+    "سيفقد الوصول إلى {{org}}. ما يملكه ينتقل إلى الشخص الذي تختاره.",
+  "settingsOrg.members.roleFor": "دور {{name}}",
+  "settingsOrg.members.moreActions": "مزيد من الإجراءات لـ {{name}}",
+  "settingsOrg.members.groupsEmpty":
+    "جمّع الأعضاء في مجموعات لإدارة الوصول إلى التطبيقات معًا.",
+  "settingsOrg.auth.signIn": "تسجيل الدخول",
+  "settingsOrg.auth.joining": "الانضمام",
+  "settingsOrg.auth.betweenApps": "بين التطبيقات",
+  "settingsOrg.auth.methodsEmailOnly": "البريد الإلكتروني وكلمة المرور.",
+  "settingsOrg.auth.methodsEmailAndOne":
+    "البريد الإلكتروني وكلمة المرور، و{{method}}.",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "البريد الإلكتروني وكلمة المرور، و{{first}}، و{{second}}.",
+  "settingsOrg.auth.emailPassword": "البريد الإلكتروني وكلمة المرور",
+  "settingsOrg.auth.emailPasswordNote": "مفعّل في كل عملية نشر.",
+  "settingsOrg.auth.methodConfigured":
+    "مُعدّ على الاستضافة باستخدام هذه المتغيرات.",
+  "settingsOrg.auth.methodNotConfigured":
+    "غير مُعدّ. أضف هذه المتغيرات على الاستضافة، ثم أعد النشر.",
+  "settingsOrg.auth.methodOn": "مفعّل",
+  "settingsOrg.auth.methodOff": "غير مفعّل",
+  "settingsOrg.auth.requireHint":
+    "لفرض إحدى هذه الطرق على الجميع في {{org}}، استخدم تسجيل دخول المؤسسة.",
+  "settingsOrg.auth.view": "عرض",
+  "settingsOrg.auth.close": "إغلاق",
+  "settingsOrg.apps.access": "الوصول",
+  "settingsOrg.apps.browse": "تصفح التطبيقات",
+  "settingsOrg.apps.defaults": "الإعدادات الافتراضية",
+  "settingsOrg.search.domainAutoJoin":
+    "الانضمام التلقائي حسب نطاق البريد الإلكتروني",
+  "settingsOrg.search.roles": "أدوار الأعضاء",
   "settingsShell.appFallbackName": "التطبيق",
   "settingsShell.backToApp": "العودة إلى {{app}}",
   "settingsShell.breadcrumbLabel": "مسار التنقل",

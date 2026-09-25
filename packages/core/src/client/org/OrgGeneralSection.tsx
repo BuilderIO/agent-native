@@ -27,6 +27,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, type ReactNode } from "react";
 
+import type { IconValue } from "../../icons/index.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import {
   Tooltip,
@@ -331,6 +332,99 @@ export function DangerZoneCard({ orgName }: { orgName: string }) {
   );
 }
 
+/** The workspace icon: a picker for owners and admins, the icon otherwise. */
+export function OrgIconControl({
+  icon,
+  canEdit,
+  setVisualIdentity,
+}: {
+  icon: IconValue | null;
+  canEdit: boolean;
+  setVisualIdentity: ReturnType<typeof useSetOrgVisualIdentity>;
+}) {
+  const t = useT();
+  const iconPickerLabels = useIconPickerLabels();
+  return canEdit ? (
+    <ResourceIconPicker
+      value={icon}
+      onValueChange={async (next) => {
+        await setVisualIdentity.mutateAsync(next);
+      }}
+      onUpload={async (file) => {
+        const uploaded = await uploadEditorImage(file);
+        return {
+          version: 1,
+          kind: "image",
+          authority: "url",
+          assetId: uploaded.src,
+          alt: uploaded.alt || file.name,
+        };
+      }}
+      resolveImageUrl={(image) =>
+        image.authority === "url" ? image.assetId : undefined
+      }
+      disabled={setVisualIdentity.isPending}
+      labels={{
+        ...iconPickerLabels,
+        trigger: t("org.workspaceIcon", {
+          defaultValue: "Workspace icon",
+        }),
+        iconsTab: t("org.icons", { defaultValue: "Icons" }),
+        emojiTab: t("org.emoji", { defaultValue: "Emoji" }),
+        uploadTab: t("org.upload", { defaultValue: "Upload" }),
+        search: t("org.searchIcons", {
+          defaultValue: "Search icons",
+        }),
+        noResults: t("org.noIconsFound", {
+          defaultValue: "No icons found",
+        }),
+        recents: t("org.recentIcons", {
+          defaultValue: "Recent icons",
+        }),
+        colors: t("org.iconColors", { defaultValue: "Colors" }),
+        defaultColor: t("org.defaultColor", {
+          defaultValue: "Default",
+        }),
+        remove: t("org.removeIcon", {
+          defaultValue: "Remove icon",
+        }),
+        upload: t("org.uploadIcon", {
+          defaultValue: "Upload icon",
+        }),
+        uploading: t("org.uploadingIcon", {
+          defaultValue: "Uploading…",
+        }),
+      }}
+    >
+      <Button
+        type="button"
+        className="flex size-7 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={t("org.workspaceIcon", {
+          defaultValue: "Workspace icon",
+        })}
+      >
+        <ResourceIcon
+          value={icon}
+          size={16}
+          resolveImageUrl={(image) =>
+            image.authority === "url" ? image.assetId : undefined
+          }
+          fallback={<IconUsersGroup className="size-4 text-muted-foreground" />}
+        />
+      </Button>
+    </ResourceIconPicker>
+  ) : (
+    <ResourceIcon
+      value={icon}
+      size={16}
+      resolveImageUrl={(image) =>
+        image.authority === "url" ? image.assetId : undefined
+      }
+      fallback={<IconUsersGroup className="size-4 text-muted-foreground" />}
+    />
+  );
+}
+
 /**
  * The "Organization" settings group: icon, name, member count, your role, and
  * the organization switcher. `children` render inside the group, below the
@@ -338,7 +432,6 @@ export function DangerZoneCard({ orgName }: { orgName: string }) {
  */
 export function OrgProfileGroup({ children }: { children?: ReactNode }) {
   const t = useT();
-  const iconPickerLabels = useIconPickerLabels();
   const { data: org } = useOrg();
   const { data: organizationMembersData } = useOrgMembers(0);
   const switchOrg = useSwitchOrg();
@@ -356,89 +449,11 @@ export function OrgProfileGroup({ children }: { children?: ReactNode }) {
         id="organization"
         label={
           <span className="flex items-center gap-2">
-            {isOwnerOrAdmin ? (
-              <ResourceIconPicker
-                value={org.icon}
-                onValueChange={async (icon) => {
-                  await setVisualIdentity.mutateAsync(icon);
-                }}
-                onUpload={async (file) => {
-                  const uploaded = await uploadEditorImage(file);
-                  return {
-                    version: 1,
-                    kind: "image",
-                    authority: "url",
-                    assetId: uploaded.src,
-                    alt: uploaded.alt || file.name,
-                  };
-                }}
-                resolveImageUrl={(image) =>
-                  image.authority === "url" ? image.assetId : undefined
-                }
-                disabled={setVisualIdentity.isPending}
-                labels={{
-                  ...iconPickerLabels,
-                  trigger: t("org.workspaceIcon", {
-                    defaultValue: "Workspace icon",
-                  }),
-                  iconsTab: t("org.icons", { defaultValue: "Icons" }),
-                  emojiTab: t("org.emoji", { defaultValue: "Emoji" }),
-                  uploadTab: t("org.upload", { defaultValue: "Upload" }),
-                  search: t("org.searchIcons", {
-                    defaultValue: "Search icons",
-                  }),
-                  noResults: t("org.noIconsFound", {
-                    defaultValue: "No icons found",
-                  }),
-                  recents: t("org.recentIcons", {
-                    defaultValue: "Recent icons",
-                  }),
-                  colors: t("org.iconColors", { defaultValue: "Colors" }),
-                  defaultColor: t("org.defaultColor", {
-                    defaultValue: "Default",
-                  }),
-                  remove: t("org.removeIcon", {
-                    defaultValue: "Remove icon",
-                  }),
-                  upload: t("org.uploadIcon", {
-                    defaultValue: "Upload icon",
-                  }),
-                  uploading: t("org.uploadingIcon", {
-                    defaultValue: "Uploading…",
-                  }),
-                }}
-              >
-                <Button
-                  type="button"
-                  className="flex size-7 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={t("org.workspaceIcon", {
-                    defaultValue: "Workspace icon",
-                  })}
-                >
-                  <ResourceIcon
-                    value={org.icon}
-                    size={16}
-                    resolveImageUrl={(image) =>
-                      image.authority === "url" ? image.assetId : undefined
-                    }
-                    fallback={
-                      <IconUsersGroup className="size-4 text-muted-foreground" />
-                    }
-                  />
-                </Button>
-              </ResourceIconPicker>
-            ) : (
-              <ResourceIcon
-                value={org.icon}
-                size={16}
-                resolveImageUrl={(image) =>
-                  image.authority === "url" ? image.assetId : undefined
-                }
-                fallback={
-                  <IconUsersGroup className="size-4 text-muted-foreground" />
-                }
-              />
-            )}
+            <OrgIconControl
+              icon={org.icon}
+              canEdit={isOwnerOrAdmin}
+              setVisualIdentity={setVisualIdentity}
+            />
             <OrgNameDisplay name={org.orgName ?? ""} canEdit={isOwnerOrAdmin} />
           </span>
         }

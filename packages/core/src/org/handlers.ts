@@ -49,6 +49,7 @@ import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-p
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
+import { resolveDeploymentSignInMethods } from "../server/social-sign-in-providers.js";
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { isEmailDerivedName } from "../user-profile/shared.js";
 import { getUserProfiles } from "../user-profile/store.js";
@@ -70,6 +71,7 @@ import {
   syncOrganizationToIdentityHub,
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import { canManageOrgA2ASecret, canManageOrgDomain } from "./permissions.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
 import {
@@ -326,11 +328,15 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     workspaceUrl,
     requiredAuthProvider,
     workspaceAppDefaultVisibility,
+    // Deployment configuration, so only the people who manage sign-in see it.
+    signInMethods: isOwnerOrAdmin
+      ? resolveDeploymentSignInMethods()
+      : undefined,
     // Never serialize the A2A secret here. This route runs on every page load,
     // so the value would sit in JSON any script on the page can read, and it
     // signs the JWTs peers accept as first-party callers. Reveal is an explicit
-    // owner/admin GET on /_agent-native/org/a2a-secret.
-    a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
+    // owner GET on /_agent-native/org/a2a-secret.
+    a2aSecretSet: canManageOrgA2ASecret(ctx.role) ? a2aSecretSet : undefined,
   };
 });
 
@@ -1746,7 +1752,7 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
   if (!ctx.orgId) {
     throw createError({ statusCode: 400, message: "No active organization" });
   }
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgDomain(ctx.role)) {
     throw createError({
       statusCode: 403,
       message: "Only owners and admins can set the allowed domain",
@@ -1899,7 +1905,7 @@ export const setRequiredAuthProviderHandler = defineEventHandler(
 
 /**
  * GET /_agent-native/org/a2a-secret — reveal the org's A2A secret
- * (owner/admin only). Separate from `/org/me` so the secret is only ever sent
+ * (owner only). Separate from `/org/me` so the secret is only ever sent
  * to the browser when an operator explicitly asks to see or copy it.
  */
 export const revealA2ASecretHandler = defineEventHandler(
@@ -1911,10 +1917,10 @@ export const revealA2ASecretHandler = defineEventHandler(
         message: "No active organization",
       });
     }
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
+    if (!canManageOrgA2ASecret(ctx.role)) {
       throw createError({
         statusCode: 403,
-        message: "Only owners and admins can read the A2A secret",
+        message: "Only the organization owner can read the A2A secret",
       });
     }
 
@@ -1930,7 +1936,7 @@ export const revealA2ASecretHandler = defineEventHandler(
   },
 );
 
-/** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner/admin only) */
+/** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner only) */
 export const setA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1940,10 +1946,10 @@ export const setA2ASecretHandler = defineEventHandler(
         message: "No active organization",
       });
     }
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
+    if (!canManageOrgA2ASecret(ctx.role)) {
       throw createError({
         statusCode: 403,
-        message: "Only owners and admins can manage the A2A secret",
+        message: "Only the organization owner can manage the A2A secret",
       });
     }
 
@@ -1979,7 +1985,7 @@ export const setA2ASecretHandler = defineEventHandler(
  * POST /_agent-native/org/a2a-secret/sync — push the org's A2A secret to all
  * connected apps so cross-app delegation works without manual copy/paste.
  *
- * Auth: standard session — owner/admin only.
+ * Auth: standard session — owner only.
  *
  * For each discovered agent, signs a JWT with the org's CURRENT a2a_secret
  * and POSTs to `<app>/_agent-native/org/a2a-secret/receive` with the same
@@ -1993,8 +1999,8 @@ export const setA2ASecretHandler = defineEventHandler(
  * Body (optional): { signSecret?: string } — sign the outbound JWTs with
  * this secret instead of the org's current secret. Used by the regenerate-
  * then-sync flow: regenerate stores the NEW secret, but sync needs to
- * authenticate using the OLD one that peers still hold. Owner/admin only,
- * gated by the session.
+ * authenticate using the OLD one that peers still hold. Owner only, gated by
+ * the session.
  */
 export const syncA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
@@ -2005,10 +2011,10 @@ export const syncA2ASecretHandler = defineEventHandler(
         message: "No active organization",
       });
     }
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
+    if (!canManageOrgA2ASecret(ctx.role)) {
       throw createError({
         statusCode: 403,
-        message: "Only owners and admins can sync the A2A secret",
+        message: "Only the organization owner can sync the A2A secret",
       });
     }
 

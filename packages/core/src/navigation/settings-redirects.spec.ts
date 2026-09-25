@@ -169,8 +169,8 @@ describe("legacy settings redirect table", () => {
       "org",
     );
     expect(resolveLegacySettingsId("auth", "section")).toEqual({
-      page: "infra",
-      anchor: "auth",
+      page: "auth",
+      anchor: "sign-in-methods",
     });
   });
 
@@ -225,7 +225,7 @@ describe("agent-panel:open-settings sections", () => {
     ["hosting", { page: "infra", anchor: "hosting" }],
     ["database", { page: "infra", anchor: "database" }],
     ["uploads", { page: "infra", anchor: "uploads" }],
-    ["auth", { page: "infra", anchor: "auth" }],
+    ["auth", { page: "auth", anchor: "sign-in-methods" }],
     ["email", { page: "channels", anchor: "email" }],
     ["browser", { page: "integrations", sub: "builder" }],
     ["background", { page: "infra", anchor: "background" }],

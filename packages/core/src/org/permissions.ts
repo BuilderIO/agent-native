@@ -29,5 +29,15 @@ export function canInviteOrgMembers(
 }
 
 export function canManageOrgDomain(role: OrgRole | null | undefined): boolean {
+  return orgRoleAtLeast(role, "admin");
+}
+
+/**
+ * The cross-app secret signs the JWTs peer apps accept as first-party callers,
+ * so reading, replacing, or syncing it stays with the owner.
+ */
+export function canManageOrgA2ASecret(
+  role: OrgRole | null | undefined,
+): boolean {
   return role === "owner";
 }

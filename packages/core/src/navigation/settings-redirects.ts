@@ -115,7 +115,7 @@ const SECTION_REDIRECTS: Readonly<Record<string, SettingsRedirect>> = {
   hosting: { page: "infra", anchor: "hosting" },
   database: { page: "infra", anchor: "database" },
   uploads: { page: "infra", anchor: "uploads" },
-  auth: { page: "infra", anchor: "auth" },
+  auth: { page: "auth", anchor: "sign-in-methods" },
   // Spec open question 5: an email channel belongs in Channels.
   email: { page: "channels", anchor: "email" },
   browser: { page: "integrations", sub: "builder" },

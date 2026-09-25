@@ -1,5 +1,5 @@
-import { AgentSettingsContent } from "../../SettingsPanel.js";
+import { OrgAuthenticationPage } from "../../../org/pages/OrgAuthenticationPage.js";
 
 export default function AuthenticationSettingsPage() {
-  return <AgentSettingsContent sections={["auth"]} />;
+  return <OrgAuthenticationPage />;
 }

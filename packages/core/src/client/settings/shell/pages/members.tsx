@@ -1,6 +1,5 @@
-import type { SettingsPageProps } from "../registry.js";
-import { BridgedOrganizationContent } from "./organization-content.js";
+import { OrgMembersPage } from "../../../org/pages/OrgMembersPage.js";
 
-export default function MembersSettingsPage({ bridge }: SettingsPageProps) {
-  return <BridgedOrganizationContent bridge={bridge} />;
+export default function MembersSettingsPage() {
+  return <OrgMembersPage />;
 }

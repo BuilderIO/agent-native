@@ -287,6 +287,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "set-app-permission-roles": "orgAdministration",
   "list-workspace-app-access": "orgAdministration",
   "set-workspace-app-access": "orgAdministration",
+  "list-sign-in-methods": "orgAdministration",
   "explain-access": "orgAdministration",
   "offboard-member": "orgAdministration",
   "get-file-storage": "orgAdministration",

@@ -185,6 +185,26 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: IconUsers,
     component: lazy(() => import("./pages/members.js")),
     keywords: "members invites roles people collaborators groups",
+    searchEntries: [
+      {
+        id: "invite-members",
+        labelKey: "org.inviteMembers",
+        keywords: "invite add people email csv",
+        anchor: "members",
+      },
+      {
+        id: "member-roles",
+        labelKey: "agentChat.settingsOrg.search.roles",
+        keywords: "roles role admin owner member change remove",
+        anchor: "members",
+      },
+      {
+        id: "groups",
+        labelKey: "org.groups",
+        keywords: "groups teams app access",
+        anchor: "groups",
+      },
+    ],
   }),
   defineSettingsPage({
     id: "usage",
@@ -205,6 +225,32 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     visible: canManageOrganizationPages,
     component: lazy(() => import("./pages/auth.js")),
     keywords: "authentication sign-in sso saml oidc scim domain",
+    searchEntries: [
+      {
+        id: "organization-sign-in",
+        labelKey: "org.sso.signIn",
+        keywords: "require enforce google sso provider",
+        anchor: "organization-sign-in",
+      },
+      {
+        id: "sso",
+        labelKey: "org.sso.title",
+        keywords: "sso saml oidc okta identity provider",
+        anchor: "organization-sso",
+      },
+      {
+        id: "scim",
+        labelKey: "org.scim.title",
+        keywords: "scim directory provisioning sync",
+        anchor: "organization-scim",
+      },
+      {
+        id: "email-domain",
+        labelKey: "agentChat.settingsOrg.search.domainAutoJoin",
+        keywords: "domain auto-join email join automatically",
+        anchor: "email-domain",
+      },
+    ],
   }),
   defineSettingsPage({
     id: "apps",
@@ -215,6 +261,14 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     visible: canManageOrganizationPages,
     component: lazy(() => import("./pages/apps.js")),
     keywords: "apps access privacy workspace apps",
+    searchEntries: [
+      {
+        id: "new-app-privacy",
+        labelKey: "org.workspaceAppsDefaultPrivacy",
+        keywords: "privacy creator only default visibility",
+        anchor: "workspace-app-default-visibility",
+      },
+    ],
   }),
   defineSettingsPage({
     id: "infra",

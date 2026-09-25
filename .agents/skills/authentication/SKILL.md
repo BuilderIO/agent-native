@@ -118,7 +118,9 @@ nothing else, so
 cannot silently widen a guard. Org membership is a precondition, resolved in the
 same statement as the assignment, so a leftover assignment for a removed member
 can never authorize. Only org owners/admins may assign app roles; render the
-picker with `<TeamPage appRoles={descriptor} />`.
+picker with `<TeamPage appRoles={descriptor} />`. With the `settings-redesign`
+flag on, register a replacement `members` page that renders
+`<OrgMembersPage appRoles={descriptor} />` instead.
 
 Members may have multiple roles. `resolve` returns `{ status: "assigned", roles }`,
 and `assertAny` accepts any intersection with its requested roles. Declare

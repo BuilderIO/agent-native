@@ -3,6 +3,7 @@
  */
 
 import type { IconValue } from "../icons/index.js";
+import type { OrgSignInMethods } from "./sign-in-methods.js";
 
 export type OrgRole = "owner" | "admin" | "member";
 
@@ -71,9 +72,14 @@ export interface OrgInfo {
   /** Default visibility applied when a new workspace app is first registered. */
   workspaceAppDefaultVisibility?: WorkspaceAppDefaultVisibility;
   /**
-   * Whether the active org has an A2A secret. The value itself is never part
-   * of this payload — owners/admins fetch it on demand from
-   * `GET /_agent-native/org/a2a-secret`.
+   * The deployment's sign-in methods. Owners and admins only; absent for
+   * everyone else, which is not the same as "no methods".
+   */
+  signInMethods?: OrgSignInMethods;
+  /**
+   * Whether the active org has an A2A secret. Owners only; absent for
+   * everyone else. The value itself is never part of this payload — the owner
+   * fetches it on demand from `GET /_agent-native/org/a2a-secret`.
    */
   a2aSecretSet?: boolean;
 }

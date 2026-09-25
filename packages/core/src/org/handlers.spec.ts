@@ -1092,6 +1092,47 @@ describe("org handlers", () => {
   // across requests. Anything that edits a column inside that projection —
   // `role`, `name`, `allowed_domain` — must evict it, or the process keeps
   // authorizing and rendering from the pre-write snapshot until the TTL lapses.
+  describe("setDomainHandler", () => {
+    it("lets an admin turn on auto-join for their own domain", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "admin@example.test",
+        orgId: "org-1",
+        orgName: "Example",
+        role: "admin",
+      });
+
+      await expect(
+        setDomainHandler(
+          makeEvent("/_agent-native/org/domain", { domain: "example.test" }),
+        ),
+      ).resolves.toEqual({ domain: "example.test" });
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sql: expect.stringContaining(
+            "UPDATE organizations SET allowed_domain",
+          ),
+          args: ["example.test", "org-1"],
+        }),
+      );
+    });
+
+    it("rejects a member", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "member@example.test",
+        orgId: "org-1",
+        orgName: "Example",
+        role: "member",
+      });
+
+      await expect(
+        setDomainHandler(
+          makeEvent("/_agent-native/org/domain", { domain: "example.test" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+  });
+
   describe("membership cache invalidation", () => {
     function seedCachedMemberships() {
       const load = vi.fn(async () => [{ orgId: "org-1", role: "admin" }]);

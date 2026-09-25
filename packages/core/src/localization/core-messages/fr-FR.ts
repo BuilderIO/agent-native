@@ -983,6 +983,47 @@ const messages: AgentChatTranslation = {
   "accountMenu.usage": "Utilisation",
   "accountMenu.getApps": "Obtenir des apps et extensions",
   "accountMenu.back": "Retour",
+  "settingsOrg.general.organization": "Organisation",
+  "settingsOrg.general.name": "Nom",
+  "settingsOrg.general.nameLocked":
+    "Les propriétaires et les administrateurs peuvent modifier le nom.",
+  "settingsOrg.general.membership": "Adhésion",
+  "settingsOrg.general.yourRole": "Votre rôle",
+  "settingsOrg.general.deleteDescription":
+    "Supprime définitivement {{name}}, ses membres et ses données.",
+  "settingsOrg.members.removeTitle": "Retirer {{name}} ?",
+  "settingsOrg.members.removeDescription":
+    "Cette personne perd l’accès à {{org}}. Ce qui lui appartient passe à la personne que vous choisissez.",
+  "settingsOrg.members.roleFor": "Rôle de {{name}}",
+  "settingsOrg.members.moreActions": "Autres actions pour {{name}}",
+  "settingsOrg.members.groupsEmpty":
+    "Regroupez les membres pour gérer ensemble l’accès aux applications.",
+  "settingsOrg.auth.signIn": "Connexion",
+  "settingsOrg.auth.joining": "Adhésion automatique",
+  "settingsOrg.auth.betweenApps": "Entre les applications",
+  "settingsOrg.auth.methodsEmailOnly": "E-mail et mot de passe.",
+  "settingsOrg.auth.methodsEmailAndOne":
+    "E-mail et mot de passe, et {{method}}.",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "E-mail et mot de passe, {{first}} et {{second}}.",
+  "settingsOrg.auth.emailPassword": "E-mail et mot de passe",
+  "settingsOrg.auth.emailPasswordNote": "Activé sur chaque déploiement.",
+  "settingsOrg.auth.methodConfigured":
+    "Configuré sur votre hébergeur avec ces variables.",
+  "settingsOrg.auth.methodNotConfigured":
+    "Non configuré. Ajoutez ces variables sur votre hébergeur, puis redéployez.",
+  "settingsOrg.auth.methodOn": "Activé",
+  "settingsOrg.auth.methodOff": "Désactivé",
+  "settingsOrg.auth.requireHint":
+    "Pour imposer l’une de ces méthodes à tous dans {{org}}, utilisez Connexion de l’organisation.",
+  "settingsOrg.auth.view": "Afficher",
+  "settingsOrg.auth.close": "Fermer",
+  "settingsOrg.apps.access": "Accès",
+  "settingsOrg.apps.browse": "Parcourir les applications",
+  "settingsOrg.apps.defaults": "Valeurs par défaut",
+  "settingsOrg.search.domainAutoJoin":
+    "Adhésion automatique par domaine e-mail",
+  "settingsOrg.search.roles": "Rôles des membres",
   "settingsShell.appFallbackName": "Application",
   "settingsShell.backToApp": "Retour à {{app}}",
   "settingsShell.breadcrumbLabel": "Fil d’Ariane",

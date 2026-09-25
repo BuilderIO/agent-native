@@ -974,6 +974,47 @@ const messages: AgentChatTranslation = {
   "accountMenu.usage": "Nutzung",
   "accountMenu.getApps": "Apps und Erweiterungen holen",
   "accountMenu.back": "Zurück",
+  "settingsOrg.general.organization": "Organisation",
+  "settingsOrg.general.name": "Name",
+  "settingsOrg.general.nameLocked":
+    "Inhaber und Admins können den Namen ändern.",
+  "settingsOrg.general.membership": "Mitgliedschaft",
+  "settingsOrg.general.yourRole": "Deine Rolle",
+  "settingsOrg.general.deleteDescription":
+    "Löscht {{name}}, die Mitglieder und alle Daten dauerhaft.",
+  "settingsOrg.members.removeTitle": "{{name}} entfernen?",
+  "settingsOrg.members.removeDescription":
+    "Die Person verliert den Zugriff auf {{org}}. Was ihr gehört, geht an die Person, die du auswählst.",
+  "settingsOrg.members.roleFor": "Rolle für {{name}}",
+  "settingsOrg.members.moreActions": "Weitere Aktionen für {{name}}",
+  "settingsOrg.members.groupsEmpty":
+    "Gruppiere Mitglieder, um den App-Zugriff gemeinsam zu verwalten.",
+  "settingsOrg.auth.signIn": "Anmeldung",
+  "settingsOrg.auth.joining": "Beitreten",
+  "settingsOrg.auth.betweenApps": "Zwischen Apps",
+  "settingsOrg.auth.methodsEmailOnly": "E-Mail und Passwort.",
+  "settingsOrg.auth.methodsEmailAndOne":
+    "E-Mail und Passwort sowie {{method}}.",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "E-Mail und Passwort, {{first}} und {{second}}.",
+  "settingsOrg.auth.emailPassword": "E-Mail und Passwort",
+  "settingsOrg.auth.emailPasswordNote": "In jeder Bereitstellung aktiv.",
+  "settingsOrg.auth.methodConfigured":
+    "Auf deinem Host mit diesen Variablen eingerichtet.",
+  "settingsOrg.auth.methodNotConfigured":
+    "Nicht eingerichtet. Füge diese Variablen auf deinem Host hinzu und stelle dann neu bereit.",
+  "settingsOrg.auth.methodOn": "An",
+  "settingsOrg.auth.methodOff": "Aus",
+  "settingsOrg.auth.requireHint":
+    "Um eine dieser Methoden für alle in {{org}} vorzuschreiben, nutze die Organisationsanmeldung.",
+  "settingsOrg.auth.view": "Anzeigen",
+  "settingsOrg.auth.close": "Schließen",
+  "settingsOrg.apps.access": "Zugriff",
+  "settingsOrg.apps.browse": "Apps durchsuchen",
+  "settingsOrg.apps.defaults": "Standards",
+  "settingsOrg.search.domainAutoJoin":
+    "Automatischer Beitritt per E-Mail-Domain",
+  "settingsOrg.search.roles": "Mitgliederrollen",
   "settingsShell.appFallbackName": "App",
   "settingsShell.backToApp": "Zurück zu {{app}}",
   "settingsShell.breadcrumbLabel": "Brotkrümelnavigation",

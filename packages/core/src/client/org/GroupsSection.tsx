@@ -231,10 +231,13 @@ export function WorkspaceGroupsCard({
   groups,
   onNewGroup,
   onEditGroup,
+  emptyMessage,
 }: {
   groups: WorkspaceUserGroup[];
   onNewGroup: () => void;
   onEditGroup: (group: WorkspaceUserGroup) => void;
+  /** Replaces "No groups yet" when there are no groups. */
+  emptyMessage?: string;
 }) {
   const t = useT();
   const [deleteError, setDeleteError] = useState<unknown>(null);
@@ -382,7 +385,8 @@ export function WorkspaceGroupsCard({
           ))
         ) : (
           <p className="px-2 py-3 text-sm text-muted-foreground">
-            {t("org.noGroups", { defaultValue: "No groups yet" })}
+            {emptyMessage ??
+              t("org.noGroups", { defaultValue: "No groups yet" })}
           </p>
         )}
       </div>
@@ -452,8 +456,11 @@ export function useWorkspaceGroupEditor(): WorkspaceGroupEditorController {
 /** Workspace user groups. Owners and admins only; renders nothing otherwise. */
 export function GroupsSection({
   groupEditor,
+  emptyMessage,
 }: {
   groupEditor?: WorkspaceGroupEditorController;
+  /** Replaces "No groups yet" when there are no groups. */
+  emptyMessage?: string;
 }) {
   const { data: org } = useOrg();
   const isOwnerOrAdmin = org?.role === "owner" || org?.role === "admin";
@@ -469,6 +476,7 @@ export function GroupsSection({
         groups={groupsQuery.data ?? []}
         onNewGroup={() => editor.openGroupEditor(null)}
         onEditGroup={(group) => editor.openGroupEditor(group)}
+        emptyMessage={emptyMessage}
       />
       <WorkspaceGroupEditor {...editor.dialogProps} />
     </SectionTooltipProvider>

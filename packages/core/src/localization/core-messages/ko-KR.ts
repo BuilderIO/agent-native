@@ -912,6 +912,45 @@ const messages: AgentChatTranslation = {
   "accountMenu.usage": "사용량",
   "accountMenu.getApps": "앱 및 확장 프로그램 받기",
   "accountMenu.back": "뒤로",
+  "settingsOrg.general.organization": "조직",
+  "settingsOrg.general.name": "이름",
+  "settingsOrg.general.nameLocked":
+    "소유자와 관리자가 이름을 변경할 수 있습니다.",
+  "settingsOrg.general.membership": "멤버십",
+  "settingsOrg.general.yourRole": "내 역할",
+  "settingsOrg.general.deleteDescription":
+    "{{name}}, 멤버, 데이터를 영구적으로 삭제합니다.",
+  "settingsOrg.members.removeTitle": "{{name}}님을 제거할까요?",
+  "settingsOrg.members.removeDescription":
+    "{{org}}에 대한 액세스 권한을 잃습니다. 소유한 항목은 선택한 사람에게 이전됩니다.",
+  "settingsOrg.members.roleFor": "{{name}}님의 역할",
+  "settingsOrg.members.moreActions": "{{name}}님에 대한 추가 작업",
+  "settingsOrg.members.groupsEmpty":
+    "멤버를 그룹으로 묶어 앱 액세스를 함께 관리하세요.",
+  "settingsOrg.auth.signIn": "로그인",
+  "settingsOrg.auth.joining": "참여",
+  "settingsOrg.auth.betweenApps": "앱 간",
+  "settingsOrg.auth.methodsEmailOnly": "이메일 및 비밀번호.",
+  "settingsOrg.auth.methodsEmailAndOne":
+    "이메일 및 비밀번호, 그리고 {{method}}.",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "이메일 및 비밀번호, {{first}}, {{second}}.",
+  "settingsOrg.auth.emailPassword": "이메일 및 비밀번호",
+  "settingsOrg.auth.emailPasswordNote": "모든 배포에서 켜져 있습니다.",
+  "settingsOrg.auth.methodConfigured": "호스트에서 이 변수로 설정되었습니다.",
+  "settingsOrg.auth.methodNotConfigured":
+    "설정되지 않았습니다. 호스트에 이 변수를 추가한 다음 다시 배포하세요.",
+  "settingsOrg.auth.methodOn": "켜짐",
+  "settingsOrg.auth.methodOff": "꺼짐",
+  "settingsOrg.auth.requireHint":
+    "{{org}}의 모든 사람에게 이 중 하나를 요구하려면 조직 로그인을 사용하세요.",
+  "settingsOrg.auth.view": "보기",
+  "settingsOrg.auth.close": "닫기",
+  "settingsOrg.apps.access": "액세스",
+  "settingsOrg.apps.browse": "앱 둘러보기",
+  "settingsOrg.apps.defaults": "기본값",
+  "settingsOrg.search.domainAutoJoin": "이메일 도메인 자동 참여",
+  "settingsOrg.search.roles": "멤버 역할",
   "settingsShell.appFallbackName": "앱",
   "settingsShell.backToApp": "{{app}}(으)로 돌아가기",
   "settingsShell.breadcrumbLabel": "탐색 경로",

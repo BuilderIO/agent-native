@@ -975,6 +975,45 @@ const messages: AgentChatTranslation = {
   "accountMenu.usage": "Uso",
   "accountMenu.getApps": "Obtener apps y extensiones",
   "accountMenu.back": "Atrás",
+  "settingsOrg.general.organization": "Organización",
+  "settingsOrg.general.name": "Nombre",
+  "settingsOrg.general.nameLocked":
+    "Los propietarios y administradores pueden cambiar el nombre.",
+  "settingsOrg.general.membership": "Membresía",
+  "settingsOrg.general.yourRole": "Tu rol",
+  "settingsOrg.general.deleteDescription":
+    "Elimina de forma permanente {{name}}, sus miembros y sus datos.",
+  "settingsOrg.members.removeTitle": "¿Quitar a {{name}}?",
+  "settingsOrg.members.removeDescription":
+    "Pierde el acceso a {{org}}. Lo que le pertenece pasa a la persona que elijas.",
+  "settingsOrg.members.roleFor": "Rol de {{name}}",
+  "settingsOrg.members.moreActions": "Más acciones para {{name}}",
+  "settingsOrg.members.groupsEmpty":
+    "Agrupa a los miembros para gestionar juntos el acceso a las apps.",
+  "settingsOrg.auth.signIn": "Inicio de sesión",
+  "settingsOrg.auth.joining": "Unirse",
+  "settingsOrg.auth.betweenApps": "Entre apps",
+  "settingsOrg.auth.methodsEmailOnly": "Correo y contraseña.",
+  "settingsOrg.auth.methodsEmailAndOne": "Correo y contraseña, y {{method}}.",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "Correo y contraseña, {{first}} y {{second}}.",
+  "settingsOrg.auth.emailPassword": "Correo y contraseña",
+  "settingsOrg.auth.emailPasswordNote": "Activo en todas las implementaciones.",
+  "settingsOrg.auth.methodConfigured":
+    "Configurado en tu host con estas variables.",
+  "settingsOrg.auth.methodNotConfigured":
+    "Sin configurar. Añade estas variables en tu host y vuelve a implementar.",
+  "settingsOrg.auth.methodOn": "Activado",
+  "settingsOrg.auth.methodOff": "Desactivado",
+  "settingsOrg.auth.requireHint":
+    "Para exigir uno de estos a todos en {{org}}, usa Inicio de sesión de la organización.",
+  "settingsOrg.auth.view": "Ver",
+  "settingsOrg.auth.close": "Cerrar",
+  "settingsOrg.apps.access": "Acceso",
+  "settingsOrg.apps.browse": "Explorar apps",
+  "settingsOrg.apps.defaults": "Valores predeterminados",
+  "settingsOrg.search.domainAutoJoin": "Unión automática por dominio de correo",
+  "settingsOrg.search.roles": "Roles de los miembros",
   "settingsShell.appFallbackName": "Aplicación",
   "settingsShell.backToApp": "Volver a {{app}}",
   "settingsShell.breadcrumbLabel": "Ruta de navegación",

@@ -542,7 +542,7 @@ export function MembersTableCard({
   );
 }
 
-function MemberPagination({
+export function MemberPagination({
   memberOffset,
   totalMembers,
   hasNextPage,
