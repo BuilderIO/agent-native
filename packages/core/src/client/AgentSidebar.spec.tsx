@@ -59,10 +59,15 @@ vi.mock("./onboarding/use-preview-mode.js", () => ({
   useOnboardingPreviewMode: () => false,
 }));
 vi.mock("./use-action.js", () => ({
-  useActionQuery: () => ({
-    data: hostedHarnessMock.enabled
-      ? { enabled: true, runtimes: ["codex"] }
-      : undefined,
+  useActionQuery: (
+    _action: string,
+    _input: undefined,
+    options?: { enabled?: boolean },
+  ) => ({
+    data:
+      options?.enabled && hostedHarnessMock.enabled
+        ? { enabled: true, runtimes: ["codex"] }
+        : undefined,
   }),
 }));
 vi.mock("./use-db-sync.js", () => ({
@@ -152,6 +157,11 @@ describe("AgentSidebar lazy panel boundary", () => {
         ?.querySelector(".agent-sidebar-shell")
         ?.getAttribute("data-agent-sidebar-position"),
     ).toBe("right");
+    expect(
+      container
+        ?.querySelector(".agent-sidebar-shell")
+        ?.getAttribute("data-agent-native-hosted-harness-ui"),
+    ).toBe("desktop");
     expect(
       container
         ?.querySelector(".agent-sidebar-panel")
