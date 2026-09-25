@@ -67,19 +67,75 @@ minimum useful addition is `target: () => ({ type, id })`.
 - **Opt a noisy write out** with `audit: { enabled: false }`.
 - **Skip capturing arguments** (large/sensitive payloads) with
   `audit: { recordInputs: false }`. Inputs are credential-redacted regardless.
+- **Refusals** — a thrown error with `statusCode` 401 or 403 records as
+  `status: "denied"`, so a refused attempt shows up as an attempt.
+- **App** — every event records the app that wrote it (`app.id`, else
+  `app.name`, the same key usage uses).
+
+## Who reads an event
+
+`visibility` decides who reads an event besides its owner (`ownerEmail`, which
+defaults to the actor):
+
+| Visibility | Readers | Recorded for |
+|---|---|---|
+| `private` (default) | The owner only, admins included | Personal content and personal connections |
+| `org` | Every member of `orgId` | Changes to resources shared with the org; integration-triggered runs |
+| `admins` | Owners and admins of `orgId` | Organization settings and admin actions |
+
+The `admins` events today: default model (`agent-default-model`), app member
+roles, app permission roles, workspace app access, org member role changes
+(`org-member-role`), file storage (`file-storage`), and org-scoped Builder.io
+connect and disconnect (`builder-connection`). A member's personal Builder.io
+connection is `private`.
+
+## Record an organization settings or admin change
+
+Use the helpers in `@agent-native/core/audit` instead of hand-setting
+`visibility`, so every org setting lands in the organization trail the same way:
+
+```ts
+import { orgAdminAudit, recordOrgAdminAuditEvent } from "@agent-native/core/audit";
+
+defineAction({
+  // ...
+  audit: orgAdminAudit({
+    targetType: "org-thing",
+    targetId: (args) => args.id,
+    summary: (args) => `Set the thing to ${args.value}`,
+  }),
+});
+
+// From a Nitro route (OAuth callback, upload) that is not an action:
+await recordOrgAdminAuditEvent({
+  action: "builder-connect",
+  targetType: "builder-connection",
+  summary: "Connected Builder.io for the organization",
+  userEmail,
+  orgId,
+});
+```
+
+Pass `personal: true` to `recordOrgAdminAuditEvent` when the change affects
+only the actor. New settings actions (restrict personal keys, service
+providers) use `orgAdminAudit`.
 
 ## Reading the log
 
-Two actions are available to the agent and the frontend in every app, scoped in
-SQL to the caller — they never leak another tenant's rows:
+These actions are available to the agent and the frontend in every app, scoped
+in SQL to the caller — they never leak another tenant's rows:
 
 - `list-audit-events` — filter by `targetType`/`targetId`, `actorKind`
   (`agent` | `human` | `system`), `status`, `threadId`/`turnId`, `action`,
-  `sinceMs`, `limit`.
-- `get-audit-event` — one event by id, with its redacted input payload.
-- `export-audit-events` — bulk CSV/NDJSON export (same filters minus `limit`,
-  plus `format` and `maxRows`) for offline/compliance pulls; itself audited
-  via `onRead`.
+  `app`, `sinceMs` (inclusive), `beforeMs` (exclusive), with `limit` and
+  `offset` paging; returns `hasMore` and `nextOffset`. `scope: "organization"`
+  reads only the org's shared trail (`org` and `admins` events) and is refused
+  with a 403 for anyone but owners and admins. This is the Settings audit log.
+- `get-audit-event` — one event by id, with its redacted input payload. Owners
+  and admins can open `admins` events.
+- `export-audit-events` — bulk CSV/NDJSON export (same filters minus `limit`
+  and `offset`, plus `format` and `maxRows`) for offline/compliance pulls;
+  itself audited via `onRead`.
 
 Call them from the UI with `useActionQuery` to build an activity feed or a
 "who changed this" line — never hand-write a fetch to the audit table.

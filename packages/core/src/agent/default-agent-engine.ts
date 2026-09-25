@@ -8,6 +8,7 @@
  */
 
 import type { ActionCaller } from "../action.js";
+import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -261,32 +262,22 @@ async function recordDefaultAgentEngineAudit(input: {
       : operation === "set"
         ? `Default model set to ${selection?.model} (${selection?.engine})`
         : "Default model cleared";
-  const { recordActionAudit } = await import("../audit/record.js");
-  await recordActionAudit({
-    config: {
-      enabled: true,
-      target: () => ({
-        type: DEFAULT_AGENT_ENGINE_AUDIT_TARGET_TYPE,
-        id: orgId ?? userEmail ?? DEFAULT_AGENT_ENGINE_SETTING_KEY,
-        orgId,
-        visibility: orgId ? "org" : "private",
-      }),
-      summary: () => summary,
-    },
+  await recordOrgAdminAuditEvent({
+    action: meta.actionName,
+    targetType: DEFAULT_AGENT_ENGINE_AUDIT_TARGET_TYPE,
+    targetId: orgId ?? userEmail ?? DEFAULT_AGENT_ENGINE_SETTING_KEY,
+    summary,
+    userEmail,
+    orgId,
+    status,
+    caller: meta.caller,
     args: {
       operation,
       ...(selection ?? {}),
       ...(input.reason ? { reason: input.reason } : {}),
     },
-    ctx: {
-      actionName: meta.actionName,
-      caller: meta.caller,
-      userEmail: userEmail ?? undefined,
-      orgId,
-      threadId: meta.threadId,
-      turnId: meta.turnId,
-      runId: meta.runId,
-    },
-    status,
+    threadId: meta.threadId,
+    turnId: meta.turnId,
+    runId: meta.runId,
   });
 }

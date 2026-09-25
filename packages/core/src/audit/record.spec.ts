@@ -266,3 +266,57 @@ describe("recordActionAudit attribution", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe("recordActionAudit refusals and app", () => {
+  afterEach(() => {
+    delete process.env.AGENT_NATIVE_APP_ID;
+  });
+
+  it("records a thrown 403 as a denied attempt with its error code", async () => {
+    const refusal = Object.assign(new Error("Owners and admins only."), {
+      statusCode: 403,
+      code: "not_admin",
+    });
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "set-thing",
+        caller: "frontend",
+        userEmail: "m@x.com",
+      },
+      status: "error",
+      error: refusal,
+    });
+    expect(lastEvent()).toMatchObject({
+      status: "denied",
+      errorCode: "not_admin",
+    });
+  });
+
+  it("keeps other thrown errors as errors", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "set-thing",
+        caller: "frontend",
+        userEmail: "m@x.com",
+      },
+      status: "error",
+      error: Object.assign(new Error("boom"), { statusCode: 500 }),
+    });
+    expect(lastEvent().status).toBe("error");
+  });
+
+  it("stamps the app that recorded the event", async () => {
+    process.env.AGENT_NATIVE_APP_ID = "mail";
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: { actionName: "set-thing", caller: "tool", userEmail: "m@x.com" },
+      status: "success",
+    });
+    expect(lastEvent().app).toBe("mail");
+  });
+});

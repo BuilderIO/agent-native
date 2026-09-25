@@ -249,7 +249,7 @@ describe("default model scope", () => {
     ).toBe("none");
   });
 
-  it("records changes and refused attempts as org-visible audit events", async () => {
+  it("records changes and refused attempts as admin-visible audit events", async () => {
     const ctx = { userEmail: "member-a@example.test", orgId: ORG_A };
     const refused = await resolveDefaultAgentEngineAuthority(ctx);
     if (refused.allowed) throw new Error("expected a refusal");
@@ -272,7 +272,7 @@ describe("default model scope", () => {
         target_type: "agent-default-model",
         target_id: ORG_A,
         status: "denied",
-        visibility: "org",
+        visibility: "admins",
       },
       {
         action: "manage-agent-engine",
@@ -282,7 +282,7 @@ describe("default model scope", () => {
         target_type: "agent-default-model",
         target_id: ORG_A,
         status: "success",
-        visibility: "org",
+        visibility: "admins",
       },
     ]);
   });

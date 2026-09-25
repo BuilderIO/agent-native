@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { orgAdminAudit } from "../../audit/org-admin.js";
 import { clearFileStorage, saveFileStorage } from "../storage-settings.js";
 
 const text = (description: string) =>
@@ -31,18 +32,15 @@ export default defineAction({
   // Pointing every upload in the organization at another bucket is not
   // something a sandboxed extension should be able to do.
   toolCallable: false,
-  audit: {
+  audit: orgAdminAudit({
+    targetType: "file-storage",
+    targetId: () => "workspace",
     recordInputs: false,
-    target: () => ({
-      type: "file-storage",
-      id: "workspace",
-      visibility: "org",
-    }),
     summary: (args) =>
       args.operation === "clear"
         ? "Cleared file storage credentials"
         : "Saved file storage settings",
-  },
+  }),
   run: async ({ operation, ...values }, ctx) =>
     operation === "clear"
       ? clearFileStorage(ctx)

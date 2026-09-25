@@ -31,6 +31,7 @@ const {
   ensureAuditTables,
   insertAuditEvent,
   queryAuditEvents,
+  queryAuditEventPage,
   getAuditEventById,
   deleteOldAuditEvents,
   __resetAuditInitForTests,
@@ -215,6 +216,178 @@ describe("audit store filters + ordering", () => {
     );
     expect(recent).toHaveLength(1);
     expect(recent[0].createdAt).toBe(500);
+  });
+});
+
+describe("organization admin trail", () => {
+  async function seedOrgTrail() {
+    await insertAuditEvent(
+      makeEvent({
+        id: "admin-change",
+        ownerEmail: "admin@x.com",
+        orgId: "org-1",
+        visibility: "admins",
+      }),
+    );
+    await insertAuditEvent(
+      makeEvent({
+        id: "member-refused",
+        ownerEmail: "member@x.com",
+        orgId: "org-1",
+        visibility: "admins",
+        status: "denied",
+      }),
+    );
+    await insertAuditEvent(
+      makeEvent({
+        id: "shared",
+        ownerEmail: "member@x.com",
+        orgId: "org-1",
+        visibility: "org",
+      }),
+    );
+    await insertAuditEvent(
+      makeEvent({ id: "personal", ownerEmail: "member@x.com", orgId: "org-1" }),
+    );
+    await insertAuditEvent(
+      makeEvent({
+        id: "other-org",
+        ownerEmail: "someone@y.com",
+        orgId: "org-2",
+        visibility: "admins",
+      }),
+    );
+  }
+
+  it("shows admins-visible rows to owners and admins, never private ones", async () => {
+    await seedOrgTrail();
+    const admin = await queryAuditEvents({
+      userEmail: "admin@x.com",
+      orgId: "org-1",
+      orgAdmin: true,
+    });
+    expect(admin.map((r) => r.id).sort()).toEqual([
+      "admin-change",
+      "member-refused",
+      "shared",
+    ]);
+  });
+
+  it("shows a member their own admins-visible rows and nobody else's", async () => {
+    await seedOrgTrail();
+    const member = await queryAuditEvents({
+      userEmail: "member@x.com",
+      orgId: "org-1",
+    });
+    expect(member.map((r) => r.id).sort()).toEqual([
+      "member-refused",
+      "personal",
+      "shared",
+    ]);
+    expect(
+      await getAuditEventById("admin-change", {
+        userEmail: "member@x.com",
+        orgId: "org-1",
+      }),
+    ).toBeNull();
+    expect(
+      (
+        await getAuditEventById("member-refused", {
+          userEmail: "admin@x.com",
+          orgId: "org-1",
+          orgAdmin: true,
+        })
+      )?.id,
+    ).toBe("member-refused");
+  });
+
+  it("reads only the org's shared trail with trail 'organization'", async () => {
+    await seedOrgTrail();
+    await insertAuditEvent(
+      makeEvent({ id: "admin-personal", ownerEmail: "admin@x.com" }),
+    );
+    const trail = await queryAuditEvents({
+      userEmail: "admin@x.com",
+      orgId: "org-1",
+      orgAdmin: true,
+      trail: "organization",
+    });
+    expect(trail.map((r) => r.id).sort()).toEqual([
+      "admin-change",
+      "member-refused",
+      "shared",
+    ]);
+    expect(
+      await queryAuditEvents({
+        userEmail: "admin@x.com",
+        orgId: null,
+        orgAdmin: true,
+        trail: "organization",
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("app, date range, and paging", () => {
+  it("stores the app and filters by it", async () => {
+    await insertAuditEvent({ ...makeEvent({ id: "m" }), app: "mail" });
+    await insertAuditEvent({ ...makeEvent({ id: "c" }), app: "clips" });
+    await insertAuditEvent(makeEvent({ id: "legacy" }));
+
+    const mail = await queryAuditEvents(
+      { userEmail: "alice@x.com" },
+      { app: "mail" },
+    );
+    expect(mail.map((r) => [r.id, r.app])).toEqual([["m", "mail"]]);
+    const all = await queryAuditEvents({ userEmail: "alice@x.com" });
+    expect(all.find((r) => r.id === "legacy")?.app).toBeNull();
+  });
+
+  it("bounds the range with sinceMs (inclusive) and beforeMs (exclusive)", async () => {
+    for (const createdAt of [100, 200, 300, 400]) {
+      await insertAuditEvent(makeEvent({ createdAt }));
+    }
+    const window = await queryAuditEvents(
+      { userEmail: "alice@x.com" },
+      { sinceMs: 200, beforeMs: 400 },
+    );
+    expect(window.map((r) => r.createdAt)).toEqual([300, 200]);
+  });
+
+  it("pages with offset and reports whether more rows exist", async () => {
+    for (const createdAt of [100, 200, 300, 400, 500]) {
+      await insertAuditEvent(makeEvent({ createdAt }));
+    }
+    const first = await queryAuditEventPage(
+      { userEmail: "alice@x.com" },
+      { limit: 2 },
+    );
+    expect(first.events.map((r) => r.createdAt)).toEqual([500, 400]);
+    expect(first).toMatchObject({ hasMore: true, nextOffset: 2 });
+
+    const last = await queryAuditEventPage(
+      { userEmail: "alice@x.com" },
+      { limit: 2, offset: 4 },
+    );
+    expect(last.events.map((r) => r.createdAt)).toEqual([100]);
+    expect(last).toMatchObject({ hasMore: false, nextOffset: null });
+  });
+
+  it("keeps offset pages stable when rows share a timestamp", async () => {
+    for (const id of ["a", "b", "c", "d"]) {
+      await insertAuditEvent(makeEvent({ id, createdAt: 100 }));
+    }
+    const seen: string[] = [];
+    let offset: number | null = 0;
+    while (offset !== null) {
+      const page = await queryAuditEventPage(
+        { userEmail: "alice@x.com" },
+        { limit: 3, offset },
+      );
+      seen.push(...page.events.map((r) => r.id));
+      offset = page.nextOffset;
+    }
+    expect(seen).toEqual(["d", "c", "b", "a"]);
   });
 });
 

@@ -109,6 +109,11 @@ vi.mock("../settings/user-settings.js", () => ({
 vi.mock("../user-profile/store.js", () => ({
   getUserProfiles: (...args: any[]) => mockGetUserProfiles(...args),
 }));
+const mockRecordOrgAdminAuditEvent = vi.hoisted(() => vi.fn());
+vi.mock("../audit/org-admin.js", () => ({
+  recordOrgAdminAuditEvent: (...args: any[]) =>
+    mockRecordOrgAdminAuditEvent(...args),
+}));
 vi.mock("./track-invite-accepted.js", () => ({
   trackInviteAccepted: (...args: any[]) => mockTrackInviteAccepted(...args),
   registerBackgroundWork: (event: any, promise: Promise<unknown>) => {
@@ -1137,6 +1142,31 @@ describe("org handlers", () => {
           memberRole: "admin",
         },
       );
+    });
+
+    it("records the role change in the organization audit log", async () => {
+      mockExecute.mockResolvedValue({ rows: [{ role: "member" }] });
+      mockUpdateFederatedOrganizationMemberRole.mockResolvedValue(true);
+
+      await changeMemberRoleHandler(
+        makeEvent("/_agent-native/org/members/member@example.test/role", {
+          role: "admin",
+        }),
+      );
+
+      expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledWith({
+        action: "change-member-role",
+        targetType: "org-member-role",
+        targetId: "member@example.test",
+        summary: "Changed member@example.test from member to admin",
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        args: {
+          email: "member@example.test",
+          previousRole: "member",
+          role: "admin",
+        },
+      });
     });
 
     it("evicts the cached org name when the org is renamed", async () => {

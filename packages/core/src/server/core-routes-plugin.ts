@@ -55,6 +55,7 @@ import {
   APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
+import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import {
@@ -754,6 +755,7 @@ export interface BuilderScopedDisconnectDeps {
     email: string,
     options?: { orgId?: string | null; role?: string | null },
   ) => Promise<unknown>;
+  recordAudit: typeof recordBuilderConnectionAudit;
 }
 
 const defaultScopedDisconnectDeps: BuilderScopedDisconnectDeps = {
@@ -765,6 +767,7 @@ const defaultScopedDisconnectDeps: BuilderScopedDisconnectDeps = {
       await import("./credential-provider.js");
     return deleteBuilderCredentials(email, options);
   },
+  recordAudit: recordBuilderConnectionAudit,
 };
 
 /**
@@ -772,7 +775,8 @@ const defaultScopedDisconnectDeps: BuilderScopedDisconnectDeps = {
  * owner/admin and removes the org grant plus any org-scoped legacy keys, which
  * would otherwise take over once the grant is gone. A personal disconnect
  * removes only the caller's own grant and keys, so members fall back to the
- * org's connection.
+ * org's connection. A successful disconnect is recorded in the audit log at
+ * the connection's scope.
  */
 export async function disconnectBuilderConnectionAtScope(
   input: {
@@ -820,6 +824,12 @@ export async function disconnectBuilderConnectionAtScope(
     ? await deps.deleteGrant(email, oauthScope, orgId)
     : null;
   await deps.deleteLegacy(email, scope === "org" ? { orgId, role } : undefined);
+  await deps.recordAudit({
+    connected: false,
+    ownerEmail: email,
+    orgId,
+    scope: oauthScope,
+  });
   return {
     status: 200,
     body: {
@@ -1548,6 +1558,43 @@ async function trackBuilderLifecycle(
     },
     { userId: userEmail },
   );
+}
+
+/**
+ * Scope of the connection a role-decided disconnect removed: the stored OAuth
+ * grant's scope, else the legacy keys' scope. Only org-scoped legacy keys are
+ * deleted with options.
+ */
+export function builderDisconnectAuditScope(
+  oauthScope: "user" | "org" | null,
+  legacyDeleteOptions: object | undefined,
+): "user" | "org" {
+  return oauthScope ?? (legacyDeleteOptions ? "org" : "user");
+}
+
+export function recordBuilderConnectionAudit(input: {
+  connected: boolean;
+  ownerEmail: string;
+  orgId: string | null | undefined;
+  scope: "user" | "org";
+}): Promise<void> {
+  const org = input.scope === "org";
+  return recordOrgAdminAuditEvent({
+    action: input.connected ? "builder-connect" : "builder-disconnect",
+    targetType: "builder-connection",
+    targetId: org ? input.orgId : input.ownerEmail,
+    summary: input.connected
+      ? org
+        ? "Connected Builder.io for the organization"
+        : "Connected a personal Builder.io account"
+      : org
+        ? "Disconnected the organization's Builder.io"
+        : "Disconnected a personal Builder.io account",
+    userEmail: input.ownerEmail,
+    orgId: input.orgId,
+    personal: !org,
+    args: { scope: input.scope },
+  });
 }
 
 function isAgentNativeAnonymousOwner(email: string | undefined): boolean {
@@ -4070,6 +4117,12 @@ export function createCoreRoutesPlugin(
                   account_provisioned: true,
                 },
               );
+              await recordBuilderConnectionAudit({
+                connected: true,
+                ownerEmail,
+                orgId: null,
+                scope: "user",
+              });
               const parentOrigin = getBuilderBrowserOriginForEvent(event);
               setResponseHeader(event, "Cache-Control", "no-store");
               setResponseHeader(
@@ -4458,13 +4511,23 @@ export function createCoreRoutesPlugin(
               writeCredentials: async (ownerEmail, credentials, scope) => {
                 const { writeBuilderCredentials } =
                   await import("./credential-provider.js");
-                await writeBuilderCredentials(ownerEmail, credentials, scope);
+                const written = await writeBuilderCredentials(
+                  ownerEmail,
+                  credentials,
+                  scope,
+                );
                 await Promise.all([
                   deleteSetting("builder-disconnected").catch(() => false),
                   deleteSetting(getBuilderConnectErrorKey(ownerEmail)).catch(
                     () => false,
                   ),
                 ]);
+                await recordBuilderConnectionAudit({
+                  connected: true,
+                  ownerEmail,
+                  orgId: scope.orgId,
+                  scope: written.scope,
+                });
               },
             },
           ).catch(() => ({
@@ -4933,6 +4996,12 @@ export function createCoreRoutesPlugin(
               credential_scope: credentialScope,
             },
           );
+          await recordBuilderConnectionAudit({
+            connected: true,
+            ownerEmail,
+            orgId: typeof pending.orgId === "string" ? pending.orgId : null,
+            scope: credentialScope,
+          });
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackPage(
             `${parentOrigin}${getAppBasePath() || "/"}`,
@@ -5081,6 +5150,15 @@ export function createCoreRoutesPlugin(
               session.email,
               oauthScope ? undefined : legacyDeleteOptions,
             );
+            await recordBuilderConnectionAudit({
+              connected: false,
+              ownerEmail: session.email,
+              orgId,
+              scope: builderDisconnectAuditScope(
+                oauthScope,
+                legacyDeleteOptions,
+              ),
+            });
             await trackBuilderLifecycle(
               event,
               "builder disconnect succeeded",

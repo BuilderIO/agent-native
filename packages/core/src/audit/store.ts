@@ -76,7 +76,9 @@ export async function ensureAuditTables(): Promise<void> {
         // PG-guard: probe information_schema / pg_indexes before issuing DDL to
         // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
         await ensureTableExists("agent_audit_log", AGENT_AUDIT_LOG_CREATE_SQL);
-        for (const column of lineageColumns) {
+        // `app` is added here rather than in the base CREATE, which org
+        // migration 1032 replays verbatim.
+        for (const column of [...lineageColumns, "app"]) {
           await ensureColumnExists(
             "agent_audit_log",
             column,
@@ -90,6 +92,10 @@ export async function ensureAuditTables(): Promise<void> {
         await ensureIndexExists(
           "idx_audit_org",
           `CREATE INDEX IF NOT EXISTS idx_audit_org ON agent_audit_log (org_id, created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_audit_org_app",
+          `CREATE INDEX IF NOT EXISTS idx_audit_org_app ON agent_audit_log (org_id, app, created_at)`,
         );
         await ensureIndexExists(
           "idx_audit_target",
@@ -127,8 +133,8 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
        thread_id, turn_id, target_type, target_id, status, summary, input,
        error_code, owner_email, visibility, run_id, task_id, parent_task_id,
        source_kind, source_platform, source_id, source_url, network_protocol,
-       network_id, network_peer)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       network_id, network_peer, app)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       event.id,
       event.createdAt,
@@ -157,6 +163,7 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
       event.networkProtocol ?? null,
       event.networkId ?? null,
       event.networkPeer ?? null,
+      event.app ?? null,
     ],
   });
 }
@@ -190,23 +197,51 @@ function mapRow(row: any): AuditEvent {
     networkProtocol: row.network_protocol ?? null,
     networkId: row.network_id ?? null,
     networkPeer: row.network_peer ?? null,
+    app: row.app ?? null,
   };
 }
+
+/**
+ * `accessible` (the default) is every row the caller may read: their own plus
+ * the rows shared with their org. `organization` is only the org's shared
+ * trail (`org` and, for owners and admins, `admins` rows), without the
+ * caller's private rows.
+ */
+export type AuditTrail = "accessible" | "organization";
 
 export interface AuditReadScope {
   userEmail?: string;
   orgId?: string | null;
+  /**
+   * The caller is an owner or admin of `orgId`, so `admins` rows are readable.
+   * Set it from `resolveAuditReadScope`, never from a client claim.
+   */
+  orgAdmin?: boolean;
+  trail?: AuditTrail;
+}
+
+function sharedVisibilities(scope: AuditReadScope): string {
+  return scope.orgAdmin ? "('org', 'admins')" : "('org')";
 }
 
 /**
  * Build the access-scoping WHERE fragment + args. A caller sees audit rows they
- * own, plus org-visible rows in their org. With no identity, nothing matches —
- * the audit log never leaks cross-tenant. Mirrors the core ownership clause of
- * `accessFilter` (minus shares, which audit rows don't have).
+ * own, plus rows shared with their org: `org` rows for every member, `admins`
+ * rows for owners and admins. `private` rows stay with their owner, admins
+ * included. With no identity, nothing matches — the audit log never leaks
+ * cross-tenant. Mirrors the core ownership clause of `accessFilter` (minus
+ * shares, which audit rows don't have).
  */
 function scopeClause(scope: AuditReadScope): { sql: string; args: any[] } {
   const clauses: string[] = [];
   const args: any[] = [];
+  if (scope.trail === "organization") {
+    if (!scope.orgId) return { sql: "1=0", args };
+    return {
+      sql: `(visibility IN ${sharedVisibilities(scope)} AND org_id = ?)`,
+      args: [scope.orgId],
+    };
+  }
   if (scope.userEmail) {
     if (scope.orgId) {
       // Constrain the owner's rows to the active org — plus legacy/solo rows
@@ -221,7 +256,7 @@ function scopeClause(scope: AuditReadScope): { sql: string; args: any[] } {
     }
   }
   if (scope.orgId) {
-    clauses.push("(visibility = 'org' AND org_id = ?)");
+    clauses.push(`(visibility IN ${sharedVisibilities(scope)} AND org_id = ?)`);
     args.push(scope.orgId);
   }
   if (clauses.length === 0) return { sql: "1=0", args };
@@ -239,11 +274,49 @@ const DEFAULT_LIMIT = 100;
 const LIST_COLUMNS =
   "id, created_at, action, caller, actor_kind, actor_email, org_id, " +
   "thread_id, turn_id, target_type, target_id, status, summary, " +
-  "error_code, owner_email, visibility";
+  "error_code, owner_email, visibility, app";
+
+function clampLimit(limit: number | undefined): number {
+  return Math.min(Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT)), MAX_LIMIT);
+}
 
 export async function queryAuditEvents(
   scope: AuditReadScope,
   filters: AuditQueryFilters = {},
+): Promise<AuditEvent[]> {
+  return selectAuditRows(scope, filters, clampLimit(filters.limit));
+}
+
+export interface AuditEventPage {
+  events: AuditEvent[];
+  /** More rows match past this page. */
+  hasMore: boolean;
+  /** `offset` for the next page, or null when this page is the last. */
+  nextOffset: number | null;
+}
+
+/** One page of {@link queryAuditEvents}, plus whether another page exists. */
+export async function queryAuditEventPage(
+  scope: AuditReadScope,
+  filters: AuditQueryFilters = {},
+): Promise<AuditEventPage> {
+  const limit = clampLimit(filters.limit);
+  const offset = Math.max(0, Math.floor(filters.offset ?? 0));
+  // One extra row answers "is there more" without a COUNT over the org trail.
+  const rows = await selectAuditRows(scope, { ...filters, offset }, limit + 1);
+  const hasMore = rows.length > limit;
+  const events = hasMore ? rows.slice(0, limit) : rows;
+  return {
+    events,
+    hasMore,
+    nextOffset: hasMore ? offset + events.length : null,
+  };
+}
+
+async function selectAuditRows(
+  scope: AuditReadScope,
+  filters: AuditQueryFilters,
+  limit: number,
 ): Promise<AuditEvent[]> {
   await ensureAuditTables();
   if (!scope.userEmail && !scope.orgId) return [];
@@ -269,22 +342,23 @@ export async function queryAuditEvents(
   if (filters.runId) push("run_id = ?", filters.runId);
   if (filters.sourcePlatform)
     push("source_platform = ?", filters.sourcePlatform);
+  if (filters.app) push("app = ?", filters.app);
   if (typeof filters.sinceMs === "number") {
     push("created_at >= ?", Math.floor(filters.sinceMs));
   }
+  if (typeof filters.beforeMs === "number") {
+    push("created_at < ?", Math.floor(filters.beforeMs));
+  }
 
-  const limit = Math.min(
-    Math.max(1, Math.floor(filters.limit ?? DEFAULT_LIMIT)),
-    MAX_LIMIT,
-  );
   // 0-based, default-compatible: existing callers that never pass `offset`
   // keep selecting from the top of the ordered result set.
   const offset = Math.max(0, Math.floor(filters.offset ?? 0));
 
+  // `id` breaks created_at ties so offset pages neither repeat nor skip rows.
   const result = await client.execute({
     sql: `SELECT ${LIST_COLUMNS} FROM agent_audit_log
           WHERE ${where.join(" AND ")}
-          ORDER BY created_at DESC
+          ORDER BY created_at DESC, id DESC
           LIMIT ? OFFSET ?`,
     args: [...args, limit, offset],
   });

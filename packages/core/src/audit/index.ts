@@ -29,10 +29,22 @@ export {
   ensureAuditTables,
   insertAuditEvent,
   queryAuditEvents,
+  queryAuditEventPage,
   getAuditEventById,
   deleteOldAuditEvents,
+  type AuditEventPage,
   type AuditReadScope,
+  type AuditTrail,
 } from "./store.js";
+
+export { AuditAccessError, resolveAuditReadScope } from "./read-scope.js";
+
+export {
+  orgAdminAudit,
+  orgAdminAuditTarget,
+  recordOrgAdminAuditEvent,
+  type OrgAdminAuditEventInput,
+} from "./org-admin.js";
 
 export { recordActionAudit } from "./record.js";
 

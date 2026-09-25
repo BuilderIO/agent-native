@@ -38,6 +38,7 @@ const nanoid = (): string =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
+import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
@@ -1352,6 +1353,15 @@ export const changeMemberRoleHandler = defineEventHandler(
       args: [role, ctx.orgId, memberEmailLower],
     });
     invalidateMemberOrgCaches();
+    await recordOrgAdminAuditEvent({
+      action: "change-member-role",
+      targetType: "org-member-role",
+      targetId: memberEmailLower,
+      summary: `Changed ${memberEmailLower} from ${currentRole} to ${role}`,
+      userEmail: ctx.email,
+      orgId: ctx.orgId,
+      args: { email: memberEmailLower, previousRole: currentRole, role },
+    });
 
     return { email: memberEmailLower, role };
   },

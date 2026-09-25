@@ -230,6 +230,7 @@ describe("disconnectBuilderConnectionAtScope", () => {
       })),
       getKeyConnections: vi.fn(async () => ({})),
       deleteLegacy: vi.fn(async () => undefined),
+      recordAudit: vi.fn(async () => undefined),
       ...overrides,
     };
   }
@@ -264,6 +265,12 @@ describe("disconnectBuilderConnectionAtScope", () => {
       "member@example.com",
       undefined,
     );
+    expect(d.recordAudit).toHaveBeenCalledWith({
+      connected: false,
+      ownerEmail: "member@example.com",
+      orgId: "org-123",
+      scope: "user",
+    });
   });
 
   it("requires owner/admin for the organization connection", async () => {
@@ -281,6 +288,7 @@ describe("disconnectBuilderConnectionAtScope", () => {
     ).resolves.toMatchObject({ status: 403 });
     expect(d.deleteGrant).not.toHaveBeenCalled();
     expect(d.deleteLegacy).not.toHaveBeenCalled();
+    expect(d.recordAudit).not.toHaveBeenCalled();
   });
 
   it("removes the org grant and org-scoped legacy keys for an admin", async () => {
@@ -302,6 +310,12 @@ describe("disconnectBuilderConnectionAtScope", () => {
     expect(d.deleteLegacy).toHaveBeenCalledWith("admin@example.com", {
       orgId: "org-123",
       role: "admin",
+    });
+    expect(d.recordAudit).toHaveBeenCalledWith({
+      connected: false,
+      ownerEmail: "admin@example.com",
+      orgId: "org-123",
+      scope: "org",
     });
   });
 
@@ -374,6 +388,7 @@ describe("disconnectBuilderConnectionAtScope", () => {
       body: { error: "No personal Builder.io connection was found." },
     });
     expect(d.deleteLegacy).not.toHaveBeenCalled();
+    expect(d.recordAudit).not.toHaveBeenCalled();
   });
 
   it("surfaces an unreadable credential store instead of calling it disconnected", async () => {
