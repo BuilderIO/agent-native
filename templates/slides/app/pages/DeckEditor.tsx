@@ -395,6 +395,9 @@ export default function DeckEditor() {
     useAgentGenerating();
   const isNewDeckGenerationRoute = searchParams.get("generating") === "1";
   const generationSubmitId = searchParams.get("generationSubmitId");
+  const retryEmptyGenerationInFlightRef = useRef(false);
+  const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
+    useState(false);
   const {
     generating: newDeckGenerationGenerating,
     questionContinuationPending,
@@ -700,6 +703,10 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  // Mirror Google Slides: viewers see the editor shell with edit affordances
+  // disabled. Only assume edit access while the role is still loading when
+  // `createdByMe` already confirms ownership.
+  const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
   const generationContext =
     deck?.generationContext &&
     typeof deck.generationContext === "object" &&
@@ -728,7 +735,7 @@ export default function DeckEditor() {
       runError: attemptRunError,
       stopReason: attemptStopReason,
       timedOut: attemptTimedOut,
-      submit: submitGenerationAttempt,
+      submitAndConfirm: submitGenerationAttemptAndConfirm,
     },
     generating: newDeckGenerationSignal,
   } = useNewDeckGenerationSignal({
@@ -929,60 +936,113 @@ export default function DeckEditor() {
   ]);
 
   const retryEmptyGeneration = useCallback(async () => {
-    if (!id || !generationContext || !generationLifecycleOwnedByEditor) return;
+    if (
+      !id ||
+      !generationContext ||
+      !generationLifecycleOwnedByEditor ||
+      !canEdit ||
+      retryEmptyGenerationInFlightRef.current
+    ) {
+      return;
+    }
+    retryEmptyGenerationInFlightRef.current = true;
+    setRetryEmptyGenerationPending(true);
+    const originalSearchParams = new URLSearchParams(searchParams);
     const retryAttemptId = nanoid();
     const submitMessageId = nanoid();
     const retryContext = {
       ...generationContext,
       generationAttemptId: retryAttemptId,
-      generationFailureCode: null,
     };
-    updateDeck(id, { generationContext: retryContext });
-    try {
-      await flushDeckSave(id);
-    } catch {
+    const restoreFailedRetry = () => {
       updateDeck(id, { generationContext });
-      toast.error(t("editorSidebar.newSlideSaveFailed"));
-      return;
+      setSearchParams(new URLSearchParams(originalSearchParams));
+      generationRunStartedRef.current = false;
+      generationSawActiveRef.current = false;
+      generationTerminalAttemptRef.current = null;
+      generationSettlingAttemptRef.current = null;
+      generationStartedAtRef.current = null;
+    };
+
+    try {
+      try {
+        updateDeck(id, { generationContext: retryContext });
+        await flushDeckSave(id);
+      } catch {
+        updateDeck(id, { generationContext });
+        toast.error(t("editorSidebar.newSlideSaveFailed"));
+        return;
+      }
+      generationRunStartedRef.current = true;
+      generationSawActiveRef.current = false;
+      generationTerminalAttemptRef.current = null;
+      generationSettlingAttemptRef.current = null;
+      generationStartedAtRef.current = null;
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.set("generating", "1");
+        next.set("generation_attempt_id", retryAttemptId);
+        next.set("generationSubmitId", submitMessageId);
+        return next;
+      });
+      const prompt =
+        typeof generationContext.originalPrompt === "string"
+          ? generationContext.originalPrompt
+          : "Continue generating this deck.";
+      let submission: Awaited<
+        ReturnType<typeof submitGenerationAttemptAndConfirm>
+      >;
+      try {
+        submission = await submitGenerationAttemptAndConfirm(
+          prompt,
+          `Continue the original deck generation for deck ${id}. Call get-deck first and recover the canonical generationContext, including its original brief, target slide count, and reference handles. Continue the original sequence; do not start a new topic. The browser owns this attempt; use generationAttemptId "${retryAttemptId}" for tool calls that accept it.`,
+          {
+            generationAttemptId: retryAttemptId,
+            generationOutputId: id,
+            submitMessageId,
+            reuseEmptyTab: true,
+            openSidebar: true,
+          },
+        );
+      } catch {
+        restoreFailedRetry();
+        return;
+      }
+      if (!submission.delivered) {
+        restoreFailedRetry();
+        return;
+      }
+      trackEvent("generation_started", {
+        app_name: "slides",
+        template_name: "slides",
+        generation_attempt_id: retryAttemptId,
+        output_id: id,
+        output_type: "deck",
+        source: "empty_output_retry",
+      });
+      updateDeck(id, {
+        generationContext: {
+          ...retryContext,
+          generationFailureCode: null,
+        },
+      });
+      try {
+        await flushDeckSave(id);
+      } catch {
+        toast.error(t("editorSidebar.newSlideSaveFailed"));
+      }
+    } finally {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
     }
-    generationRunStartedRef.current = true;
-    generationSawActiveRef.current = false;
-    generationTerminalAttemptRef.current = null;
-    generationSettlingAttemptRef.current = null;
-    generationStartedAtRef.current = null;
-    setSearchParams({
-      generating: "1",
-      generation_attempt_id: retryAttemptId,
-    });
-    const prompt =
-      typeof generationContext.originalPrompt === "string"
-        ? generationContext.originalPrompt
-        : "Continue generating this deck.";
-    trackEvent("generation_started", {
-      app_name: "slides",
-      template_name: "slides",
-      generation_attempt_id: retryAttemptId,
-      output_id: id,
-      output_type: "deck",
-      source: "empty_output_retry",
-    });
-    submitGenerationAttempt(
-      prompt,
-      `Continue the original deck generation for deck ${id}. Call get-deck first and recover the canonical generationContext, including its original brief, target slide count, and reference handles. Continue the original sequence; do not start a new topic. The browser owns this attempt; use generationAttemptId "${retryAttemptId}" for tool calls that accept it.`,
-      {
-        generationAttemptId: retryAttemptId,
-        generationOutputId: id,
-        submitMessageId,
-        reuseEmptyTab: true,
-        openSidebar: true,
-      },
-    );
   }, [
+    canEdit,
     generationContext,
     generationLifecycleOwnedByEditor,
     id,
+    searchParams,
     setSearchParams,
-    submitGenerationAttempt,
+    submitGenerationAttemptAndConfirm,
     updateDeck,
     flushDeckSave,
     t,
@@ -1067,12 +1127,6 @@ export default function DeckEditor() {
       });
     };
   }, [generationAttemptId, generationLifecycleOwnedByEditor, id, slideCount]);
-  // Mirror Google Slides: viewers see the editor shell with edit affordances
-  // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
-  // get the full editor. Only assume edit access while the role is still
-  // loading when `createdByMe` already confirms ownership — otherwise a
-  // viewer would briefly see (and could click) edit affordances.
-  const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
   const fallbackCommentSlideId = deck?.slides[0]?.id ?? null;
   const openCommentComposer = useCallback(
     (
@@ -3350,7 +3404,10 @@ export default function DeckEditor() {
                 role="alert"
               >
                 <p>{t("deckEditor.deckHasNoSlides")}</p>
-                <Button onClick={() => void retryEmptyGeneration()}>
+                <Button
+                  disabled={!canEdit || retryEmptyGenerationPending}
+                  onClick={() => void retryEmptyGeneration()}
+                >
                   {t("deckEditor.tryAgain")}
                 </Button>
               </div>

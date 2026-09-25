@@ -204,3 +204,24 @@ describe("new-deck generation signal wiring", () => {
     expect(cleanupBody).not.toContain("generating,");
   });
 });
+
+describe("empty-deck generation retry", () => {
+  it("serializes retries, confirms delivery, and correlates the route submit", () => {
+    const retryStart = deckEditorSource.indexOf(
+      "const retryEmptyGeneration = useCallback(",
+    );
+    const retryEnd = deckEditorSource.indexOf("\n  useEffect(", retryStart);
+    const retryBody = deckEditorSource.slice(retryStart, retryEnd);
+
+    expect(retryBody).toContain("retryEmptyGenerationInFlightRef.current");
+    expect(retryBody).toContain("submitGenerationAttemptAndConfirm(");
+    expect(retryBody).toContain("if (!submission.delivered)");
+    expect(retryBody).toContain("restoreFailedRetry();");
+    expect(retryBody).toContain(
+      'next.set("generationSubmitId", submitMessageId)',
+    );
+    expect(deckEditorSource).toContain(
+      "disabled={!canEdit || retryEmptyGenerationPending}",
+    );
+  });
+});
