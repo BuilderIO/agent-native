@@ -521,6 +521,8 @@ describe("pull-request governance", () => {
       "packages/core/src/workspace-connections/actions/upsert-workspace-user-group.ts",
       "packages/core/src/db/schema.ts",
       "templates/factory/server/db/schema.ts",
+      "templates/analytics/server/db/schema-monitoring.ts",
+      "templates/analytics/server/db/schema-errors.ts",
       "packages/core/src/scripts/db/schema.ts",
       "packages/core/src/scripts/db/wipe-leaked-builder-keys.ts",
       "packages/core/src/server/csrf.ts",

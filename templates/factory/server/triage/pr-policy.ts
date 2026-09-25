@@ -493,7 +493,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
         "templates/calendar/app/lib/sanitize-description.",
       ) ||
       normalized.endsWith("/migrate-production.ts") ||
-      /(^|\/)db\/schema\.tsx?$/.test(normalized) ||
+      /(^|\/)db\/schema(?:-[^/]+)?\.tsx?$/.test(normalized) ||
       /(^|\/)actions\/(?:delete|remove|purge|erase|destroy|drop|reset)-[^/]+\.(?:ts|tsx)$/.test(
         normalized,
       ) ||
