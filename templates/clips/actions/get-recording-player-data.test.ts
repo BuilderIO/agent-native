@@ -322,6 +322,28 @@ describe("get-recording-player-data view count", () => {
     expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
   });
 
+  it("returns upload identity only to recording editors", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "processing",
+        chaptersJson: "[]",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.uploadAttemptId).toBe("attempt-1");
+    expect(result.recording.uploadGenerationId).toBe("generation-1");
+  });
+
   it("holds the filmstrip back while redactions are pending", async () => {
     // The sprite is a grid of frames cut from the stored file, so it shows the
     // very thing a pending box is covering — and it is fetched from storage
@@ -336,6 +358,8 @@ describe("get-recording-player-data view count", () => {
         password: null,
         expiresAt: null,
         videoUrl: "https://cdn.example.com/video.mp4",
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
         filmstripUrl: "https://cdn.example.com/strip.jpg",
         editsJson: JSON.stringify({
           trims: [],
@@ -364,6 +388,8 @@ describe("get-recording-player-data view count", () => {
     const result = await action.run({ recordingId: "rec-1" });
 
     expect(result.recording.filmstripUrl).toBeNull();
+    expect(result.recording.uploadAttemptId).toBeUndefined();
+    expect(result.recording.uploadGenerationId).toBeUndefined();
   });
 
   it("reports zero views without failing the player payload", async () => {

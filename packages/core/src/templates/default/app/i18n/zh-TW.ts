@@ -650,6 +650,7 @@ const messages = {
     reviewFeedback: "回饋",
     reviewOutput: "審核回答",
     reviewPreview: "預覽回答",
+    reviewPreviewUnavailable: "無法預覽",
     closePreview: "隱藏預覽",
     addFeedback: "新增回饋",
     draftInstruction: "草擬指示",

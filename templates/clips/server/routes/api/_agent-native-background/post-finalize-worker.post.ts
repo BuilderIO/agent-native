@@ -43,6 +43,8 @@ const bodySchema = z.object({
   token: z.string().min(1),
   delayMs: z.number().int().min(0).max(30_000).optional(),
   retryAttempt: z.number().int().min(1).max(10).optional(),
+  uploadAttemptId: z.string().min(1).max(128).nullable().optional(),
+  uploadGenerationId: z.string().min(1).max(128).nullable().optional(),
   regenerate: z.boolean().optional(),
 });
 
@@ -76,8 +78,16 @@ export default defineEventHandler(async (event: H3Event) => {
     return { ok: false, error: "Invalid post-finalize job" };
   }
 
-  const { recordingId, kind, token, delayMs, retryAttempt, regenerate } =
-    parsed.data;
+  const {
+    recordingId,
+    kind,
+    token,
+    delayMs,
+    retryAttempt,
+    uploadAttemptId,
+    uploadGenerationId,
+    regenerate,
+  } = parsed.data;
   console.log("[post-finalize-worker] received job", { recordingId, kind });
   const verified = verifyScopedAgentAccessToken(token, {
     resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,
@@ -99,6 +109,7 @@ export default defineEventHandler(async (event: H3Event) => {
       ownerEmail: schema.recordings.ownerEmail,
       orgId: schema.recordings.orgId,
       status: schema.recordings.status,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
       uploadGenerationId: schema.recordings.uploadGenerationId,
     })
     .from(schema.recordings)
@@ -107,6 +118,33 @@ export default defineEventHandler(async (event: H3Event) => {
   if (!recording) {
     setResponseStatus(event, 404);
     return { ok: false, error: "Recording not found" };
+  }
+  if (
+    kind === "media-ready" &&
+    (uploadAttemptId === undefined || uploadGenerationId === undefined)
+  ) {
+    return {
+      ok: true,
+      recordingId,
+      kind,
+      skipped: true,
+      reason: "upload-identity-missing",
+    };
+  }
+  const expectedAttemptId = uploadAttemptId ?? null;
+  const expectedGenerationId = uploadGenerationId ?? null;
+  if (
+    kind === "media-ready" &&
+    ((recording.uploadAttemptId ?? null) !== expectedAttemptId ||
+      (recording.uploadGenerationId ?? null) !== expectedGenerationId)
+  ) {
+    return {
+      ok: true,
+      recordingId,
+      kind,
+      skipped: true,
+      reason: "upload-identity-changed",
+    };
   }
   const requiredStatus =
     kind === "media-ready" || kind === "loom-import" ? "processing" : "ready";
@@ -132,6 +170,12 @@ export default defineEventHandler(async (event: H3Event) => {
           recordingId,
           kind,
           retryAttempt,
+          ...(kind === "media-ready"
+            ? {
+                uploadAttemptId: expectedAttemptId,
+                uploadGenerationId: expectedGenerationId,
+              }
+            : {}),
           regenerate,
           requireAccepted: kind === "media-ready" || kind === "thumbnail",
         });
@@ -222,9 +266,8 @@ export default defineEventHandler(async (event: H3Event) => {
         const result = await finalizeRecording.run({
           id: recordingId,
           mediaVerificationRetryAttempt: retryAttempt ?? 1,
-          ...(recording.uploadGenerationId
-            ? { uploadGenerationId: recording.uploadGenerationId }
-            : {}),
+          uploadAttemptId: expectedAttemptId,
+          uploadGenerationId: expectedGenerationId,
         });
         return { ok: true, kind, result };
       }

@@ -28,6 +28,7 @@ const source = {
   found: true,
   runId: "run-a",
   threadTitle: "A thread",
+  attachedArtifacts: [],
   threadEvidenceAvailable: true,
   messages: [],
   toolEvidence: [

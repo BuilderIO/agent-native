@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyUploadResponseError,
   chunkUploadParallelism,
   chunkUploadQuery,
   chunkUploadUrl,
@@ -8,6 +9,66 @@ import {
 } from "./recording-core";
 
 describe("recording upload URL helpers", () => {
+  it("classifies HTML upload errors without retaining their body", () => {
+    expect(
+      classifyUploadResponseError({
+        contentType: "text/html; charset=utf-8",
+        body: "<html>private proxy error</html>",
+        status: 502,
+        stage: "chunk_upload",
+      }),
+    ).toEqual({
+      isHtml: true,
+      responseText: null,
+      status: 502,
+      failureCode: "chunk_html_error",
+      failureStage: "chunk_upload",
+    });
+
+    expect(
+      classifyUploadResponseError({
+        contentType: "application/octet-stream",
+        body: " \n<!DOCTYPE html><html>private proxy error</html>",
+        status: 503,
+        stage: "reset_chunks",
+      }).failureCode,
+    ).toBe("chunk_html_error");
+  });
+
+  it("redacts HTML embedded after a proxy error prefix", () => {
+    expect(
+      classifyUploadResponseError({
+        contentType: "text/plain",
+        body: "upstream returned: <!DOCTYPE html><html>private proxy content</html>",
+        status: 502,
+        stage: "chunk_upload",
+      }),
+    ).toEqual({
+      isHtml: true,
+      responseText: null,
+      status: 502,
+      failureCode: "chunk_html_error",
+      failureStage: "chunk_upload",
+    });
+  });
+
+  it("preserves plain-text upload errors and their response metadata", () => {
+    expect(
+      classifyUploadResponseError({
+        contentType: "text/plain",
+        body: "storage quota exceeded",
+        status: 413,
+        stage: "chunk_upload",
+      }),
+    ).toEqual({
+      isHtml: false,
+      responseText: "storage quota exceeded",
+      status: 413,
+      failureCode: "upload_failed",
+      failureStage: "chunk_upload",
+    });
+  });
+
   it("serializes resumable chunks while keeping buffered upload parallelism", () => {
     expect(chunkUploadParallelism("streaming", 4)).toBe(1);
     expect(chunkUploadParallelism("buffered", 4)).toBe(4);

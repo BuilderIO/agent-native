@@ -48,6 +48,7 @@ import {
 import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -60,6 +61,7 @@ import {
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
+import { S3MultipartStartError } from "../../../../lib/s3-upload-provider.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
 import {
   renewUploadLease,
@@ -173,12 +175,19 @@ export async function handleResetRecordingChunks(
     return { error: "Missing recordingId" };
   }
 
-  const { ownerEmail, orgId } = override?.ownerEmail
-    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
-    : await getEventOwnerContext(event).then(({ userEmail, orgId }) => ({
-        ownerEmail: userEmail,
-        orgId,
-      }));
+  const { ownerEmail, orgId, authUserId } = override?.ownerEmail
+    ? {
+        ownerEmail: override.ownerEmail,
+        orgId: override.orgId,
+        authUserId: undefined,
+      }
+    : await getEventOwnerContext(event).then(
+        ({ userEmail, orgId, authUserId }) => ({
+          ownerEmail: userEmail,
+          orgId,
+          authUserId,
+        }),
+      );
   const body = (await readBody(event).catch(() => null)) as {
     compression?: CompressionMeta | null;
     requestStreaming?: boolean;
@@ -214,7 +223,8 @@ export async function handleResetRecordingChunks(
       }
     : null;
 
-  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 
     const [existing] = await db
@@ -224,6 +234,7 @@ export async function handleResetRecordingChunks(
         videoUrl: schema.recordings.videoUrl,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        recordingPlatform: schema.recordings.recordingPlatform,
       })
       .from(schema.recordings)
       .where(
@@ -333,6 +344,7 @@ export async function handleResetRecordingChunks(
       .set({
         status: "uploading",
         failureReason: null,
+        failureCode: null,
         uploadProgress: 0,
         uploadGenerationId: nextGenerationId,
         ...(!recoveryEnabled && existingAttemptId === null
@@ -505,6 +517,61 @@ export async function handleResetRecordingChunks(
           uploadMode = "streaming";
         } catch (err) {
           if (!bufferedFallbackAvailable) {
+            if (err instanceof S3MultipartStartError) {
+              const failureReason = `Multipart upload could not start (${err.status}).`;
+              const failed = await db
+                .update(schema.recordings)
+                .set({
+                  status: "failed",
+                  failureCode: "multipart_start_failed",
+                  failureReason,
+                  updatedAt: new Date().toISOString(),
+                })
+                .where(
+                  and(
+                    eq(schema.recordings.id, recordingId),
+                    ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                    eq(schema.recordings.status, "uploading"),
+                    nextGenerationId === null
+                      ? isNull(schema.recordings.uploadGenerationId)
+                      : eq(
+                          schema.recordings.uploadGenerationId,
+                          nextGenerationId,
+                        ),
+                    existingAttemptId === null
+                      ? isNull(schema.recordings.uploadAttemptId)
+                      : eq(
+                          schema.recordings.uploadAttemptId,
+                          existingAttemptId,
+                        ),
+                  ),
+                )
+                .returning({ id: schema.recordings.id });
+              if (failed.length === 1) {
+                trackRecordingFailure({
+                  recordingId,
+                  userId: ownerEmail,
+                  uploadAttemptId: existingAttemptId,
+                  platform: existing.recordingPlatform,
+                  failureCode: "multipart_start_failed",
+                  failureStage: "multipart_start",
+                  httpStatus: err.status,
+                });
+              } else {
+                setResponseStatus(event, 409);
+                return {
+                  error: "A newer upload retry is already active.",
+                  staleAttempt: true,
+                };
+              }
+              setResponseStatus(event, 502);
+              return {
+                error: failureReason,
+                failureCode: "multipart_start_failed",
+                failureStage: "multipart_start",
+                httpStatus: err.status,
+              };
+            }
             setResponseStatus(event, 502);
             return {
               error: `Could not restart recording upload: ${

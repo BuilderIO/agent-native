@@ -14,6 +14,7 @@ import {
   screenCaptureDisplayOptions,
 } from "@shared/recording-capture";
 import {
+  classifyUploadResponseError,
   chunkUploadUrl,
   pickMimeType,
   pickMimeTypeCandidates,
@@ -1737,21 +1738,59 @@ export class RecorderEngine {
         { transport: true },
       );
     }
-    if (!resetRes.ok) {
-      const text = await resetRes.text().catch(() => "");
-      throw Object.assign(
-        new Error(
-          `Couldn't prepare the recording for re-upload (reset-chunks ${
-            resetRes.status
-          }). ${text || resetRes.statusText}`,
-        ),
-        { status: resetRes.status },
-      );
+    const resetText = await resetRes.text();
+    const resetError = classifyUploadResponseError({
+      contentType: resetRes.headers.get("content-type"),
+      body: resetText,
+      status: resetRes.status,
+      stage: "reset_chunks",
+    });
+    if (!resetRes.ok || resetError.isHtml) {
+      let responseDetails: Record<string, unknown> = {};
+      if (!resetError.isHtml) {
+        try {
+          responseDetails = JSON.parse(resetError.responseText ?? "") as Record<
+            string,
+            unknown
+          >;
+        } catch {
+          // coercion-ok: preserve the HTTP failure when optional error details are malformed.
+          // Reset errors remain HTTP failures when the body is not JSON.
+        }
+      }
+      const failureCode =
+        responseDetails.failureCode === "multipart_start_failed"
+          ? "multipart_start_failed"
+          : resetError.failureCode;
+      const failureStage =
+        responseDetails.failureStage === "multipart_start"
+          ? "multipart_start"
+          : resetError.failureStage;
+      const message = resetError.isHtml
+        ? `Reset-chunks returned an HTML error response (${resetRes.status}).`
+        : typeof responseDetails.error === "string"
+          ? responseDetails.error
+          : `Couldn't prepare the recording for re-upload (reset-chunks ${resetRes.status}). ${resetError.responseText || resetRes.statusText}`;
+      throw Object.assign(new Error(message), {
+        status: resetError.status,
+        failureCode,
+        failureStage,
+      });
     }
-    const reset = (await resetRes.json().catch(() => null)) as {
+    let reset: {
       uploadMode?: unknown;
       uploadGenerationId?: unknown;
-    } | null;
+    } | null = null;
+    try {
+      reset = JSON.parse(resetText) as {
+        uploadMode?: unknown;
+        uploadGenerationId?: unknown;
+      };
+    } catch {
+      throw new Error(
+        "Couldn't prepare the recording for re-upload (reset-chunks returned no upload mode).",
+      );
+    }
     if (reset?.uploadMode !== "streaming" && reset?.uploadMode !== "buffered") {
       throw new Error(
         "Couldn't prepare the recording for re-upload (reset-chunks returned no upload mode).",
@@ -1905,7 +1944,7 @@ export class RecorderEngine {
   }
 
   /** Cancel: release tracks immediately, then abort server-side, reset state. */
-  async cancel(): Promise<void> {
+  async cancel(failureCode = "unknown"): Promise<void> {
     this.streamingRecoveryGeneration += 1;
     this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;
@@ -1968,6 +2007,15 @@ export class RecorderEngine {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            reason:
+              failureCode === "user_cancelled"
+                ? "Recording cancelled by user"
+                : failureCode === "unknown"
+                  ? "Recording interruption has unknown cause"
+                  : failureCode === "storage_setup_required"
+                    ? "Video storage is not connected yet"
+                    : "Recording upload failed",
+            failureCode,
             ...(uploadAttemptId ? { attemptId: uploadAttemptId } : {}),
             ...(uploadGenerationId ? { uploadGenerationId } : {}),
           }),
@@ -2649,21 +2697,40 @@ export class RecorderEngine {
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      const responseError = classifyUploadResponseError({
+        contentType: res.headers.get("content-type"),
+        body: text,
+        status: res.status,
+        stage: "chunk_upload",
+      });
+      const failureCode = responseError.failureCode;
       let restartRequired = false;
-      try {
-        restartRequired =
-          (JSON.parse(text) as { restartRequired?: unknown })
-            .restartRequired === true;
-      } catch {
-        // coercion-ok: malformed optional error details cannot replace the HTTP upload failure.
-        // The response body only enriches the upload error; its absence is not
-        // a successful or retryable session-reset signal.
+      if (!responseError.isHtml) {
+        try {
+          restartRequired =
+            (
+              JSON.parse(responseError.responseText ?? "") as {
+                restartRequired?: unknown;
+              }
+            ).restartRequired === true;
+        } catch {
+          // coercion-ok: malformed optional error details cannot replace the HTTP upload failure.
+          // The response body only enriches the upload error; its absence is not
+          // a successful or retryable session-reset signal.
+        }
       }
       const err = Object.assign(
         new Error(
-          `Chunk ${index} upload failed (${res.status}): ${text || res.statusText}`,
+          responseError.isHtml
+            ? `Chunk ${index} upload returned an HTML error response (${res.status}).`
+            : `Chunk ${index} upload failed (${res.status}): ${responseError.responseText || res.statusText}`,
         ),
-        { status: res.status, restartRequired },
+        {
+          status: responseError.status,
+          restartRequired,
+          failureCode,
+          failureStage: responseError.failureStage,
+        },
       );
       if (
         extra.isFinal &&
@@ -2677,7 +2744,7 @@ export class RecorderEngine {
       }
       trackClipUploadBlockingFailure({
         stage: "chunk_upload",
-        failureKind: "http_error",
+        failureKind: failureCode,
         recordingId: this.opts.recordingId,
         uploadAttemptId: this.uploadAttemptId,
         chunkIndex: index,
@@ -2720,7 +2787,9 @@ export class RecorderEngine {
             }),
             status: res.status,
             statusText: res.statusText,
-            responseBodyTail: text?.slice(0, 2000) ?? "",
+            responseBodyTail: responseError.isHtml
+              ? ""
+              : (responseError.responseText?.slice(0, 2000) ?? ""),
             chunkBytes: blob.size,
             mimeType: blob.type || this.mimeType,
             total: extra.total,
@@ -2738,8 +2807,39 @@ export class RecorderEngine {
       throw err;
     }
 
+    const responseText = await res.text();
+    const responseError = classifyUploadResponseError({
+      contentType: res.headers.get("content-type"),
+      body: responseText,
+      status: res.status,
+      stage: "chunk_upload",
+    });
+    if (responseError.isHtml) {
+      const error = Object.assign(
+        new Error(
+          `Chunk ${index} upload returned an HTML error response (${res.status}).`,
+        ),
+        {
+          status: responseError.status,
+          failureCode: responseError.failureCode,
+          failureStage: responseError.failureStage,
+        },
+      );
+      trackClipUploadBlockingFailure({
+        stage: "chunk_upload",
+        failureKind: "chunk_html_error",
+        recordingId: this.opts.recordingId,
+        uploadAttemptId: this.uploadAttemptId,
+        chunkIndex: index,
+        isFinal: extra.isFinal === true,
+        httpStatus: res.status,
+        statusText: res.statusText,
+        uploadMode: this.opts.uploadMode,
+      });
+      throw error;
+    }
     try {
-      return (await res.json()) as Record<string, unknown>;
+      return JSON.parse(responseText) as Record<string, unknown>;
     } catch {
       return undefined;
     }

@@ -194,12 +194,13 @@ it("background flush reuses the queued journal instead of starting another", asy
   const pending = state.pendingFileSavesRef.current["screen-1"]!;
   let completion: ReturnType<typeof runSaveFileContent> | undefined;
 
-  flushFileContentSavesOnBackground(
+  const flush = flushFileContentSavesOnBackground(
     state.pendingFileSavesRef.current,
     state.latestFileSaveForUnloadRef.current,
     Object.values(state.fileSaveTimersRef.current),
     (queued) => {
       completion = runSaveFileContent(state.saveArgs, queued);
+      return completion;
     },
     state.args.clearTimer,
   );
@@ -210,5 +211,6 @@ it("background flush reuses the queued journal instead of starting another", asy
     state.fileSaveOutboxJournalPromisesRef.current.get(pending),
   ).toBeDefined();
   state.journals[0]!.resolve(true);
+  await expect(flush).resolves.toBeUndefined();
   await expect(completion).resolves.toBe("persisted");
 });

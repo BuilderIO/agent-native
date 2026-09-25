@@ -10,7 +10,7 @@
  * No React exports, so this stays Fast-Refresh friendly and unit-testable.
  */
 
-import { isBulletMarker } from "./bullet-editing";
+import { isBulletMarker, isBulletRow } from "./bullet-editing";
 
 export type SlideListKind = "bullet" | "ordered";
 
@@ -31,6 +31,50 @@ const LIST_STYLE: Record<SlideListKind, string> = {
   ordered:
     "margin:0;padding-left:1.25em;list-style-position:outside;list-style-type:decimal;",
 };
+
+const ROW_TEXT_PROPERTY =
+  /^(color|font(-.+)?|letter-spacing|word-spacing|line-height|text-(transform|shadow|decoration(-.+)?))$/;
+
+const HEADING_TAG = /^H[1-6]$/;
+
+/** What a heading's tag gives its text, which is lost with the tag. */
+const HEADING_TEXT_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-transform",
+] as const;
+
+export type TextLook = [property: string, value: string][];
+
+/**
+ * A heading's computed text look, or null for any other element. A heading
+ * holds only phrasing content, so a list made of one takes its place (or its
+ * line's) and has to carry the look its tag gave it.
+ */
+export function headingTextLook(element: Element): TextLook | null {
+  if (!HEADING_TAG.test(element.tagName)) return null;
+  const computed = element.ownerDocument.defaultView!.getComputedStyle(element);
+  return HEADING_TEXT_PROPERTIES.map((property) => [
+    property,
+    computed.getPropertyValue(property),
+  ]);
+}
+
+/** Restates each part of `look` that `target` (in the document) now differs from. */
+export function keepTextLook(target: HTMLElement, look: TextLook | null) {
+  if (!look) return;
+  const computed = target.ownerDocument.defaultView!.getComputedStyle(target);
+  for (const [property, value] of look) {
+    if (value && computed.getPropertyValue(property) !== value) {
+      target.style.setProperty(property, value);
+    }
+  }
+}
 
 function isListTag(element: Element): boolean {
   return element.tagName === "UL" || element.tagName === "OL";
@@ -54,6 +98,26 @@ export function detectSlideListKind(
   const list = element ? listElement(element) : null;
   if (!list) return null;
   return list.tagName === "OL" ? "ordered" : "bullet";
+}
+
+/** Styled bullet rows directly inside `element` (see `bullet-editing.ts`). */
+function bulletRows(element: HTMLElement): HTMLElement[] {
+  if (isListTag(element)) return [];
+  return Array.from(element.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement && isBulletRow(child),
+  );
+}
+
+/** The kind the list control shows: styled bullet rows are a bullet list too. */
+export function activeSlideListKind(
+  element: HTMLElement | null,
+): SlideListKind | null {
+  if (!element) return null;
+  return (
+    detectSlideListKind(element) ??
+    (bulletRows(element).length > 0 ? "bullet" : null)
+  );
 }
 
 /**
@@ -111,29 +175,40 @@ function blockChildren(source: HTMLElement): HTMLElement[] | null {
   return blocks.length > 0 ? blocks : null;
 }
 
+interface Line {
+  html: string;
+  /** The look of the heading the line was, which its item keeps. */
+  look: TextLook | null;
+}
+
 /**
  * The inner HTML of each line the object currently holds. A styled bullet row
  * contributes only its text, so converting agent-generated bullets to a real
  * list drops the now-duplicated marker instead of rendering two markers.
  */
-function readLines(source: HTMLElement): string[] {
+function readLines(source: HTMLElement): Line[] {
   const blocks = blockChildren(source);
-
   if (blocks) {
-    return blocks.flatMap((block) => {
-      const stripped = block.cloneNode(true) as HTMLElement;
-      for (const child of Array.from(stripped.children)) {
-        if (isBulletMarker(child)) child.remove();
-      }
-      const html = stripped.innerHTML.trim();
-      return html ? [html] : [];
-    });
+    return blocks.flatMap((block) =>
+      lineHtml(block).map((html) => ({ html, look: headingTextLook(block) })),
+    );
   }
 
   return source.innerHTML
     .split(/<br\s*\/?>/i)
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((html) => ({ html, look: null }));
+}
+
+/** One block's line, without the marker a styled bullet row draws. */
+function lineHtml(block: HTMLElement): string[] {
+  const stripped = block.cloneNode(true) as HTMLElement;
+  for (const child of Array.from(stripped.children)) {
+    if (isBulletMarker(child)) child.remove();
+  }
+  const html = stripped.innerHTML.trim();
+  return html ? [html] : [];
 }
 
 function itemHtml(list: HTMLElement): string[] {
@@ -142,13 +217,22 @@ function itemHtml(list: HTMLElement): string[] {
     .map((item) => item.innerHTML);
 }
 
+/** An empty list of `kind`, with its markers restated for preflight. */
+export function createSlideList(
+  doc: Document,
+  kind: SlideListKind,
+): HTMLElement {
+  const list = doc.createElement(LIST_TAG[kind]);
+  list.setAttribute("style", LIST_STYLE[kind]);
+  return list;
+}
+
 function buildList(
   doc: Document,
   kind: SlideListKind,
   lines: string[],
 ): HTMLElement {
-  const list = doc.createElement(LIST_TAG[kind]);
-  list.setAttribute("style", LIST_STYLE[kind]);
+  const list = createSlideList(doc, kind);
   for (const line of lines) {
     const item = doc.createElement("li");
     item.innerHTML = line;
@@ -181,10 +265,27 @@ export function toggleSlideList(
   const existing = listElement(element);
 
   if (!existing) {
+    const rows = bulletRows(element);
+    if (rows.length > 0) return toggleBulletRows(element, rows, kind);
     const lines = readLines(element);
     if (lines.length === 0) return null;
-    element.replaceChildren(buildList(doc, kind, lines));
-    return element;
+    // A <p> cannot hold a list: parsing the saved slide would close the
+    // paragraph before it and leave the list and its text unstyled. A
+    // heading may hold only phrasing content either.
+    const look = headingTextLook(element);
+    const holder =
+      element.tagName === "P" || look ? retag(element, "DIV") : element;
+    const list = buildList(
+      doc,
+      kind,
+      lines.map((line) => line.html),
+    );
+    holder.replaceChildren(list);
+    keepTextLook(holder, look);
+    Array.from(list.children).forEach((item, index) =>
+      keepTextLook(item as HTMLElement, lines[index].look),
+    );
+    return holder;
   }
 
   const lines = itemHtml(existing);
@@ -216,4 +317,61 @@ export function toggleSlideList(
 
   existing.replaceWith(buildLines(doc, lines));
   return element;
+}
+
+/**
+ * Styled bullet rows already are a bullet list, and only the rows are: a
+ * label beside them stays as it is. Toggling bullets drops the row markers;
+ * numbering replaces each run of adjacent rows with an ordered list where
+ * that run stood, so rows never move past the content between them.
+ */
+function toggleBulletRows(
+  element: HTMLElement,
+  rows: HTMLElement[],
+  kind: SlideListKind,
+): HTMLElement {
+  if (kind === "bullet") {
+    for (const row of rows) {
+      const marker = row.firstElementChild;
+      if (marker && isBulletMarker(marker)) marker.remove();
+    }
+    return element;
+  }
+  const runs: HTMLElement[][] = [];
+  rows.forEach((row, index) => {
+    if (index > 0 && rows[index - 1].nextElementSibling === row) {
+      runs[runs.length - 1].push(row);
+    } else {
+      runs.push([row]);
+    }
+  });
+  for (const run of runs) numberRows(element, run, kind);
+  return element;
+}
+
+function numberRows(
+  element: HTMLElement,
+  rows: HTMLElement[],
+  kind: SlideListKind,
+) {
+  const list = createSlideList(element.ownerDocument, kind);
+  for (const row of rows) {
+    const [line] = lineHtml(row);
+    if (line === undefined) continue;
+    const item = element.ownerDocument.createElement("li");
+    item.innerHTML = line;
+    // The row's own text look is the item's; its flex layout is not.
+    for (let index = 0; index < row.style.length; index += 1) {
+      const name = row.style.item(index);
+      if (!ROW_TEXT_PROPERTY.test(name)) continue;
+      item.style.setProperty(
+        name,
+        row.style.getPropertyValue(name),
+        row.style.getPropertyPriority(name),
+      );
+    }
+    list.append(item);
+  }
+  rows[0].before(list);
+  for (const row of rows) row.remove();
 }

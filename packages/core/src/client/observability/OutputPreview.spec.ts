@@ -203,10 +203,8 @@ describe("parseOutputPreview", () => {
         origin,
       ),
     ).toEqual({
-      kind: "design",
-      previewUrl:
-        "https://design.agent-native.com/present/site-42?reviewEmbed=1",
-      tokens: [],
+      kind: "text",
+      text: "Design: https://design.agent-native.com/design/site-42?editorView=overview#screen",
     });
 
     expect(
@@ -215,10 +213,8 @@ describe("parseOutputPreview", () => {
         origin,
       ),
     ).toEqual({
-      kind: "design",
-      previewUrl:
-        "https://beta.design.agent-native.com/present/beta-design?reviewEmbed=1",
-      tokens: [],
+      kind: "text",
+      text: "https://beta.design.agent-native.com/design/beta-design",
     });
 
     expect(

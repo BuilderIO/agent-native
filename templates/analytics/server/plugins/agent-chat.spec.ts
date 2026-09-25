@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const adhocAnalysisSkill = readFileSync(
   new URL("../../.agents/skills/adhoc-analysis/SKILL.md", import.meta.url),
@@ -12,64 +12,103 @@ const accountHealthSkill = readFileSync(
   "utf8",
 );
 
-const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
-  () => ({
-    agentChatPluginOptions: [] as Array<Record<string, unknown>>,
-    representativeAnalyticsActions: {
-      "query-agent-native-analytics": {
-        readOnly: true,
-        grounding: true,
-        tool: {
-          description: "Query first-party analytics",
-          parameters: { type: "object", properties: {} },
-        },
-        run: async () => "ok",
+const {
+  agentChatPluginOptions,
+  getRequestRunContext,
+  representativeAnalyticsActions,
+  retrieveAnalyticsPromptReferences,
+  summarizeAnalyticsRun,
+  track,
+} = vi.hoisted(() => ({
+  agentChatPluginOptions: [] as Array<Record<string, unknown>>,
+  getRequestRunContext: vi.fn((): Record<string, any> | null => null),
+  retrieveAnalyticsPromptReferences: vi.fn(),
+  summarizeAnalyticsRun: vi.fn(
+    (input: { preloadedReferenceCount: number }) => ({
+      preloaded_reference_count: input.preloadedReferenceCount,
+    }),
+  ),
+  track: vi.fn(),
+  representativeAnalyticsActions: {
+    "query-agent-native-analytics": {
+      readOnly: true,
+      grounding: true,
+      tool: {
+        description: "Query first-party analytics",
+        parameters: { type: "object", properties: {} },
       },
-      bigquery: {
-        readOnly: true,
-        grounding: true,
-        tool: {
-          description: "Query BigQuery",
-          parameters: { type: "object", properties: {} },
-        },
-        run: async () => "ok",
-      },
-      "hubspot-records": {
-        readOnly: true,
-        grounding: true,
-        tool: {
-          description: "Read HubSpot records",
-          parameters: { type: "object", properties: {} },
-        },
-        run: async () => "ok",
-      },
-      // A shipped source action the guard's retired name list never named.
-      prometheus: {
-        readOnly: true,
-        grounding: true,
-        tool: {
-          description: "Query Prometheus",
-          parameters: { type: "object", properties: {} },
-        },
-        run: async () => "ok",
-      },
-      "list-data-dictionary": {
-        readOnly: true,
-        tool: {
-          description: "Browse metric definitions",
-          parameters: { type: "object", properties: {} },
-        },
-        run: async () => "ok",
-      },
+      run: async () => "ok",
     },
-  }),
-);
+    bigquery: {
+      readOnly: true,
+      grounding: true,
+      tool: {
+        description: "Query BigQuery",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => "ok",
+    },
+    "hubspot-records": {
+      readOnly: true,
+      grounding: true,
+      tool: {
+        description: "Read HubSpot records",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => "ok",
+    },
+    "get-monitor": {
+      readOnly: true,
+      grounding: true,
+      tool: { description: "Get monitor configuration", parameters: {} },
+      run: async () => "ok",
+    },
+    "list-connected-database-tables": {
+      readOnly: true,
+      grounding: true,
+      tool: { description: "Inspect database schema", parameters: {} },
+      run: async () => "ok",
+    },
+    "test-custom-api-connection": {
+      readOnly: true,
+      grounding: true,
+      tool: { description: "Test a provider connection", parameters: {} },
+      run: async () => "ok",
+    },
+    // A shipped source action the guard's retired name list never named.
+    prometheus: {
+      readOnly: true,
+      grounding: true,
+      tool: {
+        description: "Query Prometheus",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => "ok",
+    },
+    "list-data-dictionary": {
+      readOnly: true,
+      tool: {
+        description: "Browse metric definitions",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => "ok",
+    },
+  },
+}));
+
+vi.mock("../lib/analytics-agent-context", () => ({
+  retrieveAnalyticsPromptReferences,
+  summarizeAnalyticsRun,
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({ track }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("@agent-native/core/server")>();
   return {
     ...original,
+    getRequestRunContext: () => getRequestRunContext(),
     createAgentChatPlugin: (options: Record<string, unknown>) => {
       agentChatPluginOptions.push(options);
       return () => {};
@@ -104,6 +143,128 @@ import {
   realDataFinalGuard,
 } from "./agent-chat";
 
+describe("Analytics prompt-reference preparation", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("skips catalog and embedding retrieval before background dispatch", async () => {
+    const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
+      details: Record<string, unknown>,
+    ) => Promise<unknown>;
+
+    await prepareRequest({
+      ownerEmail: "owner@example.test",
+      requestContext: "Current request: count active users",
+      contextPrefetchDeadlineAt: Date.now() + 1_300,
+      dispatchToBackground: true,
+    });
+
+    expect(retrieveAnalyticsPromptReferences).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["durable worker", { isBackgroundWorker: true }],
+    [
+      "server continuation",
+      { isBackgroundWorker: true, internalContinuation: true },
+    ],
+  ] as const)(
+    "retrieves Analytics references in a %s request",
+    async (_, requestOptions) => {
+      const candidate = {
+        id: "analytics-reference-1",
+        description: "Active users definition",
+        metadata: { kind: "analytics-reference" },
+        name: "Active users",
+        scope: "analytics-catalog",
+        content: "Metric: active users.",
+      };
+      vi.mocked(retrieveAnalyticsPromptReferences).mockResolvedValue({
+        jevPromptCandidates: [candidate],
+        jevFallbackCandidateIds: [candidate.id],
+      });
+      const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
+        details: Record<string, unknown>,
+      ) => Promise<unknown>;
+
+      const result = await prepareRequest({
+        ownerEmail: "owner@example.test",
+        requestContext: "Current request: count active users",
+        contextPrefetchDeadlineAt: Date.now() + 1_300,
+        dispatchToBackground: false,
+        ...requestOptions,
+      });
+
+      expect(retrieveAnalyticsPromptReferences).toHaveBeenCalledOnce();
+      expect(result).toEqual({
+        jevPromptCandidates: [candidate],
+        jevFallbackCandidateIds: [candidate.id],
+      });
+    },
+  );
+
+  it("uses the bounded recent-user request and shared deadline for retrieval", async () => {
+    const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
+      details: Record<string, unknown>,
+    ) => Promise<unknown>;
+    const contextPrefetchDeadlineAt = Date.now() + 1_300;
+
+    await prepareRequest({
+      ownerEmail: "owner@example.test",
+      requestContext:
+        "Recent user requests:\nUser: prior question\n\nCurrent request: count active users",
+      contextPrefetchDeadlineAt,
+      dispatchToBackground: false,
+    });
+
+    expect(retrieveAnalyticsPromptReferences).toHaveBeenCalledWith({
+      request:
+        "Recent user requests:\nUser: prior question\n\nCurrent request: count active users",
+      email: "owner@example.test",
+      orgId: null,
+      deadlineAt: contextPrefetchDeadlineAt,
+    });
+  });
+
+  it("does not spend the preload budget in the foreground before background dispatch", async () => {
+    const prepareRequest = agentChatPluginOptions[0]?.prepareRequest as (
+      details: Record<string, unknown>,
+    ) => Promise<unknown>;
+
+    await prepareRequest({
+      ownerEmail: "owner@example.test",
+      requestContext: "Current request: count active users",
+      contextPrefetchDeadlineAt: Date.now() + 1_300,
+      dispatchToBackground: true,
+    });
+
+    expect(retrieveAnalyticsPromptReferences).not.toHaveBeenCalled();
+  });
+
+  it("reports preloaded references in the worker completion event", async () => {
+    const context = {
+      isBackgroundWorker: true,
+      analyticsJevPrefetch: { preloadedReferenceCount: 2 },
+    };
+    getRequestRunContext.mockReturnValue(context);
+    const onAgentRunComplete = agentChatPluginOptions[0]
+      ?.onAgentRunComplete as (
+      scope: unknown,
+      run: { events: unknown[] },
+    ) => Promise<void>;
+    const run = { events: [] };
+
+    await onAgentRunComplete(null, run);
+
+    expect(track).toHaveBeenCalledWith("analytics_agent_run_outcome", {
+      preloaded_reference_count: 2,
+    });
+    expect(summarizeAnalyticsRun).toHaveBeenCalledWith({
+      events: run.events,
+      preloadedReferenceCount: 2,
+    });
+  });
+});
+
 describe("Analytics agent Plan mode policy", () => {
   it("routes one-off stacked charts through the live embed path", () => {
     expect(adhocAnalysisSkill).toMatch(/use the live\s+`\/chart` embed/);
@@ -132,7 +293,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
     expect(guidance).toContain("run one bounded query");
     expect(guidance).toContain("Once the query succeeds");
-    expect(guidance).toContain("does not waive the real-data requirement");
+    expect(guidance).toContain("never answer from a guess");
     expect(guidance).toContain(
       "This does not replace or restrict external sources",
     );
@@ -197,7 +358,7 @@ describe("Analytics agent Plan mode policy", () => {
       "named customer or account such as OCBC",
     );
     expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
-      "do not ask the user to name the dataset",
+      "do not ask the user for identifiers",
     );
     expect(
       looksLikeAnalyticsDataRequest(
@@ -243,7 +404,7 @@ describe("Analytics agent Plan mode policy", () => {
   it("routes data-dictionary lookup on demand with compact guidance", () => {
     const context = analyticsDataDictionaryRoutingContext();
 
-    expect(context).toContain("available through");
+    expect(context).toContain("system may preload a small set");
     expect(context).toContain("`list-data-dictionary`");
     expect(context).toContain(
       "Call `list-data-dictionary` separately when the catalog has no usable match",
