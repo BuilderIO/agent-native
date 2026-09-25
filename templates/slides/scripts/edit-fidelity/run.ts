@@ -77,6 +77,7 @@ const VALUE_FLAGS = new Set([
   "--targets",
   "--scenarios",
   "--concurrency",
+  "--resume",
 ]);
 const opt = (name: string) => {
   const i = argv.indexOf(name);
@@ -103,7 +104,10 @@ const corpusDir = path.resolve(opt("--corpus") ?? path.join(HERE, "corpus"));
 const baselinePath = path.resolve(
   opt("--baseline") ?? path.join(corpusDir, "..", "baseline.json"),
 );
-const runName = opt("--run") ?? new Date().toISOString().replace(/[:.]/g, "-");
+const resumeRun = opt("--resume");
+const resume = resumeRun !== undefined;
+const runName =
+  opt("--run") ?? resumeRun ?? new Date().toISOString().replace(/[:.]/g, "-");
 const outRoot = path.resolve(
   opt("--out") ??
     path.join(WORKTREE_ROOT, ".tmp/slides-edit-fidelity", runName),
@@ -530,6 +534,10 @@ async function snapshot(
   );
 }
 
+async function takeWriteStacks(page: Page): Promise<string[]> {
+  return page.evaluate(() => window.__editFidelity.takeWriteStacks());
+}
+
 async function listTargets(page: Page, slideId: string): Promise<TextTarget[]> {
   return page.evaluate(
     (sel: string) => window.__editFidelity.listTargets(sel),
@@ -565,6 +573,42 @@ async function checkExpectedStyles(
 /** Writes the editor sends when it persists slide content. */
 const WRITE_ACTION =
   /\/_agent-native\/actions\/(patch-deck|save-deck|update-slide)\b/;
+
+interface WriteDetail {
+  action: string;
+  /** "rerun" is the typedelete idempotence edit. */
+  phase: "edit" | "rerun";
+  /** Per slide the write touched: its fields, and whether content is the stored string. */
+  slides: Array<{
+    slideId: string;
+    fields: string[];
+    contentEqualsStored: boolean | null;
+  }>;
+}
+
+function describeWrite(
+  action: string,
+  request: any,
+  stored: string,
+  phase: WriteDetail["phase"],
+): WriteDetail {
+  const body = JSON.parse(request.postData() ?? "{}");
+  const slide = (slideId: string, fields: Record<string, unknown>) => ({
+    slideId,
+    fields: Object.keys(fields).sort(),
+    contentEqualsStored:
+      typeof fields.content === "string" ? fields.content === stored : null,
+  });
+  const slides =
+    action === "patch-deck"
+      ? (body.operations ?? []).map((op: any) =>
+          slide(`${op.op}:${op.slideId ?? "?"}`, op.fields ?? {}),
+        )
+      : action === "update-slide"
+        ? [slide(String(body.slideId), body)]
+        : (body.slides ?? []).map((s: any) => slide(String(s.id), s));
+  return { action, phase, slides };
+}
 
 const stripSpace = (s: string) => s.replace(/[\s\u200b\ufeff]+/g, "");
 
@@ -676,10 +720,15 @@ interface ScenarioResult {
   };
   /** Content-writing requests the editor sent, from entering edit to the end. */
   writes?: string[];
+  writeDetails?: WriteDetail[];
+  /** Client call stacks of those writes, from the in-page fetch hook. */
+  writeStacks?: string[];
   enterSteps?: EnterStep[];
   violations: string[];
-  /** Set when a transient (dev-server reload) error forced one retry. */
+  /** Set when a dev-server or browser error forced one retry. */
   retriedAfter?: string;
+  /** The error repeated on the retry and is not the editor's. */
+  infra?: boolean;
   metrics?: ScenarioMetrics;
 }
 
@@ -713,6 +762,12 @@ function summarizeStyle(d: StyleDiff): StyleSummary {
 }
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Unknown rects count as unchanged, so the strict check still runs. */
+const resized = (a: Rect | null, b: Rect | null) =>
+  !!a &&
+  !!b &&
+  (Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1);
 
 interface SlideCtx {
   page: Page;
@@ -755,11 +810,15 @@ async function runScenario(
   const write = (file: string, data: Buffer | string) =>
     writeFileSync(path.join(dir, file), data);
   const writes: string[] = [];
+  const writeDetails: WriteDetail[] = [];
   let countingWrites = false;
+  let phase: WriteDetail["phase"] = "edit";
   const onRequest = (request: any) => {
     if (!countingWrites || request.method() !== "POST") return;
     const match = WRITE_ACTION.exec(request.url());
-    if (match) writes.push(match[1]);
+    if (!match) return;
+    writes.push(match[1]);
+    writeDetails.push(describeWrite(match[1], request, ctx.stored, phase));
   };
   page.on("request", onRequest);
 
@@ -785,6 +844,7 @@ async function runScenario(
       "fresh load",
     );
 
+    await takeWriteStacks(page);
     countingWrites = true;
     result.gesture = await enterEdit(page, slideId, current.point);
     if (!result.gesture) {
@@ -855,6 +915,7 @@ async function runScenario(
     );
     if (!exited) result.violations.push("edit mode did not exit");
     const saved = await settleSaved(page, deckId, slideId);
+    const writeStacks = await takeWriteStacks(page);
     write("saved.html", saved);
     await settle(page);
     const after = await shot(page, slideId);
@@ -1034,10 +1095,12 @@ async function runScenario(
           "idempotence: could not re-enter edit after reload",
         );
       } else {
+        phase = "rerun";
         await page.keyboard.type("x");
         await page.keyboard.press("Backspace");
         await exitEdit(page, slideId, "escape");
         const saved2 = await settleSaved(page, deckId, slideId);
+        writeStacks.push(...(await takeWriteStacks(page)));
         write("saved2.html", saved2);
         result.html.idempotent = saved2 === saved;
       }
@@ -1046,6 +1109,8 @@ async function runScenario(
     // ---- invariants
     countingWrites = false;
     result.writes = [...writes];
+    result.writeDetails = [...writeDetails];
+    result.writeStacks = writeStacks;
     const v = result.violations;
     v.push(...styleProblems);
     if (NET_NOOP.has(scenario) && writes.length)
@@ -1067,10 +1132,13 @@ async function runScenario(
         v.push(`view->editing ${px.editing.whole.pct}% > ${tol}%`);
       if (px.after.whole.pct > tol)
         v.push(`view->after ${px.after.whole.pct}% > ${tol}%`);
-    } else if (scenario === "append" && px.after.outside.pct > tol) {
-      v.push(
-        `view->after outside the edited element ${px.after.outside.pct}% > ${tol}%`,
-      );
+    } else if (!resized(snapView.editedRect, snapAfter.editedRect)) {
+      // An edit that resizes the element legitimately moves the content
+      // after it; the outside style and stored-bytes checks below still hold.
+      if (px.after.outside.pct > tol)
+        v.push(
+          `view->after outside the edited element ${px.after.outside.pct}% > ${tol}%`,
+        );
     }
     for (const size of [px.editing, px.after, px.reload]) {
       if (size.whole.sizeMismatch) v.push("screenshot size changed");
@@ -1163,17 +1231,96 @@ interface SlideReport {
   openMutatesContent: boolean;
   targets: number;
   error?: string;
+  /** The error came from the dev server or browser, not from the editor. */
+  infra?: boolean;
+}
+
+/** One concurrency slot; `reopen` replaces pages the browser closed. */
+interface Worker {
+  page: Page;
+  sheetPage: Page;
+  reopen(): Promise<void>;
+}
+
+const slideDir = (caseId: string, i: number) =>
+  path.join(outRoot, caseId, `s${pad2(i + 1)}`);
+
+function selectTargets(c: CorpusCase, i: number, all: TextTarget[]) {
+  const limit = c.targets?.[String(i)] ?? maxTargets;
+  const filtered = targetFilter
+    ? all.filter((t) => targetFilter.includes(t.index))
+    : all;
+  return { limit, targets: filtered.slice(0, limit) };
+}
+
+/** A result an earlier run left on disk, kept by --resume unless it errored. */
+function priorResult(
+  dir: string,
+  target: number,
+  scenario: Scenario,
+): ScenarioResult | null {
+  if (!resume) return null;
+  const file = path.join(dir, `t${pad2(target)}-${scenario}`, "result.json");
+  if (!existsSync(file)) return null;
+  const r = JSON.parse(readFileSync(file, "utf8")) as ScenarioResult;
+  return r.status === "error" ? null : r;
+}
+
+/**
+ * With --resume, a slide whose every scenario already has a result is taken
+ * from disk without opening it. Returns false when it still has to run.
+ */
+function keepPriorSlide(
+  c: CorpusCase,
+  i: number,
+  results: ScenarioResult[],
+  slides: SlideReport[],
+  envelope: Map<string, Set<string>>,
+): boolean {
+  if (!resume) return false;
+  const dir = slideDir(c.id, i);
+  const reportFile = path.join(dir, "slide.json");
+  const targetsFile = path.join(dir, "targets.json");
+  if (!existsSync(reportFile) || !existsSync(targetsFile)) return false;
+  const report = JSON.parse(readFileSync(reportFile, "utf8")) as SlideReport;
+  if (report.error) return false;
+  const { limit, targets } = selectTargets(
+    c,
+    i,
+    JSON.parse(readFileSync(targetsFile, "utf8")),
+  );
+  const prior = targets.flatMap((t) =>
+    scenarios.map((sc) => priorResult(dir, t.index, sc)),
+  );
+  if (prior.some((r) => !r)) return false;
+  results.push(...(prior as ScenarioResult[]));
+  slides.push(report);
+  envelope.set(
+    `${c.id}/s${pad2(i + 1)}`,
+    new Set(Array.from({ length: limit }, (_, t) => `t${pad2(t)}`)),
+  );
+  return true;
 }
 
 async function runCase(
   c: CorpusCase,
-  page: Page,
-  sheetPage: Page,
+  worker: Worker,
   base: string,
   results: ScenarioResult[],
   slides: SlideReport[],
   envelope: Map<string, Set<string>>,
 ) {
+  let indices = c.slides.map((_, i) => i);
+  if (slideFilter) indices = indices.filter((i) => slideFilter.includes(i + 1));
+  indices = indices
+    .slice(0, maxSlides)
+    .filter((i) => !keepPriorSlide(c, i, results, slides, envelope));
+  if (!indices.length) {
+    console.log(
+      `[edit-fidelity] ${c.id}: every result kept from the earlier run`,
+    );
+    return;
+  }
   const payload = {
     title: `[edit-fidelity] ${c.title}`,
     aspectRatio: c.aspectRatio,
@@ -1184,22 +1331,19 @@ async function runCase(
       notes: s.notes,
     })),
   };
-  const created = await action(page, "create-deck", payload);
+  const created = await action(worker.page, "create-deck", payload);
   const deckId = String(created.id ?? created.deckId);
   const deck = await action(
-    page,
+    worker.page,
     "get-deck",
     { id: deckId, compact: "false" },
     "GET",
   );
-  let indices = c.slides.map((_, i) => i);
-  if (slideFilter) indices = indices.filter((i) => slideFilter.includes(i + 1));
-  indices = indices.slice(0, maxSlides);
 
   for (const i of indices) {
     const slideId = String(deck.slides[i].id);
     const stored = String(deck.slides[i].content);
-    const dir = path.join(outRoot, c.id, `s${pad2(i + 1)}`);
+    const dir = slideDir(c.id, i);
     mkdirSync(dir, { recursive: true });
     const report: SlideReport = {
       caseId: c.id,
@@ -1211,33 +1355,31 @@ async function runCase(
     slides.push(report);
     try {
       // Noise floor: the same slide rendered twice with no edit.
-      const { a, noise } = await retryTransient(async () => {
-        await restoreSlide(page, deckId, slideId, stored);
-        await openSlide(page, base, deckId, i, slideId);
-        const a = await shot(page, slideId);
-        await openSlide(page, base, deckId, i, slideId);
-        const b = await shot(page, slideId);
+      const { a, noise } = await retryInfra(worker, async () => {
+        await restoreSlide(worker.page, deckId, slideId, stored);
+        await openSlide(worker.page, base, deckId, i, slideId);
+        const a = await shot(worker.page, slideId);
+        await openSlide(worker.page, base, deckId, i, slideId);
+        const b = await shot(worker.page, slideId);
         return { a, noise: await diffPngs(a, b) };
       });
+      const page = worker.page;
       report.noisePct = noise.pct;
       writeFileSync(path.join(dir, "view.png"), a);
       writeFileSync(path.join(dir, "noise-diff.png"), noise.png);
       report.openMutatesContent =
         (await getSlideContent(page, deckId, slideId)) !== stored;
 
-      const limit = c.targets?.[String(i)] ?? maxTargets;
-      let targets = await listTargets(page, slideId);
+      const all = await listTargets(page, slideId);
       writeFileSync(
         path.join(dir, "targets.json"),
-        JSON.stringify(targets, null, 2),
+        JSON.stringify(all, null, 2),
       );
-      if (targetFilter)
-        targets = targets.filter((t) => targetFilter.includes(t.index));
-      targets = targets.slice(0, limit);
+      const { limit, targets } = selectTargets(c, i, all);
       report.targets = targets.length;
       const ctx: SlideCtx = {
         page,
-        sheetPage,
+        sheetPage: worker.sheetPage,
         base,
         caseId: c.id,
         deckId,
@@ -1253,11 +1395,21 @@ async function runCase(
       for (let t = 0; t < limit; t++) expected.add(`t${pad2(t)}`);
       for (const target of targets) {
         for (const scenario of scenarios) {
+          const prior = priorResult(dir, target.index, scenario);
+          if (prior) {
+            results.push(prior);
+            continue;
+          }
           let r = await runScenario(ctx, target, scenario);
-          if (r.status === "error" && TRANSIENT.test(r.error ?? "")) {
+          if (r.status === "error" && INFRA.test(r.error ?? "")) {
             const first = r.error;
+            await worker.reopen();
+            ctx.page = worker.page;
+            ctx.sheetPage = worker.sheetPage;
             r = await runScenario(ctx, target, scenario);
             r.retriedAfter = first;
+            r.infra = r.status === "error" && INFRA.test(r.error ?? "");
+            if (r.infra) rewriteResult(dir, r);
           }
           results.push(r);
           console.log(formatRow(r));
@@ -1265,24 +1417,39 @@ async function runCase(
       }
     } catch (error) {
       report.error = String((error as Error).message ?? error).slice(0, 500);
+      report.infra = INFRA.test(report.error);
       console.error(`[edit-fidelity] ${c.id} slide ${i + 1}: ${report.error}`);
     }
+    writeFileSync(
+      path.join(dir, "slide.json"),
+      JSON.stringify(report, null, 2),
+    );
   }
 }
 
-/**
- * Vite's dep optimizer full-reloads every open page when a slide pulls in a
- * dependency it has not seen yet; that kills whatever step was running.
- * Retried once, and the first error is kept on the result.
- */
-const TRANSIENT =
-  /Execution context was destroyed|canvas not found|frame was detached|Target page, context or browser has been closed|net::ERR_ABORTED/;
+function rewriteResult(dir: string, r: ScenarioResult) {
+  writeFileSync(
+    path.join(dir, `t${pad2(r.target)}-${r.scenario}`, "result.json"),
+    JSON.stringify(r, null, 2),
+  );
+}
 
-async function retryTransient<T>(fn: () => Promise<T>): Promise<T> {
+/**
+ * Errors from the dev server or the browser rather than the editor. Vite's
+ * dep optimizer full-reloads every open page when a slide pulls in a
+ * dependency it has not seen yet, a loaded dev server can miss a navigation
+ * or selector deadline, and a crashed page closes. Each is retried once on a
+ * fresh page; one that repeats is reported apart from editor failures.
+ */
+const INFRA =
+  /Execution context was destroyed|canvas not found|frame was detached|Target page, context or browser has been closed|Target crashed|net::ERR_ABORTED|Timeout \d+ms exceeded/;
+
+async function retryInfra<T>(worker: Worker, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (error) {
-    if (!TRANSIENT.test(String((error as Error).message ?? error))) throw error;
+    if (!INFRA.test(String((error as Error).message ?? error))) throw error;
+    await worker.reopen();
     return fn();
   }
 }
@@ -1370,6 +1537,7 @@ async function main() {
   const slides: SlideReport[] = [];
   const envelope = new Map<string, Set<string>>();
   let exitCode = 0;
+  let browserLost = false;
   try {
     const context = await browser.newContext({
       viewport: { width: 1600, height: 1000 },
@@ -1392,32 +1560,51 @@ async function main() {
     );
     console.log(HEADER);
     const queue = [...cases];
+    const openWorkerPage = async () => {
+      const page = await context.newPage();
+      await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+      return page;
+    };
     await Promise.all(
       Array.from({ length: Math.min(concurrency, cases.length) }, async () => {
-        const page = await context.newPage();
-        const sheetPage = await browser.newPage();
-        await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+        const worker: Worker = {
+          page: await openWorkerPage(),
+          sheetPage: await browser.newPage(),
+          async reopen() {
+            if (worker.page.isClosed()) worker.page = await openWorkerPage();
+            if (worker.sheetPage.isClosed())
+              worker.sheetPage = await browser.newPage();
+          },
+        };
         for (let c = queue.shift(); c; c = queue.shift()) {
+          if (!browser.isConnected()) {
+            browserLost = true;
+            break;
+          }
           try {
-            await runCase(c, page, sheetPage, base!, results, slides, envelope);
+            await worker.reopen();
+            await runCase(c, worker, base!, results, slides, envelope);
           } catch (error) {
+            const message = String((error as Error).message ?? error);
             slides.push({
               caseId: c.id,
               slide: 0,
               noisePct: 0,
               openMutatesContent: false,
               targets: 0,
-              error: String((error as Error).message ?? error),
+              error: message,
+              infra: INFRA.test(message),
             });
-            console.error(
-              `[edit-fidelity] ${c.id}: ${(error as Error).message}`,
-            );
+            console.error(`[edit-fidelity] ${c.id}: ${message}`);
           }
         }
-        await page.close();
-        await sheetPage.close();
+        if (browser.isConnected()) {
+          await worker.page.close();
+          await worker.sheetPage.close();
+        }
       }),
     );
+    browserLost ||= !browser.isConnected();
   } finally {
     await browser.close();
     await cleanup();
@@ -1438,14 +1625,15 @@ async function main() {
   };
   const problems = findBaselineProblems(byKey, baseline, isExpected);
   const counts = results.reduce<Record<string, number>>((acc, r) => {
-    acc[r.status] = (acc[r.status] ?? 0) + 1;
+    const k = r.infra ? "infra-error" : r.status;
+    acc[k] = (acc[k] ?? 0) + 1;
     return acc;
   }, {});
 
   console.log("\nnoise floor (view vs reload, no edit):");
   for (const s of slides) {
     console.log(
-      `  ${s.caseId} s${pad2(s.slide)}: ${s.noisePct}%  targets ${s.targets}${s.openMutatesContent ? "  OPENING THE SLIDE CHANGED ITS STORED CONTENT" : ""}${s.error ? `  ERROR ${s.error}` : ""}`,
+      `  ${s.caseId} s${pad2(s.slide)}: ${s.noisePct}%  targets ${s.targets}${s.openMutatesContent ? "  OPENING THE SLIDE CHANGED ITS STORED CONTENT" : ""}${s.error ? `  ${s.infra ? "INFRA " : ""}ERROR ${s.error}` : ""}`,
     );
   }
   console.log(
@@ -1497,6 +1685,12 @@ async function main() {
     return 2;
   }
   if (slideErrors && !update) exitCode = Math.max(exitCode, 1);
+  if (browserLost) {
+    console.error(
+      `[edit-fidelity] could not finish: the browser closed; rerun with --resume ${runName}${opt("--out") ? ` --out ${outRoot}` : ""}`,
+    );
+    return 2;
+  }
   return exitCode;
 }
 

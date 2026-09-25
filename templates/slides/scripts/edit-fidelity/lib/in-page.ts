@@ -104,6 +104,8 @@ export interface InPageHelpers {
     saved: string,
     target: { tag: string; text: string; occurrence: number },
   ): CanonicalPair;
+  /** Call stacks of content writes sent since the last call, oldest first. */
+  takeWriteStacks(): string[];
 }
 
 declare global {
@@ -219,6 +221,17 @@ export function installInPageHelpers(chromeSelector: string) {
   const pick = (cs: CSSStyleDeclaration, props: string[]) => {
     const out: Record<string, string> = {};
     for (const p of props) out[p] = cs.getPropertyValue(p).trim();
+    return out;
+  };
+  // getComputedStyle resolves an `auto` margin to its used length, which
+  // moves whenever a flex sibling grows; the computed value stays `auto`.
+  const boxProps = (el: Element, cs: CSSStyleDeclaration) => {
+    const out = pick(cs, BOX_PROPS);
+    const map = el.computedStyleMap();
+    for (const s of SIDES) {
+      if (String(map.get(`margin-${s}`)) === "auto")
+        out[`margin-${s}`] = "auto";
+    }
     return out;
   };
   const visible = (el: Element) => {
@@ -432,7 +445,7 @@ export function installInPageHelpers(chromeSelector: string) {
           boxKey(el),
           "box",
           inside,
-          pick(cs, BOX_PROPS),
+          boxProps(el, cs),
           rectOf(el.getBoundingClientRect(), origin),
         );
       }
@@ -637,8 +650,29 @@ export function installInPageHelpers(chromeSelector: string) {
     };
   }
 
+  const writeStacks: string[] = [];
+  const nativeFetch = window.fetch;
+  window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
+    const url =
+      input instanceof Request ? input.url : new URL(input, location.href).href;
+    const method = (
+      init?.method ?? (input instanceof Request ? input.method : "GET")
+    ).toUpperCase();
+    if (
+      method === "POST" &&
+      /\/_agent-native\/actions\/(patch-deck|save-deck|update-slide)\b/.test(
+        url,
+      )
+    ) {
+      writeStacks.push(new Error().stack ?? "");
+    }
+    return nativeFetch.call(this, input, init);
+  };
+  const takeWriteStacks = () => writeStacks.splice(0);
+
   window.__editFidelity = {
     listTargets,
+    takeWriteStacks,
     snapshot,
     editorState,
     backgroundPoint,
