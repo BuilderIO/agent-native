@@ -116,11 +116,14 @@ export async function formatSlideHtml(content: string): Promise<string> {
       import("prettier/plugins/babel"),
       import("prettier/plugins/estree"),
     ]);
-    return await format(content, {
+    const protectedContent = protectPreformattedBlocks(content);
+    const protectedText = protectHtmlText(protectedContent.content);
+    const formatted = await format(protectedText.content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
       plugins,
     });
+    return protectedContent.restore(protectedText.restore(formatted));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
@@ -135,6 +138,230 @@ export async function formatSlideHtml(content: string): Promise<string> {
     }
     throw new Error(`Unable to format slide HTML: ${message}`);
   }
+}
+
+function protectPreformattedBlocks(content: string): {
+  content: string;
+  restore: (formatted: string) => string;
+} {
+  const blocks = findPreformattedBlocks(content);
+  if (blocks.length === 0) return { content, restore: (html) => html };
+
+  let markerPrefix = "slides-preformatted-block";
+  while (content.includes(markerPrefix)) markerPrefix += "-";
+
+  const replacements = blocks.map((block, index) => ({
+    ...block,
+    marker: `${markerPrefix}-${index}`,
+  }));
+  let protectedContent = "";
+  let cursor = 0;
+  for (const block of replacements) {
+    protectedContent +=
+      content.slice(cursor, block.start) +
+      `<pre data-slides-preformatted="${block.marker}"></pre>`;
+    cursor = block.end;
+  }
+  protectedContent += content.slice(cursor);
+
+  return {
+    content: protectedContent,
+    restore(formatted) {
+      let restored = formatted;
+      for (const block of replacements) {
+        const placeholder = `<pre data-slides-preformatted="${block.marker}"></pre>`;
+        if (!restored.includes(placeholder)) {
+          throw new Error("Unable to restore preformatted slide content");
+        }
+        restored = restored.replace(
+          placeholder,
+          content.slice(block.start, block.end),
+        );
+      }
+      return restored;
+    },
+  };
+}
+
+function findPreformattedBlocks(
+  html: string,
+): Array<{ start: number; end: number }> {
+  const blocks: Array<{ start: number; end: number }> = [];
+  let cursor = 0;
+
+  while (cursor < html.length) {
+    const tagStart = html.indexOf("<", cursor);
+    if (tagStart === -1) break;
+    if (html.startsWith("<!--", tagStart)) {
+      const commentEnd = html.indexOf("-->", tagStart + 4);
+      cursor = commentEnd === -1 ? html.length : commentEnd + 3;
+      continue;
+    }
+
+    const closing = html[tagStart + 1] === "/";
+    const nameStart = tagStart + (closing ? 2 : 1);
+    const tagName = tagNameAt(html, nameStart);
+    if (!tagName) {
+      cursor = tagStart + 1;
+      continue;
+    }
+    const tagEnd = tagEndIndex(html, nameStart + tagName.length);
+    if (tagEnd === -1) break;
+
+    if (!closing && tagName === "pre") {
+      const close = findMatchingCloseTag(html, tagName, tagEnd + 1);
+      if (close) {
+        blocks.push({ start: tagStart, end: close.end });
+        cursor = close.end;
+        continue;
+      }
+    }
+
+    if (!closing && RAW_TEXT_TAG_NAMES.has(tagName)) {
+      const rawClose = rawTextCloseIndex(html, tagName, tagEnd + 1);
+      cursor = rawClose === -1 ? html.length : rawClose + tagName.length + 3;
+    } else {
+      cursor = tagEnd + 1;
+    }
+  }
+
+  return blocks;
+}
+
+function protectHtmlText(content: string): {
+  content: string;
+  restore: (formatted: string) => string;
+} {
+  const ranges = findHtmlText(content);
+  if (ranges.length === 0) return { content, restore: (html) => html };
+
+  let markerPrefix = "slides-text-node";
+  while (content.includes(markerPrefix)) markerPrefix += "-";
+
+  const replacements = ranges.map((range, index) => ({
+    ...range,
+    marker: `${markerPrefix}-${index}`,
+  }));
+  let protectedContent = "";
+  let cursor = 0;
+  for (const range of replacements) {
+    protectedContent +=
+      content.slice(cursor, range.start) +
+      (range.comment ? `<!--${range.marker}-->` : range.marker);
+    cursor = range.end;
+  }
+  protectedContent += content.slice(cursor);
+
+  return {
+    content: protectedContent,
+    restore(formatted) {
+      let restored = formatted;
+      for (const range of replacements) {
+        const placeholder = range.comment
+          ? `<!--${range.marker}-->`
+          : range.marker;
+        const index = restored.indexOf(placeholder);
+        if (index === -1) {
+          throw new Error("Unable to restore slide text content");
+        }
+        const original = content.slice(range.start, range.end);
+        if (!range.comment) {
+          let start = index;
+          let end = index + placeholder.length;
+          while (start > 0 && /[\t\n\f\r ]/.test(restored[start - 1]!)) {
+            start -= 1;
+          }
+          while (end < restored.length && /[\t\n\f\r ]/.test(restored[end]!)) {
+            end += 1;
+          }
+          restored = restored.slice(0, start) + original + restored.slice(end);
+        } else {
+          restored =
+            restored.slice(0, index) +
+            original +
+            restored.slice(index + placeholder.length);
+        }
+      }
+      return restored;
+    },
+  };
+}
+
+function findHtmlText(
+  html: string,
+): Array<{ start: number; end: number; comment?: boolean }> {
+  const ranges: Array<{ start: number; end: number; comment?: boolean }> = [];
+  const addTextRange = (start: number, end: number) => {
+    if (start < end) ranges.push({ start, end });
+  };
+  let cursor = 0;
+  let textStart = 0;
+
+  while (cursor < html.length) {
+    const tagStart = html.indexOf("<", cursor);
+    if (tagStart === -1) break;
+
+    if (html.startsWith("<!--", tagStart)) {
+      addTextRange(textStart, tagStart);
+      const commentEnd = html.indexOf("-->", tagStart + 4);
+      const end = commentEnd === -1 ? html.length : commentEnd + 3;
+      ranges.push({ start: tagStart, end, comment: true });
+      cursor = end;
+      textStart = end;
+      continue;
+    }
+
+    const closing = html[tagStart + 1] === "/";
+    const nameStart = tagStart + (closing ? 2 : 1);
+    const tagName = tagNameAt(html, nameStart);
+    if (!tagName) {
+      cursor = tagStart + 1;
+      continue;
+    }
+    const tagEnd = tagEndIndex(html, nameStart + tagName.length);
+    if (tagEnd === -1) {
+      cursor = tagStart + 1;
+      continue;
+    }
+
+    addTextRange(textStart, tagStart);
+
+    if (!closing && RAW_TEXT_TAG_NAMES.has(tagName)) {
+      const rawClose = rawTextCloseIndex(html, tagName, tagEnd + 1);
+      if (tagName === "style" || tagName === "script") {
+        if (rawClose === -1) {
+          cursor = html.length;
+          textStart = html.length;
+          break;
+        }
+        cursor = rawClose;
+        textStart = rawClose;
+        continue;
+      }
+      if (rawClose === -1) {
+        addTextRange(tagEnd + 1, html.length);
+        cursor = html.length;
+        textStart = html.length;
+        break;
+      }
+      ranges.push({ start: tagEnd + 1, end: rawClose });
+      const closeEnd = tagEndIndex(html, rawClose + tagName.length + 2);
+      if (closeEnd === -1) {
+        cursor = html.length;
+        textStart = html.length;
+        break;
+      }
+      cursor = closeEnd + 1;
+      textStart = cursor;
+      continue;
+    }
+
+    cursor = tagEnd + 1;
+    textStart = cursor;
+  }
+
+  addTextRange(textStart, html.length);
+  return ranges.filter((range) => range.start < range.end);
 }
 
 function applyEdit(

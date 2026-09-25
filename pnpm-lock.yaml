@@ -7412,6 +7412,9 @@ importers:
       pdfjs-dist:
         specifier: 5.4.296
         version: 5.4.296
+      postcss:
+        specifier: 8.5.28
+        version: 8.5.28
       pptxgenjs:
         specifier: 4.0.1
         version: 4.0.1
