@@ -268,6 +268,7 @@
     "./secrets": "./dist/secrets/index.js",
     "./secrets/crypto": "./dist/secrets/crypto.js",
     "./org": "./dist/org/index.js",
+    "./org/free-email-providers": "./dist/org/free-email-providers.js",
     "./org-team": "./dist/org-team/index.js",
     "./client/org": "./dist/client/org/index.js",
     "./client/org-switcher": "./dist/client/org/OrgSwitcher.js",
