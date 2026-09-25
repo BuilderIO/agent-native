@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => {
     designs: {
       id: "designs.id",
       data: "designs.data",
+      liveCollaborationEnabled: "designs.liveCollaborationEnabled",
       visibility: "designs.visibility",
       ownerEmail: "designs.ownerEmail",
       orgId: "designs.orgId",
@@ -58,6 +59,11 @@ const mocks = vi.hoisted(() => {
       updatedAt: "designVisualEditSnapshots.updatedAt",
     },
     assertAccess: vi.fn(),
+    currentAccess: vi.fn(() => ({
+      userEmail: "owner@example.test",
+      authCapability: "capability:visual-edit:design:design_localhost",
+    })),
+    getRequestUserEmail: vi.fn((): string | undefined => "owner@example.test"),
     putPrivateBlob: vi.fn(),
     deleteVisualEditSnapshotBlobs: vi.fn(),
     queueVisualEditSnapshotBlobCleanupInTransaction: vi.fn(),
@@ -98,6 +104,10 @@ vi.mock("@agent-native/core/private-blob", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  currentAccess: mocks.currentAccess,
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -140,6 +150,7 @@ const design = {
   ownerEmail: "owner@example.test",
   orgId: null,
   visibility: "public",
+  liveCollaborationEnabled: true,
   data: JSON.stringify({
     sourceType: "localhost",
     screenMetadata: {
@@ -158,6 +169,12 @@ describe("publish visual-edit fallback snapshot", () => {
     file.content = routeUrl;
     mocks.assertAccess.mockReset();
     mocks.assertAccess.mockResolvedValue({ role: "owner", resource: design });
+    mocks.currentAccess.mockReturnValue({
+      userEmail: "owner@example.test",
+      authCapability: "capability:visual-edit:design:design_localhost",
+    });
+    mocks.getRequestUserEmail.mockReset();
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
     mocks.putPrivateBlob.mockReset();
     mocks.putPrivateBlob.mockResolvedValue(mocks.blob);
     mocks.deleteVisualEditSnapshotBlobs.mockReset();
@@ -199,9 +216,9 @@ describe("publish visual-edit fallback snapshot", () => {
       requiresAuth: true,
       agentTool: false,
       mcpTool: false,
-      capabilityScopes: ["visual-edit"],
       maxBodyBytes: expect.any(Number),
     });
+    expect(publishSnapshotAction).not.toHaveProperty("capabilityScopes");
     expect(runtimeConfig.schema.safeParse(input()).success).toBe(true);
     expect(
       runtimeConfig.schema.safeParse({
@@ -214,6 +231,66 @@ describe("publish visual-edit fallback snapshot", () => {
       runtimeConfig.schema.safeParse({ ...input(), previewToken: "extra" })
         .success,
     ).toBe(false);
+  });
+
+  it("denies capability-only callers and signed-in editors while collaboration is off", async () => {
+    mocks.getRequestUserEmail.mockReturnValueOnce(undefined);
+    await expect(
+      publishSnapshotAction.run(input(), { caller: "frontend" }),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_account_required" });
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "owner",
+      resource: { ...design, liveCollaborationEnabled: false },
+    });
+    await expect(
+      publishSnapshotAction.run(input(), { caller: "frontend" }),
+    ).rejects.toMatchObject({
+      errorCode: "visual_edit_collaboration_disabled",
+    });
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("does not let a signed-in viewer capability publish a shared snapshot", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("viewer@example.test");
+    mocks.currentAccess.mockReturnValue({
+      userEmail: "viewer@example.test",
+      authCapability: `capability:visual-edit:design:${designId}`,
+    });
+    mocks.assertAccess.mockRejectedValueOnce(
+      Object.assign(new Error("Forbidden"), { statusCode: 403 }),
+    );
+
+    await expect(
+      publishSnapshotAction.run(input(), { caller: "frontend" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      designId,
+      "editor",
+      { userEmail: "viewer@example.test", authCapability: undefined },
+    );
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("discards an uploaded blob if collaboration is disabled before commit", async () => {
+    mocks.putPrivateBlob.mockImplementationOnce(async () => {
+      design.liveCollaborationEnabled = false;
+      return mocks.blob;
+    });
+
+    await expect(
+      publishSnapshotAction.run(input(), { caller: "frontend" }),
+    ).rejects.toMatchObject({
+      errorCode: "visual_edit_collaboration_disabled",
+    });
+    expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
+      JSON.stringify(mocks.blob),
+    ]);
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
+    design.liveCollaborationEnabled = true;
   });
 
   it("stores sanitized HTML in private blob storage and only its opaque handle in SQL", async () => {
@@ -229,6 +306,10 @@ describe("publish visual-edit fallback snapshot", () => {
       "design",
       designId,
       "editor",
+      {
+        userEmail: "owner@example.test",
+        authCapability: undefined,
+      },
     );
     expect(mocks.putPrivateBlob).toHaveBeenCalledWith({
       data: Buffer.from(sanitizeVisualEditSnapshotHtml(snapshotHtml), "utf8"),
