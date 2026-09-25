@@ -454,6 +454,19 @@ describe("in-place text session: Enter", () => {
     expect(el.children[1]).toBe(empty);
   });
 
+  it("ends a sole empty top-level list item in an editable blank line", () => {
+    const el = mount('<ul id="t"><li></li></ul>');
+    session = startInPlaceTextSession(el);
+    caret(el.querySelector("li")!, 0);
+    beforeInput(el, "insertParagraph");
+
+    expect(session.element.tagName).toBe("DIV");
+    expect(session.element.querySelectorAll("li")).toHaveLength(0);
+    type(session.element, "New line");
+    session.end();
+    expect(session.element.innerHTML).toBe("<div>New line</div>");
+  });
+
   it("splits a child block of a container into a same-attribute sibling", () => {
     const el = mount(
       '<div id="t"><p class="lead" style="color: blue">First para</p><p>Second</p></div>',

@@ -291,14 +291,26 @@ describe("SlideInner source stamps", () => {
     );
     expect(root.querySelector("p")).toBe(edited);
     expect(errors).not.toHaveBeenCalled();
-    edited.removeAttribute("contenteditable");
-    // The edit still merges into the source it started from.
     const source = getRenderedSlideSource(root)!;
-    expect(source.stored).toBe(content);
+    expect(source.stored).toBe(uploaded);
     expect(
       mergeRenderedEdits({ ...source, live: root.cloneNode(true) as Element })
         .html,
     ).toBe(uploaded.replace("Caption", "Caption typed"));
+
+    const remote = uploaded.replace(
+      "<p>Caption</p>",
+      "<h2>Agent</h2><p>Caption</p>",
+    );
+    const commit = vi.fn((event: Event) => {
+      expect((event as CustomEvent).detail).toEqual({ content: remote });
+      edited.removeAttribute("contenteditable");
+    });
+    document.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    rerender(<SlideInner slide={{ ...slide, content: remote }} stampSource />);
+    document.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(getRenderedSlideSource(root)?.stored).toBe(remote);
     errors.mockRestore();
   });
 

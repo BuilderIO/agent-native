@@ -1324,6 +1324,25 @@ export function startInPlaceTextSession(
         placeCaret(...textPoint(previous, Infinity));
         return;
       }
+      const list = item.parentElement;
+      if (
+        list === el &&
+        item === list.firstElementChild &&
+        item === list.lastElementChild
+      ) {
+        const kind = list.tagName === "OL" ? "ordered" : "bullet";
+        if (
+          keepingSelection(() => {
+            const next = toggleSlideList(el, kind);
+            if (!next) return false;
+            if (next !== el) rebind(next);
+            return true;
+          })
+        ) {
+          placeCaret(...textPoint(el.firstElementChild ?? el, Infinity));
+          return;
+        }
+      }
     }
     splitBlock(item, caret);
   }

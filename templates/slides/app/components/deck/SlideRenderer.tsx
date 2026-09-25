@@ -1047,6 +1047,7 @@ function RawSlideHtmlContent({
         // snapshot; a newer same-slide write must commit and rebase the edit.
         if (
           sameSlide &&
+          source &&
           updateLiveImagesUnderEdit(
             root,
             renderedHtmlRef.current,
@@ -1054,6 +1055,8 @@ function RawSlideHtmlContent({
             uploadProvenance,
           )
         ) {
+          renderedHtmlRef.current = html;
+          registerRenderedSlideSource(root, source);
           return;
         }
         const detail: SlideContentReplaceDetail | null =
