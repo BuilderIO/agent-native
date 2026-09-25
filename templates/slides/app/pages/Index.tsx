@@ -1696,10 +1696,9 @@ export default function Index() {
       if (source.kind !== "google-docs") return null;
       setReferenceImporting(true);
       try {
-        const imported = (await callAction(
-          "import-google-slides-reference",
-          resolveGoogleSlidesImportPayload(source.value),
-        )) as {
+        const payload = resolveGoogleSlidesImportPayload(source.value);
+        const raw = await callAction("import-google-slides-reference", payload);
+        const imported = raw as {
           id?: unknown;
           imported?: unknown;
           slideCount?: unknown;
