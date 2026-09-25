@@ -77,7 +77,7 @@ const SHIPPING_CHURN_RE =
 // ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
-    String.raw`\b(?:codex|agents?|sessions?|threads?)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?stop\w*(?:\s+working)?\b(?=\s*(?:[.!?]|$))`,
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?stop\w*(?:\s+working)?\b(?=\s*(?:[.!?]|$))`,
     String.raw`\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b`,
   ].join("|"),
   "i",
@@ -632,6 +632,7 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
     "Codex couldn't renew the lease, so it stopped because GitHub was down.",
   ],
   [false, "Codex couldn't renew the lease; it stopped because CI failed."],
+  [false, "If Codex could not renew the lease, then stop working."],
   [false, "Work stopped because GitHub was down after the lease expired."],
   [false, "The lease failed, so work stopped because GitHub was down."],
   [

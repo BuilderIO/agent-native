@@ -60,7 +60,8 @@ an unexpected merge without rotating.
    persisted name and prompt identify this exact `/babysit-pr <number>`. Read
    its `ship_mode`; pause only if this invocation carries the same or stronger
    authorization, never replacing a `merge-authorized` watcher with a less-
-   authorized run. Change only `status` to `PAUSED`, then reread and verify the
+   authorized run. Send the complete persisted definition to the update
+   operation with only `status` changed to `PAUSED`, then reread and verify the
    id, kind, name, prompt, target, mode, status, and unchanged fields. If identity,
    mode, pause, or verification is uncertain, leave it alone and keep this
    invocation read-only until that watcher is inactive or its authorization is
