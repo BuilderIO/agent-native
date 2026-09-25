@@ -12287,15 +12287,15 @@ it(
       await page.mouse.down();
       await page.mouse.move(200, 180, { steps: 4 });
 
-      const start = await page.evaluate(() =>
-        ((window as any).__bridgeMessages as Array<Record<string, unknown>>)
-          .filter(
-            (m) =>
-              m.type === "agent-native:cross-screen-drag" &&
-              m.phase === "start",
-          )
-          .at(-1),
-      );
+      const start = await page.evaluate(() => {
+        const starts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (m) =>
+            m.type === "agent-native:cross-screen-drag" && m.phase === "start",
+        );
+        return starts[starts.length - 1];
+      });
       expect(start?.sourceCloneHtml).toBe(preLiftHtml);
       await page.mouse.up();
       expect(pageErrors).toEqual([]);
