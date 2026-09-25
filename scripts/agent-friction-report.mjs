@@ -74,8 +74,13 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
-const BABYSIT_LEASE_BLOCKS_WORK_RE =
-  /\b(?:lease|lock)\b[^.!?\n]{0,160}\b(?:stop\w*|give up|gave up|no work|nothing was done)\b|\b(?:stop\w*|give up|gave up|no work|nothing was done|ignore|bypass)\b[^.!?\n]{0,160}\b(?:lease|lock)\b/i;
+const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
+  [
+    String.raw`^(?!.*\b(?:didn['’]?t|did not|hasn['’]?t|has not|never)\b[^.!?\n]{0,100}\b(?:stop\w*|work\w*|continu\w*|ignore|bypass)\b)`,
+    String.raw`.*(?:\bleases?\b[^.!?\n]{0,160}\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*)\b|\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*|ignore|bypass)\b[^.!?\n]{0,160}\bleases?\b)`,
+  ].join(""),
+  "i",
+);
 
 const STALE_PR_WATCHER_RE = new RegExp(
   [
@@ -606,6 +611,8 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [true, "I told the threads to finish shipping and ignore the lease stuff."],
   [false, "The PR lease coordinates durable watchers."],
   [false, "The lease failed, but this task continued in the foreground."],
+  [false, "The lease failure did not stop this task from working."],
+  [false, "A file lock prevented the build from running."],
 ];
 
 const STALE_PR_WATCHER_REGEX_CASES = [
