@@ -675,31 +675,54 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       context.resourceId,
     );
     const identityTx = drizzleTransactionForExec(tx);
-    // Memberships have no document foreign key, so a parent row lock alone cannot
-    // prevent a new membership from escaping Blocks reconciliation.
-    await tx.execute("LOCK TABLE content_database_items IN SHARE MODE");
     await tx.execute({
       sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
       args: [context.resourceId],
     });
+    // Memberships have no document foreign key. Never wait for the table after
+    // locking the Page: other editors lock memberships before the Page.
+    try {
+      await tx.execute(
+        "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT",
+      );
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "55P03"
+      ) {
+        fail("The Page is busy. Try accepting the suggestion again.", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      }
+      throw error;
+    }
     const primaryBlocksFields = await lockPrimaryBlocksFields(
       identityTx,
       context.resourceId,
     );
-    const currentTargets = eligiblePrimaryIds.length
-      ? await tx.execute({
-          sql: `SELECT p.id FROM content_database_items i
+    const currentTargets = await tx.execute({
+      sql: `SELECT d.system_role, p.id FROM content_database_items i
             INNER JOIN content_databases d ON d.id = i.database_id AND d.deleted_at IS NULL
-            INNER JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
-            WHERE i.document_id = ? AND p.id IN (${eligiblePrimaryIds.map(() => "?").join(",")})`,
-          args: [context.resourceId, ...eligiblePrimaryIds],
-        })
-      : null;
-    if (
-      eligiblePrimaryIds.length > 0 &&
-      !currentTargets?.rows.some((row) =>
+            LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+            WHERE i.document_id = ?`,
+      args: [context.resourceId],
+    });
+    const hasOrdinaryMembership = currentTargets.rows.some(
+      (row) => row.system_role === null,
+    );
+    const hasEligibleTarget = currentTargets.rows.some(
+      (row) =>
+        (row.system_role === null ||
+          (row.system_role === "files" && !hasOrdinaryMembership)) &&
+        eligiblePrimaryIds.includes(String(row.id)) &&
         primaryBlocksFields.some((field) => field.propertyId === row.id),
-      )
+    );
+    if (
+      !hasEligibleTarget &&
+      (eligiblePrimaryIds.length > 0 || currentTargets.rows.length > 0)
     ) {
       fail(
         "This database item has no primary Blocks field for body suggestions.",

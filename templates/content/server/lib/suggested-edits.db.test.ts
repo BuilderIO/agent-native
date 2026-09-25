@@ -528,6 +528,75 @@ describe("Content suggested edits Blocks transaction", () => {
     expect(document?.content).toBe("Before");
   });
 
+  it("rejects a Page that gains an ordinary membership before acceptance locks memberships", async () => {
+    const { documentId } = await seedSystemDatabasePage(1);
+    const ordinaryDatabaseId = `suggestion-ordinary-db-${sequence}-0`;
+    const filesItemId = `suggestion-system-item-${sequence}`;
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(
+        eq(
+          schema.contentDatabaseItems.id,
+          `suggestion-ordinary-item-${sequence}-0`,
+        ),
+      );
+    await expect(
+      getDbExec().transaction!(async (tx) => {
+        const execute = tx.execute.bind(tx);
+        const wrapped = {
+          ...tx,
+          execute: async (query: Parameters<DbExec["execute"]>[0]) => {
+            if (
+              typeof query !== "string" &&
+              query.sql === "SELECT id FROM documents WHERE id = ? FOR UPDATE"
+            ) {
+              await execute({
+                sql: "UPDATE content_database_items SET database_id = ? WHERE id = ?",
+                args: [ordinaryDatabaseId, filesItemId],
+              });
+            }
+            return execute(query);
+          },
+        } as DbExec;
+        return accept(documentId, wrapped);
+      }),
+    ).rejects.toThrow(/no primary Blocks field/);
+    const [document] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("Before");
+  });
+
+  it("returns a retryable conflict when membership writes hold the table lock", async () => {
+    const { documentId } = await seedSystemDatabasePage();
+    await expect(
+      getDbExec().transaction!(async (tx) => {
+        const execute = tx.execute.bind(tx);
+        const wrapped = {
+          ...tx,
+          execute: async (query: Parameters<DbExec["execute"]>[0]) => {
+            if (
+              query ===
+              "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT"
+            ) {
+              throw Object.assign(new Error("lock unavailable"), {
+                code: "55P03",
+              });
+            }
+            return execute(query);
+          },
+        } as DbExec;
+        return accept(documentId, wrapped);
+      }),
+    ).rejects.toMatchObject({ errorCode: "suggestion_conflict" });
+    const [document] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("Before");
+  });
+
   it("rechecks the bound comment thread inside suggestion creation", async () => {
     const { documentId } = await seedSystemDatabasePage();
     const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>

@@ -1437,7 +1437,7 @@ organization membership checks and Content-space resolution for remaining
 collection Pages. The same batch resolver supplies Page reads and suggestions,
 including access through a non-active organization and a validated Content
 space, while excluding an unrelated user. Acceptance takes a transaction-scoped
-shared lock on the membership table before capturing the memberships whose
+exclusive lock on the membership table after locking the Page and before capturing the memberships whose
 primary fields it reconciles; the Page row lock alone cannot exclude inserts
 because membership rows have no Page foreign key. Proposal
 and acceptance both exclude soft-deleted collection containers. A targeted
@@ -1445,6 +1445,10 @@ database regression covers deleted containers and another covers non-active
 organization access. A final acceptance regression removes the eligible field
 between authorization and the membership lock; the transaction rejects it and
 keeps the canonical body unchanged. The affected Content database suites and
-document discovery suite pass locally (90 tests), along with Content typechecking.
+document discovery suite pass locally (92 tests), along with Content typechecking.
 A final regression also covers accepting a standalone Page with no collection
 membership, which must not require a primary Blocks field.
+The locked membership recheck also rejects a Page that gains an ordinary
+collection membership between authorization and the lock.
+The membership lock is acquired without waiting after the Page lock; a competing
+membership write returns a retryable suggestion conflict instead of deadlocking.
