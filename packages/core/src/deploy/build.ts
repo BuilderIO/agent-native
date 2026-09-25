@@ -3411,7 +3411,7 @@ export type EsbuildCommand = {
 export function resolveEsbuildShimCommand(
   bin: string,
   platform: NodeJS.Platform = process.platform,
-  commandProcessor = process.env.ComSpec || "cmd.exe",
+  commandProcessor = "cmd.exe",
 ): EsbuildCommand | null {
   if (!fs.existsSync(bin)) return null;
   if (platform !== "win32") return { executable: bin, args: [] };
@@ -3457,7 +3457,7 @@ export function resolveEsbuildCommand(
 
   return platform === "win32"
     ? {
-        executable: process.env.ComSpec || "cmd.exe",
+        executable: "cmd.exe",
         args: ["/d", "/s", "/c", "call", "esbuild.cmd"],
       }
     : { executable: "esbuild", args: [] };

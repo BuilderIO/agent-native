@@ -5092,6 +5092,33 @@ describe("durable-background Netlify function emit (single-template, default-on)
     },
   );
 
+  it.runIf(process.platform === "win32")(
+    "preserves command characters in Windows shim paths and arguments",
+    () => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "esbuild & shim (test)-"),
+      );
+      const bin = path.join(root, "node_modules", ".bin", "esbuild");
+      fs.mkdirSync(path.dirname(bin), { recursive: true });
+      fs.writeFileSync(bin, "#!/bin/sh\n");
+      fs.writeFileSync(`${bin}.cmd`, "@echo [%1]\r\n");
+
+      try {
+        const command = resolveEsbuildShimCommand(bin, "win32");
+        expect(command).not.toBeNull();
+        const argument = "C:\\build & output (test)\\entry.js";
+        const output = execFileSync(
+          command!.executable,
+          [...command!.args, argument],
+          { encoding: "utf8" },
+        ).trim();
+        expect(output).toBe(`["${argument}"]`);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {
     const cwd = setupNetlifyOutput();
     const serverDir = path.join(
