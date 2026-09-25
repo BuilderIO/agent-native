@@ -942,6 +942,9 @@ export default {
     signUpToSaveDescription:
       "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
     signUpToShare: "سجل للمشاركة",
+    signUpToShareLiveCanvas: "سجّل لمشاركة لوحة مباشرة",
+    liveCanvasLink: "رابط اللوحة المباشرة",
+    liveCanvasWaitingForOwner: "بانتظار لقطة لوحة المالك المباشرة.",
     shareEditorLink: "رابط محرر التصميم",
     shareEditorLinkDescription:
       "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
@@ -1212,6 +1215,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
       applyButton: "تطبيق الأنماط",
+      applySharedEdits: "تطبيق التعديلات",
       previewLabel: "معاينة مرئية معلقة",
       applyDesignUpdates: "تطبيق تحديثات التصميم",
       applying: "جارٍ التطبيق…",
@@ -1292,6 +1296,8 @@ export default {
       annotationSendError:
         "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
+      visualEditPendingConflict:
+        "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
       clipboardBlocked: "تم حظر الحافظة",
       htmlCreateError: "تعذر إنشاء تنزيل HTML",
