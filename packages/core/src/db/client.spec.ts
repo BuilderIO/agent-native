@@ -131,21 +131,52 @@ describe("db/client Postgres URL handling", () => {
     );
   });
 
-  it("keeps an isolated test PGlite URL ahead of inherited hosted aliases", async () => {
+  it.each([
+    ["test", ""],
+    ["production", "true"],
+    ["production", "1"],
+  ])(
+    "keeps test PGlite isolated with NODE_ENV=%s and VITEST=%s",
+    async (nodeEnv, vitest) => {
+      vi.stubEnv("NODE_ENV", nodeEnv);
+      vi.stubEnv("VITEST", vitest);
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "content");
+      vi.stubEnv("DATABASE_URL", "pglite:memory");
+      vi.stubEnv("CONTENT_DATABASE_URL", "postgres://app.example/db");
+      vi.stubEnv(
+        "CONTENT_DATABASE_URL_UNPOOLED",
+        "postgres://app-direct.example/db",
+      );
+      vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
+      vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+      vi.stubEnv(
+        "NETLIFY_DATABASE_URL_UNPOOLED",
+        "postgres://netlify-direct.example/db",
+      );
+
+      const {
+        getDatabaseUrl,
+        getMigrationDatabaseUrl,
+        getRuntimeDatabaseSource,
+        getRuntimeDatabaseUrl,
+      } = await import("./client.js");
+
+      expect(getDatabaseUrl()).toBe("pglite:memory");
+      expect(getRuntimeDatabaseUrl()).toBe("pglite:memory");
+      expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL");
+      expect(getMigrationDatabaseUrl()).toBe("pglite:memory");
+    },
+  );
+
+  it("preserves hosted alias precedence over PGlite outside test processes", async () => {
     vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("VITEST", "true");
+    vi.stubEnv("VITEST", "");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "content");
     vi.stubEnv("DATABASE_URL", "pglite:memory");
     vi.stubEnv("CONTENT_DATABASE_URL", "postgres://app.example/db");
     vi.stubEnv(
       "CONTENT_DATABASE_URL_UNPOOLED",
       "postgres://app-direct.example/db",
-    );
-    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
-    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
-    vi.stubEnv(
-      "NETLIFY_DATABASE_URL_UNPOOLED",
-      "postgres://netlify-direct.example/db",
     );
 
     const {
@@ -155,10 +186,10 @@ describe("db/client Postgres URL handling", () => {
       getRuntimeDatabaseUrl,
     } = await import("./client.js");
 
-    expect(getDatabaseUrl()).toBe("pglite:memory");
-    expect(getRuntimeDatabaseUrl()).toBe("pglite:memory");
-    expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL");
-    expect(getMigrationDatabaseUrl()).toBe("pglite:memory");
+    expect(getDatabaseUrl()).toBe("postgres://app.example/db");
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://app-direct.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("CONTENT_DATABASE_URL_UNPOOLED");
+    expect(getMigrationDatabaseUrl()).toBe("postgres://app-direct.example/db");
   });
 
   it("keeps the Neon foreground pool small on serverless", async () => {
