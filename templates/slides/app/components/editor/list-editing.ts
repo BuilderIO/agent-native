@@ -258,7 +258,8 @@ export function toggleSlideList(
 /**
  * Styled bullet rows already are a bullet list, and only the rows are: a
  * label beside them stays as it is. Toggling bullets drops the row markers;
- * numbering replaces the rows with an ordered list where they stood.
+ * numbering replaces each run of adjacent rows with an ordered list where
+ * that run stood, so rows never move past the content between them.
  */
 function toggleBulletRows(
   element: HTMLElement,
@@ -272,6 +273,23 @@ function toggleBulletRows(
     }
     return element;
   }
+  const runs: HTMLElement[][] = [];
+  rows.forEach((row, index) => {
+    if (index > 0 && rows[index - 1].nextElementSibling === row) {
+      runs[runs.length - 1].push(row);
+    } else {
+      runs.push([row]);
+    }
+  });
+  for (const run of runs) numberRows(element, run, kind);
+  return element;
+}
+
+function numberRows(
+  element: HTMLElement,
+  rows: HTMLElement[],
+  kind: SlideListKind,
+) {
   const list = createSlideList(element.ownerDocument, kind);
   for (const row of rows) {
     const [line] = lineHtml(row);
@@ -292,5 +310,4 @@ function toggleBulletRows(
   }
   rows[0].before(list);
   for (const row of rows) row.remove();
-  return element;
 }
