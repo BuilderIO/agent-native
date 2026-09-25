@@ -12,8 +12,8 @@ metadata:
 Monitor PR #$ARGUMENTS in the current repo and fix CI failures and human or bot
 review feedback. A standalone `/babysit-pr` may stop after 30 minutes of green
 CI and no new feedback. When invoked by `/ship`, honor its inherited
-`ship_mode` in this foreground task. `/ship` never schedules a durable wake.
-A standalone `/babysit-pr` may use one optional durable watcher.
+`ship_mode` in this foreground task. `/ship` and standalone `/babysit-pr` stay
+foreground-only; do not create or resume a durable watcher.
 
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
@@ -42,68 +42,41 @@ merging, except when the user explicitly invokes `/ship-now`.
 
 ## Setup
 
-Before creating or resuming a heartbeat, query the live PR with
-`gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit`.
-If it is closed but unmerged, do not create or resume a watcher; if this task
-already owns one, clean it up and report the unsuccessful shipment. If it is
-already merged under inherited `ship_mode=merge-authorized`, do not create or
-reactivate a watcher: continue the post-merge path in the foreground, leaving
-an existing owned watcher active until ancestry proof and branch disposition
-finish. Standalone and ready-only invocations clean up and report an unexpected
-merge without rotating. If the query fails or is ambiguous, stay
-foreground-only until the PR state is known.
+At the start and on every resumed tick, query the PR:
 
-If the user asks not to create scheduled tasks, keep this invocation in the
-foreground. Every `/ship` invocation is foreground-only: do not create or resume
-a heartbeat or acquire a lease. `/ship` already remains active through its
-merge-authorized or ready-only endpoint.
+```bash
+gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit
+```
 
-1. Run one foreground tick immediately. For standalone `/babysit-pr`, create a
-   task-scoped two-minute heartbeat only when unattended monitoring is useful
-   and a durable wake-up is available. In Codex, name it
-   `babysit-pr-<number>-<this task's threadId>` and create it with a complete
-   heartbeat definition and `notificationPolicy: failed_runs_only`. Its
-   recurrence schedules later ticks; do not update it every tick.
+If the query fails or is ambiguous, stay foreground-only until its state is
+known. A closed, unmerged PR ends babysitting and is reported as unsuccessful.
+If a PR is already merged under inherited `ship_mode=merge-authorized`,
+continue the post-merge path here. Standalone and ready-only invocations report
+an unexpected merge without rotating.
 
-   A lease is only for serializing that standalone heartbeat. Before claiming
-   one, inspect the exact legacy `babysit-pr-<number>` heartbeat. If any legacy
-   record exists, regardless of status, or cannot be read, leave it untouched
-   and continue in the foreground; do not try to migrate or fence it. For a PR
-   with no legacy record, claim
-   `refs/heads/agent-native-babysit-lock-<number>` atomically, recording the PR,
-   owner thread, version, and expiry. Use the neutral commit subject
-   `babysit lease`, never the PR number. Use a 30-minute expiry and renew only
-   when 10 minutes or less remain; never create a lease commit on every tick.
-   Recheck that the PR is OPEN and this task still owns the lease before
-   creating or updating its heartbeat.
+1. Run one foreground tick immediately and continue here until this mode's
+   endpoint. Do not create or resume a heartbeat, acquire a lease, or update a
+   scheduled task. Leave legacy and foreign automations untouched. A lease has
+   no role in foreground PR work.
+2. Track the last actionable item: new human/bot feedback, a CI fix, conflict
+   resolution, or an intentional commit/push.
+3. For standalone `/babysit-pr`, stop after 30 minutes with green GitHub Actions
+   CI and no new actionable item. Under `/ship` with `ship_mode=merge-authorized`,
+   keep working through the 10-minute merge gate and guarded merge. With
+   `ship_mode=ready-only`, fix CI and review feedback until the ready-PR gate
+   holds, then leave the PR open.
 
-   Lease contention or read/claim/renewal failure only skips or pauses this
-   task's standalone heartbeat. Continue PR work in the foreground. On stop,
-   pause only this task's heartbeat using its complete persisted definition,
-   then delete only this task's lease with `--force-with-lease` against the
-   observed oid. If watcher setup or cleanup fails, do not retry in a blocking
-   loop; let the lease expire. Never pause another task's heartbeat or touch
-   the legacy identity. If no durable wake-up is available, keep the foreground
-   loop running.
-2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
-3. For standalone `/babysit-pr`, after 30 minutes with green GitHub Actions
-   CI and no new actionable item, stop and report "All clear". Under `/ship`
-   with `ship_mode=merge-authorized`, continue this foreground task through the
-   10-minute merge gate and guarded merge. With `ship_mode=ready-only`, fix CI
-   and review feedback until the ready-PR gate holds, then leave the PR open.
-
-After an actionable fix or push, reset the applicable clock: the 30-minute
-quiet-green timer for standalone babysitting, or `/ship`'s 10-minute merge soak.
-The `/ship` soak starts only after every merge condition below is simultaneously
-true; it never waits for 30 minutes of quiet.
+After an actionable fix or push, reset the applicable clock: standalone's
+30-minute quiet-green timer or `/ship`'s 10-minute merge soak. The `/ship` soak
+starts only once every merge condition below holds; it never waits for 30
+minutes of quiet.
 
 ### Loop discipline — read this, it is the part people get wrong
 
 - **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
 - **Keep the foreground loop moving.** Do not end `/ship` because CI, review, or
   a background command is pending. Use short interruptible waits and check
-  again in this task. A standalone invocation may use its optional heartbeat;
-  lease problems never stop foreground work.
+  again in this task. No heartbeat or lease is needed for this loop.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
 - **Every tick, expect new local files.** On an active shared branch, concurrent
   agents may edit the checkout continuously. Re-run Step 0 every single tick
@@ -121,15 +94,11 @@ if ! git fetch origin --quiet; then
 fi
 ```
 
-After a successful fetch, renew a lease only for this standalone task's own
-heartbeat and only when 10 minutes or less remain. `/ship` never acquires or
-renews a lease. A lease failure pauses only this task's standalone heartbeat;
-continue the PR work in the foreground.
 Immediately query the live PR state with
 `gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit`.
-If the query fails, do not run the branch/review/CI checks or schedule another
-tick until live state is available. A closed but unmerged PR goes to cleanup
-and is reported as an unsuccessful merge-authorized shipment. A merged PR is a
+If the query fails, do not run branch, review, or CI checks; retry on the next
+foreground tick. A closed but unmerged PR ends babysitting and is reported as
+unsuccessful. A merged PR is a
 terminal state for standalone `/babysit-pr` and inherited `ship_mode=ready-only`
 (report the unexpected merge and do not rotate). Under inherited
 `ship_mode=merge-authorized`, continue the `/ship` post-merge path below before
@@ -379,7 +348,7 @@ clean worktree, and no unpushed commits. If any condition changed or cannot be
 verified, reset the soak and continue monitoring. Capture the head oid from
 that final check. Before merging under `/ship`, persist it as
 `ship_merge_head_oid=<verified-head-oid>` in the task transcript or active goal.
-No watcher is required. Keep this exact value through post-merge verification;
+Keep this exact value through post-merge verification;
 never replace it with a live `headRefOid` read after merge. If it is unavailable
 after merge, retain the source branch rather than guessing.
 Then run:
@@ -401,7 +370,7 @@ mutable live head ref.
   Actions green for 30 consecutive minutes
 - In `ship_mode=ready-only`: the verified ready-PR endpoint above
 - A merged PR completes standalone babysitting; in inherited
-  `ship_mode=merge-authorized`, it starts the post-merge ship continuation
+  `ship_mode=merge-authorized`, continue through the post-merge ship endpoint
 - A closed but unmerged PR ends babysitting, but never completes the ship goal
 
 In `ship_mode=merge-authorized`, never stop at the 30-minute quiet-green
@@ -458,10 +427,4 @@ disposition.
 
 ## Cleanup
 
-If this standalone invocation created a heartbeat, pause only that
-heartbeat with its complete persisted definition, then delete only its lease
-ref with `--force-with-lease` against the observed oid. `/ship` creates neither.
-If cleanup fails, do not block foreground work or retry indefinitely; the lease
-expiry lets another watcher proceed. Never touch the legacy heartbeat or
-another task's watcher or lease.
-Verify the PR's final state.
+No watcher or lease cleanup is needed. Verify the PR's final state.

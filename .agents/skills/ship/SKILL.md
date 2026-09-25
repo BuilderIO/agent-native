@@ -59,7 +59,7 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   revalidation, `MERGEABLE`, a clean worktree, and no unpushed commits.
   Complete the ship goal only after its stated endpoint is reached.
   The goal records the objective; `/babysit-pr` owns the checks. `/ship` stays
-  foreground-only and does not schedule a watcher.
+  foreground-only and creates no watcher or lease.
 - In Claude Code, use its native session goal for the same endpoint. `/goal` is
   a session command, not an agent tool, so the user must submit it as a separate
   message before invoking `/ship`; loading the skill cannot set it. Submit this
@@ -241,9 +241,9 @@ conflict recovery, and cadence. `/ship` never creates a watcher or acquires a
 lease; keep this task active through its authorized endpoint.
 
 Under `/ship` with `ship_mode=merge-authorized`, `/babysit-pr` is a blocking
-subworkflow, not a terminal handoff. Do not return "All clear," stop the task,
-or stop this foreground task while the PR is open. A green, review-clean,
-mergeable unchanged head that passes the 10-minute gate is an immediate guarded-merge
+subworkflow, not a terminal handoff. Do not return "All clear" or stop this
+foreground task while the PR is open. A green, review-clean, mergeable
+unchanged head that passes the 10-minute gate is an immediate guarded-merge
 trigger. After merge, continue in this foreground task through `origin/main`
 verification and branch disposition before completing the ship goal.
 
