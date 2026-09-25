@@ -210,8 +210,8 @@ describe("SlideEditor render-phase safety", () => {
     const enterEnd = source.indexOf("// Exit edit mode", enterStart);
     const enterBody = source.slice(enterStart, enterEnd);
     expect(enterBody).toContain("findEnclosingList(block, slideContent)");
-    expect(enterBody).toContain(
-      "const el = list && isRichTextBlock(list) ? list : block;",
+    expect(enterBody).toMatch(
+      /const el =\s+list &&\s+isRichTextBlock\(list\) &&\s+!holdsPaintedTextBox\(list, slideContent\)\s+\? list\s+: block;/,
     );
   });
 
