@@ -46,6 +46,9 @@ describe("generateActionRegistryForProject", () => {
       expect(registry).toContain('"set-localization-preference"');
       expect(registry).toContain('"get-observability-review-app"');
       expect(registry).toContain('"get-observability-review-detail"');
+      expect(registry).toContain('"get-observability-review-summary-source"');
+      expect(registry).toContain('"save-observability-review-summary"');
+      expect(registry).toContain('"save-observability-review-feedback"');
       expect(registry).toContain('"list-resource-history"');
       expect(registry).toContain('"list-review-comments"');
       expect(registry).toContain('"update-review-comment"');
@@ -62,6 +65,9 @@ describe("generateActionRegistryForProject", () => {
       expect(types).toContain('"set-localization-preference"');
       expect(types).toContain('"get-observability-review-app"');
       expect(types).toContain('"get-observability-review-detail"');
+      expect(types).toContain('"get-observability-review-summary-source"');
+      expect(types).toContain('"save-observability-review-summary"');
+      expect(types).toContain('"save-observability-review-feedback"');
       expect(types).toContain('"list-resource-history"');
       expect(types).toContain('"list-review-comments"');
       expect(types).toContain('"update-review-comment"');

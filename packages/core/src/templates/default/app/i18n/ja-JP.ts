@@ -687,6 +687,7 @@ const messages = {
     saveUpdate: "更新案を保存",
     draftSaved: "下書きを保存しました",
     noReviews: "レビューするエージェント回答はまだありません",
+    summarizeWithAgent: "エージェントで要約",
   },
   error: {
     genericTitle: "問題が発生しました",

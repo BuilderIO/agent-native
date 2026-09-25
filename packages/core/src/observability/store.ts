@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * SQL persistence for the agent observability system.
  *
@@ -23,6 +25,7 @@ import type {
   ExperimentAssignment,
   ExperimentMetricResult,
   InstructionUpdate,
+  HumanReviewSummary,
 } from "./types.js";
 
 function safeJsonParse<T>(value: unknown, fallback: T): T {
@@ -32,6 +35,77 @@ function safeJsonParse<T>(value: unknown, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+const persistedHumanReviewArtifactSchema = z
+  .object({
+    appId: z.enum(["design", "slides", "analytics"]),
+    artifactId: z.string().min(1).max(200),
+    title: z.string().min(1).max(240),
+    path: z.string().max(300).optional(),
+  })
+  .strict()
+  .superRefine((artifact, ctx) => {
+    if (!artifact.path) return;
+    const id = artifact.artifactId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const paths = {
+      design: new RegExp(`^/(?:design|present)/${id}$`),
+      slides: new RegExp(`^/deck/${id}(?:/present)?$`),
+      analytics: new RegExp(`^/(?:dashboards|analyses|adhoc)/${id}$`),
+    };
+    if (!paths[artifact.appId].test(artifact.path)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["path"],
+        message: "Persisted artifact path does not match its app and ID.",
+      });
+    }
+  });
+
+const persistedTimestampSchema = z
+  .union([
+    z.number().finite().nonnegative(),
+    z.string().regex(/^\d+$/).transform(Number),
+  ])
+  .refine(Number.isFinite);
+
+const persistedHumanReviewSummaryRowSchema = z.object({
+  run_id: z.string().min(1),
+  org_id: z.string().min(1),
+  ask: z.string().min(1).max(2_000),
+  outcome: z.string().min(1).max(3_000),
+  artifacts: z.string(),
+  created_by: z.string().min(1),
+  created_at: persistedTimestampSchema,
+  updated_at: persistedTimestampSchema,
+});
+
+function parseHumanReviewSummaryRow(
+  row: Record<string, unknown>,
+): HumanReviewSummary {
+  const parsed = persistedHumanReviewSummaryRowSchema.parse(row);
+  let artifactsJson: unknown;
+  try {
+    artifactsJson = JSON.parse(parsed.artifacts);
+  } catch (error) {
+    throw new Error("Invalid persisted human-review summary artifacts JSON", {
+      cause: error,
+    });
+  }
+  const artifacts = z
+    .array(persistedHumanReviewArtifactSchema)
+    .max(12)
+    .parse(artifactsJson);
+  return {
+    runId: parsed.run_id,
+    orgId: parsed.org_id,
+    ask: parsed.ask,
+    outcome: parsed.outcome,
+    artifacts,
+    createdBy: parsed.created_by,
+    createdAt: parsed.created_at,
+    updatedAt: parsed.updated_at,
+  };
 }
 
 // Tables whose rows are owned by an end user — drives the boot-time
@@ -56,12 +130,19 @@ function withUserFilter(
   baseWhere: string,
   baseArgs: any[],
   userId: string | undefined,
+  orgId?: string,
 ): { where: string; args: any[] } {
-  if (userId == null) return { where: baseWhere, args: baseArgs };
-  return {
-    where: `${baseWhere} AND user_id = ?`,
-    args: [...baseArgs, userId],
-  };
+  const conditions = [baseWhere];
+  const args = [...baseArgs];
+  if (userId != null) {
+    conditions.push("user_id = ?");
+    args.push(userId);
+  }
+  if (orgId != null) {
+    conditions.push("org_id = ?");
+    args.push(orgId);
+  }
+  return { where: conditions.join(" AND "), args };
 }
 
 let _initPromise: Promise<void> | undefined;
@@ -75,6 +156,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           run_id TEXT NOT NULL,
           thread_id TEXT,
           user_id TEXT,
+          org_id TEXT,
           parent_span_id TEXT,
           span_type TEXT NOT NULL,
           name TEXT NOT NULL,
@@ -96,6 +178,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           run_id TEXT PRIMARY KEY,
           thread_id TEXT,
           user_id TEXT,
+          org_id TEXT,
           total_spans BIGINT NOT NULL DEFAULT 0,
           llm_calls BIGINT NOT NULL DEFAULT 0,
           tool_calls BIGINT NOT NULL DEFAULT 0,
@@ -120,6 +203,8 @@ export async function ensureObservabilityTables(): Promise<void> {
           value TEXT NOT NULL DEFAULT '',
           idempotency_key TEXT,
           user_id TEXT,
+          org_id TEXT,
+          source TEXT NOT NULL DEFAULT 'chat',
           created_at BIGINT NOT NULL
         )
       `;
@@ -134,6 +219,20 @@ export async function ensureObservabilityTables(): Promise<void> {
           feedback TEXT NOT NULL DEFAULT '',
           status TEXT NOT NULL DEFAULT 'draft',
           user_id TEXT NOT NULL,
+          org_id TEXT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `;
+
+      const humanReviewSummariesCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_human_review_summaries (
+          run_id TEXT PRIMARY KEY,
+          org_id TEXT NOT NULL,
+          ask TEXT NOT NULL,
+          outcome TEXT NOT NULL,
+          artifacts TEXT NOT NULL DEFAULT '[]',
+          created_by TEXT NOT NULL,
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL
         )
@@ -231,6 +330,10 @@ export async function ensureObservabilityTables(): Promise<void> {
           instructionUpdatesCreateSql,
         );
         await ensureTableExists(
+          "agent_human_review_summaries",
+          humanReviewSummariesCreateSql,
+        );
+        await ensureTableExists(
           "agent_satisfaction_scores",
           satisfactionScoresCreateSql,
         );
@@ -257,6 +360,23 @@ export async function ensureObservabilityTables(): Promise<void> {
             `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS user_id TEXT`,
           );
         }
+        for (const table of [
+          "agent_trace_spans",
+          "agent_trace_summaries",
+          "agent_feedback",
+          "agent_instruction_updates",
+        ]) {
+          await ensureColumnExists(
+            table,
+            "org_id",
+            `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS org_id TEXT`,
+          );
+        }
+        await ensureColumnExists(
+          "agent_feedback",
+          "source",
+          `ALTER TABLE agent_feedback ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'chat'`,
+        );
         await ensureColumnExists(
           "agent_feedback",
           "idempotency_key",
@@ -355,15 +475,16 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
   const client = getDbExec();
   await client.execute({
     sql: `INSERT INTO agent_trace_spans
-      (id, run_id, thread_id, user_id, parent_span_id, span_type, name,
+      (id, run_id, thread_id, user_id, org_id, parent_span_id, span_type, name,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
        cost_cents_x100, duration_ms, status, error_message, metadata, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       span.id,
       span.runId,
       span.threadId,
       span.userId,
+      span.orgId ?? null,
       span.parentSpanId,
       span.spanType,
       span.name,
@@ -384,16 +505,16 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
 export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  // user_id is intentionally NOT updated on conflict — once a run's
+  // user_id and org_id are intentionally NOT updated on conflict — once a run's
   // owner is recorded it shouldn't change under us.
   {
     await client.execute({
       sql: `INSERT INTO agent_trace_summaries
-        (run_id, thread_id, user_id, total_spans, llm_calls, tool_calls,
+        (run_id, thread_id, user_id, org_id, total_spans, llm_calls, tool_calls,
          successful_tools, failed_tools, total_duration_ms,
          total_cost_cents_x100, total_input_tokens, total_output_tokens,
          model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (run_id) DO UPDATE SET
           total_spans = EXCLUDED.total_spans,
           llm_calls = EXCLUDED.llm_calls,
@@ -409,6 +530,7 @@ export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
         summary.runId,
         summary.threadId,
         summary.userId,
+        summary.orgId ?? null,
         summary.totalSpans,
         summary.llmCalls,
         summary.toolCalls,
@@ -469,11 +591,16 @@ export async function deleteOldTraceData(cutoffMs: number): Promise<{
 
 export async function getTraceSpansForRun(
   runId: string,
-  opts: { userId?: string } = {},
+  opts: { userId?: string; orgId?: string } = {},
 ): Promise<TraceSpan[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  const { where, args } = withUserFilter("run_id = ?", [runId], opts.userId);
+  const { where, args } = withUserFilter(
+    "run_id = ?",
+    [runId],
+    opts.userId,
+    opts.orgId,
+  );
   const { rows } = await client.execute({
     sql: `SELECT * FROM agent_trace_spans WHERE ${where} ORDER BY created_at ASC`,
     args,
@@ -485,6 +612,9 @@ export async function getTraceSummaries(opts: {
   sinceMs?: number;
   limit?: number;
   userId?: string;
+  orgId?: string;
+  excludeSpanName?: string;
+  requireReviewContext?: boolean;
 }): Promise<TraceSummary[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -494,30 +624,159 @@ export async function getTraceSummaries(opts: {
     "created_at >= ?",
     [sinceMs],
     opts.userId,
+    opts.orgId,
   );
+  const exclude = opts.excludeSpanName
+    ? `AND run_id NOT IN (
+        SELECT run_id FROM agent_trace_spans
+        WHERE span_type = 'agent_run' AND name = ?
+      )`
+    : "";
+  const reviewContext = opts.requireReviewContext
+    ? `AND thread_id IS NOT NULL
+      AND (
+        EXISTS (
+          SELECT 1 FROM chat_threads review_thread
+          WHERE review_thread.id = agent_trace_summaries.thread_id
+            AND review_thread.org_id = agent_trace_summaries.org_id
+            AND LOWER(review_thread.owner_email) = LOWER(agent_trace_summaries.user_id)
+            AND LENGTH(TRIM(review_thread.title)) > 0
+        )
+        OR EXISTS (
+          SELECT 1 FROM agent_human_review_summaries review_summary
+          WHERE review_summary.run_id = agent_trace_summaries.run_id
+            AND review_summary.org_id = agent_trace_summaries.org_id
+        )
+      )`
+    : "";
   const { rows } = await client.execute({
     sql: `SELECT * FROM agent_trace_summaries
       WHERE ${where}
+      ${exclude}
+      ${reviewContext}
       ORDER BY created_at DESC
       LIMIT ?`,
-    args: [...args, limit],
+    args: [
+      ...args,
+      ...(opts.excludeSpanName ? [opts.excludeSpanName] : []),
+      limit,
+    ],
   });
   return (rows as any[]).map(rowToTraceSummary);
 }
 
 export async function getTraceSummary(
   runId: string,
-  opts: { userId?: string } = {},
+  opts: { userId?: string; orgId?: string } = {},
 ): Promise<TraceSummary | null> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  const { where, args } = withUserFilter("run_id = ?", [runId], opts.userId);
+  const { where, args } = withUserFilter(
+    "run_id = ?",
+    [runId],
+    opts.userId,
+    opts.orgId,
+  );
   const { rows } = await client.execute({
     sql: `SELECT * FROM agent_trace_summaries WHERE ${where}`,
     args,
   });
   if (rows.length === 0) return null;
   return rowToTraceSummary(rows[0] as any);
+}
+
+export async function getOrgScopedThreadData(
+  orgId: string,
+  ownerEmail: string,
+  threadIds: readonly string[],
+): Promise<Map<string, string | null>> {
+  const ids = [...new Set(threadIds.filter(Boolean))];
+  if (!orgId || !ownerEmail || ids.length === 0) return new Map();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, thread_data FROM chat_threads
+      WHERE org_id = ? AND LOWER(owner_email) = LOWER(?)
+        AND id IN (${ids.map(() => "?").join(", ")})`,
+    args: [orgId, ownerEmail, ...ids],
+  });
+  return new Map(
+    (rows as Array<Record<string, unknown>>).map((row) => [
+      String(row.id),
+      typeof row.thread_data === "string" ? row.thread_data : null,
+    ]),
+  );
+}
+
+export async function getOrgScopedThreadTitles(
+  orgId: string,
+  ownerEmail: string,
+  threadIds: readonly string[],
+): Promise<Map<string, string>> {
+  const ids = [...new Set(threadIds.filter(Boolean))];
+  if (!orgId || !ownerEmail || ids.length === 0) return new Map();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, title FROM chat_threads
+      WHERE org_id = ? AND LOWER(owner_email) = LOWER(?)
+        AND id IN (${ids.map(() => "?").join(", ")})`,
+    args: [orgId, ownerEmail, ...ids],
+  });
+  return new Map(
+    (rows as Array<Record<string, unknown>>)
+      .filter((row) => typeof row.title === "string" && row.title.trim())
+      .map((row) => [String(row.id), String(row.title).slice(0, 240)]),
+  );
+}
+
+export async function getHumanReviewSummaries(
+  orgId: string,
+  runIds?: readonly string[],
+): Promise<Map<string, HumanReviewSummary>> {
+  await ensureObservabilityTables();
+  if (!orgId) return new Map();
+  const ids = runIds ? [...new Set(runIds.filter(Boolean))] : undefined;
+  if (ids && ids.length === 0) return new Map();
+  const client = getDbExec();
+  const idFilter = ids
+    ? `AND run_id IN (${ids.map(() => "?").join(", ")})`
+    : "";
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_human_review_summaries WHERE org_id = ? ${idFilter}`,
+    args: [orgId, ...(ids ?? [])],
+  });
+  return new Map(
+    (rows as Array<Record<string, unknown>>).map((row) => {
+      const summary = parseHumanReviewSummaryRow(row);
+      return [summary.runId, summary];
+    }),
+  );
+}
+
+export async function upsertHumanReviewSummary(
+  summary: HumanReviewSummary,
+): Promise<boolean> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `INSERT INTO agent_human_review_summaries
+      (run_id, org_id, ask, outcome, artifacts, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (run_id) DO UPDATE SET ask = EXCLUDED.ask,
+        outcome = EXCLUDED.outcome, artifacts = EXCLUDED.artifacts,
+        created_by = EXCLUDED.created_by, updated_at = EXCLUDED.updated_at
+      WHERE agent_human_review_summaries.org_id = EXCLUDED.org_id`,
+    args: [
+      summary.runId,
+      summary.orgId,
+      summary.ask,
+      summary.outcome,
+      JSON.stringify(summary.artifacts),
+      summary.createdBy,
+      summary.createdAt,
+      summary.updatedAt,
+    ],
+  });
+  return Number(result.rowsAffected ?? 0) > 0;
 }
 
 /** Latest completed response in a thread, always scoped to its owner. */
@@ -545,8 +804,8 @@ export async function insertFeedback(entry: FeedbackEntry): Promise<boolean> {
   const client = getDbExec();
   const result = await client.execute({
     sql: `INSERT INTO agent_feedback
-      (id, run_id, thread_id, message_seq, feedback_type, value, idempotency_key, user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, run_id, thread_id, message_seq, feedback_type, value, idempotency_key, user_id, org_id, source, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT DO NOTHING`,
     args: [
       entry.id,
@@ -557,6 +816,8 @@ export async function insertFeedback(entry: FeedbackEntry): Promise<boolean> {
       entry.value,
       entry.idempotencyKey,
       entry.userId,
+      entry.orgId ?? null,
+      entry.source ?? "chat",
       entry.createdAt,
     ],
   });
@@ -569,6 +830,8 @@ export async function getFeedback(opts: {
   limit?: number;
   feedbackType?: string;
   userId?: string;
+  orgId?: string;
+  source?: FeedbackEntry["source"];
 }): Promise<FeedbackEntry[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -590,6 +853,14 @@ export async function getFeedback(opts: {
     conditions.push("user_id = ?");
     args.push(opts.userId);
   }
+  if (opts.orgId != null) {
+    conditions.push("org_id = ?");
+    args.push(opts.orgId);
+  }
+  if (opts.source) {
+    conditions.push("source = ?");
+    args.push(opts.source);
+  }
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const limit = opts.limit ?? 100;
@@ -602,7 +873,7 @@ export async function getFeedback(opts: {
 
 export async function getFeedbackStats(
   sinceMs: number,
-  opts: { userId?: string } = {},
+  opts: { userId?: string; orgId?: string } = {},
 ): Promise<{
   total: number;
   thumbsUp: number;
@@ -615,10 +886,11 @@ export async function getFeedbackStats(
     "created_at >= ?",
     [sinceMs],
     opts.userId,
+    opts.orgId,
   );
   const { rows } = await client.execute({
     sql: `SELECT feedback_type, value, COUNT(*) as cnt
-      FROM agent_feedback WHERE ${where}
+      FROM agent_feedback WHERE ${where} AND source = 'chat'
       GROUP BY feedback_type, value`,
     args,
   });
@@ -644,8 +916,8 @@ export async function insertInstructionUpdate(
   const client = getDbExec();
   await client.execute({
     sql: `INSERT INTO agent_instruction_updates
-      (id, run_id, thread_id, target, instruction, feedback, status, user_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, run_id, thread_id, target, instruction, feedback, status, user_id, org_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       update.id,
       update.runId,
@@ -655,6 +927,7 @@ export async function insertInstructionUpdate(
       update.feedback,
       update.status,
       update.userId,
+      update.orgId ?? null,
       update.createdAt,
       update.updatedAt,
     ],
@@ -666,6 +939,7 @@ export async function getInstructionUpdates(opts: {
   sinceMs?: number;
   limit?: number;
   userId?: string;
+  orgId?: string;
 }): Promise<InstructionUpdate[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -682,6 +956,10 @@ export async function getInstructionUpdates(opts: {
   if (opts.userId) {
     conditions.push("user_id = ?");
     args.push(opts.userId);
+  }
+  if (opts.orgId != null) {
+    conditions.push("org_id = ?");
+    args.push(opts.orgId);
   }
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -1128,7 +1406,7 @@ export async function getObservabilityOverview(
         sql: `SELECT
           COALESCE(SUM(CASE WHEN feedback_type = 'thumbs_up' THEN 1 ELSE 0 END), 0) as up,
           COALESCE(SUM(CASE WHEN feedback_type IN ('thumbs_up', 'thumbs_down') THEN 1 ELSE 0 END), 0) as total
-          FROM agent_feedback WHERE ${created.where}`,
+          FROM agent_feedback WHERE ${created.where} AND source = 'chat'`,
         args: created.args,
       }),
       client.execute({
@@ -1167,6 +1445,7 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     runId: String(row.run_id),
     threadId: row.thread_id ? String(row.thread_id) : null,
     userId: row.user_id ? String(row.user_id) : null,
+    orgId: row.org_id ? String(row.org_id) : null,
     parentSpanId: row.parent_span_id ? String(row.parent_span_id) : null,
     spanType: row.span_type as TraceSpan["spanType"],
     name: String(row.name),
@@ -1188,6 +1467,7 @@ function rowToTraceSummary(row: Record<string, any>): TraceSummary {
     runId: String(row.run_id),
     threadId: row.thread_id ? String(row.thread_id) : null,
     userId: row.user_id ? String(row.user_id) : null,
+    orgId: row.org_id ? String(row.org_id) : null,
     totalSpans: Number(row.total_spans ?? 0),
     llmCalls: Number(row.llm_calls ?? 0),
     toolCalls: Number(row.tool_calls ?? 0),
@@ -1212,6 +1492,8 @@ function rowToFeedback(row: Record<string, any>): FeedbackEntry {
     value: String(row.value ?? ""),
     idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
     userId: row.user_id ? String(row.user_id) : null,
+    orgId: row.org_id ? String(row.org_id) : null,
+    source: row.source === "human_review" ? "human_review" : "chat",
     createdAt: Number(row.created_at),
   };
 }
@@ -1226,6 +1508,7 @@ function rowToInstructionUpdate(row: Record<string, any>): InstructionUpdate {
     feedback: String(row.feedback ?? ""),
     status: row.status as InstructionUpdate["status"],
     userId: String(row.user_id),
+    orgId: row.org_id ? String(row.org_id) : null,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };

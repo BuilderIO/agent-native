@@ -48,6 +48,7 @@ async function seed(db: Awaited<ReturnType<typeof createTestPglite>>) {
     CREATE TABLE agent_trace_spans (id TEXT PRIMARY KEY, user_id TEXT);
     CREATE TABLE agent_trace_summaries (run_id TEXT PRIMARY KEY, user_id TEXT);
     CREATE TABLE agent_feedback (id TEXT PRIMARY KEY, user_id TEXT);
+    CREATE TABLE agent_human_review_summaries (run_id TEXT PRIMARY KEY, created_by TEXT);
     CREATE TABLE agent_satisfaction_scores (id TEXT PRIMARY KEY, user_id TEXT);
     CREATE TABLE agent_evals (id TEXT PRIMARY KEY, user_id TEXT);
     CREATE TABLE agent_experiment_assignments (experiment_id TEXT, user_id TEXT, PRIMARY KEY(experiment_id, user_id));
@@ -82,6 +83,7 @@ async function seed(db: Awaited<ReturnType<typeof createTestPglite>>) {
     INSERT INTO agent_trace_spans VALUES ('span1', 'OLD@example.test');
     INSERT INTO agent_trace_summaries VALUES ('run1', 'old@example.test');
     INSERT INTO agent_feedback VALUES ('feedback1', 'old@example.test');
+    INSERT INTO agent_human_review_summaries VALUES ('run1', 'old@example.test');
     INSERT INTO agent_satisfaction_scores VALUES ('score1', 'old@example.test');
     INSERT INTO agent_evals VALUES ('eval1', 'old@example.test');
     INSERT INTO agent_experiment_assignments VALUES ('exp1', 'old@example.test');
@@ -327,6 +329,11 @@ describe("rekeyIdentity", () => {
         actor_email: "old@example.test",
         owner_email: "old@example.test",
       });
+      expect(
+        await pg
+          .prepare("SELECT created_by FROM agent_human_review_summaries")
+          .get(),
+      ).toEqual({ created_by: "old@example.test" });
       expect(
         await pg.prepare("SELECT user_id FROM agent_trace_spans").get(),
       ).toEqual({ user_id: "new@example.test" });

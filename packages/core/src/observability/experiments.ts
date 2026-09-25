@@ -261,6 +261,7 @@ export async function computeExperimentResults(
             WHERE thread_id IN (
               SELECT DISTINCT f.thread_id FROM agent_feedback f
               WHERE f.user_id IN (${placeholders}) AND f.thread_id IS NOT NULL
+                AND f.source = 'chat'
             )
             ${experiment.startedAt ? "AND computed_at >= ?" : ""}`,
       args: experiment.startedAt ? [...userIds, experiment.startedAt] : userIds,

@@ -25,13 +25,18 @@ import {
   getHeader,
   getMethod,
   getQuery,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
+import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
-import { getRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+} from "../server/request-context.js";
 import { track } from "../tracking/registry.js";
 import { emitAiFeedbackSurveyEvent } from "./posthog-ai.js";
 import {
@@ -86,6 +91,16 @@ async function resolveOwner(event: H3Event): Promise<string> {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   return session.email;
+}
+
+async function feedbackReadScope(
+  event: H3Event,
+  userId: string,
+): Promise<{ orgId: string } | { userId: string }> {
+  const org = await getOrgContext(event);
+  return org.orgId && (org.role === "owner" || org.role === "admin")
+    ? { orgId: org.orgId }
+    : { userId };
 }
 
 function canManageExperiments(ownerEmail: string): boolean {
@@ -184,8 +199,12 @@ export function createObservabilityHandler() {
       parts[0] === "feedback" &&
       parts[1] === "stats"
     ) {
+      setResponseHeader(event, "Cache-Control", "private, no-store");
       const q = getQuery(event);
-      return getFeedbackStats(parseSince(q), { userId: owner });
+      return getFeedbackStats(
+        parseSince(q),
+        await feedbackReadScope(event, owner),
+      );
     }
 
     // POST /feedback — submit feedback
@@ -224,6 +243,8 @@ export function createObservabilityHandler() {
         value,
         idempotencyKey,
         userId: owner,
+        orgId: getRequestOrgId() ?? null,
+        source: "chat",
         createdAt: Date.now(),
       });
       if (!inserted) return { id };
@@ -305,6 +326,7 @@ export function createObservabilityHandler() {
 
     // GET /feedback — list feedback entries
     if (method === "GET" && parts.length === 1 && parts[0] === "feedback") {
+      setResponseHeader(event, "Cache-Control", "private, no-store");
       const q = getQuery(event);
       return getFeedback({
         sinceMs: parseSince(q),
@@ -312,7 +334,7 @@ export function createObservabilityHandler() {
         feedbackType: isFeedbackType(q.feedbackType)
           ? q.feedbackType
           : undefined,
-        userId: owner,
+        ...(await feedbackReadScope(event, owner)),
       });
     }
 

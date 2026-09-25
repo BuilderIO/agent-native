@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
+const mockGetOrgContext = vi.hoisted(() => vi.fn());
+const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 const mockGetObservabilityOverview = vi.hoisted(() => vi.fn());
 const mockGetTraceSummaries = vi.hoisted(() => vi.fn());
 const mockGetTraceSummary = vi.hoisted(() => vi.fn());
 const mockInsertFeedback = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockGetFeedback = vi.hoisted(() => vi.fn());
+const mockGetFeedbackStats = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -17,6 +21,10 @@ vi.mock("h3", () => ({
     Object.fromEntries(event.url?.searchParams?.entries?.() ?? []),
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
+  },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    event.responseHeaders ??= {};
+    event.responseHeaders[name.toLowerCase()] = value;
   },
   createError: ({
     statusCode,
@@ -32,6 +40,15 @@ vi.mock("h3", () => ({
 
 vi.mock("../server/auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+}));
+
+vi.mock("../org/context.js", () => ({
+  getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
+}));
+
+vi.mock("../server/request-context.js", () => ({
+  getRequestContext: () => undefined,
+  getRequestOrgId: () => mockGetRequestOrgId(),
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
@@ -50,8 +67,8 @@ vi.mock("./store.js", () => ({
   getTraceSpansForRun: vi.fn(),
   getEvalsForRun: vi.fn(),
   insertFeedback: (...args: unknown[]) => mockInsertFeedback(...args),
-  getFeedback: vi.fn(),
-  getFeedbackStats: vi.fn(),
+  getFeedback: (...args: unknown[]) => mockGetFeedback(...args),
+  getFeedbackStats: (...args: unknown[]) => mockGetFeedbackStats(...args),
   getSatisfactionScores: vi.fn(),
   getEvalStats: vi.fn(),
   listExperiments: vi.fn(),
@@ -81,6 +98,8 @@ describe("observability routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSession.mockResolvedValue({ email: "alice@example.com" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "admin" });
+    mockGetRequestOrgId.mockReturnValue(null);
     mockGetObservabilityOverview.mockResolvedValue({ runs: 0 });
     mockGetTraceSummaries.mockResolvedValue([]);
     mockGetTraceSummary.mockResolvedValue(null);
@@ -109,6 +128,54 @@ describe("observability routes", () => {
       sinceMs: 123,
       limit: 100,
       userId: "alice@example.com",
+    });
+  });
+
+  it("keeps generic feedback reads user-scoped for non-admins", async () => {
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "member" });
+    const handler = createObservabilityHandler() as any;
+
+    await handler(createEvent("/feedback?since=123"));
+    await handler(createEvent("/feedback/stats?since=123"));
+
+    expect(mockGetFeedback).toHaveBeenCalledWith({
+      sinceMs: 123,
+      limit: 100,
+      feedbackType: undefined,
+      userId: "alice@example.com",
+    });
+    expect(mockGetFeedbackStats).toHaveBeenCalledWith(123, {
+      userId: "alice@example.com",
+    });
+  });
+
+  it("propagates active-org lookup failures instead of converting them to 403", async () => {
+    const failure = new Error("org context unavailable");
+    mockGetOrgContext.mockRejectedValueOnce(failure);
+    const handler = createObservabilityHandler() as any;
+
+    await expect(handler(createEvent("/feedback"))).rejects.toBe(failure);
+    expect(mockGetFeedback).not.toHaveBeenCalled();
+  });
+
+  it("scopes feedback audit reads to the active org", async () => {
+    const handler = createObservabilityHandler() as any;
+    const feedbackEvent = createEvent("/feedback?since=123");
+    const statsEvent = createEvent("/feedback/stats?since=123");
+    await handler(feedbackEvent);
+    await handler(statsEvent);
+
+    expect(mockGetFeedback).toHaveBeenCalledWith({
+      sinceMs: 123,
+      limit: 100,
+      orgId: "org-a",
+    });
+    expect(mockGetFeedbackStats).toHaveBeenCalledWith(123, { orgId: "org-a" });
+    expect(feedbackEvent.responseHeaders).toEqual({
+      "cache-control": "private, no-store",
+    });
+    expect(statsEvent.responseHeaders).toEqual({
+      "cache-control": "private, no-store",
     });
   });
 
@@ -222,6 +289,24 @@ describe("observability routes", () => {
     expect(properties).not.toHaveProperty("sentiment");
   });
 
+  it("attributes chat feedback only from trusted request org context", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-a");
+    mockReadBody.mockResolvedValue({
+      feedbackType: "thumbs_up",
+      runId: "run-1",
+      threadId: "thread-1",
+      orgId: "org-from-untrusted-body",
+    });
+    const handler = createObservabilityHandler() as any;
+
+    await handler(createEvent("/feedback", "POST"));
+
+    expect(mockInsertFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-a", source: "chat" }),
+    );
+    expect(mockGetOrgContext).not.toHaveBeenCalled();
+  });
+
   it("reports free-text feedback, which previously emitted nothing", async () => {
     mockReadBody.mockResolvedValue({
       threadId: "thread-1",
@@ -274,7 +359,6 @@ describe("observability routes", () => {
   });
 
   it("passes a feedback type filter through to the SQL-backed list", async () => {
-    const mockGetFeedback = vi.mocked((await import("./store.js")).getFeedback);
     mockGetFeedback.mockResolvedValue([]);
     const handler = createObservabilityHandler() as any;
 
@@ -284,7 +368,7 @@ describe("observability routes", () => {
       sinceMs: expect.any(Number),
       limit: 25,
       feedbackType: "text",
-      userId: "alice@example.com",
+      orgId: "org-a",
     });
   });
 });
