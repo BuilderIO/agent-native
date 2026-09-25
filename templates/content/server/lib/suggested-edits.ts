@@ -675,7 +675,9 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       context.resourceId,
     );
     const identityTx = drizzleTransactionForExec(tx);
-    // Lock the parent row before reading memberships so a concurrent child insert cannot escape reconciliation.
+    // Memberships have no document foreign key, so a parent row lock alone cannot
+    // prevent a new membership from escaping Blocks reconciliation.
+    await tx.execute("LOCK TABLE content_database_items IN SHARE MODE");
     await tx.execute({
       sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
       args: [context.resourceId],
@@ -684,15 +686,18 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       identityTx,
       context.resourceId,
     );
-    const currentTargets = await tx.execute({
-      sql: `SELECT p.id FROM content_database_items i
+    const currentTargets = eligiblePrimaryIds.length
+      ? await tx.execute({
+          sql: `SELECT p.id FROM content_database_items i
             INNER JOIN content_databases d ON d.id = i.database_id AND d.deleted_at IS NULL
             INNER JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
             WHERE i.document_id = ? AND p.id IN (${eligiblePrimaryIds.map(() => "?").join(",")})`,
-      args: [context.resourceId, ...eligiblePrimaryIds],
-    });
+          args: [context.resourceId, ...eligiblePrimaryIds],
+        })
+      : null;
     if (
-      !currentTargets.rows.some((row) =>
+      eligiblePrimaryIds.length > 0 &&
+      !currentTargets?.rows.some((row) =>
         primaryBlocksFields.some((field) => field.propertyId === row.id),
       )
     ) {

@@ -282,6 +282,29 @@ async function accept(
 }
 
 describe("Content suggested edits Blocks transaction", () => {
+  it("accepts a standalone Page without a collection membership", async () => {
+    sequence += 1;
+    const documentId = `suggestion-standalone-page-${sequence}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Standalone Page",
+      content: "Before",
+      ownerEmail,
+      createdAt: new Date().toISOString(),
+      updatedAt: "rev-1",
+    });
+
+    await getDbExec().transaction!(async (tx) => {
+      await accept(documentId, tx);
+    });
+
+    const [document] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("After");
+  });
+
   it("honors collection access through a non-active organization", async () => {
     const { documentId, ordinaryPropertyIds } = await seedSystemDatabasePage(1);
     const collaborator = "another-org-member@example.com";
