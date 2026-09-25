@@ -961,7 +961,7 @@ export function UsageSection({
     scope,
     userEmail:
       scope === "workspace" ? (selectedUserEmail ?? undefined) : undefined,
-    appId: appId ?? undefined,
+    ...(appId == null ? { app: "current" } : { appId }),
   });
   const data = query.data;
   const canViewBuilderCreditUsage = Boolean(

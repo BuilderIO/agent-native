@@ -5,6 +5,7 @@ import { isSelfScopedUsageRead, usageOrgScope } from "./org-scope.js";
 import {
   builderCreditsFromCostCents,
   ensureUsageTable,
+  resolveUsageAppKey,
   usageBillingForEngine,
   MIXED_USAGE_BILLING,
   type UsageBillingMode,
@@ -13,6 +14,21 @@ import {
 const DAY_MS = 86_400_000;
 
 export type UsageMetricsScope = "me" | "workspace";
+
+/**
+ * Selects usage from every app instead of one app's identities. A symbol, not
+ * a reserved string, so no real app key can ever be mistaken for it.
+ */
+export const ALL_USAGE_APPS: unique symbol = Symbol(
+  "agent-native.usage.all-apps",
+);
+
+/** `get-usage-metrics` app filter values that select every app / this app. */
+export const USAGE_APP_FILTER_ALL = "all";
+export const USAGE_APP_FILTER_CURRENT = "current";
+
+/** One app's key (its configured legacy identities merge in), or every app. */
+export type UsageAppSelection = string | typeof ALL_USAGE_APPS;
 
 export interface UsageMetricBucket {
   key: string;
@@ -62,6 +78,13 @@ export interface UsageRecentMetric {
   threadId: string | null;
 }
 
+export interface UsageAppOption {
+  /** Normalized app key, as used by `byApp` and accepted as an app filter. */
+  key: string;
+  calls: number;
+  lastActiveAt: number | null;
+}
+
 export interface UsageUserOption {
   email: string;
   role: string | null;
@@ -77,8 +100,18 @@ export interface UsageMetricsAccess {
 
 export interface AppUsageMetrics {
   billing: UsageBillingMode;
+  /** "all" when every app is included; "app" when filtered to one app. */
+  appScope: "all" | "app";
   app: string;
-  appKey: string;
+  /** Normalized key of the filtered app; null when every app is included. */
+  appKey: string | null;
+  /** Normalized key of the app serving this request; null when unconfigured. */
+  currentAppKey: string | null;
+  /**
+   * Apps with usage for the selected people in the range, ignoring the app
+   * filter, so a filter picker can list them while one app is selected.
+   */
+  apps: UsageAppOption[];
   viewScope: UsageMetricsScope;
   selectedUserEmail: string | null;
   availableUsers: UsageUserOption[];
@@ -110,6 +143,11 @@ export interface AppUsageMetrics {
   };
   byLabel: UsageMetricBucket[];
   byModel: UsageMetricBucket[];
+  /**
+   * Every app within the app filter, never truncated, so the per-app buckets
+   * always sum to `totals`.
+   */
+  byApp: UsageMetricBucket[];
   daily: UsageDailyMetric[];
   recent: UsageRecentMetric[];
 }
@@ -117,7 +155,7 @@ export interface AppUsageMetrics {
 export interface UsageMetricsAccessInput {
   ownerEmail: string;
   orgId?: string | null;
-  app: string;
+  app: UsageAppSelection;
 }
 
 interface MemberRecord {
@@ -129,6 +167,13 @@ interface QueryScope {
   where: string;
   args: unknown[];
 }
+
+interface SqlExpression {
+  sql: string;
+  args: unknown[];
+}
+
+const NO_APP_FILTER: QueryScope = { where: "", args: [] };
 
 interface ThreadPromptRow {
   id?: unknown;
@@ -171,7 +216,14 @@ export function normalizeUsageAppKey(value: string): string {
 function appKeys(value: string): string[] {
   const raw = value.trim().toLowerCase();
   const normalized = normalizeUsageAppKey(value);
-  return [...new Set([raw, normalized, `agent-native-${normalized}`])];
+  return [
+    ...new Set([
+      raw,
+      normalized,
+      `agent-native-${normalized}`,
+      ...(normalized === "unattributed" ? [""] : []),
+    ]),
+  ];
 }
 
 export function usageAppScope(app: string): QueryScope {
@@ -191,6 +243,31 @@ export function usageAppScope(app: string): QueryScope {
   return {
     where: `LOWER(COALESCE(app, '')) IN (${keys.map(() => "?").join(", ")})`,
     args: keys,
+  };
+}
+
+/**
+ * The normalized app key of a `token_usage` row, with the configured app's
+ * legacy identities folded into its current key. It must group rows exactly
+ * as `usageAppScope(key)` selects them, or a per-app bucket and that app's
+ * filtered totals disagree.
+ */
+function usageAppKeyExpression(): SqlExpression {
+  const normalized = `COALESCE(NULLIF(REGEXP_REPLACE(LOWER(COALESCE(app, '')), '^agent-native-', ''), ''), 'unattributed')`;
+  const configured = resolveUsageAppKey();
+  if (!configured) return { sql: normalized, args: [] };
+  const identity = usageAppScope(configured);
+  return {
+    sql: `CASE WHEN ${identity.where} THEN ? ELSE ${normalized} END`,
+    args: [...identity.args, normalizeUsageAppKey(configured)],
+  };
+}
+
+function andScopes(...scopes: QueryScope[]): QueryScope {
+  const present = scopes.filter((scope) => scope.where);
+  return {
+    where: present.map((scope) => scope.where).join(" AND "),
+    args: present.flatMap((scope) => scope.args),
   };
 }
 
@@ -347,15 +424,16 @@ function bucketFromRow(
 }
 
 async function usageBuckets(
-  columnExpression: string,
-  scope: QueryScope,
-  appScope: QueryScope,
+  column: SqlExpression,
+  filter: QueryScope,
   sinceMs: number,
-  limit: number,
+  limit: number | null,
   builderCreditsEnabled: boolean,
 ): Promise<UsageMetricBucket[]> {
+  // GROUP BY 1, not the expression: a parameterized expression repeated in
+  // GROUP BY gets new placeholder numbers and no longer matches the SELECT.
   const result = await getDbExec().execute({
-    sql: `SELECT ${columnExpression} AS k,
+    sql: `SELECT ${column.sql} AS k,
         COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
         COALESCE(SUM(builder_credits_used), 0) AS builder_credits,
         COALESCE(SUM(CASE WHEN engine_name = 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS estimated_builder_cost_x100,
@@ -368,11 +446,15 @@ async function usageBuckets(
         COUNT(DISTINCT owner_email) AS active_users,
         MAX(created_at) AS last_active_at
       FROM token_usage
-      WHERE ${appScope.where} AND ${scope.where} AND created_at >= ?
-      GROUP BY ${columnExpression}
-      ORDER BY ${builderCreditsEnabled ? "builder_credits DESC, estimated_builder_cost_x100 DESC, other_cost_x100 DESC" : "cost_x100 DESC"}
-      LIMIT ?`,
-    args: [...appScope.args, ...scope.args, sinceMs, limit],
+      WHERE ${filter.where} AND created_at >= ?
+      GROUP BY 1
+      ORDER BY ${builderCreditsEnabled ? "builder_credits DESC, estimated_builder_cost_x100 DESC, other_cost_x100 DESC" : "cost_x100 DESC"}, k ASC${limit === null ? "" : "\n      LIMIT ?"}`,
+    args: [
+      ...column.args,
+      ...filter.args,
+      sinceMs,
+      ...(limit === null ? [] : [limit]),
+    ],
   });
   return (result.rows as Array<Record<string, unknown>>).map((row) =>
     bucketFromRow(row, builderCreditsEnabled),
@@ -538,17 +620,39 @@ export async function listAppUsageMetrics(
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const now = Date.now();
   const sinceMs = now - sinceDays * DAY_MS;
-  const appId = accessInput.app.trim();
-  const app = appId || "this app";
-  const appKey = normalizeUsageAppKey(appId);
-  const appScope = usageAppScope(appId);
+  const allApps = accessInput.app === ALL_USAGE_APPS;
+  const appId =
+    accessInput.app === ALL_USAGE_APPS ? "" : accessInput.app.trim();
+  const app = allApps ? "all apps" : appId || "this app";
+  const appKey = allApps ? null : normalizeUsageAppKey(appId);
+  const configuredAppKey = resolveUsageAppKey();
+  const currentAppKey = configuredAppKey
+    ? normalizeUsageAppKey(configuredAppKey)
+    : null;
+  const appScope = allApps ? NO_APP_FILTER : usageAppScope(appId);
   const resolved = await resolveScope(accessInput, scope, input.userEmail);
+  const filter = andScopes(appScope, resolved.ownerScope);
+  const appKeyColumn = usageAppKeyExpression();
 
-  const baseArgs = [...appScope.args, ...resolved.ownerScope.args, sinceMs];
-  const [totalsResult, byLabel, byModel, dailyResult, recentResult] =
-    await Promise.all([
-      getDbExec().execute({
-        sql: `SELECT
+  const baseArgs = [...filter.args, sinceMs];
+  const everyAppBuckets = usageBuckets(
+    appKeyColumn,
+    resolved.ownerScope,
+    sinceMs,
+    null,
+    builderCreditsEnabled,
+  );
+  const [
+    totalsResult,
+    byLabel,
+    byModel,
+    byApp,
+    appOptionBuckets,
+    dailyResult,
+    recentResult,
+  ] = await Promise.all([
+    getDbExec().execute({
+      sql: `SELECT
             COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
             COALESCE(SUM(builder_credits_used), 0) AS builder_credits,
             COALESCE(SUM(CASE WHEN engine_name = 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS estimated_builder_cost_x100,
@@ -562,43 +666,51 @@ export async function listAppUsageMetrics(
             COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
             COUNT(DISTINCT owner_email) AS active_users
           FROM token_usage
-          WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?`,
-        args: baseArgs,
-      }),
-      usageBuckets(
-        "COALESCE(NULLIF(label, ''), 'chat')",
-        resolved.ownerScope,
-        appScope,
-        sinceMs,
-        6,
-        builderCreditsEnabled,
-      ),
-      usageBuckets(
-        "COALESCE(NULLIF(model, ''), 'unknown')",
-        resolved.ownerScope,
-        appScope,
-        sinceMs,
-        4,
-        builderCreditsEnabled,
-      ),
-      getDbExec().execute({
-        sql: `SELECT created_at, cost_cents_x100, input_tokens, output_tokens,
+          WHERE ${filter.where} AND created_at >= ?`,
+      args: baseArgs,
+    }),
+    usageBuckets(
+      { sql: "COALESCE(NULLIF(label, ''), 'chat')", args: [] },
+      filter,
+      sinceMs,
+      6,
+      builderCreditsEnabled,
+    ),
+    usageBuckets(
+      { sql: "COALESCE(NULLIF(model, ''), 'unknown')", args: [] },
+      filter,
+      sinceMs,
+      4,
+      builderCreditsEnabled,
+    ),
+    allApps
+      ? everyAppBuckets
+      : usageBuckets(
+          appKeyColumn,
+          filter,
+          sinceMs,
+          null,
+          builderCreditsEnabled,
+        ),
+    everyAppBuckets,
+    getDbExec().execute({
+      sql: `SELECT created_at, cost_cents_x100, input_tokens, output_tokens,
             cache_read_tokens, cache_write_tokens, builder_credits_used, engine_name FROM token_usage
-          WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
+          WHERE ${filter.where} AND created_at >= ?
           ORDER BY created_at ASC`,
-        args: baseArgs,
-      }),
-      getDbExec().execute({
-        sql: `SELECT id, created_at, owner_email, app, label, model,
+      args: baseArgs,
+    }),
+    getDbExec().execute({
+      sql: `SELECT id, created_at, owner_email, app, label, model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
             cost_cents_x100, builder_credits_used, engine_name, thread_id
           FROM token_usage
-          WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
+          WHERE ${filter.where} AND created_at >= ?
           ORDER BY created_at DESC
           LIMIT 12`,
-        args: baseArgs,
-      }),
-    ]);
+      args: baseArgs,
+    }),
+  ]);
 
   const totals = (totalsResult.rows[0] ?? {}) as Record<string, unknown>;
   const dayMap = new Map<
@@ -694,8 +806,13 @@ export async function listAppUsageMetrics(
 
   return {
     billing,
+    appScope: allApps ? "all" : "app",
     app,
     appKey,
+    currentAppKey,
+    apps: appOptionBuckets
+      .map(({ key, calls, lastActiveAt }) => ({ key, calls, lastActiveAt }))
+      .sort((a, b) => a.key.localeCompare(b.key)),
     viewScope: scope,
     selectedUserEmail: resolved.selectedUserEmail,
     availableUsers: resolved.members
@@ -741,6 +858,7 @@ export async function listAppUsageMetrics(
     },
     byLabel,
     byModel,
+    byApp,
     daily,
     recent,
   };
