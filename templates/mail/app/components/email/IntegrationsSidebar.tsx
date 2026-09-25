@@ -204,7 +204,7 @@ export function IntegrationsSidebar({
     statuses.apollo || statuses.hubspot || statuses.gong || statuses.pylon;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div data-an-mask className="flex h-full flex-col overflow-y-auto">
       {/* Integration data sections */}
       {statuses.apollo && <ApolloSection email={email} />}
       {statuses.hubspot && <HubSpotSection email={email} />}

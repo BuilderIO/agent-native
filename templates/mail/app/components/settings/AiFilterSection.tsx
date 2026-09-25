@@ -214,20 +214,23 @@ function DecisionRow({
     <div className="flex items-start gap-3 border-b border-border/40 py-3 last:border-0">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-foreground">
+          <span
+            data-an-mask
+            className="truncate text-[13px] font-medium text-foreground"
+          >
             {decision.sender || t("mail.aiFilter.unknownSender")}
           </span>
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/60">
             {formatDecisionDate(decision.createdAt)}
           </span>
         </div>
-        <p className="truncate text-[12px] text-muted-foreground">
+        <p data-an-mask className="truncate text-[12px] text-muted-foreground">
           {decision.subject || t("mail.aiFilter.noSubject")}
         </p>
         {reason && (
           <p
             className="mt-1 line-clamp-1 text-[11px] leading-4 text-muted-foreground/70"
-            title={reason}
+            data-an-mask
           >
             {reason}
           </p>
@@ -295,13 +298,16 @@ function PreviewRow({
         onCheckedChange={(checked) => onCorrectionChange(checked === true)}
         disabled={!hasMatch}
         className="mt-0.5"
-        aria-label={`${correctionLabel}: ${email.subject}`}
+        aria-label={correctionLabel}
       />
       <div className="min-w-0">
-        <p className="truncate text-[12px] font-medium text-foreground">
+        <p
+          data-an-mask
+          className="truncate text-[12px] font-medium text-foreground"
+        >
           {email.subject || t("mail.aiFilter.noSubject")}
         </p>
-        <p className="truncate text-[11px] text-muted-foreground">
+        <p data-an-mask className="truncate text-[11px] text-muted-foreground">
           {email.from}
         </p>
         {correction && (
