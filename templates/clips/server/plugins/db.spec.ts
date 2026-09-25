@@ -204,7 +204,15 @@ describe("recording failure code migration", () => {
     );
     expect(outerUpdatePredicate).toContain("AND status = 'failed'");
     expect(outerUpdatePredicate).toContain(
-      "(failure_code IS NULL OR failure_code = 'unknown')",
+      "AND ${NEEDS_FAILURE_CODE_BACKFILL}",
+    );
+    expect(failureBackfillSource).toContain(
+      "const NEEDS_FAILURE_CODE_BACKFILL =",
+    );
+    expect(failureBackfillSource).toContain("failure_code IS NULL");
+    expect(failureBackfillSource).toContain("failure_code = 'unknown'");
+    expect(failureBackfillSource).toContain(
+      "failure_code IS DISTINCT FROM (${LEGACY_FAILURE_CODE_CASE})",
     );
     expect(failureBackfillSource).toContain("ORDER BY id LIMIT $2");
     expect(failureBackfillSource).toContain("BATCH_SIZE = 250");

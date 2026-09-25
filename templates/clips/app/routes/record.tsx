@@ -1310,17 +1310,6 @@ export default function RecordRoute() {
             // during recording report `total: null` and don't drive this bar.
             const fraction = total ? (index + 1) / total : null;
             setUploadProgress(fraction);
-            const recordingId = pendingRef.current?.id;
-            if (!recordingId || fraction === 1) return;
-            // Only expose a percentage here — this state is agent-visible, and
-            // chunk/byte counts are an internal transport detail, not
-            // something to surface to the user.
-            void writeAppState(`recording-upload-${recordingId}`, {
-              recordingId,
-              status: "uploading",
-              progress: fraction !== null ? Math.round(fraction * 100) : null,
-              updatedAt: new Date().toISOString(),
-            }).catch(() => {});
           },
           // When the user clicks the browser's native "Stop sharing" button,
           // delegate to doStop() so the UI runs its full stop flow:
