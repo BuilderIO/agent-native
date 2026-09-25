@@ -1358,3 +1358,31 @@ The targeted `DocumentProperties.test.ts` suite passes (24 tests); its
 source-layout companion has one Windows CRLF-sensitive assertion failure.
 Before integration, finish the full DSI-01–07 real-interface matrix and run
 the affected repository guards in a working CI environment.
+
+### September 24–25 UI acceptance replay
+
+Tested the committed `d38eb1a8b5` build through a task-owned local Content
+server in Chromium, using disposable Pages, two ordinary collections, and
+separate owner, editor, commenter, and viewer accounts. The shared Page was
+attached to both collections. No beta or user article was changed.
+
+| Assertion | Observed result |
+| --- | --- |
+| DSI-01 | The row offered Suggest edits in collection preview and full page, from a direct link and after reload. Owner, editor, and commenter had the action with access to both row and collection; viewer did not. A row-only share left collection properties unavailable and did not expose Suggest edits. |
+| DSI-02 | Insert, delete, inline bold, and a new block produced review cards. A second live session retained the canonical body until acceptance. An attempted replacement was rejected and left the body unchanged. |
+| DSI-03 | Accepted changes appeared once in the other live session and through both collection memberships after reload. Rejected changes did not appear. Resolved cards and version history survived reload. The Text property (`Metadata baseline`) and secondary Blocks value (`Secondary only`) remained unchanged. |
+| DSI-04 | Secondary Blocks was read-only in Suggesting and editable on exit. A secondary Blocks edit was followed immediately by entering Suggesting; its `set-document-property` request succeeded and `Queued secondary` survived reload. Removing Collection B's primary Blocks field hid Suggest edits in that context while Collection A remained eligible; navigating into the unavailable context exited Suggesting. Aborting the Collection A property-load request displayed Retry and hid Suggest edits; retry restored the editor. A deliberately delayed network response retains mounted regression coverage rather than a browser timing assertion. |
+| DSI-05 | Browser-exposed `suggest-document-edit` created a pending review card. Replaying its idempotency key returned the same suggestion and thread. A viewer's action call was denied. Two full replacement proposals for the same base text were reviewed in sequence: the first accepted, the second displayed Conflict, and the body retained the first choice. The earlier partially overlapping proposals safely rebased to `Conflict. Agent.`; they were not used as the conflict assertion. Transactional failure and field-identity details retain database-test coverage rather than a browser fault-injection assertion. |
+| DSI-06 | Standalone suggestion and subsequent ordinary editing worked. Collection containers and disposable source-owned, inline-database, and externally linked Pages omitted Suggest edits. |
+| DSI-07 | Full-page and preview menus, review cards, accept/reject controls, and keyboard menu activation worked. At 800 × 700, the full-page menu and collection preview menu remained visible and unclipped; the compact preview's Comments panel showed its pending card and reachable Accept/Reject controls. |
+
+The seven original fixture documents and collection Pages were moved to local
+Trash. The collection and shared row were briefly restored for the compact
+preview check; the restored shared row then returned as Document unavailable
+because its membership was absent, so a new disposable compact row was used.
+That row, the shared row, and the collection were returned to Trash afterward.
+An exact seven-item permanent-purge plan found all eligible, but the app's
+WebMCP approval gate rejected execution with `approval_required`; no broad
+Trash purge was attempted. The three disposable local test accounts remain in
+the local development database. The earlier Work fixtures described above also
+remain unverified in Trash.
