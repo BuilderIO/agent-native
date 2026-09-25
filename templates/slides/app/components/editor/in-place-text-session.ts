@@ -647,7 +647,7 @@ export function startInPlaceTextSession(
 
   const notify = () => {
     unscroll();
-    if (lastEdit) lastEdit.after = selectionOffsets();
+    if (lastEdit) lastEdit.after = selectionOffsets(true);
     options.onInput?.();
   };
 
@@ -768,14 +768,16 @@ export function startInPlaceTextSession(
   function checkpoint(kind: EditKind, boundary = false) {
     edited = true;
     const now = Date.now();
-    const selection = selectionOffsets();
+    const selection = selectionOffsets(true);
     const coalesce =
       kind !== "command" &&
       lastEdit?.kind === kind &&
       !lastEdit.boundary &&
       now - lastEdit.at < TYPING_RUN_MS &&
       lastEdit.after?.from === selection.from &&
-      lastEdit.after.to === selection.to;
+      lastEdit.after.to === selection.to &&
+      lastEdit.after.fromBefore === selection.fromBefore &&
+      lastEdit.after.toBefore === selection.toBefore;
     lastEdit = { kind, at: now, boundary, after: null };
     if (coalesce) return;
     undoStack.push(snapshot());

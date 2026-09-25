@@ -1340,4 +1340,15 @@ describe("in-place text session: review round 2", () => {
     session.undo();
     expect(el.innerHTML).toBe("Head");
   });
+
+  it("does not coalesce typing on different lines at the same text offset", () => {
+    const el = mount('<p id="t">A<br>B</p>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "A"), 1);
+    type(el, "X");
+    caret(textOf(el, "B"), 0);
+    type(el, "Y");
+    session.undo();
+    expect(el.innerHTML).toBe("AX<br>B");
+  });
 });
