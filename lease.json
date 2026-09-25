@@ -1,1 +1,9 @@
-{"pr":5922,"owner_thread":"01a0d8df-e7c8-7322-9be3-ae58a07f7a7b","version":3,"expires_at":"2026-09-25T16:14:49Z","legacy_heartbeat_version":null,"legacy_retired":true,"released":false}
+{
+  "pr": 5922,
+  "owner_thread": "01a0d8df-e7c8-7322-9be3-ae58a07f7a7b",
+  "version": 4,
+  "expires_at": "2026-09-25T16:31:38Z",
+  "legacy_heartbeat_version": null,
+  "legacy_retired": true,
+  "released": false
+}
