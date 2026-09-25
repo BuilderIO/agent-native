@@ -260,13 +260,27 @@ function protectHtmlText(content: string): {
         const placeholder = range.comment
           ? `<!--${range.marker}-->`
           : range.marker;
-        if (!restored.includes(placeholder)) {
+        const index = restored.indexOf(placeholder);
+        if (index === -1) {
           throw new Error("Unable to restore slide text content");
         }
-        restored = restored.replace(
-          placeholder,
-          content.slice(range.start, range.end),
-        );
+        const original = content.slice(range.start, range.end);
+        if (!range.comment) {
+          let start = index;
+          let end = index + placeholder.length;
+          while (start > 0 && /[\t\n\f\r ]/.test(restored[start - 1]!)) {
+            start -= 1;
+          }
+          while (end < restored.length && /[\t\n\f\r ]/.test(restored[end]!)) {
+            end += 1;
+          }
+          restored = restored.slice(0, start) + original + restored.slice(end);
+        } else {
+          restored =
+            restored.slice(0, index) +
+            original +
+            restored.slice(index + placeholder.length);
+        }
       }
       return restored;
     },
@@ -278,9 +292,7 @@ function findHtmlText(
 ): Array<{ start: number; end: number; comment?: boolean }> {
   const ranges: Array<{ start: number; end: number; comment?: boolean }> = [];
   const addTextRange = (start: number, end: number) => {
-    if (start < end && !/^[\t\n\f\r ]*$/.test(html.slice(start, end))) {
-      ranges.push({ start, end });
-    }
+    if (start < end) ranges.push({ start, end });
   };
   let cursor = 0;
   let textStart = 0;

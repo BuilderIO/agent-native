@@ -1784,7 +1784,8 @@ describe("run() — asynchronous layout fit metadata", () => {
     "preserves text in elements with white-space: %s",
     async (whiteSpace) => {
       const text = "  alpha\n    beta   \ngamma  ";
-      const element = `<div style="white-space: ${whiteSpace}">${text}</div>`;
+      const whitespaceOnly = "  \n    ";
+      const element = `<div style="white-space: ${whiteSpace}">${text}<span>${whitespaceOnly}</span>${whitespaceOnly}</div>`;
       const formatted = await formatSlideHtml(
         `<section><h1>Title</h1>${element}<p>After</p></section>`,
       );
