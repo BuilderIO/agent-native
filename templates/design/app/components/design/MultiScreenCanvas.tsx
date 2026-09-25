@@ -4076,6 +4076,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             lastBoardPoint,
             eventEpochMilliseconds(ev.timeStamp),
           );
+          // This release never reached the source iframe, so its gesture is
+          // still armed: the element stays lifted and follows the next hover.
+          // End it there; the "cancel" it posts back trails this end, so the
+          // cancel handler treats it as cleanup and keeps this drop alive.
+          sourcePreviewIframe.contentWindow?.postMessage(
+            { type: "agent-native:cancel-active-drag" },
+            "*",
+          );
         };
         const handleParentWindowBlur = () => {
           cancelPendingParentDrag();
