@@ -35,19 +35,32 @@ export function readHostedHarnessBuildConfig(): HostedHarnessBuildConfig {
     return { recorded: false, value: undefined };
   }
 
+  return { recorded: true, value: parseHostedHarnessBuildValue(raw) };
+}
+
+/**
+ * Parses a recorded harness value (`null`, a boolean, or a settings object).
+ * The build validates its marker with this too, so a malformed value fails the
+ * build instead of the deployed runtime.
+ */
+export function parseHostedHarnessBuildValue(
+  raw: string,
+): AgentNativeHarnessSetting | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
     throw new Error(
       `Invalid embedded AGENT_NATIVE_BUILD_HARNESS value: ${raw}`,
-      { cause: error },
+      {
+        cause: error,
+      },
     );
   }
-  if (parsed === null) return { recorded: true, value: undefined };
-  if (typeof parsed === "boolean") return { recorded: true, value: parsed };
+  if (parsed === null) return undefined;
+  if (typeof parsed === "boolean") return parsed;
   if (typeof parsed === "object" && !Array.isArray(parsed)) {
-    return { recorded: true, value: parsed as AgentNativeHarnessSetting };
+    return parsed as AgentNativeHarnessSetting;
   }
   throw new Error(`Invalid embedded AGENT_NATIVE_BUILD_HARNESS value: ${raw}`);
 }

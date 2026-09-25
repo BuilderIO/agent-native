@@ -14,6 +14,7 @@ import {
   type AgentNativeConfigInput,
   type AgentNativeFirstRunOnboardingMode,
 } from "../config.js";
+import { parseHostedHarnessBuildValue } from "../server/hosted-harness-build-mode.js";
 
 /** The canonical filename comes first; the remaining names stay compatible. */
 export const AGENT_NATIVE_CONFIG_FILE_CANDIDATES = [
@@ -246,6 +247,13 @@ export function readAgentNativeBuildConfigMarker(
     typeof record.harness !== "string"
   ) {
     throw new Error(`Invalid agent-native build config marker: ${filePath}`);
+  }
+  try {
+    parseHostedHarnessBuildValue(record.harness);
+  } catch (error) {
+    throw new Error(`Invalid agent-native build config marker: ${filePath}`, {
+      cause: error,
+    });
   }
   return {
     firstRunOnboarding: record.firstRunOnboarding!,

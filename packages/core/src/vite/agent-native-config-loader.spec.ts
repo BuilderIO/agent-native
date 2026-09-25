@@ -248,6 +248,24 @@ describe("agent-native build config marker", () => {
     );
   });
 
+  it("rejects a marker whose harness value would not parse at runtime", () => {
+    for (const harness of ["not-json", "[1]", "42"]) {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-marker-"),
+      );
+      temporaryRoots.push(root);
+      fs.mkdirSync(path.join(root, ".agent-native"));
+      fs.writeFileSync(
+        path.join(root, ".agent-native", "build-config.json"),
+        JSON.stringify({ firstRunOnboarding: "off", harness }),
+      );
+
+      expect(() => readAgentNativeBuildConfigMarker(root)).toThrow(
+        /Invalid agent-native build config marker/,
+      );
+    }
+  });
+
   it("rejects a marker that is not valid JSON", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
     temporaryRoots.push(root);
