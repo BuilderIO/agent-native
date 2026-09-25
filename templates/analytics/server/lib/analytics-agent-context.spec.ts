@@ -388,7 +388,6 @@ describe("summarizeAnalyticsRun", () => {
   it("counts started calls and reads the first query error from its completion event", () => {
     const properties = summarizeAnalyticsRun({
       preloadedReferenceCount: 2,
-      queryActionNames: ["hubspot-records", "prometheus"],
       events: [
         {
           event: {
@@ -459,6 +458,34 @@ describe("summarizeAnalyticsRun", () => {
         {
           event: {
             type: "tool_start",
+            tool: "content-calendar-schema",
+            id: "schema-2",
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
+            tool: "get-first-party-analytics-health",
+            id: "health-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
+            tool: "hubspot-pipelines",
+            id: "metadata-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
+            tool: "provider-corpus-job",
+            id: "job-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
             tool: "bigquery",
             id: "query-1",
             input: { sql: "SELECT private_data" },
@@ -506,6 +533,21 @@ describe("summarizeAnalyticsRun", () => {
         {
           event: {
             type: "tool_start",
+            tool: "jira-search",
+            id: "query-jira-1",
+          },
+        },
+        {
+          event: {
+            type: "tool_done",
+            tool: "jira-search",
+            id: "query-jira-1",
+            isError: false,
+          },
+        },
+        {
+          event: {
+            type: "tool_start",
             tool: "query-agent-native-analytics",
             id: "query-2",
             input: { sql: "SELECT other_private_data" },
@@ -518,7 +560,7 @@ describe("summarizeAnalyticsRun", () => {
       preloaded_reference_count: 2,
       tool_search_calls: 1,
       catalog_calls: 1,
-      query_calls: 4,
+      query_calls: 5,
       first_query_errored: true,
     });
     expect(JSON.stringify(properties)).not.toMatch(/private|SELECT|rows/i);

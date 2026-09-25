@@ -24,10 +24,7 @@ const {
   getRequestRunContext: vi.fn((): Record<string, any> | null => null),
   retrieveAnalyticsPromptReferences: vi.fn(),
   summarizeAnalyticsRun: vi.fn(
-    (input: {
-      preloadedReferenceCount: number;
-      queryActionNames?: readonly string[];
-    }) => ({
+    (input: { preloadedReferenceCount: number }) => ({
       preloaded_reference_count: input.preloadedReferenceCount,
     }),
   ),
@@ -264,20 +261,7 @@ describe("Analytics prompt-reference preparation", () => {
     expect(summarizeAnalyticsRun).toHaveBeenCalledWith({
       events: run.events,
       preloadedReferenceCount: 2,
-      queryActionNames: expect.arrayContaining([
-        "hubspot-records",
-        "prometheus",
-      ]),
     });
-    const queryActionNames =
-      summarizeAnalyticsRun.mock.calls[0]?.[0].queryActionNames ?? [];
-    expect(queryActionNames).not.toEqual(
-      expect.arrayContaining([
-        "get-monitor",
-        "list-connected-database-tables",
-        "test-custom-api-connection",
-      ]),
-    );
   });
 });
 
