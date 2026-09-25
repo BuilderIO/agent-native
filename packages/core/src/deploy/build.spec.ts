@@ -48,6 +48,7 @@ import {
   emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
+  resolveEsbuildCommand,
   findInstalledFfmpegStaticPackage,
   findInstalledPackageRoot,
   findInstalledResvgPackages,
@@ -5033,6 +5034,16 @@ describe("durable-background Netlify function emit (single-template, default-on)
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
       /contains Vitest test runtime code/,
+    );
+  });
+
+  it("runs the esbuild JavaScript launcher through Node", () => {
+    const command = resolveEsbuildCommand();
+
+    expect(command.executable).toBe(process.execPath);
+    expect(command.args).toHaveLength(1);
+    expect(command.args[0].split(path.sep).join("/")).toMatch(
+      /esbuild\/bin\/esbuild$/,
     );
   });
 

@@ -3148,7 +3148,7 @@ async function buildCloudflarePages() {
     );
   }
 
-  const esbuildBin = findEsbuild();
+  const esbuild = resolveEsbuildCommand();
 
   // Externalize node builtins (both bare and node: prefixed) — the require
   // shim handles bare ones. Also alias every `node:*` specifier to its bare
@@ -3191,8 +3191,9 @@ async function buildCloudflarePages() {
   ).map((p) => `--external:${p}`);
 
   execFileSync(
-    esbuildBin,
+    esbuild.executable,
     [
+      ...esbuild.args,
       tmpEntry,
       "--bundle",
       "--format=esm",
@@ -3402,19 +3403,28 @@ function generateRequireShim(): string {
   return `${imports}\n${messageChannelPolyfill}\nconst __unavailable=(m)=>new Proxy({}, { get(_target, prop) { return (..._args) => { throw new Error(m + "." + String(prop) + " is unavailable in Cloudflare Pages workers"); }; } });\nconst __mods={${allEntries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
 }
 
-function findEsbuild(): string {
+export type EsbuildCommand = {
+  executable: string;
+  args: string[];
+};
+
+export function resolveEsbuildCommand(): EsbuildCommand {
   // Try to resolve esbuild's binary via Node module resolution
   // This works regardless of hoisting or .bin symlink creation
   try {
     const _require = createRequire(cwd + "/");
     const esbuildPkg = path.dirname(_require.resolve("esbuild/package.json"));
     const bin = path.join(esbuildPkg, "bin", "esbuild");
-    if (fs.existsSync(bin)) return bin;
+    if (fs.existsSync(bin)) {
+      return { executable: process.execPath, args: [bin] };
+    }
   } catch {}
 
   // Fallback: check local and workspace .bin
   const localBin = path.resolve(cwd, "node_modules/.bin/esbuild");
-  if (fs.existsSync(localBin)) return localBin;
+  if (fs.existsSync(localBin)) {
+    return { executable: localBin, args: [] };
+  }
 
   const workspaceRoot = findWorkspaceRoot(cwd);
   if (workspaceRoot) {
@@ -3422,10 +3432,12 @@ function findEsbuild(): string {
       workspaceRoot,
       "node_modules/.bin/esbuild",
     );
-    if (fs.existsSync(workspaceBin)) return workspaceBin;
+    if (fs.existsSync(workspaceBin)) {
+      return { executable: workspaceBin, args: [] };
+    }
   }
 
-  return "esbuild";
+  return { executable: "esbuild", args: [] };
 }
 
 function findWorkspaceRoot(dir: string): string | null {
@@ -4980,9 +4992,11 @@ export function bundleYjsRuntimeForServerlessOutput(
 
   const bundledYjsPath = path.join(serverDir, "_libs", "yjs-runtime.mjs");
   fs.mkdirSync(path.dirname(bundledYjsPath), { recursive: true });
+  const esbuild = resolveEsbuildCommand();
   execFileSync(
-    findEsbuild(),
+    esbuild.executable,
     [
+      ...esbuild.args,
       resolveNitroBundledYjsEntry(),
       "--bundle",
       "--format=esm",
@@ -6562,15 +6576,7 @@ export default bundle;
   if (preset.startsWith("cloudflare") || preset.startsWith("deno")) {
     const { execFileSync } = await import("child_process");
     const { createRequire } = await import("module");
-    const esbuildBin = (() => {
-      try {
-        const _req = createRequire(cwd + "/");
-        const pkg = path.dirname(_req.resolve("esbuild/package.json"));
-        const bin = path.join(pkg, "bin", "esbuild");
-        if (fs.existsSync(bin)) return bin;
-      } catch {}
-      return "esbuild";
-    })();
+    const esbuild = resolveEsbuildCommand();
 
     // Scan all output files for bare npm imports
     const outputDir =
@@ -6734,8 +6740,9 @@ export default bundle;
               : `export * from "${resolvedMod}"; export { default } from "${resolvedMod}";`;
 
           execFileSync(
-            esbuildBin,
+            esbuild.executable,
             [
+              ...esbuild.args,
               "--bundle",
               `--outfile=${outFile}`,
               "--format=esm",
