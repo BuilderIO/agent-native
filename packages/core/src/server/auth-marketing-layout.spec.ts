@@ -78,6 +78,7 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*min-height:\s*100vh;[^}]*display:\s*flex;/,
     );
+    expect(html).toMatch(/body\.has-marketing\s*{[^}]*padding:\s*0;/);
     expect(html).toMatch(
       /\.auth-marketing-home \.auth-marketing-description-link\s*{[^}]*text-decoration:\s*underline;/,
     );
@@ -99,10 +100,25 @@ describe("built-in auth marketing layout contract", () => {
       /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*flex-direction:\s*column;/,
     );
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*1;[^}]*padding:\s*3rem 1rem 5rem;/,
+      /\.auth-marketing-home\s*{[^}]*min-height:\s*100vh;[^}]*min-height:\s*100svh;/,
     );
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*2;/,
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*1;[^}]*padding:\s*max\(1\.5rem, env\(safe-area-inset-top\)\) 1\.25rem max\(1\.5rem, env\(safe-area-inset-bottom\)\);/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*display:\s*none;/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.card h1\s*{[^}]*font-size:\s*clamp\(1\.625rem, 6vw, 2rem\);/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.card button\s*{[^}]*min-height:\s*2\.75rem;/,
+    );
+    expect(mobileCss).toMatch(
+      /body\.has-marketing \.locale-trigger\s*{[^}]*min-width:\s*2\.75rem;[^}]*min-height:\s*2\.75rem;/,
+    );
+    expect(html).not.toMatch(
+      /\.auth-marketing-home \.form-panel\s*{[^}]*border-top:/,
     );
     expect(html).toContain("overflow-x: clip;");
     expect(html).toContain("overflow: clip;");
