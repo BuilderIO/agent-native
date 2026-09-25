@@ -1,9 +1,22 @@
+import { consumeAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
+
 export const ANALYTICS_CHAT_STORAGE_KEY = "analytics";
 
 export const ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS = 5 * 60 * 1000;
 
 const ANALYTICS_LAST_CHAT_ACTIVITY_KEY =
   "agent-native.analytics.last-chat-activity-at";
+
+export function isAnalyticsSettingsPath(pathname: string): boolean {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
+export function discardAnalyticsChatHandoffOnSettings(pathname: string): void {
+  if (!isAnalyticsSettingsPath(pathname)) return;
+  consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
+    ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+  });
+}
 
 function readAnalyticsLastChatActivityAt(): number {
   if (typeof window === "undefined") return 0;

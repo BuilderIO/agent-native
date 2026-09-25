@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-25
+
+### Fixed
+
+- Opening Settings no longer opens the chat sidebar.
+
 ## 2026-09-24
 
 ### Improved
