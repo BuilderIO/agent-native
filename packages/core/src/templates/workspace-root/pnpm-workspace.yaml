@@ -90,9 +90,7 @@ onlyBuiltDependencies:
   - canvas
   - electron
   - esbuild
-  # Downloads its binary from a postinstall script. Without this the package
-  # installs empty and the deploy ships with no ffmpeg, which only shows up on
-  # a host that has none of its own.
+  # Its postinstall downloads the binary; without this it installs empty.
   - ffmpeg-static
   - lightningcss
   - node-pty

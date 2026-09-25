@@ -2148,14 +2148,8 @@ function postProcessStandalone(
     const sections: Record<string, Record<string, string>> = {
       allowBuilds: {
         esbuild: "true",
-        // ffmpeg-static downloads its binary from a postinstall script, so
-        // leaving it out means the package installs with no ffmpeg in it. The
-        // deploy already expects the binary to be there: bundleFfmpegStatic in
-        // deploy/build.ts copies it into Linux serverless output "only when the
-        // binary exists", so it silently ships without one. Nothing breaks on a
-        // host that happens to have a system ffmpeg, which is why this goes
-        // unnoticed until a slim container, where thumbnails, audio extraction
-        // and the seekable remux all have nothing to run.
+        // Its postinstall downloads the binary. Without this it installs empty
+        // and the deploy silently bundles no ffmpeg.
         "ffmpeg-static": "true",
         "node-pty": "true",
         "tesseract.js": "true",
@@ -3296,17 +3290,9 @@ function githubTarballUrl(
  * Entries already present (by key) are skipped.
  */
 /**
- * Whether `section` already has an entry for `key`.
- *
- * Scoped to the section's own body rather than the whole document. The earlier
- * check was `yaml.includes(key)`, so a key merely *mentioned* elsewhere counted
- * as present: `ffmpeg-static` under `overrides`, or `node-pty` in
- * `packageExtensions` as `"node-pty@*"`, would stop the entry being written to
- * `allowBuilds`. pnpm then skips that package's install script, and the
- * package installs without whatever it was meant to build or download.
- *
- * Quotes are ignored on both sides, since the same key can be written as
- * `"ffmpeg-static": true` or `ffmpeg-static: true`.
+ * Whether `section` already has `key`. Scoped to the section body: a key
+ * mentioned in another section (`"node-pty@*"` under packageExtensions) must
+ * not stop it being written here. Quotes are ignored on both sides.
  */
 function workspaceYamlSectionHasKey(
   yaml: string,
@@ -3316,8 +3302,8 @@ function workspaceYamlSectionHasKey(
   const header = new RegExp(`^${escapeRegExp(section)}:\\s*$`, "m").exec(yaml);
   if (!header) return false;
   const rest = yaml.slice(header.index + header[0].length);
-  // The section ends where the next top-level key starts at column zero.
-  const end = rest.search(/\n(?=\S)/);
+  // A column-zero comment is still inside the section; only a key ends it.
+  const end = rest.search(/\n(?=[^\s#])/);
   const body = end === -1 ? rest : rest.slice(0, end);
   const bare = key.replace(/^["']|["']$/g, "");
   return body.split("\n").some((line) => {

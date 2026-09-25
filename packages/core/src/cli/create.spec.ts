@@ -1350,13 +1350,6 @@ describe("findEnclosingRepo", () => {
   });
 });
 
-/**
- * The merge that writes pnpm-workspace.yaml sections. A key that is present
- * only somewhere else in the document must still be written into the section
- * that needs it: pnpm reads `allowBuilds` to decide which install scripts run,
- * so a skipped entry means the package installs without the binary it was
- * supposed to build or download, and nothing reports it.
- */
 describe("mergeWorkspaceYamlSections", () => {
   it("writes an allowBuilds entry even when the name appears elsewhere", () => {
     const yaml = [
@@ -1374,10 +1367,7 @@ describe("mergeWorkspaceYamlSections", () => {
     expect(allowBuilds).toContain("ffmpeg-static: true");
   });
 
-  /**
-   * The same defect was already latent for node-pty, which the generator
-   * extends as `"node-pty@*"` under packageExtensions.
-   */
+  // The generator extends node-pty as "node-pty@*" under packageExtensions.
   it("is not fooled by a key that only appears as part of another", () => {
     const yaml = [
       "packageExtensions:",
@@ -1424,6 +1414,20 @@ describe("mergeWorkspaceYamlSections", () => {
       out.indexOf("overrides:"),
     );
     expect(allowBuilds).toContain("ffmpeg-static: true");
+  });
+
+  it("reads past a column-zero comment inside the section", () => {
+    const yaml = [
+      "allowBuilds:",
+      "  esbuild: true",
+      "# lifecycle scripts",
+      "  ffmpeg-static: true",
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out.match(/ffmpeg-static/g)).toHaveLength(1);
   });
 
   it("creates the section when the document has none", () => {
