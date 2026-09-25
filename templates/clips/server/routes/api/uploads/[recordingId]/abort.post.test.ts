@@ -289,6 +289,46 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
   });
 
+  it("allows same-attempt cancellation after reset advances the generation", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        failureCode: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-current",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Recording cancelled by user",
+      failureCode: "user_cancelled",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-before-reset",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({ ok: true });
+
+    expect(mockEqCalls).toContainEqual([
+      "recordings.uploadAttemptId",
+      "attempt-1",
+    ]);
+    expect(mockEqCalls).not.toContainEqual([
+      "recordings.uploadGenerationId",
+      "generation-current",
+    ]);
+    expect(mockGetResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-current",
+    );
+    expect(mockDeleteRecordingChunks).toHaveBeenCalledWith(
+      "owner@example.com",
+      "rec-1",
+      "generation-current",
+    );
+  });
+
   it("fences the update by generation even when an attempt ID is present", async () => {
     mockSelectRows.rows = [
       {

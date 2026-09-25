@@ -893,6 +893,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         recording_attempt_id: "rec-1",
         upload_mode: "buffered",
       }),
+      { userId: "owner@example.com" },
     );
   });
 
@@ -927,6 +928,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         recording_attempt_id: "rec-1",
         upload_mode: "buffered",
       }),
+      { userId: "owner@example.com" },
     );
   });
 

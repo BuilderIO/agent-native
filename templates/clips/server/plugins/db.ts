@@ -1267,7 +1267,7 @@ export const migrations = runMigrations(
             WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'
             WHEN failure_reason LIKE 'Video storage could not start an upload: S3 CreateMultipartUpload failed%' THEN 'multipart_start_failed'
             WHEN failure_reason LIKE 'Video storage is not connected yet%' THEN 'storage_setup_required'
-            WHEN failure_reason LIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'
+            WHEN failure_reason ILIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'
             ELSE 'unknown'
           END,
           recording_platform = COALESCE(recording_platform, 'unknown')

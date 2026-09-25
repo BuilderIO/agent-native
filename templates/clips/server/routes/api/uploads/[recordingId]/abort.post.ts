@@ -149,9 +149,14 @@ export async function handleAbortRecordingUpload(
 
     const existingAttemptId = existing.uploadAttemptId ?? null;
     const existingGenerationId = existing.uploadGenerationId ?? null;
+    const allowSameAttemptCancellation =
+      failureCode === "user_cancelled" &&
+      requestedAttemptId !== null &&
+      requestedAttemptId === existingAttemptId;
     if (
       requestedAttemptId !== existingAttemptId ||
-      requestedGenerationId !== existingGenerationId
+      (!allowSameAttemptCancellation &&
+        requestedGenerationId !== existingGenerationId)
     ) {
       setResponseStatus(event, 409);
       return {
@@ -246,9 +251,11 @@ export async function handleAbortRecordingUpload(
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
-          existingGenerationId === null
-            ? isNull(schema.recordings.uploadGenerationId)
-            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
+          allowSameAttemptCancellation
+            ? undefined
+            : existingGenerationId === null
+              ? isNull(schema.recordings.uploadGenerationId)
+              : eq(schema.recordings.uploadGenerationId, existingGenerationId),
         ),
       )
       .returning({

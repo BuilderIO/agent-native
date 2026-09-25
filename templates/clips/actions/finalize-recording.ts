@@ -332,20 +332,24 @@ async function failStoredButUnservableRecording(params: {
     });
   if (failed.length !== 1) return false;
   try {
-    track("clips_upload_blocking_failure", {
-      app: "clips",
-      template: "clips",
-      surface: "media_verification",
-      stage: "media_verification",
-      outcome: "failed",
-      failure_type: "media_verification",
-      failure_code: "media_verification_failed",
-      recording_attempt_id: id,
-      ...(failed[0]?.uploadAttemptId
-        ? { upload_attempt_id: failed[0].uploadAttemptId }
-        : {}),
-      recording_platform: failed[0]?.recordingPlatform ?? "unknown",
-    });
+    track(
+      "clips_upload_blocking_failure",
+      {
+        app: "clips",
+        template: "clips",
+        surface: "media_verification",
+        stage: "media_verification",
+        outcome: "failed",
+        failure_type: "media_verification",
+        failure_code: "media_verification_failed",
+        recording_attempt_id: id,
+        ...(failed[0]?.uploadAttemptId
+          ? { upload_attempt_id: failed[0].uploadAttemptId }
+          : {}),
+        recording_platform: failed[0]?.recordingPlatform ?? "unknown",
+      },
+      { userId: ownerEmail },
+    );
   } catch {
     // coercion-ok: analytics is best-effort and must not change media recovery behavior.
   }

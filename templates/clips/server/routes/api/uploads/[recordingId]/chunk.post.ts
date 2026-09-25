@@ -180,27 +180,32 @@ function expectedDataChunksForFinalPost(
 }
 
 function trackUploadBlockingFailure(
+  ownerEmail: string,
   recordingId: string,
   attemptId: string | null,
   recordingPlatform: string | null,
   properties: Record<string, unknown>,
 ): void {
   try {
-    track("clips_upload_blocking_failure", {
-      app: "clips",
-      template: "clips",
-      surface: "server_upload",
-      output_id: recordingId,
-      output_type: "clip",
-      recording_id: recordingId,
-      // Keep this stable for the recording lifecycle; upload_attempt_id
-      // disambiguates resumable retries without breaking the join to start.
-      recording_attempt_id: recordingId,
-      ...(attemptId ? { upload_attempt_id: attemptId } : {}),
-      recording_platform: recordingPlatform ?? "unknown",
-      failure_code: properties.failure_code ?? properties.failure_type,
-      ...properties,
-    });
+    track(
+      "clips_upload_blocking_failure",
+      {
+        app: "clips",
+        template: "clips",
+        surface: "server_upload",
+        output_id: recordingId,
+        output_type: "clip",
+        recording_id: recordingId,
+        // Keep this stable for the recording lifecycle; upload_attempt_id
+        // disambiguates resumable retries without breaking the join to start.
+        recording_attempt_id: recordingId,
+        ...(attemptId ? { upload_attempt_id: attemptId } : {}),
+        recording_platform: recordingPlatform ?? "unknown",
+        failure_code: properties.failure_code ?? properties.failure_type,
+        ...properties,
+      },
+      { userId: ownerEmail },
+    );
   } catch {
     // Best-effort analytics must never change upload behavior.
   }
@@ -757,6 +762,7 @@ export async function handleRecordingChunk(
         if ((result as any)?.status === "failed") {
           const failure = finalizeResultFailure(result);
           trackUploadBlockingFailure(
+            ownerEmail,
             recordingId,
             attemptId,
             existing.recordingPlatform,
@@ -881,6 +887,7 @@ export async function handleRecordingChunk(
           }
         }
         trackUploadBlockingFailure(
+          ownerEmail,
           recordingId,
           attemptId,
           existing.recordingPlatform,
@@ -1355,12 +1362,18 @@ async function handleResumableChunk(
     );
     if ((result as any)?.status === "failed") {
       const failure = finalizeResultFailure(result);
-      trackUploadBlockingFailure(recordingId, attemptId, recordingPlatform, {
-        stage: "finalize_recording",
-        outcome: failure.outcome,
-        failure_type: failure.failure_type,
-        upload_mode: "resumable",
-      });
+      trackUploadBlockingFailure(
+        ownerEmail,
+        recordingId,
+        attemptId,
+        recordingPlatform,
+        {
+          stage: "finalize_recording",
+          outcome: failure.outcome,
+          failure_type: failure.failure_type,
+          upload_mode: "resumable",
+        },
+      );
       if (failure.outcome === "cancelled") {
         setResponseStatus(event, 409);
         return {
@@ -1462,12 +1475,18 @@ async function handleResumableChunk(
       }
     }
 
-    trackUploadBlockingFailure(recordingId, attemptId, recordingPlatform, {
-      stage: "finalize_recording",
-      outcome: "failed",
-      failure_type: classifyTrackingFailure(err),
-      upload_mode: "resumable",
-    });
+    trackUploadBlockingFailure(
+      ownerEmail,
+      recordingId,
+      attemptId,
+      recordingPlatform,
+      {
+        stage: "finalize_recording",
+        outcome: "failed",
+        failure_type: classifyTrackingFailure(err),
+        upload_mode: "resumable",
+      },
+    );
     const failureReason =
       err instanceof Error ? err.message : "Finalize failed";
     const failedAt = new Date().toISOString();

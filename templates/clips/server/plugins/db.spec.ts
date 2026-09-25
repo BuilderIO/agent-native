@@ -183,7 +183,7 @@ describe("recording failure code migration", () => {
       "WHEN failure_reason LIKE 'Video storage is not connected yet%' THEN 'storage_setup_required'",
     );
     expect(dbTsSource).toContain(
-      "WHEN failure_reason LIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'",
+      "WHEN failure_reason ILIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'",
     );
     expect(dbTsSource).toMatch(/ELSE 'unknown'[\s\S]*WHERE status = 'failed'/);
     expect(dbTsSource).not.toContain("'Upload aborted by user'");
