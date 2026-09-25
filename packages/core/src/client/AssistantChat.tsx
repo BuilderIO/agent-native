@@ -111,6 +111,7 @@ import {
   transcodeImageToDataURL,
   createAgentImageAttachments,
   serializeQueuedAttachments,
+  getSubmittedPromptBodyStrings,
   measureJsonStringBytes,
   getAttachmentBodyStrings,
   type QueuedAttachment,
@@ -5951,12 +5952,11 @@ const AssistantChatInner = forwardRef<
         // rejecting a request that still exceeds the Vercel/Netlify body budget.
         let messageAttachments = allAttachments;
         {
-          // Continuations resend the prompt in displayMessage, history, and structuredHistory.
-          const promptPayloadStrings = [
+          // Continuation requests serialize the prompt once more in history.
+          const promptPayloadStrings = getSubmittedPromptBodyStrings(
             submittedText,
-            submittedText,
-            submittedText,
-          ];
+            continuationTurnId !== undefined,
+          );
           const allPayloadStrings = [
             ...getAttachmentBodyStrings(allAttachments),
             ...promptPayloadStrings,

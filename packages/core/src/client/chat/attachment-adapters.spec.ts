@@ -4,6 +4,7 @@ import {
   BinaryDocumentAttachmentAdapter,
   DownscalingImageAttachmentAdapter,
   estimateAttachmentBodyBytes,
+  getSubmittedPromptBodyStrings,
   measureJsonStringBytes,
   getAttachmentBodyStrings,
   isTextLikeFile,
@@ -120,20 +121,29 @@ describe("attachment body size estimation", () => {
     const prompt = "Create a Content page from this PDF.";
 
     expect(
-      measureJsonStringBytes([dataUrl, prompt, prompt, prompt]),
+      measureJsonStringBytes([
+        dataUrl,
+        ...getSubmittedPromptBodyStrings(prompt, true),
+      ]),
     ).toBeLessThan(MAX_ESTIMATED_BODY_BYTES);
   });
 
-  it("reserves budget for the prompt copy added by continuation history", () => {
+  it("counts initial prompts twice and continuation prompts three times", () => {
     const base64Bytes = 4 * Math.ceil(MAX_PDF_BYTES / 3);
     const dataUrl = `data:application/pdf;base64,${"a".repeat(base64Bytes)}`;
     const prompt = "x".repeat(60 * 1024);
 
-    expect(measureJsonStringBytes([dataUrl, prompt, prompt])).toBeLessThan(
-      MAX_ESTIMATED_BODY_BYTES,
-    );
     expect(
-      measureJsonStringBytes([dataUrl, prompt, prompt, prompt]),
+      measureJsonStringBytes([
+        dataUrl,
+        ...getSubmittedPromptBodyStrings(prompt, false),
+      ]),
+    ).toBeLessThan(MAX_ESTIMATED_BODY_BYTES);
+    expect(
+      measureJsonStringBytes([
+        dataUrl,
+        ...getSubmittedPromptBodyStrings(prompt, true),
+      ]),
     ).toBeGreaterThan(MAX_ESTIMATED_BODY_BYTES);
   });
 });

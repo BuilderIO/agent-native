@@ -183,6 +183,13 @@ export function measureJsonStringBytes(values: string[]): number {
   );
 }
 
+export function getSubmittedPromptBodyStrings(
+  prompt: string,
+  isContinuation: boolean,
+): string[] {
+  return isContinuation ? [prompt, prompt, prompt] : [prompt, prompt];
+}
+
 /** Conservatively estimate attachment bytes when other request fields are unknown. */
 export function estimateAttachmentBodyBytes(values: string[]): number {
   return measureJsonStringBytes(values) * 1.15;
