@@ -1832,7 +1832,9 @@ function PageEditorSessionBody({
   >(null);
   const suggestionBaseRef = useRef<SuggestionDraftSession | null>(null);
   const createdSuggestionOperationsRef = useRef(new Map());
-  const suggestionProposalIdsRef = useRef(new Map<string, string>());
+  const suggestionProposalsRef = useRef(
+    new Map<string, { id: string; summary: string }>(),
+  );
   const suggestionProposalCreationKeysRef = useRef(new Map<string, string>());
   const suggestionAmendmentKeysRef = useRef(new Map<string, string>());
   const [suggestionPersistenceRevision, setSuggestionPersistenceRevision] =
@@ -3978,16 +3980,21 @@ function PageEditorSessionBody({
               requestKey,
               idempotencyKey,
             );
+            const existingProposal = suggestionProposalsRef.current.get(
+              base.id,
+            );
+            const proposalSummary =
+              existingProposal?.summary ?? t("editor.toolbar.suggestEdits");
             const created = await createSuggestionProposal.mutateAsync({
               resourceType: "document",
               resourceId: documentId,
               adapterKind: "content.document-markdown",
               baseRevision: base.baseRevision,
-              summary: t("editor.toolbar.suggestEdits"),
-              proposalId: suggestionProposalIdsRef.current.get(base.id),
+              summary: proposalSummary,
+              proposalId: existingProposal?.id,
               idempotencyKey,
               suggestions: pending.map((operation) => ({
-                summary: t("editor.toolbar.suggestEdits"),
+                summary: proposalSummary,
                 operations: [operation],
               })),
             });
@@ -3995,7 +4002,10 @@ function PageEditorSessionBody({
               throw new Error(
                 "Proposal creation returned an incomplete edit set",
               );
-            suggestionProposalIdsRef.current.set(base.id, created.proposal.id);
+            suggestionProposalsRef.current.set(base.id, {
+              id: created.proposal.id,
+              summary: created.proposal.summary,
+            });
             pending.forEach((operation, index) => {
               const suggestion = created.suggestions[index]!;
               const operationKey = pendingKeys[index]!;

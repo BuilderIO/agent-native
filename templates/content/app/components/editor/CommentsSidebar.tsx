@@ -727,7 +727,7 @@ interface CommentsSidebarOptions {
   onDecideSuggestionProposal?: (
     proposalId: string,
     decision: SuggestionDecision,
-    displayedPending: ResourceSuggestion[],
+    pendingMembers: ResourceSuggestion[],
   ) => void;
   visibleThreadId?: string | null;
   presentation?: "inline" | "history";
@@ -1621,8 +1621,16 @@ export function CommentsSidebar({
       )}
       deciding={members.some((member) => decidingSuggestion(member.id))}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
-      onDecide={(decision, displayedPending) =>
-        onDecideSuggestionProposal?.(proposalId, decision, displayedPending)
+      onDecide={(decision) =>
+        onDecideSuggestionProposal?.(
+          proposalId,
+          decision,
+          suggestions.filter(
+            (suggestion) =>
+              suggestion.proposalId === proposalId &&
+              suggestion.status === "pending",
+          ),
+        )
       }
       onHeightChange={
         leaderThreadId
@@ -2067,10 +2075,7 @@ function ProposalGroup({
   active: boolean;
   deciding: boolean;
   canDecide: boolean;
-  onDecide: (
-    decision: SuggestionDecision,
-    displayedPending: ResourceSuggestion[],
-  ) => void;
+  onDecide: (decision: SuggestionDecision) => void;
   onHeightChange?: (height: number) => void;
   children: ReactNode;
   t: ReturnType<typeof useT>;
@@ -2131,7 +2136,7 @@ function ProposalGroup({
           <button
             type="button"
             disabled={deciding}
-            onClick={() => onDecide("accepted", [...pending])}
+            onClick={() => onDecide("accepted")}
             className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
           >
             {t("comments.acceptRemaining")}
@@ -2139,7 +2144,7 @@ function ProposalGroup({
           <button
             type="button"
             disabled={deciding}
-            onClick={() => onDecide("rejected", [...pending])}
+            onClick={() => onDecide("rejected")}
             className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
           >
             {t("comments.rejectRemaining")}
