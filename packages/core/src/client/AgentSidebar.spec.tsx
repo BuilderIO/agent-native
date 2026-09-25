@@ -146,6 +146,21 @@ describe("AgentSidebar lazy panel boundary", () => {
     ).toBe("desktop");
   });
 
+  it("respects an explicit position in hosted-harness UI", async () => {
+    mockHostedHarness.configured = true;
+    mockHostedHarness.enabled = true;
+    renderSidebar(false, "left");
+
+    await act(async () => {});
+
+    expect(
+      container?.querySelector("[data-agent-sidebar-position='left']"),
+    ).toBeTruthy();
+    expect(
+      container?.querySelector("[data-agent-sidebar-main-position='left']"),
+    ).toBeTruthy();
+  });
+
   it("respects a saved closed state when hosted harness would otherwise open", async () => {
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
