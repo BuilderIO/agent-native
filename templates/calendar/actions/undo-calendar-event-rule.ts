@@ -97,11 +97,11 @@ export default defineAction({
 
     let providerWriteAttempted = false;
     try {
-      const accountEmail = await resolveOwnedAccountEmail(
-        activity.accountEmail,
-        ownerEmail,
-      );
       if (activity.action === "accepted" || activity.action === "declined") {
+        const accountEmail = await resolveOwnedAccountEmail(
+          activity.accountEmail,
+          ownerEmail,
+        );
         const event = await googleCalendar.getEvent(activity.eventId, {
           ownerEmail,
           accountEmail,

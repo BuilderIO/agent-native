@@ -81,9 +81,13 @@ describe("undo-calendar-event-rule", () => {
   });
 
   it("unhides the recorded event and removes its activity", async () => {
+    mocks.resolveOwnedAccountEmail.mockRejectedValue(
+      new Error("Google account is no longer connected"),
+    );
     const result = await action.run({ activityId: hiddenActivity.id });
 
     expect(result).toEqual({ success: true, activityId: hiddenActivity.id });
+    expect(mocks.resolveOwnedAccountEmail).not.toHaveBeenCalled();
     expect(settings.hiddenEventKeys).toEqual([
       "google:owner@example.com:primary:other-event",
     ]);

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createRule: vi.fn(),
+  consolidateRule: vi.fn(),
   deleteRule: vi.fn(),
   updateRule: vi.fn(),
   updatePreferences: vi.fn(),
@@ -123,6 +124,9 @@ vi.mock("@/hooks/use-automations", () => ({
     });
   })(),
   useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
+  useConsolidateAiFilterRules: () => ({
+    mutateAsync: mocks.consolidateRule,
+  }),
   useDeleteAutomation: () => ({ mutateAsync: mocks.deleteRule }),
   useUpdateAutomation: () => ({ mutateAsync: mocks.updateRule }),
 }));
@@ -147,6 +151,7 @@ describe("AiFilterSection prompt blur saves", () => {
     mocks.includeDisabledImportant = false;
     mocks.includeExtraDuplicate = false;
     mocks.createRule.mockReset();
+    mocks.consolidateRule.mockReset();
     mocks.deleteRule.mockReset();
     mocks.updateRule.mockReset();
   });
@@ -177,6 +182,7 @@ describe("AiFilterSection prompt blur saves", () => {
 
   it("keeps disabled instructions out of prompt edits", async () => {
     mocks.includeDisabledImportant = true;
+    mocks.consolidateRule.mockResolvedValue({ saved: true });
     render(<AiFilterSection />);
 
     const prompt = screen.getByRole("textbox", {
@@ -190,13 +196,13 @@ describe("AiFilterSection prompt blur saves", () => {
     fireEvent.blur(prompt);
 
     await waitFor(() => {
-      expect(mocks.updateRule).toHaveBeenCalledWith(
+      expect(mocks.consolidateRule).toHaveBeenCalledWith(
         expect.objectContaining({
           id: "important-rule",
+          duplicateIds: ["important-rule-duplicate"],
           condition: "Only active rules apply",
         }),
       );
-      expect(mocks.deleteRule).toHaveBeenCalledWith("important-rule-duplicate");
     });
     expect(mocks.updateRule).not.toHaveBeenCalledWith(
       expect.objectContaining({ id: "important-rule-disabled" }),
@@ -204,17 +210,12 @@ describe("AiFilterSection prompt blur saves", () => {
     expect(mocks.deleteRule).not.toHaveBeenCalledWith(
       "important-rule-disabled",
     );
+    expect(mocks.deleteRule).not.toHaveBeenCalled();
   });
 
-  it("restores the prompt and deleted duplicates when consolidation fails", async () => {
+  it("consolidates prompt rules in one mutation", async () => {
     mocks.includeExtraDuplicate = true;
-    mocks.createRule.mockResolvedValue({ id: "restored-rule" });
-    mocks.deleteRule.mockImplementation(async (id: string) => {
-      if (id === "important-rule-duplicate-2") throw new Error("delete failed");
-    });
-    mocks.updateRule
-      .mockImplementationOnce(async () => undefined)
-      .mockRejectedValueOnce(new Error("restore failed"));
+    mocks.consolidateRule.mockResolvedValue({ saved: true });
     render(<AiFilterSection />);
 
     const prompt = screen.getByRole("textbox", {
@@ -224,19 +225,21 @@ describe("AiFilterSection prompt blur saves", () => {
     fireEvent.blur(prompt);
 
     await waitFor(() => {
-      expect(mocks.createRule).toHaveBeenCalledWith(
+      expect(mocks.consolidateRule).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "AI important: customers",
-          condition: "Important customer conversations",
+          id: "important-rule",
+          duplicateIds: [
+            "important-rule-duplicate",
+            "important-rule-duplicate-2",
+          ],
+          name: "AI important: Updated instruction",
+          condition: "Updated instruction",
+          actions: [{ type: "label", labelName: "agent-native-important" }],
         }),
       );
-      expect(mocks.updateRule).toHaveBeenLastCalledWith({
-        id: "important-rule",
-        name: "AI important",
-        condition: "Human comments on GitHub matter",
-        actions: [{ type: "label", labelName: "agent-native-important" }],
-      });
     });
+    expect(mocks.updateRule).not.toHaveBeenCalled();
+    expect(mocks.deleteRule).not.toHaveBeenCalled();
   });
 
   it("does not patch tags when trimmed drafts match the saved rule", async () => {

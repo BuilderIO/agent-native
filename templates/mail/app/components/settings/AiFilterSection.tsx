@@ -1,3 +1,4 @@
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
@@ -29,6 +30,7 @@ import {
 import { useManageAiFilter, useAiFilter } from "@/hooks/use-ai-filter";
 import {
   useAutomations,
+  useConsolidateAiFilterRules,
   useCreateAutomation,
   useDeleteAutomation,
   useUpdateAutomation,
@@ -182,6 +184,7 @@ export function AiFilterSection() {
   const googleStatus = useGoogleAuthStatus();
   const updateSettings = useManageAiFilter();
   const updatePreferences = useUpdateSettings();
+  const consolidateAiFilterRules = useConsolidateAiFilterRules();
   const createRule = useCreateAutomation();
   const updateRule = useUpdateAutomation();
   const deleteRule = useDeleteAutomation();
@@ -331,44 +334,19 @@ export function AiFilterSection() {
       const name = `AI ${mode}: ${condition.slice(0, 72)}`;
       const [first, ...duplicates] = existing;
       if (first) {
-        const removed: AutomationRule[] = [];
-        try {
-          await updateRule.mutateAsync({
-            id: first.id,
-            name,
-            condition,
-            actions,
-          });
-          for (const rule of duplicates) {
-            await deleteRule.mutateAsync(rule.id);
-            removed.push(rule);
-          }
-        } catch (error) {
-          const rollbackErrors: unknown[] = [];
-          try {
-            await updateRule.mutateAsync({
-              id: first.id,
-              name: first.name,
-              condition: first.condition,
-              actions: first.actions,
-            });
-          } catch (rollbackError) {
-            rollbackErrors.push(rollbackError);
-          }
-          try {
-            await restoreRules(removed);
-          } catch (rollbackError) {
-            rollbackErrors.push(rollbackError);
-          }
-          if (rollbackErrors.length) {
-            throw makeAggregateError(
-              [error, ...rollbackErrors],
-              error instanceof Error
-                ? error.message
-                : t("mail.aiFilter.instructionFailed"),
-            );
-          }
-          throw error;
+        const result = await consolidateAiFilterRules.mutateAsync({
+          id: first.id,
+          duplicateIds: duplicates.map((rule) => rule.id),
+          name,
+          condition,
+          actions,
+        });
+        if (!result.saved) {
+          toast.error(t("mail.aiFilter.instructionFailed"));
+          setPromptDrafts((drafts) => ({
+            ...drafts,
+            [mode]: promptForRules(existing),
+          }));
         }
       } else {
         await createRule.mutateAsync({
@@ -381,9 +359,7 @@ export function AiFilterSection() {
       }
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.aiFilter.instructionFailed"),
+        actionErrorMessage(error) ?? t("mail.aiFilter.instructionFailed"),
       );
       setPromptDrafts((drafts) => ({
         ...drafts,

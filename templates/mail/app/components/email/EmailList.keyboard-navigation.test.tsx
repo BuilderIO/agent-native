@@ -256,6 +256,7 @@ function press(key: string, shiftKey = false) {
 }
 
 function hasPrioritySortOption(node: unknown): boolean {
+  if (node === "mail.sort.priority") return true;
   if (Array.isArray(node)) return node.some(hasPrioritySortOption);
   if (!isValidElement(node)) return false;
   const props = node.props as { children?: unknown; value?: unknown };
