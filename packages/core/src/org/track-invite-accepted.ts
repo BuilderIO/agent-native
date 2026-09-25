@@ -55,7 +55,7 @@ export function trackInviteAccepted(input: {
     ])
       .then(
         async ([
-          { track },
+          { track, flushTracking },
           { getAppConfig },
           { getBetterAuthUserIdForEmail },
         ]) => {
@@ -75,6 +75,8 @@ export function trackInviteAccepted(input: {
             },
             { userId: input.email },
           );
+          // `track()` only dispatches; hold `waitUntil` until providers deliver.
+          await flushTracking();
         },
       )
       .catch(() => {

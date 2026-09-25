@@ -25,8 +25,9 @@ Events tracked by application instrumentation and stored in the configured appli
   `template` (the app slug), `org_id`, `role` (`admin` or `member`). Tracked
   under the inviter's `userId` (their email).
 - `invite_accepted` — A pending invitation is accepted — via the
-  accept-invitation route, or reconciled automatically on signup, SSO, Google
-  verification, or domain auto-join. Properties: `app`, `template`, `org_id`,
+  accept-invitation route, or reconciled automatically on signup, SSO, or email
+  verification. Domain auto-join adds members directly and emits no invite
+  event. Properties: `app`, `template`, `org_id`,
   `role` (`admin` or `member`), `federated` (boolean), and `referrer_user` —
   the inviter's Better Auth user id, resolved from the invitation's
   `invited_by` email and included only when that lookup succeeds; omitted

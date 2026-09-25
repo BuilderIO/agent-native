@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockFlushTracking = vi.hoisted(() => vi.fn(async () => []));
 const mockGetBetterAuthUserIdForEmail = vi.hoisted(() =>
   vi.fn(async () => null),
 );
 
 vi.mock("../tracking/registry.js", () => ({
   track: mockTrack,
+  flushTracking: mockFlushTracking,
 }));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({ app: { slug: "test-app" } }),
@@ -42,6 +44,26 @@ describe("trackInviteAccepted", () => {
 
     expect(waitUntil).toHaveBeenCalledTimes(1);
     expect(waitUntil).toHaveBeenCalledWith(result);
+  });
+
+  it("keeps the registered promise pending until providers flush", async () => {
+    let releaseFlush!: () => void;
+    mockFlushTracking.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseFlush = () => resolve([]))),
+    );
+    let settled = false;
+    const result = trackInviteAccepted(input).then(() => {
+      settled = true;
+    });
+
+    await vi.waitFor(() => expect(mockFlushTracking).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockTrack).toHaveBeenCalled();
+    expect(settled).toBe(false);
+
+    releaseFlush();
+    await result;
+    expect(settled).toBe(true);
   });
 
   it("still resolves fail-open when no event is reachable", async () => {
