@@ -1,1 +1,9 @@
-{"expires_at":"2026-09-25T08:50:00Z","legacy_retired":true,"observed_legacy_heartbeat_version":"absent","owner_thread":"01a09635-7e86-72c2-aaad-87176d2d94f3","pr":5832,"released":false,"version":"08151641-d041-488f-972f-31e3cd462453"}
+{
+  "expires_at": "2026-09-25T09:22:32Z",
+  "legacy_retired": true,
+  "observed_legacy_heartbeat_version": "absent",
+  "owner_thread": "01a09635-7e86-72c2-aaad-87176d2d94f3",
+  "pr": 5832,
+  "released": false,
+  "version": "ada2f81d-a18b-4f64-a257-de44df2e49be"
+}
