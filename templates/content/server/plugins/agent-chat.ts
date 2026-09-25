@@ -7,6 +7,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, like } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
 import { getDb, schema } from "../db/index.js";
 import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
 import {
@@ -104,12 +105,20 @@ async function autosaveDocumentAtChatBoundary(
     return;
   }
 
-  const access = await assertAccess("document", scope.id, "editor");
-  const document = access.resource as {
+  let access = await assertAccess("document", scope.id, "editor");
+  let document = access.resource as {
     ownerEmail: string;
     title: string;
     content: string;
   };
+  if (phase === "start") {
+    await flushOpenDocumentEditorToSql({
+      documentId: scope.id,
+      ownerEmail: document.ownerEmail,
+    });
+    access = await assertAccess("document", scope.id, "editor");
+    document = access.resource as typeof document;
+  }
   const db = getDb();
   const chatContext = { threadId: run.threadId, runId: run.runId, phase };
 
