@@ -5,7 +5,10 @@
 
 import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
-import { stripCopiedIdentity } from "./bullet-editing";
+import {
+  extractWithoutCopiedIdentity,
+  stripCopiedIdentity,
+} from "./bullet-editing";
 
 export const INLINE_TEXT_STYLE_KEYS = [
   "color",
@@ -390,7 +393,7 @@ function splitLinkPart(
   if (!part.toString()) return;
   const copy = link.cloneNode(false) as HTMLElement;
   stripCopiedIdentity(copy);
-  copy.append(part.extractContents());
+  copy.append(extractWithoutCopiedIdentity(part));
   link[side](copy);
 }
 

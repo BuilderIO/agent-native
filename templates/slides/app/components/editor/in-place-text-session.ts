@@ -9,6 +9,7 @@
 
 import {
   convertMarkdownPrefixToBullet,
+  extractWithoutCopiedIdentity,
   findEnclosingList,
   insertBulletAfterCaret,
   isBulletMarker,
@@ -1112,7 +1113,7 @@ export function startInPlaceTextSession(
     const tail = document.createRange();
     tail.setStart(startContainer, startOffset);
     tail.setEnd(block, block.childNodes.length);
-    const moved = tail.extractContents();
+    const moved = extractWithoutCopiedIdentity(tail);
     const clone = block.cloneNode(false) as HTMLElement;
     stripCopiedIdentity(clone);
     clone.append(moved);

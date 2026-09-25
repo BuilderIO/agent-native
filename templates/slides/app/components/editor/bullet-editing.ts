@@ -18,12 +18,47 @@ export const ZERO_WIDTH_SPACE = "\u200B";
  */
 export function stripCopiedIdentity(root: Element) {
   for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
-    for (const { name } of Array.from(element.attributes)) {
-      if (name === "id" || /^data-.+-id$/.test(name)) {
-        element.removeAttribute(name);
-      }
+    stripIdentity(element);
+  }
+}
+
+function stripIdentity(element: Element) {
+  for (const { name } of Array.from(element.attributes)) {
+    if (name === "id" || /^data-.+-id$/.test(name)) {
+      element.removeAttribute(name);
     }
   }
+}
+
+/**
+ * `range.extractContents()` for a split. An element the range only partly
+ * holds stays where it is and the fragment gets a copy of it, along the
+ * fragment's first and last edges; those copies lose their identity, while
+ * elements that moved whole keep theirs.
+ */
+export function extractWithoutCopiedIdentity(range: Range): DocumentFragment {
+  const common = range.commonAncestorContainer;
+  const copiedDepth = (node: Node) => {
+    let depth = 0;
+    for (let at: Node | null = node; at && at !== common; at = at.parentNode) {
+      if (at instanceof Element) depth += 1;
+    }
+    return depth;
+  };
+  const startDepth = copiedDepth(range.startContainer);
+  const endDepth = copiedDepth(range.endContainer);
+  const fragment = range.extractContents();
+  let copy = fragment.firstChild;
+  for (let left = startDepth; left > 0 && copy instanceof Element; left -= 1) {
+    stripIdentity(copy);
+    copy = copy.firstChild;
+  }
+  copy = fragment.lastChild;
+  for (let left = endDepth; left > 0 && copy instanceof Element; left -= 1) {
+    stripIdentity(copy);
+    copy = copy.lastChild;
+  }
+  return fragment;
 }
 
 /** Single glyphs commonly used as bullet markers in styled (non-<ul>) lists. */
@@ -686,7 +721,7 @@ export function insertBulletAfterCaret(list: HTMLElement): boolean {
     else tailRange.setEnd(container, container.childNodes.length);
     // extractContents() moves the trailing DOM subtree (preserving <strong>/
     // <em>) out of the original row so it can be reparented into the new one.
-    tail = tailRange.extractContents();
+    tail = extractWithoutCopiedIdentity(tailRange);
     // A caret at the very end of the text (the common case) makes tailRange
     // collapsed, but extractContents() on a collapsed range still clones the
     // boundary text node with empty data instead of returning an empty

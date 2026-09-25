@@ -1271,3 +1271,46 @@ describe("in-place text session: review fixes", () => {
     expect(el.innerHTML).toBe("IntroOne<br>Two");
   });
 });
+
+describe("in-place text session: review round 2", () => {
+  it("keeps the identity of an inline element split by Enter on its original only", () => {
+    const el = mount(
+      '<div id="t"><p>Hello <span id="s" data-slide-object-id="o1" style="color: red;">big world</span></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "big world"), 3);
+    beforeInput(el, "insertParagraph");
+    session.end();
+    expect(el.innerHTML).toBe(
+      '<p>Hello <span id="s" data-slide-object-id="o1" style="color: red;">big</span></p><p><span style="color: red;"> world</span></p>',
+    );
+  });
+
+  it("keeps an inline element's identity off a new legacy bullet row", () => {
+    const el = mount(
+      '<div id="t"><div style="display: flex; gap: 12px;"><span>•</span><span><b id="b1" data-slide-object-id="o2">First line</b></span></div><div style="display: flex; gap: 12px;"><span>•</span><span>Second</span></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "First line"), 5);
+    beforeInput(el, "insertParagraph");
+    session.end();
+    expect(el.children).toHaveLength(3);
+    expect(el.querySelectorAll("#b1")).toHaveLength(1);
+    expect(el.querySelectorAll('[data-slide-object-id="o2"]')).toHaveLength(1);
+    expect(el.children[1].querySelector("b")!.textContent).toBe(" line");
+  });
+
+  it("keeps an inline element's identity on one copy when part of a link is unlinked", () => {
+    const el = mount(
+      '<p id="t"><a href="https://x.test"><span id="s" data-slide-object-id="o3" style="color: red;">linked text</span></a></p>',
+    );
+    session = startInPlaceTextSession(el);
+    const text = textOf(el, "linked");
+    select(text, 7, text, 11);
+    expect(session.commands.link(null)).toBe(true);
+    session.end();
+    expect(el.querySelectorAll("#s")).toHaveLength(1);
+    expect(el.querySelectorAll('[data-slide-object-id="o3"]')).toHaveLength(1);
+    expect(el.textContent).toBe("linked text");
+  });
+});
