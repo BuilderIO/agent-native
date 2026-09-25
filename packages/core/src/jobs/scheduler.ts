@@ -532,7 +532,7 @@ async function recordIdentityFailure(
   // Keep blocked jobs due so an admin can find them, but do not let their
   // persistent failure consume an execution slot on every scheduler sweep.
   const alreadyRecorded =
-    meta.lastStatus === "skipped" && meta.lastError === reason;
+    meta.lastError === reason && hasRecentIdentityFailure(meta, now);
   meta.lastCheck = now.toISOString();
   meta.lastStatus = "skipped";
   meta.lastError = reason;
