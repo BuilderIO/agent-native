@@ -20,6 +20,7 @@ import {
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { BOARD_FILENAME } from "../shared/board-file.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
+import { designTemplateRetryKey } from "../shared/design-template-retry.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
@@ -65,7 +66,7 @@ async function readRetryDesign(
   orgId: string | null,
   templateId: string,
   createdTitle: string,
-  retryKey?: string,
+  retryKey: string,
 ) {
   const access = await resolveAccess("design", id);
   if (!access) return null;
@@ -96,8 +97,7 @@ async function readRetryDesign(
     Array.isArray(templateSource) ||
     (templateSource as { templateId?: unknown }).templateId !== templateId ||
     design.title !== createdTitle ||
-    (retryKey !== undefined &&
-      (templateSource as { retryKey?: unknown }).retryKey !== retryKey)
+    (templateSource as { retryKey?: unknown }).retryKey !== retryKey
   ) {
     return templateCopyConflict();
   }
@@ -177,7 +177,7 @@ export default defineAction({
     retryKey: z
       .string()
       .min(1)
-      .max(4_000)
+      .max(128)
       .optional()
       .describe("Request fingerprint used to distinguish changed retries"),
   }),
@@ -287,6 +287,18 @@ export default defineAction({
     const orgId = getRequestOrgId() ?? null;
     const createdTitle = title ?? templateTitle;
     const designId = targetDesignId ?? newId ?? nanoid();
+    const expectedRetryKey = designTemplateRetryKey({
+      templateId,
+      title: createdTitle,
+      designSystemId,
+      prompt,
+    });
+    if (newId && !retryKey) {
+      throw new Error("retryKey is required when newId is provided");
+    }
+    if (newId && retryKey !== expectedRetryKey) {
+      return templateCopyConflict();
+    }
     if (newId && !targetDesignId) {
       const existing = await readRetryDesign(
         designId,

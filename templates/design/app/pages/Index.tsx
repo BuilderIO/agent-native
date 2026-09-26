@@ -35,6 +35,7 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
@@ -660,12 +661,11 @@ export default function Index() {
         const title = trimmedPrompt
           ? derivePromptTitle(trimmedPrompt)
           : selectedTemplate.title;
-        const retryKey = JSON.stringify({
+        const retryKey = designTemplateRetryKey({
           templateId: selectedTemplate.id,
           title,
-          designSystemId:
-            designSystemId === undefined ? "inherit" : designSystemId,
-          prompt: trimmedPrompt || null,
+          designSystemId,
+          prompt,
         });
         const previousRetry = templateCopyIdsRef.current.get(
           selectedTemplate.id,

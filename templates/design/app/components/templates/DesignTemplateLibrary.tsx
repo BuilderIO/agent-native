@@ -9,6 +9,7 @@ import {
   TemplateLibraryGrid,
   TemplatePreviewDialog,
 } from "@agent-native/toolkit/app-shell";
+import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { IconDots } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
@@ -113,7 +114,7 @@ export function DesignTemplateLibrary({
     pending.current = true;
     setPendingId(template.id);
     try {
-      const retryKey = JSON.stringify({
+      const retryKey = designTemplateRetryKey({
         templateId: template.id,
         title: template.title,
       });
