@@ -140,12 +140,16 @@ export function resolveCrossScreenMoveFailureRecovery(args: {
     args.sourceDeleteRequest?.transactionId === args.transactionId
       ? args.sourceDeleteRequest
       : null;
-  const needsRollback =
-    args.reason === "board-drop-timeout" ||
-    args.reason === "cross-screen-insert-timeout" ||
+  const destinationDocumentLost =
     args.reason === "target-canvas-unmounted" ||
-    args.reason === "target-document-replaced" ||
-    Boolean(sourceDeleteRequest?.rollbackSelector);
+    args.reason === "target-document-replaced";
+  // A lost document discarded its transient insert; only an acknowledged
+  // insert needs the source's pending delete canceled before admission opens.
+  const needsRollback =
+    !destinationDocumentLost &&
+    (args.reason === "board-drop-timeout" ||
+      args.reason === "cross-screen-insert-timeout" ||
+      Boolean(sourceDeleteRequest?.rollbackSelector));
   const rollbackScreenId =
     sourceDeleteRequest?.rollbackScreenId ?? insertRequest?.screenId;
   const rollbackRequest =
@@ -159,31 +163,33 @@ export function resolveCrossScreenMoveFailureRecovery(args: {
           idempotent: true,
         }
       : null;
-  const sourceWasRemoved = Boolean(
+  const sourceDeleteMayHaveApplied = Boolean(
     sourceDeleteRequest &&
     (sourceDeleteRequest.cancelRequested ||
       sourceDeleteRequest.waitForInsertTransaction !== true ||
       sourceDeleteRequest.rollbackSelector),
   );
+  const recoveredSourceDeleteRequest = sourceDeleteRequest
+    ? sourceDeleteMayHaveApplied
+      ? {
+          ...sourceDeleteRequest,
+          cancelRequested: true,
+          rollbackSelector: undefined,
+          rollbackSourceId: undefined,
+        }
+      : null
+    : undefined;
 
   return {
-    admissionReleased: rollbackRequest
-      ? false
-      : releaseCrossScreenDropAdmission(
-          args.pendingTransactionRef,
-          args.transactionId,
-        ),
+    admissionReleased:
+      rollbackRequest || recoveredSourceDeleteRequest?.cancelRequested
+        ? false
+        : releaseCrossScreenDropAdmission(
+            args.pendingTransactionRef,
+            args.transactionId,
+          ),
     rollbackRequest,
-    sourceDeleteRequest: sourceDeleteRequest
-      ? sourceWasRemoved
-        ? {
-            ...sourceDeleteRequest,
-            cancelRequested: true,
-            rollbackSelector: undefined,
-            rollbackSourceId: undefined,
-          }
-        : null
-      : undefined,
+    sourceDeleteRequest: recoveredSourceDeleteRequest,
   };
 }
 

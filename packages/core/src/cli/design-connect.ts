@@ -189,6 +189,7 @@ async function persistBridgeToken(
 async function resolveBridgeToken(
   rootPath: string,
   configuredToken?: string,
+  persist = true,
 ): Promise<string> {
   const persistedToken = await readPersistedBridgeToken(rootPath);
   const bridgeToken =
@@ -204,10 +205,9 @@ async function resolveBridgeToken(
     );
   }
 
-  // Keep the durable daemon restart path paired with the connection row. An
-  // explicit token wins so the server-minted token from open-visual-edit can
-  // replace an older local credential before the first browser registration.
-  if (configuredToken || !persistedToken) {
+  // The daemon path persists only after it proves the running or newly-started
+  // bridge accepted this token. A rejected token must not replace recovery data.
+  if (persist && (configuredToken || !persistedToken)) {
     await persistBridgeToken(rootPath, bridgeToken);
   }
   return bridgeToken;
@@ -4304,6 +4304,7 @@ async function startDetachedDesignBridge(
       runningManifest &&
       designConnectManifestsTargetSameApp(runningManifest, manifest)
     ) {
+      await persistBridgeToken(manifest.rootPath, bridgeToken);
       console.error(
         `Design localhost bridge already running at ${manifest.bridgeUrl}`,
       );
@@ -4353,13 +4354,14 @@ async function startDetachedDesignBridge(
   const child = spawn(invocation.command, invocation.args, {
     cwd: process.cwd(),
     detached: true,
-    env: process.env,
+    env: { ...process.env, AGENT_NATIVE_BRIDGE_TOKEN: bridgeToken },
     stdio: ["ignore", logFd.fd, logFd.fd],
     shell: process.platform === "win32",
   });
   child.unref();
 
   if (await waitForBridgeHealth(manifest.bridgeUrl)) {
+    await persistBridgeToken(manifest.rootPath, bridgeToken);
     await logFd.close();
     console.error(`Design localhost bridge running at ${manifest.bridgeUrl}`);
     console.error(`Bridge log: ${logPath}`);
@@ -4477,6 +4479,7 @@ export async function runDesign(argv: string[]) {
     const bridgeToken = await resolveBridgeToken(
       manifest.rootPath,
       seedBridgeToken,
+      false,
     );
     const derivedPreviewToken = deriveDesignPreviewToken(bridgeToken);
     if (parsed.previewToken && parsed.previewToken !== derivedPreviewToken) {

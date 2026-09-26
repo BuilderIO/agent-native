@@ -155,8 +155,29 @@ describe("DesignEditor pending live edits", () => {
     expect(modeChange).toContain("remoteVisualEditPending");
     expect(modeChange).not.toContain('designAccessRole !== "owner"');
     expect(source).toContain("const showVisualEditApply =");
-    expect(source).toContain(
-      "showPendingVisualStyleApply || showSharedVisualEditApply",
+    expect(source).toMatch(
+      /const showVisualEditApply =[\s\S]{0,180}pendingVisualEditRecoveryVisible;/,
     );
+  });
+
+  it("shows the existing recovery toolbar whenever the Interact guard blocks", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /onPendingVisualEditsBlocked: \(\) =>\s+setPendingVisualEditRecoveryVisible\(true\)/,
+    );
+    expect(source).toMatch(
+      /const showVisualEditApply =[\s\S]{0,180}pendingVisualEditRecoveryVisible;/,
+    );
+    const toolbarStart = source.indexOf(
+      "data-design-pending-visual-style-toolbar",
+    );
+    const toolbarEnd = source.indexOf("{viewMode ===", toolbarStart);
+    const toolbar = source.slice(toolbarStart, toolbarEnd);
+    expect(toolbar).toContain("handleApplyPendingVisualStylesWithAgent");
+    expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
+    expect(toolbar).toContain("handleAbortPendingVisualStyles");
   });
 });

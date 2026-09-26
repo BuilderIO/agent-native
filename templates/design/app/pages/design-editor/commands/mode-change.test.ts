@@ -27,6 +27,7 @@ function makeArgs(
     activeFile,
     canEditDesign: true,
     hasPendingVisualEdits: false,
+    onPendingVisualEditsBlocked: vi.fn(),
     clearPendingLiveEditState: vi.fn(),
     enterOverviewFromZoom: vi.fn(),
     enterSingleScreen: vi.fn(),
@@ -60,6 +61,7 @@ describe("runModeChange Interact navigation", () => {
     expect(toast.error).toHaveBeenCalledWith(
       "designEditor.pendingVisualStyles.interactBlocked",
     );
+    expect(args.onPendingVisualEditsBlocked).toHaveBeenCalledOnce();
     expect(args.enterSingleScreen).not.toHaveBeenCalled();
   });
 
@@ -122,7 +124,7 @@ describe("runModeChange Interact navigation", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it("blocks Interact while a shared visual edit is waiting for source apply", () => {
+  it("reveals the recovery control when shared edits block a fresh session", () => {
     const args = {
       ...makeArgs(),
       hasPendingVisualEdits: true,
@@ -133,6 +135,7 @@ describe("runModeChange Interact navigation", () => {
     expect(toast.error).toHaveBeenCalledWith(
       "designEditor.pendingVisualStyles.interactBlocked",
     );
+    expect(args.onPendingVisualEditsBlocked).toHaveBeenCalledOnce();
     expect(args.enterSingleScreen).not.toHaveBeenCalled();
   });
 

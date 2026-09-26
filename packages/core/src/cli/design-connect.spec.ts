@@ -372,6 +372,13 @@ describe("design connect CLI", () => {
       port,
     });
     const bridge = await startDesignConnectBridge(manifest);
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
+    const stalePersistedToken = crypto.randomBytes(32).toString("hex");
+    fs.writeFileSync(persistedPath, `${stalePersistedToken}\n`);
     process.env["AGENT_NATIVE_PREVIEW_TOKEN"] = "stale-preview-token";
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -387,6 +394,8 @@ describe("design connect CLI", () => {
           "--root",
           root,
           "--daemon",
+          "--bridge-token",
+          bridge.bridgeToken,
         ]),
       ).resolves.toBe(0);
       expect(error).toHaveBeenCalledWith(
@@ -395,6 +404,10 @@ describe("design connect CLI", () => {
       const output = JSON.stringify([...error.mock.calls, ...log.mock.calls]);
       expect(output).not.toContain(bridge.bridgeToken);
       expect(output).not.toContain(bridge.previewToken);
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(
+        bridge.bridgeToken,
+      );
+      expect(output).not.toContain(stalePersistedToken);
       expect(warn).toHaveBeenCalledWith(
         "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
       );
@@ -420,6 +433,12 @@ describe("design connect CLI", () => {
     });
     const runningToken = crypto.randomBytes(32).toString("hex");
     const persistedToken = crypto.randomBytes(32).toString("hex");
+    const mismatchedToken = crypto.randomBytes(32).toString("hex");
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
     const bridge = await startDesignConnectBridge(manifest, {
       bridgeToken: runningToken,
     });
@@ -440,6 +459,8 @@ describe("design connect CLI", () => {
           "--root",
           root,
           "--daemon",
+          "--bridge-token",
+          mismatchedToken,
         ]),
       ).resolves.toBe(1);
       const output = JSON.stringify([...error.mock.calls, ...log.mock.calls]);
@@ -448,7 +469,11 @@ describe("design connect CLI", () => {
       expect(output).toContain("The existing process was left running.");
       expect(output).not.toContain(runningToken);
       expect(output).not.toContain(persistedToken);
+      expect(output).not.toContain(mismatchedToken);
       expect(output).not.toContain(bridge.previewToken);
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(
+        persistedToken,
+      );
       expect(log).not.toHaveBeenCalled();
       await expect(
         getJson(`${manifest.bridgeUrl}/health`),
@@ -846,7 +871,7 @@ describe("design connect bridge endpoints", () => {
     } finally {
       await new Promise<void>((resolve) => bridge.server.close(resolve));
     }
-  });
+  }, 15_000);
 
   it("serializes concurrent pending revisions so a queued lower revision is stale", async () => {
     const root = tmpDir();

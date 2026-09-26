@@ -17,6 +17,7 @@ export interface ModeChangeArgs {
   activeFile: DesignFile;
   canEditDesign: boolean;
   hasPendingVisualEdits?: boolean;
+  onPendingVisualEditsBlocked: () => void;
   clearPendingLiveEditState: () => void;
   enterOverviewFromZoom: (nextMode?: EditorMode) => void;
   enterSingleScreen: (fileId?: string | null) => void;
@@ -46,6 +47,7 @@ export function runModeChange(
     activeFile,
     canEditDesign,
     clearPendingLiveEditState,
+    onPendingVisualEditsBlocked,
     enterOverviewFromZoom,
     enterSingleScreen,
     files,
@@ -85,6 +87,7 @@ export function runModeChange(
     !options?.discardPendingLiveEdits &&
     !options?.pendingLiveEditsAlreadyHandled
   ) {
+    onPendingVisualEditsBlocked();
     toast.error(t("designEditor.pendingVisualStyles.interactBlocked"));
     return;
   }

@@ -1642,6 +1642,10 @@ function DesignEditor() {
     setPendingVisualEditPublicationFailed,
   ] = useState(false);
   const [
+    pendingVisualEditRecoveryVisible,
+    setPendingVisualEditRecoveryVisible,
+  ] = useState(false);
+  const [
     effectivePreviewTokensByScreenId,
     setEffectivePreviewTokensByScreenId,
   ] = useState<Record<string, string>>({});
@@ -1861,6 +1865,7 @@ function DesignEditor() {
     pendingVisualEditClearRequestedRef.current = null;
     pendingVisualEditHadPendingRef.current = null;
     setPendingVisualEditPublicationFailed(false);
+    setPendingVisualEditRecoveryVisible(false);
   }, [id]);
   const localhostConnectionRootPathByIdRef = useRef<Map<string, string>>(
     new Map(),
@@ -19233,6 +19238,8 @@ function DesignEditor() {
         {
           activeFile,
           canEditDesign,
+          onPendingVisualEditsBlocked: () =>
+            setPendingVisualEditRecoveryVisible(true),
           hasPendingVisualEdits:
             pendingVisualStyleEdits.length > 0 ||
             pendingLiveNonStyleEdits.length > 0 ||
@@ -19262,6 +19269,7 @@ function DesignEditor() {
     [
       activeFile,
       canEditDesign,
+      setPendingVisualEditRecoveryVisible,
       remoteVisualEditPending,
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
@@ -20573,7 +20581,14 @@ function DesignEditor() {
       : undefined;
   const showSharedVisualEditApply = Boolean(remoteVisualEditPrompt);
   const showVisualEditApply =
-    showPendingVisualStyleApply || showSharedVisualEditApply;
+    showPendingVisualStyleApply ||
+    showSharedVisualEditApply ||
+    pendingVisualEditRecoveryVisible;
+  useEffect(() => {
+    if (!hasLocalPendingVisualEdits && !remoteVisualEditPending) {
+      setPendingVisualEditRecoveryVisible(false);
+    }
+  }, [hasLocalPendingVisualEdits, remoteVisualEditPending]);
   useEffect(() => {
     if (
       !id ||
