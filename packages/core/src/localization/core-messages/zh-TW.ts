@@ -21,6 +21,7 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "上下文過大。請移除一項或附加較小的選取範圍。",
   "activity.reasoning": "推理",
+  "activity.groupLabel": "代理活動",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
   "approval.alwaysAllowAction": "一律允許此動作",
@@ -144,6 +145,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "複製診斷資訊",
   "aboutAgentNative.unknown": "未知",
   "common.agent": "代理",
+  "common.you": "你",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "介面",
   "agentPanel.keyScope": "金鑰範圍",
@@ -624,6 +626,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "規劃已就緒",
   "plan.switchToAct": "切換到執行模式",
   "queue.count": "{{count}} 則排隊中",
+  "queue.label": "排隊中的訊息",
   "queue.followUp": "傳送後續訊息...",
   "queue.followUpWithCount": "{{count}} 則排隊中——傳送後續訊息...",
   "queue.remove": "從佇列中移除",
@@ -650,6 +653,12 @@ const messages: AgentChatTranslation = {
     "上一次代理背景執行在完成前達到時間限制。部分工作已保留；請繼續或重試以從這裡接續。",
   "recovery.noProgress":
     "上一次代理執行在復原期間停止顯示進度，因此已在可能繼續循環前停止。",
+  "recovery.stuckTitle": "此聊天似乎卡住了。",
+  "recovery.stuckNoProgress":
+    "目前沒有進展。代理可能遇到伺服器逾時或連線中斷。",
+  "recovery.stuckWithDuration":
+    "已有 {{seconds}} 秒沒有進展。代理可能遇到伺服器逾時或連線中斷。",
+  "recovery.stuckRetrying": "正在自動重試。",
   "recovery.statusCheckFailed":
     "無法連線至伺服器以檢查代理是否仍在工作。請重新傳送訊息以重試。",
   "recovery.streamEnded":
@@ -764,6 +773,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "仍在處理",
   "status.thinking": "正在思考",
   "status.working": "正在處理",
+  "status.workingFor": "已工作 {{duration}}",
   "shell.chat": "聊天",
   "shell.loadingTerminal": "正在載入終端...",
   "shell.toggleAgent": "顯示或隱藏代理",

@@ -21,6 +21,7 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "السياق كبير جدًا. أزل عنصرًا أو أرفق تحديدًا أصغر.",
   "activity.reasoning": "الاستدلال",
+  "activity.groupLabel": "نشاط الوكيل",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
   "approval.alwaysAllowAction": "السماح بهذا الإجراء دائمًا",
@@ -148,6 +149,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "نسخ بيانات التشخيص",
   "aboutAgentNative.unknown": "غير معروف",
   "common.agent": "الوكيل",
+  "common.you": "أنت",
   "agentPanel.mode": "الوضع",
   "agentPanel.uiMode": "واجهة المستخدم",
   "agentPanel.keyScope": "نطاق المفتاح",
@@ -660,6 +662,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "الخطة جاهزة",
   "plan.switchToAct": "التبديل إلى وضع التنفيذ",
   "queue.count": "{{count}} في قائمة الانتظار",
+  "queue.label": "رسائل بانتظار الإرسال",
   "queue.followUp": "إرسال متابعة...",
   "queue.followUpWithCount": "{{count}} في قائمة الانتظار — أرسل متابعة...",
   "queue.remove": "إزالة من قائمة الانتظار",
@@ -686,6 +689,12 @@ const messages: AgentChatTranslation = {
     "بلغ تشغيل الوكيل السابق في الخلفية الحد الزمني قبل الاكتمال. تم الاحتفاظ بالعمل الجزئي؛ تابع أو أعد المحاولة من هنا.",
   "recovery.noProgress":
     "توقف تشغيل الوكيل السابق عن إظهار تقدم أثناء الاسترداد، لذلك تم إيقافه قبل أن يستمر في التكرار.",
+  "recovery.stuckTitle": "يبدو أن هذه المحادثة متوقفة.",
+  "recovery.stuckNoProgress":
+    "لا يوجد تقدم. ربما انتهت مهلة الخادم أو انقطع اتصال الوكيل.",
+  "recovery.stuckWithDuration":
+    "لا يوجد تقدم منذ {{seconds}} ثانية. ربما انتهت مهلة الخادم أو انقطع اتصال الوكيل.",
+  "recovery.stuckRetrying": "تجري إعادة المحاولة تلقائيًا الآن.",
   "recovery.statusCheckFailed":
     "تعذّر الوصول إلى الخادم للتحقق مما إذا كان الوكيل لا يزال يعمل. أرسل رسالتك مجددًا لإعادة المحاولة.",
   "recovery.streamEnded":
@@ -807,6 +816,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",
   "status.working": "جارٍ العمل",
+  "status.workingFor": "يعمل منذ {{duration}}",
   "shell.chat": "الدردشة",
   "shell.loadingTerminal": "جارٍ تحميل الطرفية...",
   "shell.toggleAgent": "إظهار الوكيل أو إخفاؤه",

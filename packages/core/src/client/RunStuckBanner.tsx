@@ -2,6 +2,7 @@ import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { trackEvent } from "./analytics.js";
+import { useT } from "./i18n.js";
 import {
   useRunStuckDetection,
   useAbortRun,
@@ -183,6 +184,7 @@ export function RunStuckBanner({
   isAwaitingResponse,
   className,
 }: RunStuckBannerProps) {
+  const t = useT();
   const state = useRunStuckDetection({
     threadId,
     enabled,
@@ -398,13 +400,18 @@ export function RunStuckBanner({
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="leading-snug">
-          <span className="font-medium">This chat looks stuck.</span>{" "}
+          <span className="font-medium">
+            {t("agentChat.recovery.stuckTitle")}
+          </span>{" "}
           <span className="text-muted-foreground">
-            No progress
-            {stuckSeconds != null ? ` for ${stuckSeconds}s` : ""}. The agent may
-            have hit a server timeout or lost its connection.
+            {t(
+              stuckSeconds != null
+                ? "agentChat.recovery.stuckWithDuration"
+                : "agentChat.recovery.stuckNoProgress",
+              stuckSeconds != null ? { seconds: stuckSeconds } : undefined,
+            )}
             {autoRetry && autoRetriedRunId === state.runId
-              ? " Retrying automatically now."
+              ? ` ${t("agentChat.recovery.stuckRetrying")}`
               : ""}
           </span>
         </div>
@@ -422,7 +429,7 @@ export function RunStuckBanner({
                 aria-hidden="true"
               />
             ) : null}
-            Retry
+            {t("agentChat.common.retry")}
           </button>
           <button
             type="button"
@@ -437,7 +444,7 @@ export function RunStuckBanner({
                 aria-hidden="true"
               />
             ) : null}
-            Cancel
+            {t("agentChat.common.cancel")}
           </button>
         </div>
       </div>

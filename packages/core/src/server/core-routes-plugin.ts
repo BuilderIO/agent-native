@@ -143,6 +143,7 @@ import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
+import { isAgentChatAiSetupReady } from "./agent-chat-ai-setup.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
 import {
@@ -334,6 +335,11 @@ export interface AgentEngineStatusResult {
   source?: "settings" | "env" | "app_secrets";
   envVar?: string;
   openAiBaseUrlConfigured?: boolean;
+}
+
+export interface AgentEngineStatusResponse extends AgentEngineStatusResult {
+  /** Strict chat-only eligibility; distinct from broad engine `configured`. */
+  chatEligible: boolean;
 }
 
 export interface AgentEngineStatusDeps<
@@ -4846,18 +4852,23 @@ export function createCoreRoutesPlugin(
         createAgentEngineOllamaModelsHandler(),
       );
 
-      // GET /_agent-native/agent-engine/status — reports whether an engine
-      // is configured (settings row, settings+env, or auto-detected from env).
-      // The agent-chat UI uses this to skip the onboarding gate for providers
-      // not in the env-status list (OpenRouter, Groq, Ollama, …).
+      // GET /_agent-native/agent-engine/status — reports broad engine status
+      // plus the stricter eligibility gate for interactive Agent-Native chat.
       getH3App(nitroApp).use(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
           try {
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
-            return await runWithRequestContext({ userEmail, orgId }, () =>
-              resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
+            return await runWithRequestContext(
+              { userEmail, orgId },
+              async (): Promise<AgentEngineStatusResponse> => {
+                const [engineStatus, chatEligible] = await Promise.all([
+                  resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
+                  isAgentChatAiSetupReady(),
+                ]);
+                return { ...engineStatus, chatEligible };
+              },
             );
           } catch (err) {
             // NOT `{ configured: false }`. A 200 saying "not configured" is an

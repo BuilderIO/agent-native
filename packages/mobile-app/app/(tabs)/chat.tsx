@@ -1,21 +1,30 @@
 import { useFocusEffect } from "@react-navigation/native";
 import {
+  IconCheck,
   IconCopy,
   IconGitFork,
+  IconHistory,
   IconId,
   IconMenu2,
+  IconPencil,
+  IconRefresh,
   IconShare2,
   IconSquareRoundedPlus,
+  IconThumbDown,
+  IconThumbUp,
+  IconX,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
+  Linking,
   Pressable,
   Platform,
   Share,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import {
@@ -38,6 +47,7 @@ import {
   useMobileThemeColors,
 } from "@/components/chat/MobileWorkspaceControls";
 import { ThreadHistorySheet } from "@/components/chat/ThreadHistorySheet";
+import { VersionHistorySheet } from "@/components/chat/VersionHistorySheet";
 import { ComputerConnectSheet } from "@/components/ComputerConnectSheet";
 import { NativeSignInSheet } from "@/components/NativeSignInSheet";
 import { SafeAreaView } from "@/components/uniwind-interop";
@@ -47,6 +57,10 @@ import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
 import type { AgentChatController } from "@/lib/agent-chat/use-agent-chat";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
+import {
+  canShowMobileVersionHistory,
+  messageChatScope,
+} from "@/lib/agent-chat/version-history";
 import { inspectNativeSession, NATIVE_AUTH_BASE_URL } from "@/lib/native-auth";
 import {
   appendRemoteFollowUp,
@@ -92,17 +106,21 @@ function ActionSheetRow({
   label,
   onPress,
   children,
+  disabled = false,
 }: {
   label: string;
   onPress: () => void;
   children: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
-      className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-75"
+      className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-75 disabled:opacity-45"
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled }}
     >
       {children}
       <Text className="text-foreground text-[15px]">{label}</Text>
@@ -122,6 +140,12 @@ function ComputerMessages({
   onApprove,
   onDeny,
   onMessageActions,
+  onContinueAfterConnection,
+  onOpenConnections,
+  chatEligibility,
+  canChat,
+  refreshChatEligibility,
+  onOpenSettings,
 }: {
   events: RemoteTranscriptEvent[];
   loading: boolean;
@@ -134,6 +158,12 @@ function ComputerMessages({
   onApprove: (approvalKey: string) => void;
   onDeny: (approvalKey?: string) => void;
   onMessageActions?: (message: ChatMessage) => void;
+  onContinueAfterConnection: (requestId: string, provider: string) => void;
+  onOpenConnections: () => void;
+  chatEligibility: AgentChatController["chatEligibility"];
+  canChat: boolean;
+  refreshChatEligibility: () => void;
+  onOpenSettings: () => void;
 }) {
   const remoteState = useMemo(
     () =>
@@ -156,6 +186,9 @@ function ComputerMessages({
       errorCode: remoteState.errorCode,
       authRequired: false,
       historyLoading: loading,
+      chatEligibility,
+      canChat,
+      refreshChatEligibility,
       send: () => {},
       stop: () => {},
       approve: onApprove,
@@ -164,10 +197,40 @@ function ComputerMessages({
       newChat: () => {},
       openThread: () => {},
       clearAuthRequired: () => {},
+      continueAfterConnection: onContinueAfterConnection,
+      invokeWidgetAction: async () => {},
+      editMessage: async () => {},
+      regenerateMessage: async () => {},
+      submitFeedback: async () => {},
       getRunId: () => run?.id ?? null,
     }),
-    [events, loading, onApprove, onDeny, remoteState, run?.id],
+    [
+      canChat,
+      chatEligibility,
+      events,
+      loading,
+      onApprove,
+      onDeny,
+      onContinueAfterConnection,
+      refreshChatEligibility,
+      remoteState,
+      run?.id,
+    ],
   );
+
+  if (
+    events.length === 0 &&
+    (chatEligibility === "missing" || chatEligibility === "unavailable")
+  ) {
+    return (
+      <MessagesList
+        chat={remoteChat}
+        bottomInset={8}
+        onOpenSettings={onOpenSettings}
+        onOpenConnections={onOpenConnections}
+      />
+    );
+  }
 
   if (loading && events.length === 0) {
     return (
@@ -214,6 +277,7 @@ function ComputerMessages({
       chat={remoteChat}
       bottomInset={8}
       onMessageActions={onMessageActions}
+      onOpenConnections={onOpenConnections}
     />
   );
 }
@@ -243,6 +307,13 @@ export default function ChatTab() {
   const [signInOpen, setSignInOpen] = useState(false);
   const [connectComputerOpen, setConnectComputerOpen] = useState(false);
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(
+    null,
+  );
+  const [editDraft, setEditDraft] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [historyFor, setHistoryFor] = useState<ChatMessage | null>(null);
+  const [historyRestoring, setHistoryRestoring] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useChatSettings();
   const [chatTarget, setChatTarget] = useState<ChatTarget>(
@@ -549,7 +620,7 @@ export default function ChatTab() {
   const handleRemoteSend = useCallback(
     (text: string) => {
       const prompt = text.trim();
-      if (!prompt || remoteSending) return;
+      if (!prompt || remoteSending || !chat.canChat) return;
       if (!selectedRemoteHostId) {
         setConnectComputerOpen(true);
         return;
@@ -608,6 +679,7 @@ export default function ChatTab() {
     [
       remoteRun,
       remoteSending,
+      chat.canChat,
       refreshRemoteTranscript,
       selectedRemoteHostId,
       settings.engine,
@@ -669,6 +741,16 @@ export default function ChatTab() {
 
   const showNotice = (message: string) => setNotice(message);
 
+  const openConnections = useCallback(() => {
+    const url = new URL(
+      "/settings/agent#integrations",
+      chat.baseUrl,
+    ).toString();
+    void Linking.openURL(url).catch(() =>
+      showNotice("Could not open integration settings"),
+    );
+  }, [chat.baseUrl]);
+
   const shareThread = () => {
     if (chat.messages.length === 0) return;
     void createThreadShareLink(chat.threadId, chat.baseUrl)
@@ -699,6 +781,11 @@ export default function ChatTab() {
     );
   };
 
+  const openVersionHistory = (message: ChatMessage) => {
+    setActionsFor(null);
+    setHistoryFor(message);
+  };
+
   const forkChat = () => {
     setActionsFor(null);
     void forkChatThread(chat.threadId, chat.baseUrl)
@@ -712,6 +799,65 @@ export default function ChatTab() {
       })
       .catch(() => showNotice("Could not fork chat"));
   };
+
+  const beginEditingMessage = (message: ChatMessage) => {
+    setActionsFor(null);
+    setEditingMessage(message);
+    setEditDraft(messageText(message));
+  };
+
+  const submitEditedMessage = () => {
+    if (!editingMessage || !editDraft.trim() || editSubmitting) return;
+    setEditSubmitting(true);
+    void chat
+      .editMessage(editingMessage.id, editDraft)
+      .then(() => {
+        setEditingMessage(null);
+        showNotice("Edited message sent in a new chat branch");
+      })
+      .catch(() => showNotice("Could not edit this message"))
+      .finally(() => setEditSubmitting(false));
+  };
+
+  const regenerateMessage = (message: ChatMessage) => {
+    setActionsFor(null);
+    void chat
+      .regenerateMessage(message.id)
+      .then(() => showNotice("Regenerating response in a new chat branch"))
+      .catch(() => showNotice("Could not regenerate this response"));
+  };
+
+  const submitMessageFeedback = (
+    message: ChatMessage,
+    value: "positive" | "negative",
+  ) => {
+    setActionsFor(null);
+    void chat
+      .submitFeedback(message.id, value)
+      .then(() => showNotice("Feedback submitted"))
+      .catch(() => showNotice("Could not submit feedback"));
+  };
+
+  const selectedMessageIndex = actionsFor
+    ? chat.messages.findIndex((message) => message.id === actionsFor.id)
+    : -1;
+  const canEditSelectedMessage =
+    chatTarget === "cloud" &&
+    chat.canChat &&
+    !chat.isStreaming &&
+    actionsFor?.role === "user" &&
+    messageText(actionsFor).trim().length > 0;
+  const canRegenerateSelectedMessage =
+    chatTarget === "cloud" &&
+    chat.canChat &&
+    !chat.isStreaming &&
+    actionsFor?.role === "assistant" &&
+    selectedMessageIndex > 0 &&
+    chat.messages
+      .slice(0, selectedMessageIndex)
+      .some((message) => message.role === "user");
+  const canGiveSelectedFeedback =
+    chatTarget === "cloud" && actionsFor?.role === "assistant";
 
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
@@ -798,6 +944,16 @@ export default function ChatTab() {
                 onApprove={handleRemoteApprove}
                 onDeny={handleRemoteDeny}
                 onMessageActions={setActionsFor}
+                onContinueAfterConnection={(_requestId, provider) =>
+                  handleRemoteSend(
+                    `I connected ${provider}. Continue with my request.`,
+                  )
+                }
+                onOpenConnections={openConnections}
+                chatEligibility={chat.chatEligibility}
+                canChat={chat.canChat}
+                refreshChatEligibility={chat.refreshChatEligibility}
+                onOpenSettings={() => setSettingsOpen(true)}
               />
             ) : chat.historyLoading ? (
               <View className="flex-1 items-center justify-center">
@@ -808,7 +964,9 @@ export default function ChatTab() {
                 chat={chat}
                 bottomInset={8}
                 onMessageActions={setActionsFor}
+                onOpenConnections={openConnections}
                 onSignIn={() => setSignInOpen(true)}
+                onOpenSettings={() => setSettingsOpen(true)}
               />
             )}
           </>
@@ -828,6 +986,10 @@ export default function ChatTab() {
                 chatTarget === "computer" ? remoteSending : chat.isStreaming
               }
               target={chatTarget}
+              isRestoring={historyRestoring}
+              canChat={chat.canChat}
+              chatEligibility={chat.chatEligibility}
+              refreshChatEligibility={chat.refreshChatEligibility}
               settings={settings}
               baseUrl={chat.baseUrl}
               onSend={chatTarget === "computer" ? handleRemoteSend : chat.send}
@@ -866,6 +1028,57 @@ export default function ChatTab() {
         >
           <IconCopy color={foreground} size={18} strokeWidth={1.9} />
         </ActionSheetRow>
+        {canEditSelectedMessage && actionsFor ? (
+          <>
+            <View className="h-px bg-border-dark" />
+            <ActionSheetRow
+              label="Edit message"
+              onPress={() => beginEditingMessage(actionsFor)}
+            >
+              <IconPencil color={foreground} size={18} strokeWidth={1.9} />
+            </ActionSheetRow>
+          </>
+        ) : null}
+        {canRegenerateSelectedMessage && actionsFor ? (
+          <>
+            <View className="h-px bg-border-dark" />
+            <ActionSheetRow
+              label="Regenerate response"
+              onPress={() => regenerateMessage(actionsFor)}
+            >
+              <IconRefresh color={foreground} size={18} strokeWidth={1.9} />
+            </ActionSheetRow>
+          </>
+        ) : null}
+        {canGiveSelectedFeedback && actionsFor ? (
+          <>
+            <View className="h-px bg-border-dark" />
+            <ActionSheetRow
+              label="Helpful"
+              onPress={() => submitMessageFeedback(actionsFor, "positive")}
+            >
+              <IconThumbUp color={foreground} size={18} strokeWidth={1.9} />
+            </ActionSheetRow>
+            <View className="h-px bg-border-dark" />
+            <ActionSheetRow
+              label="Not helpful"
+              onPress={() => submitMessageFeedback(actionsFor, "negative")}
+            >
+              <IconThumbDown color={foreground} size={18} strokeWidth={1.9} />
+            </ActionSheetRow>
+          </>
+        ) : null}
+        {actionsFor && canShowMobileVersionHistory(actionsFor) ? (
+          <>
+            <View className="h-px bg-border-dark" />
+            <ActionSheetRow
+              label="Version history"
+              onPress={() => actionsFor && openVersionHistory(actionsFor)}
+            >
+              <IconHistory color={foreground} size={18} strokeWidth={1.9} />
+            </ActionSheetRow>
+          </>
+        ) : null}
         <View className="h-px bg-border-dark" />
         <ActionSheetRow
           label="Copy Request ID"
@@ -878,6 +1091,53 @@ export default function ChatTab() {
           <IconGitFork color={foreground} size={18} strokeWidth={1.9} />
         </ActionSheetRow>
       </MobilePopover>
+
+      <MobilePopover
+        visible={editingMessage !== null}
+        title="Edit message"
+        onClose={() => setEditingMessage(null)}
+        bottomClassName="mb-8"
+        overlayClassName="bg-overlay-dark"
+        accessibilityLabel="Dismiss message editor"
+      >
+        <View className="gap-2 p-3">
+          <TextInput
+            value={editDraft}
+            onChangeText={setEditDraft}
+            multiline
+            autoFocus
+            textAlignVertical="top"
+            accessibilityLabel="Edited message"
+            className="min-h-24 rounded-xl border border-border-dark bg-background-dark px-3 py-3 text-foreground text-[15px] leading-5"
+          />
+          <ActionSheetRow
+            label="Cancel"
+            onPress={() => setEditingMessage(null)}
+          >
+            <IconX color={foreground} size={18} strokeWidth={1.9} />
+          </ActionSheetRow>
+          <ActionSheetRow
+            label="Send edited message"
+            disabled={!editDraft.trim() || editSubmitting}
+            onPress={submitEditedMessage}
+          >
+            <IconCheck color={foreground} size={18} strokeWidth={1.9} />
+          </ActionSheetRow>
+        </View>
+      </MobilePopover>
+
+      <VersionHistorySheet
+        visible={historyFor !== null}
+        scope={historyFor ? messageChatScope(historyFor) : null}
+        threadId={chat.threadId}
+        baseUrl={chat.baseUrl}
+        canRestore={
+          chatTarget === "cloud" && !chat.isStreaming && !remoteSending
+        }
+        onClose={() => setHistoryFor(null)}
+        onRestoringChange={setHistoryRestoring}
+        onRestored={() => showNotice("Restored an earlier version")}
+      />
 
       <ThreadHistorySheet
         visible={historyOpen}
@@ -892,7 +1152,10 @@ export default function ChatTab() {
         settings={settings}
         baseUrl={chat.baseUrl}
         onChange={setSettings}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => {
+          setSettingsOpen(false);
+          void chat.refreshChatEligibility();
+        }}
       />
 
       <NativeSignInSheet

@@ -103,6 +103,8 @@ import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 export interface TiptapComposerHandle {
   focus(): void;
+  /** Add a file through the same attachment pipeline as paste and drop. */
+  addAttachment(file: File): Promise<unknown>;
   /** Insert text through the editor's normal input path. */
   insertText(text: string): void;
   setText(text: string): void;
@@ -3216,6 +3218,9 @@ export function TiptapComposer({
   useImperativeHandle(focusRef, () => ({
     focus() {
       if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+    },
+    addAttachment(file: File) {
+      return addAttachmentForCurrentScope(file);
     },
     insertText(text: string) {
       if (!isComposerEditorUsable(editor)) return;

@@ -42,6 +42,7 @@ export default function WorkspaceAppTab({
         url={getAppUrl(app)}
         captureSessionToken={captureSessionToken}
         workspaceAppId={appId}
+        enableMobileDeckSaveFlushBridge={appId === "slides"}
         parentSessionTokenKey={SESSION_TOKEN_KEY}
       />
     </SafeAreaView>

@@ -22,6 +22,7 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "コンテキストが大きすぎます。項目を削除するか、より小さな選択範囲を添付してください。",
   "activity.reasoning": "推論",
+  "activity.groupLabel": "エージェントのアクティビティ",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
     "この完全に同じコマンドを承認し、今後も常に許可します",
@@ -155,6 +156,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "診断情報をコピー",
   "aboutAgentNative.unknown": "不明",
   "common.agent": "エージェント",
+  "common.you": "あなた",
   "agentPanel.mode": "モード",
   "agentPanel.uiMode": "UI",
   "agentPanel.keyScope": "キーの範囲",
@@ -662,6 +664,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "計画の準備ができました",
   "plan.switchToAct": "実行モードに切り替え",
   "queue.count": "{{count}} 件が待機中",
+  "queue.label": "キュー内のメッセージ",
   "queue.followUp": "フォローアップを送信...",
   "queue.followUpWithCount": "{{count}} 件が待機中 — フォローアップを送信...",
   "queue.remove": "キューから削除",
@@ -689,6 +692,12 @@ const messages: AgentChatTranslation = {
     "前回のバックグラウンドエージェント実行は、完了前に制限時間に達しました。途中の作業は保持されています。ここから続行するか、再試行してください。",
   "recovery.noProgress":
     "前回のエージェント実行は復元中に進行状況を表示しなくなったため、ループを続ける前に停止されました。",
+  "recovery.stuckTitle": "このチャットは停止しているようです。",
+  "recovery.stuckNoProgress":
+    "進行がありません。サーバーのタイムアウトか接続切れの可能性があります。",
+  "recovery.stuckWithDuration":
+    "{{seconds}}秒間進行がありません。サーバーのタイムアウトか接続切れの可能性があります。",
+  "recovery.stuckRetrying": "自動的に再試行しています。",
   "recovery.statusCheckFailed":
     "エージェントがまだ動作中か確認するためのサーバー接続に失敗しました。メッセージを再送信して再試行してください。",
   "recovery.streamEnded":
@@ -808,6 +817,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
   "status.working": "処理中",
+  "status.workingFor": "{{duration}} 作業中",
   "shell.chat": "チャット",
   "shell.loadingTerminal": "ターミナルを読み込み中...",
   "shell.toggleAgent": "エージェントの表示を切り替える",

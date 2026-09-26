@@ -88,12 +88,12 @@ describe("agent-native shell surface tokens", () => {
     expect(source).toContain("agent-kit-activity-object-boundary");
     expect(source).toContain("agent-kit-tone-positive");
 
-    const messages = readFileSync(
-      new URL("../client/chat/message-components.tsx", import.meta.url),
+    const tools = readFileSync(
+      new URL("../client/chat/tool-call-display.tsx", import.meta.url),
       { encoding: "utf8" },
     );
-    expect(messages).not.toContain("max-w-[95%]");
-    expect(messages).toContain("agent-kit-tool-content-boundary");
+    expect(tools).not.toContain("max-w-[95%]");
+    expect(tools).toContain("agent-kit-tool-content-boundary");
   });
 
   it("restores standard markdown list markers", () => {

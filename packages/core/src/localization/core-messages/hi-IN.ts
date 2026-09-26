@@ -21,6 +21,7 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "संदर्भ बहुत बड़ा है। कोई आइटम हटाएँ या छोटा चयन संलग्न करें।",
   "activity.reasoning": "तर्क",
+  "activity.groupLabel": "एजेंट गतिविधि",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
   "approval.alwaysAllowAction": "इस कार्रवाई को हमेशा अनुमति दें",
@@ -147,6 +148,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "डायग्नोस्टिक कॉपी करें",
   "aboutAgentNative.unknown": "अज्ञात",
   "common.agent": "एजेंट",
+  "common.you": "आप",
   "agentPanel.mode": "मोड",
   "agentPanel.uiMode": "यूआई",
   "agentPanel.keyScope": "कुंजी का दायरा",
@@ -643,6 +645,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "योजना तैयार है",
   "plan.switchToAct": "कार्य मोड पर जाएँ",
   "queue.count": "कतार में {{count}}",
+  "queue.label": "कतार में संदेश",
   "queue.followUp": "अगला संदेश भेजें...",
   "queue.followUpWithCount": "कतार में {{count}} — अगला संदेश भेजें...",
   "queue.remove": "कतार से हटाएँ",
@@ -669,6 +672,12 @@ const messages: AgentChatTranslation = {
     "पिछला बैकग्राउंड एजेंट रन पूरा होने से पहले समय सीमा पर पहुँच गया। आंशिक काम सुरक्षित है; यहाँ से जारी रखें या फिर प्रयास करें।",
   "recovery.noProgress":
     "पिछले एजेंट रन ने रिकवरी के दौरान प्रगति दिखाना बंद कर दिया, इसलिए उसे लूप जारी रखने से पहले रोक दिया गया।",
+  "recovery.stuckTitle": "यह चैट अटकी हुई लगती है।",
+  "recovery.stuckNoProgress":
+    "कोई प्रगति नहीं हुई। सर्वर टाइमआउट या कनेक्शन टूटने की वजह से एजेंट रुक सकता है।",
+  "recovery.stuckWithDuration":
+    "{{seconds}} सेकंड से कोई प्रगति नहीं हुई। सर्वर टाइमआउट या कनेक्शन टूटने की वजह से एजेंट रुक सकता है।",
+  "recovery.stuckRetrying": "अपने आप फिर से प्रयास किया जा रहा है।",
   "recovery.statusCheckFailed":
     "यह जाँचने के लिए सर्वर से संपर्क नहीं हो सका कि एजेंट अभी काम कर रहा है या नहीं। दोबारा प्रयास करने के लिए अपना संदेश फिर भेजें।",
   "recovery.streamEnded":
@@ -786,6 +795,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",
   "status.working": "काम जारी है",
+  "status.workingFor": "{{duration}} से काम कर रहा है",
   "shell.chat": "चैट",
   "shell.loadingTerminal": "टर्मिनल लोड हो रहा है...",
   "shell.toggleAgent": "एजेंट दिखाएँ या छिपाएँ",

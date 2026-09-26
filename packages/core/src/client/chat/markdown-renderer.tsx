@@ -1,8 +1,5 @@
-// Owns: lazy react-markdown/shiki loaders, StreamingText, MarkdownText,
-// HighlightedCodeBlock wrapper, and the markdownComponents/markdownUrlTransform
-// used by every markdown render path in AssistantChat.
+// Owns the shared markdown loader, streaming text helpers, and renderer.
 
-import { useMessageRuntime, useMessagePartText } from "@assistant-ui/react";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, {
   useState,
@@ -24,12 +21,8 @@ import {
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
 } from "../../shared/streaming-text-smoothing.js";
-import {
-  localizeKnownChatErrorText,
-  NEW_CHAT_ACTION_HREF,
-} from "../error-format.js";
+import { NEW_CHAT_ACTION_HREF } from "../error-format.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
-import { useT } from "../i18n.js";
 import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
 import { cn } from "../utils.js";
 import {
@@ -922,40 +915,5 @@ export function shouldAnimateMarkdownText({
     (identityStreaming ||
       (textStreaming &&
         (statusType === "running" || externalStreaming === true)))
-  );
-}
-
-export function MarkdownText({ text: textOverride }: { text?: string } = {}) {
-  const t = useT();
-  const textPart = useMessagePartText();
-  const messageRuntime = useMessageRuntime();
-  const message = messageRuntime.getState();
-  const textStreaming = React.useContext(TextStreamingContext);
-  const externalStreaming = React.useContext(ExternalTextStreamingContext);
-  const runActive = React.useContext(AgentRunActiveContext);
-  const activeStreamingIdentity = React.useContext(
-    ActiveTextStreamingIdentityContext,
-  );
-  const isLastAssistantMessage = message.role === "assistant" && message.isLast;
-  const statusType =
-    textPart.status?.type ?? message.status?.type ?? "complete";
-
-  return (
-    <StreamingText
-      text={localizeKnownChatErrorText(textOverride ?? textPart.text, t)}
-      streaming={shouldAnimateMarkdownText({
-        textStreaming,
-        isLastAssistantMessage,
-        statusType,
-        externalStreaming,
-        activeMessageStreaming: messageMatchesActiveTextStream(
-          message,
-          activeStreamingIdentity,
-        ),
-        runActive,
-      })}
-      resetKey={message.id}
-      statusType={statusType}
-    />
   );
 }

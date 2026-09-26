@@ -1,0 +1,1499 @@
+// @vitest-environment happy-dom
+
+import React, { act, createRef } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const chatMocks = vi.hoisted(() => ({
+  threadId: "thread-1",
+  readThread: () => chatMocks.thread,
+  thread: {
+    thread: null,
+    messages: [] as any[],
+    events: [] as any[],
+    activeRunIds: [] as string[],
+    tools: {} as Record<string, unknown>,
+    activities: {} as Record<string, unknown>,
+    queuedMessages: [] as any[],
+  },
+  rootProps: null as any,
+  composerProps: null as any,
+  resumeProps: null as any,
+  failureProps: null as any,
+  failureError: { code: "test-error", message: "Run failed" } as any,
+  setupCardProps: null as any,
+  approvalRequest: null as any,
+  approvalCardProps: null as any,
+  reasoningProps: null as any,
+  thinkingDisplay: null as any,
+  requestComposerFocus: vi.fn(),
+  readiness: { canChat: true, missing: false },
+  guidedOptions: null as any,
+  runtimeOptions: null as any,
+  inBuilder: false,
+  useRealRoot: false,
+  runtime: { kind: "runtime" },
+  transport: { kind: "transport" },
+  transportOptions: null as any,
+  renderMarkdownToClipboardHtml: vi.fn(),
+  writeClipboardText: vi.fn(),
+  callAction: vi.fn(),
+  control: {
+    sendMessage: vi.fn(async () => undefined),
+    queueMessage: vi.fn(async () => undefined),
+    resolveConnectionRequest: vi.fn(async () => undefined),
+    resolveApproval: vi.fn(async () => undefined),
+    fork: vi.fn(async () => ({ id: "thread-forked" })),
+    cancel: vi.fn(async () => undefined),
+  },
+  createRuntime: vi.fn((options: unknown) => {
+    chatMocks.runtimeOptions = options;
+    return chatMocks.runtime;
+  }),
+  createTransport: vi.fn((options: unknown) => {
+    chatMocks.transportOptions = options;
+    return chatMocks.transport;
+  }),
+}));
+
+(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock("@agent-native/agentkit/react", async () => {
+  const React = await import("react");
+  const { useThinkingDisplay } = await import("./thinking-display.js");
+  return {
+    AgentKitChat: () => {
+      chatMocks.thinkingDisplay = useThinkingDisplay();
+      const slots = chatMocks.rootProps?.slots;
+      const Composer = slots?.composer;
+      const Transcript = slots?.transcript;
+      const Failure = slots?.runFailure;
+      const Approval = slots?.approval;
+      const MessageSupplement = slots?.messageSupplement;
+      return React.createElement(
+        React.Fragment,
+        null,
+        Composer
+          ? React.createElement(Composer, { threadId: chatMocks.threadId })
+          : null,
+        Transcript
+          ? React.createElement(Transcript, {
+              threadId: chatMocks.threadId,
+              children: null,
+            })
+          : null,
+        Failure
+          ? React.createElement(Failure, {
+              error: chatMocks.failureError,
+              runId: "run-1",
+              threadId: chatMocks.threadId,
+            })
+          : null,
+        Approval && chatMocks.approvalRequest
+          ? React.createElement(Approval, {
+              value: chatMocks.approvalRequest,
+              runId: "run-1",
+              threadId: chatMocks.threadId,
+            })
+          : null,
+        MessageSupplement
+          ? chatMocks.thread.messages.map((value: any) =>
+              React.createElement(MessageSupplement, {
+                key: value.id,
+                value,
+                threadId: chatMocks.threadId,
+              }),
+            )
+          : null,
+      );
+    },
+    AgentKitComposer: (props: unknown) => {
+      chatMocks.composerProps = props;
+      return null;
+    },
+    AgentApprovalPrompt: () => null,
+    AgentMessageView: ({ value }: any) => {
+      const text = (value?.parts ?? [])
+        .filter((part: any) => part.type === "text")
+        .map((part: any) => part.text)
+        .join("\n");
+      return React.createElement(
+        "div",
+        { "data-testid": "agent-message" },
+        text,
+      );
+    },
+    useAgentKit: () => ({
+      threadId: chatMocks.threadId,
+      requestComposerFocus: chatMocks.requestComposerFocus,
+      controller: {},
+    }),
+    useAgentKitControl: () => chatMocks.control,
+    useAgentThread: () => chatMocks.readThread(),
+  };
+});
+
+vi.mock("@agent-native/agentkit/react/root", async () => {
+  const React = await import("react");
+  const actual =
+    await import("../../../../packages/agentkit/src/react/root.js");
+  return {
+    AgentKitRoot: (props: any) => {
+      chatMocks.rootProps = props;
+      return chatMocks.useRealRoot
+        ? React.createElement(actual.AgentKitRoot, props)
+        : props.children;
+    },
+  };
+});
+
+vi.mock("@agent-native/toolkit/composer", () => ({
+  AgentSuggestionBar: () => null,
+  agentSuggestionPrompt: (suggestion: any) =>
+    typeof suggestion === "string" ? suggestion : suggestion.prompt,
+}));
+
+vi.mock("@agent-native/toolkit/composer/realtime-voice-transcript", () => ({
+  appendRealtimeVoiceTranscriptToRepository: vi.fn(),
+  realtimeVoiceTranscriptRegistry: { register: () => () => undefined },
+}));
+
+vi.mock("@tabler/icons-react", () =>
+  Object.fromEntries(
+    [
+      "IconAlertTriangle",
+      "IconCheck",
+      "IconChevronDown",
+      "IconMessage",
+      "IconPlayerStopFilled",
+      "IconQuote",
+      "IconRefresh",
+      "IconShieldCheck",
+      "IconX",
+    ].map((name) => [name, () => null]),
+  ),
+);
+
+vi.mock("./agentkit-chat/history.js", async () => {
+  const React = await import("react");
+  return {
+    AgentKitDevCheckpointProvider: ({ children }: any) =>
+      React.createElement(React.Fragment, null, children),
+    AgentKitDevCheckpointRestore: () => null,
+    useOptionalAgentKitHistory: () => undefined,
+  };
+});
+
+vi.mock("./agentkit-chat/index.js", async () => {
+  const React = await import("react");
+  return {
+    CoreComposerRuntimeProvider: ({ children }: any) =>
+      React.createElement(React.Fragment, null, children),
+    createAgentNativeAgentKitTransport: chatMocks.createTransport,
+    findMcpConnectionSuggestionIntegration: () => null,
+    GuidedQuestionFlow: () => null,
+    McpAgentKitConnectionRequestCard: () => null,
+    McpAgentKitConnectionResume: (props: unknown) => {
+      chatMocks.resumeProps = props;
+      return null;
+    },
+    McpConnectionSuggestion: () => null,
+    AgentKitHistoryBeginningRevert: () => null,
+    AgentKitHistoryMessageSupplement: () => null,
+    AgentKitHistoryProvider: ({ children }: any) =>
+      React.createElement(React.Fragment, null, children),
+    useGuidedQuestionFlow: (options: unknown) => {
+      chatMocks.guidedOptions = options;
+      return { questions: [] };
+    },
+  };
+});
+
+vi.mock("./agentkit-chat/parity-renderers.js", () => ({
+  AgentKitFilesChangedSummary: () => null,
+  AgentKitMarkdownText: () => null,
+}));
+
+vi.mock("./application-state.js", () => ({
+  deleteClientAppState: vi.fn(async () => undefined),
+  readClientAppState: vi.fn(async () => null),
+}));
+
+vi.mock("./builder-frame.js", () => ({
+  isInBuilderFrame: () => chatMocks.inBuilder,
+}));
+
+vi.mock("./chat/composer-draft.js", () => ({
+  readAssistantChatComposerDraft: () => null,
+  writeAssistantChatComposerDraft: vi.fn(),
+}));
+
+vi.mock("./chat/run-recovery.js", () => ({
+  RunErrorRecoveryCard: (props: unknown) => {
+    chatMocks.failureProps = props;
+    return null;
+  },
+  BuilderSetupCard: (props: unknown) => {
+    chatMocks.setupCardProps = props;
+    return null;
+  },
+  LoopLimitContinueCard: () => null,
+  PlanModeCallout: () => null,
+  getRequestModeMetadata: () => undefined,
+}));
+
+vi.mock("./chat/runtime.js", () => ({
+  createAgentNativeChatRuntime: chatMocks.createRuntime,
+}));
+
+vi.mock("./chat/markdown-renderer.js", () => ({
+  renderMarkdownToClipboardHtml: chatMocks.renderMarkdownToClipboardHtml,
+}));
+
+vi.mock("./clipboard.js", () => ({
+  writeClipboardText: chatMocks.writeClipboardText,
+}));
+
+vi.mock("./dynamic-suggestions.js", () => ({
+  useAgentDynamicSuggestionsResult: () => ({ suggestions: [] }),
+}));
+
+vi.mock("./external-agent-host.js", () => ({ ExternalAgentNudge: () => null }));
+
+vi.mock("./i18n.js", () => ({
+  useFormatters: () => ({
+    formatNumber: String,
+    formatDate: (value: string) => value,
+  }),
+  useT: () => (key: string, options?: Record<string, unknown>) =>
+    key === "agentChat.composer.previewAttachment"
+      ? `Preview ${String(options?.name ?? "{{name}}")}`
+      : key,
+}));
+
+vi.mock("./RunStuckBanner.js", () => ({ RunStuckBanner: () => null }));
+
+vi.mock("./use-dev-mode.js", () => ({
+  useDevMode: () => ({ isDevMode: true }),
+}));
+
+vi.mock("./use-action.js", () => ({ callAction: chatMocks.callAction }));
+
+vi.mock("./use-agent-engine-configured.js", () => ({
+  useAgentEngineConfigured: () => chatMocks.readiness,
+}));
+
+vi.mock("./chat/tool-call-display.js", async () => {
+  const React = await import("react");
+  return {
+    ChatRunningContext: React.createContext(false),
+    SuppressInlineOpenAppContext: React.createContext(false),
+    ToolCallDisplay: () => null,
+    AgentApprovalCard: (props: any) => {
+      chatMocks.approvalCardProps = props;
+      return React.createElement(
+        "div",
+        null,
+        React.createElement(
+          "button",
+          { type: "button", onClick: props.onDeny },
+          props.denyLabel,
+        ),
+        props.onAlwaysAllow
+          ? React.createElement(
+              "button",
+              { type: "button", onClick: props.onAlwaysAllow },
+              props.alwaysAllowLabel,
+            )
+          : null,
+      );
+    },
+    ReasoningCell: (props: any) => {
+      chatMocks.reasoningProps = props;
+      return React.createElement(
+        "div",
+        { "data-default-open": String(props.defaultOpen) },
+        props.text,
+      );
+    },
+  };
+});
+
+vi.mock("./chat/agent-approval-card.js", async () => {
+  const React = await import("react");
+  return {
+    AgentApprovalCard: (props: any) => {
+      chatMocks.approvalCardProps = props;
+      return React.createElement(
+        "div",
+        null,
+        React.createElement(
+          "button",
+          { type: "button", onClick: props.onDeny },
+          props.denyLabel,
+        ),
+        props.onAlwaysAllow
+          ? React.createElement(
+              "button",
+              { type: "button", onClick: props.onAlwaysAllow },
+              props.alwaysAllowLabel,
+            )
+          : null,
+      );
+    },
+  };
+});
+
+vi.mock("./agent-chat.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./agent-chat.js")>();
+  return {
+    ...actual,
+    filterAgentChatContextItems: (items: unknown[]) => items,
+    formatAgentChatContextItemsForPrompt: () => "",
+    getAgentChatContextState: () => ({ items: [], updatedAt: 0 }),
+    publishAgentChatContextItems: vi.fn(),
+    refreshAgentChatContext: vi.fn(async () => undefined),
+    subscribeAgentChatContext: vi.fn(() => () => undefined),
+  };
+});
+
+import {
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
+  appendAgentChatContextToMessage,
+  _resetAgentChatContextForTests,
+} from "./agent-chat.js";
+import {
+  AgentKitAssistantChat,
+  type AgentKitAssistantChatProps,
+} from "./AgentKitAssistantChat.js";
+import type { AssistantChatHandle } from "./chat/surface-types.js";
+
+let container: HTMLDivElement;
+let root: Root;
+
+async function mount(props: AgentKitAssistantChatProps) {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  await act(async () => {
+    root.render(<AgentKitAssistantChat {...props} />);
+  });
+}
+
+async function unmount() {
+  if (!root) return;
+  await act(async () => root.unmount());
+  container.remove();
+}
+
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+function baseProps(
+  overrides: Partial<AgentKitAssistantChatProps> = {},
+): AgentKitAssistantChatProps {
+  return {
+    threadId: chatMocks.threadId,
+    isNewThread: true,
+    providerStatusChecksEnabled: false,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  chatMocks.threadId = "thread-1";
+  chatMocks.thread = {
+    thread: null,
+    messages: [],
+    events: [],
+    activeRunIds: [],
+    runs: {},
+    tools: {},
+    activities: {},
+    queuedMessages: [],
+  };
+  chatMocks.readThread = () => chatMocks.thread;
+  chatMocks.rootProps = null;
+  chatMocks.composerProps = null;
+  chatMocks.resumeProps = null;
+  chatMocks.failureProps = null;
+  chatMocks.failureError = { code: "test-error", message: "Run failed" };
+  chatMocks.setupCardProps = null;
+  chatMocks.approvalRequest = null;
+  chatMocks.approvalCardProps = null;
+  chatMocks.reasoningProps = null;
+  chatMocks.thinkingDisplay = null;
+  chatMocks.requestComposerFocus.mockReset();
+  chatMocks.readiness = { canChat: true, missing: false };
+  chatMocks.guidedOptions = null;
+  chatMocks.runtimeOptions = null;
+  chatMocks.transportOptions = null;
+  chatMocks.inBuilder = false;
+  chatMocks.useRealRoot = false;
+  chatMocks.control.sendMessage.mockReset().mockResolvedValue(undefined);
+  chatMocks.control.queueMessage.mockReset().mockResolvedValue(undefined);
+  chatMocks.control.resolveConnectionRequest
+    .mockReset()
+    .mockResolvedValue(undefined);
+  chatMocks.control.resolveApproval.mockReset().mockResolvedValue(undefined);
+  chatMocks.control.fork.mockReset().mockResolvedValue({ id: "thread-forked" });
+  chatMocks.createRuntime.mockClear();
+  chatMocks.createTransport
+    .mockReset()
+    .mockImplementation((options: unknown) => {
+      chatMocks.transportOptions = options;
+      return chatMocks.transport;
+    });
+  chatMocks.renderMarkdownToClipboardHtml
+    .mockReset()
+    .mockReturnValue("<p><strong>Ready</strong></p>");
+  chatMocks.writeClipboardText.mockReset().mockResolvedValue(true);
+  chatMocks.callAction.mockReset().mockResolvedValue(null);
+  _resetAgentChatContextForTests();
+});
+
+afterEach(async () => {
+  await unmount();
+  window.sessionStorage.clear();
+});
+
+describe("AgentKitAssistantChat host behavior", () => {
+  it("provides the host-pinned thinking display to the direct AgentKit surface", async () => {
+    await mount(baseProps({ thinkingDisplay: "hidden" }));
+
+    expect(chatMocks.thinkingDisplay).toBe("hidden");
+  });
+
+  it("keeps its transport stable while runtime selector refs update", async () => {
+    const initialScope = { type: "document", id: "doc-1" };
+    await mount(
+      baseProps({
+        selectedModel: "model-1",
+        selectedEngine: "engine-1",
+        selectedEffort: "low",
+        execMode: "build",
+        contextScope: initialScope,
+        streamingUrl: "https://stream.example.test/agent-chat",
+      }),
+    );
+    const transport = chatMocks.rootProps.transport;
+    const runtimeOptions = chatMocks.runtimeOptions;
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            selectedModel: "model-2",
+            selectedEngine: "engine-2",
+            selectedEffort: "high",
+            execMode: "plan",
+            contextScope: { type: "document", id: "doc-2" },
+            streamingUrl: "https://stream.example.test/agent-chat",
+          })}
+        />,
+      );
+    });
+
+    expect(chatMocks.rootProps.transport).toBe(transport);
+    expect(chatMocks.createRuntime).toHaveBeenCalledOnce();
+    expect(runtimeOptions.model).toBe("model-2");
+    expect(runtimeOptions.engine).toBe("engine-2");
+    expect(runtimeOptions.effort).toBe("high");
+    expect(runtimeOptions.mode).toBe("plan");
+    expect(runtimeOptions.scope).toEqual({ type: "document", id: "doc-2" });
+    expect(runtimeOptions.streamingUrl).toBe(
+      "https://stream.example.test/agent-chat",
+    );
+  });
+
+  it("keeps the composer text callback stable across host rerenders", async () => {
+    await mount(baseProps({ selectedModel: "model-1" }));
+    const onTextChange = chatMocks.composerProps.onTextChange;
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat {...baseProps({ selectedModel: "model-2" })} />,
+      );
+    });
+
+    expect(chatMocks.composerProps.onTextChange).toBe(onTextChange);
+  });
+
+  it("does not loop when the dev checkpoint sees an empty thread", async () => {
+    chatMocks.readThread = () => ({
+      ...chatMocks.thread,
+      messages: [...chatMocks.thread.messages],
+      activeRunIds: [...chatMocks.thread.activeRunIds],
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    await mount(baseProps());
+
+    expect(
+      consoleError.mock.calls.some(([message]) =>
+        String(message).includes("Maximum update depth exceeded"),
+      ),
+    ).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it("keeps a supplied custom runtime identity stable across selector updates", async () => {
+    const customRuntime = { kind: "external-agent" } as never;
+    await mount(
+      baseProps({ runtime: customRuntime, selectedModel: "model-1" }),
+    );
+    const transport = chatMocks.rootProps.transport;
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ runtime: customRuntime, selectedModel: "model-2" })}
+        />,
+      );
+    });
+
+    expect(chatMocks.createTransport).toHaveBeenCalledOnce();
+    expect(chatMocks.transportOptions.runtime).toBe(customRuntime);
+    expect(chatMocks.createRuntime).not.toHaveBeenCalled();
+    expect(chatMocks.rootProps.transport).toBe(transport);
+  });
+
+  it("keeps scoped history isolation current on the stable built-in transport", async () => {
+    await mount(
+      baseProps({
+        contextScope: { type: "workspace-app", id: "app-one" },
+        isolateHistoryByScope: true,
+      }),
+    );
+    const transport = chatMocks.rootProps.transport;
+
+    expect(chatMocks.createTransport).toHaveBeenCalledOnce();
+    expect(chatMocks.transportOptions).toMatchObject({
+      isolateHistoryByScope: true,
+      scope: { type: "workspace-app", id: "app-one" },
+    });
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            contextScope: { type: "workspace-app", id: "app-two" },
+            isolateHistoryByScope: false,
+          })}
+        />,
+      );
+    });
+
+    expect(chatMocks.rootProps.transport).toBe(transport);
+    expect(chatMocks.createTransport).toHaveBeenCalledOnce();
+    expect(chatMocks.transportOptions.isolateHistoryByScope).toBe(false);
+    expect(chatMocks.transportOptions.scope).toEqual({
+      type: "workspace-app",
+      id: "app-two",
+    });
+  });
+
+  it("acknowledges accepted sends after transport acceptance", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    let resolveSend!: () => void;
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (resolveSend = resolve)),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps()} />);
+    });
+    const results: CustomEvent[] = [];
+    const listener = (event: Event) => results.push(event as CustomEvent);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+    let sendResult:
+      | Awaited<ReturnType<AssistantChatHandle["sendMessage"]>>
+      | undefined;
+    let sendPromise: ReturnType<AssistantChatHandle["sendMessage"]> | undefined;
+
+    await act(async () => {
+      sendPromise = ref.current!.sendMessage("Create the draft", undefined, {
+        submitMessageId: "submit-1",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(results).toHaveLength(0);
+
+    await act(async () => {
+      resolveSend();
+      sendResult = await sendPromise!;
+    });
+
+    expect(sendResult).toEqual({ status: "submitted" });
+    expect(results.map((event) => event.detail)).toEqual([
+      { submitMessageId: "submit-1", delivered: true },
+    ]);
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+  });
+
+  it("returns typed rejection results for imperative sends while the engine is unavailable", async () => {
+    chatMocks.readiness = { canChat: false, missing: true };
+    const ref = createRef<AssistantChatHandle>();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          ref={ref}
+          {...baseProps({ providerStatusChecksEnabled: true })}
+        />,
+      );
+    });
+    const results: CustomEvent[] = [];
+    const listener = (event: Event) => results.push(event as CustomEvent);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+
+    let sendResult:
+      | Awaited<ReturnType<AssistantChatHandle["sendMessage"]>>
+      | undefined;
+    await act(async () => {
+      sendResult = await ref.current?.sendMessage("Save the draft", undefined, {
+        submitMessageId: "blocked-submit",
+      });
+    });
+    let recoveryResult:
+      | Awaited<ReturnType<AssistantChatHandle["sendRecoveryMessage"]>>
+      | undefined;
+    await act(async () => {
+      recoveryResult = await ref.current?.sendRecoveryMessage(
+        "Continue the task.",
+        "continue",
+      );
+    });
+    let queueResult:
+      | Awaited<ReturnType<AssistantChatHandle["queueMessage"]>>
+      | undefined;
+    await act(async () => {
+      queueResult = await ref.current?.queueMessage("Send this next");
+    });
+
+    expect(sendResult).toEqual({
+      status: "rejected",
+      reason: "engine-not-configured",
+    });
+    expect(recoveryResult).toEqual(sendResult);
+    expect(queueResult).toEqual(sendResult);
+    expect(results.map((event) => event.detail)).toEqual([
+      {
+        submitMessageId: "blocked-submit",
+        delivered: false,
+        reason: "engine-not-configured",
+      },
+    ]);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+
+    chatMocks.readiness = { canChat: false, missing: false };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          ref={ref}
+          {...baseProps({ providerStatusChecksEnabled: true })}
+        />,
+      );
+    });
+    await expect(ref.current!.sendMessage("Try again")).resolves.toEqual({
+      status: "rejected",
+      reason: "submission-unavailable",
+    });
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+  });
+
+  it("queues imperative and guided sends while a run is active", async () => {
+    chatMocks.thread.activeRunIds = ["run-1"];
+    const ref = createRef<AssistantChatHandle>();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps()} />);
+    });
+
+    await act(async () => {
+      await ref.current?.sendMessage("Next imperative turn");
+    });
+    const guided = chatMocks.guidedOptions as {
+      onSubmitMessage: (input: {
+        message: string;
+        context: string;
+      }) => Promise<unknown>;
+    };
+    await act(async () => {
+      await guided.onSubmitMessage({
+        message: "Next guided turn",
+        context: "",
+      });
+    });
+
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledTimes(2);
+    expect(chatMocks.control.queueMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ text: "Next imperative turn" }),
+    );
+    expect(chatMocks.control.queueMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ text: "Next guided turn" }),
+    );
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("forwards slash commands and localized labels to AgentKit", async () => {
+    const onSlashCommand = vi.fn();
+    chatMocks.inBuilder = true;
+    await mount(baseProps({ onSlashCommand }));
+
+    expect(chatMocks.composerProps.includeDefaultSlashCommands).toBe(true);
+    expect(chatMocks.composerProps.onSlashCommand).toBe(onSlashCommand);
+    expect(chatMocks.composerProps.interceptBuildRequestsForBuilder).toBe(true);
+    expect(chatMocks.rootProps.labels).toMatchObject({
+      editMessage: "agentChat.message.edit",
+      cancelEditing: "agentChat.common.cancel",
+      regenerateResponse: "agentChat.message.regenerate",
+      expandMessage: "agentChat.common.expand",
+      collapseMessage: "agentChat.common.collapse",
+      queueMoveToTop: "agentChat.queue.moveToTop",
+      previewAttachment: "Preview {{name}}",
+      imagePreview: "agentChat.composer.imagePreview",
+      closePreview: "agentChat.composer.closePreview",
+      dropFilesToAttach: "agentChat.composer.dropToAttach",
+      scrollToBottom: "agentChat.composer.scrollToBottom",
+    });
+  });
+
+  it("copies markdown replies to the clipboard as rich HTML", async () => {
+    await mount(baseProps());
+
+    await expect(
+      chatMocks.rootProps.onCopyMessage({ text: "**Ready**", message: {} }),
+    ).resolves.toBe(true);
+    expect(chatMocks.renderMarkdownToClipboardHtml).toHaveBeenCalledWith(
+      "**Ready**",
+    );
+    expect(chatMocks.writeClipboardText).toHaveBeenCalledWith("**Ready**", {
+      html: "<p><strong>Ready</strong></p>",
+    });
+  });
+
+  it("keeps disabled Plan mode and its reason on the composer", async () => {
+    await mount(
+      baseProps({
+        planModeDisabled: true,
+        planModeDisabledReason: "Plan mode is unavailable here.",
+      }),
+    );
+
+    expect(chatMocks.composerProps).toMatchObject({
+      planModeDisabled: true,
+      planModeDisabledReason: "Plan mode is unavailable here.",
+    });
+  });
+
+  it("forwards inline actions through the shared action surface", async () => {
+    await mount(baseProps());
+    const invokeAction = chatMocks.transportOptions.operations.invokeAction;
+    const invocation = {
+      id: "action-1",
+      action: "slides.update",
+      payload: { slideId: "slide-1", title: "Updated" },
+    };
+
+    await expect(invokeAction({ invocation })).resolves.toMatchObject({
+      invocationId: "action-1",
+      status: "completed",
+      data: null,
+    });
+    expect(chatMocks.callAction).toHaveBeenCalledWith("slides.update", {
+      slideId: "slide-1",
+      title: "Updated",
+    });
+  });
+
+  it("shows attachment errors beside the composer", async () => {
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.composerProps.onAttachmentError("Upload was rejected.");
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Upload was rejected.",
+    );
+  });
+
+  it("keeps hidden messages and internal context out of the transcript", async () => {
+    await mount(baseProps());
+    const Message = chatMocks.rootProps.slots.message;
+
+    await act(async () => {
+      root.render(
+        <Message
+          threadId={chatMocks.threadId}
+          value={{
+            id: "hidden",
+            role: "user",
+            createdAt: new Date().toISOString(),
+            parts: [{ type: "text", text: "Internal recovery prompt" }],
+            metadata: { hideUserMessage: true },
+          }}
+        />,
+      );
+    });
+    expect(container.textContent).toBe("");
+
+    const message = appendAgentChatContextToMessage(
+      "Visible request",
+      "Selected rows: a, b",
+    );
+    await act(async () => {
+      root.render(
+        <Message
+          threadId={chatMocks.threadId}
+          value={{
+            id: "visible",
+            role: "user",
+            createdAt: new Date().toISOString(),
+            parts: [{ type: "text", text: message }],
+          }}
+        />,
+      );
+    });
+    expect(container.textContent).toContain("Visible request");
+    expect(container.textContent).not.toContain("Selected rows: a, b");
+  });
+
+  it("restores saved integration prompts through the same queue path", async () => {
+    chatMocks.thread.activeRunIds = ["run-1"];
+    await mount(baseProps());
+
+    await act(async () => {
+      await chatMocks.resumeProps.onMessageResume({
+        message: "Continue after connecting the integration.",
+      });
+    });
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Continue after connecting the integration.",
+      }),
+    );
+
+    await act(async () => {
+      await chatMocks.resumeProps.onResume(
+        { threadId: chatMocks.threadId, runId: "run-1", requestId: "req-1" },
+        { message: "Restore the saved tool request." },
+      );
+    });
+    expect(chatMocks.control.resolveConnectionRequest).toHaveBeenCalledWith(
+      "run-1",
+      "req-1",
+      {
+        status: "connected",
+        message: "Restore the saved tool request.",
+      },
+    );
+  });
+
+  it("resumes a generic saved prompt once through the active submission queue", async () => {
+    chatMocks.thread.activeRunIds = ["run-1"];
+    await mount(baseProps());
+
+    await act(async () => {
+      await chatMocks.resumeProps.onMessageResume({
+        message: "Continue after OAuth.",
+      });
+    });
+
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Continue after OAuth." }),
+    );
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("shows the missing-final-response warning from recovered run metadata", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "assistant-warning",
+        role: "assistant",
+        status: "complete",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "The tool completed." }],
+        metadata: {
+          custom: {
+            runWarning: {
+              errorCode: "final_response_missing_after_tool",
+            },
+          },
+        },
+      },
+    ];
+    await mount(baseProps());
+
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "agentChat.message.missingFinal",
+    );
+  });
+
+  it("restores a thread with a loading state, a 404 state, and retry", async () => {
+    const onThreadRestoreNotFound = vi.fn();
+    await mount(baseProps({ isNewThread: false, onThreadRestoreNotFound }));
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+
+    await act(async () => {
+      chatMocks.rootProps.onLoadError({ status: 404 });
+      await Promise.resolve();
+    });
+    expect(onThreadRestoreNotFound).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("agentChat.message.threadNotFound");
+
+    await act(async () => {
+      chatMocks.rootProps.onLoadError({ status: 404 });
+      await Promise.resolve();
+    });
+    expect(onThreadRestoreNotFound).toHaveBeenCalledOnce();
+
+    const retryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.common.retry",
+    );
+    expect(retryButton).toBeDefined();
+    await act(async () => retryButton?.click());
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+  });
+
+  it("routes the built-in transport 404 through AgentKitRoot to the not-found fallback", async () => {
+    const { createAgentNativeAgentKitTransport } =
+      await import("./chat/agentkit-agent-native.js");
+    let resolveNotFound!: (response: Response) => void;
+    const notFoundResponse = new Promise<Response>((resolve) => {
+      resolveNotFound = resolve;
+    });
+    const fetch = vi.fn(async () => notFoundResponse);
+    const onThreadRestoreNotFound = vi.fn();
+    const runtime = {
+      id: "restore-test",
+      kind: "agent-native",
+      label: "Restore test",
+      capabilities: { messages: { streaming: false } },
+      createSession: vi.fn(),
+    } as any;
+    chatMocks.createTransport.mockImplementation((options: any) =>
+      createAgentNativeAgentKitTransport({ ...options, runtime, fetch }),
+    );
+    chatMocks.useRealRoot = true;
+
+    await mount(
+      baseProps({
+        threadId: "missing-thread",
+        isNewThread: false,
+        onThreadRestoreNotFound,
+      }),
+    );
+    await flush();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+
+    await act(async () => {
+      resolveNotFound(new Response(null, { status: 404 }));
+    });
+    await flush();
+
+    expect(onThreadRestoreNotFound).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("agentChat.message.threadNotFound");
+  });
+
+  it("hands a recent snapshot across surfaces while thread persistence lags", async () => {
+    const { createAgentNativeAgentKitTransport } =
+      await import("./chat/agentkit-agent-native.js");
+    const threadId = "surface-handoff-thread";
+    const browserTabId = "surface-handoff-tab";
+    const savedSnapshots = vi.fn();
+    const message = {
+      id: "handoff-user-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-09-26T12:00:00.000Z",
+      parts: [{ type: "text", text: "Keep this transcript visible" }],
+    };
+    const assistantMessage = {
+      id: "handoff-assistant-message",
+      role: "assistant",
+      status: "complete",
+      createdAt: "2026-09-26T12:00:01.000Z",
+      parts: [{ type: "text", text: "Assistant answer survives handoff" }],
+    };
+    chatMocks.threadId = threadId;
+    chatMocks.thread = {
+      thread: {
+        id: threadId,
+        title: "Handoff thread",
+        createdAt: message.createdAt,
+        updatedAt: message.createdAt,
+      },
+      messages: [message, assistantMessage],
+      events: [],
+      activeRunIds: [],
+      runs: {},
+      tools: {},
+      activities: {},
+      queuedMessages: [],
+      tasks: {},
+      taskGroups: {},
+      approvals: {},
+      approvalRunIds: {},
+      connectionRequests: {},
+      connectionRequestRunIds: {},
+      widgets: {},
+      widgetMessageIds: {},
+      annotations: {},
+      annotationMessageIds: {},
+      agents: {},
+      agentInteractions: [],
+      artifacts: [],
+      suggestions: [],
+    };
+    await mount(
+      baseProps({
+        threadId,
+        browserTabId,
+        isNewThread: false,
+        onSaveThread: savedSnapshots,
+      }),
+    );
+
+    await act(async () => root.render(null));
+    expect(savedSnapshots).toHaveBeenCalledOnce();
+
+    const fetch = vi.fn(async () => new Response(null, { status: 404 }));
+    const runtime = {
+      id: "handoff-test",
+      kind: "agent-native",
+      label: "Handoff test",
+      capabilities: { messages: { streaming: false } },
+      createSession: vi.fn(),
+    } as any;
+    chatMocks.thread = {
+      thread: null,
+      messages: [],
+      events: [],
+      activeRunIds: [],
+      runs: {},
+      tools: {},
+      activities: {},
+      queuedMessages: [],
+      tasks: {},
+      taskGroups: {},
+      approvals: {},
+      approvalRunIds: {},
+      connectionRequests: {},
+      connectionRequestRunIds: {},
+      widgets: {},
+      widgetMessageIds: {},
+      annotations: {},
+      annotationMessageIds: {},
+      agents: {},
+      agentInteractions: [],
+      artifacts: [],
+      suggestions: [],
+    };
+    chatMocks.createTransport.mockImplementation((options: any) =>
+      createAgentNativeAgentKitTransport({ ...options, runtime, fetch }),
+    );
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            threadId,
+            browserTabId,
+            isNewThread: false,
+            onSaveThread: savedSnapshots,
+          })}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Keep this transcript visible");
+    expect(container.textContent).toContain(
+      "Assistant answer survives handoff",
+    );
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+    const handoff = await chatMocks.rootProps.transport.getThreadSnapshot({
+      threadId,
+    });
+    expect(handoff.messages[0].parts).toContainEqual({
+      type: "text",
+      text: "Keep this transcript visible",
+    });
+    expect(handoff.messages[1].parts).toContainEqual({
+      type: "text",
+      text: "Assistant answer survives handoff",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps transient thread-restore errors retryable without clearing the tab", async () => {
+    const onThreadRestoreNotFound = vi.fn();
+    await mount(baseProps({ isNewThread: false, onThreadRestoreNotFound }));
+
+    await act(async () => {
+      chatMocks.rootProps.onLoadError({ status: 503 });
+      await Promise.resolve();
+    });
+
+    expect(onThreadRestoreNotFound).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "agentChat.message.restoreRequestFailed",
+    );
+    expect(
+      [...container.querySelectorAll("button")].some(
+        (button) => button.textContent === "agentChat.common.retry",
+      ),
+    ).toBe(true);
+  });
+
+  it("focuses the composer only after an explicit prefill revision", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps()} />);
+    });
+    expect(chatMocks.requestComposerFocus).not.toHaveBeenCalled();
+
+    await act(async () => ref.current?.prefillMessage("Draft this"));
+
+    expect(chatMocks.requestComposerFocus).toHaveBeenCalledOnce();
+    expect(chatMocks.requestComposerFocus).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("keeps Continue hidden as a protocol continuation", async () => {
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.failureProps.onContinue();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.text).toBe(
+      "Continue from where you left off and finish my last request. Do not repeat completed work.",
+    );
+    expect(request.metadata).toMatchObject({
+      hideUserMessage: true,
+      agentNativeInternalContinuation: true,
+      custom: { agentNativeRecoveryAction: "continue" },
+    });
+  });
+
+  it("strips appended context from Retry and preserves request metadata", async () => {
+    const requestText = appendAgentChatContextToMessage(
+      "Retry the export",
+      "Private selected rows",
+    );
+    const reference = { id: "reference-1", type: "document" };
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry",
+        role: "user",
+        createdAt: new Date().toISOString(),
+        parts: [
+          { type: "text", text: requestText },
+          {
+            type: "file",
+            name: "source.csv",
+            mediaType: "text/csv",
+            url: "https://files.example.test/source.csv",
+          },
+        ],
+        metadata: {
+          model: "model-original",
+          engine: "engine-original",
+          effort: "high",
+          requestMode: "plan",
+          references: [reference],
+        },
+      },
+    ];
+    await mount(baseProps({ execMode: "build" }));
+
+    await act(async () => {
+      chatMocks.failureProps.onRetry();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.text).toBe("Retry the export");
+    expect(request.text).not.toContain("Private selected rows");
+    expect(request.attachments).toEqual([
+      {
+        type: "file",
+        name: "source.csv",
+        mediaType: "text/csv",
+        url: "https://files.example.test/source.csv",
+      },
+    ]);
+    expect(request.metadata).toMatchObject({
+      hideUserMessage: true,
+      model: "model-original",
+      engine: "engine-original",
+      effort: "high",
+      requestMode: "plan",
+      references: [reference],
+      custom: { agentNativeRecoveryAction: "retry" },
+    });
+    expect(request.options).toMatchObject({
+      model: "model-original",
+      mode: "plan",
+      reasoningEffort: "high",
+    });
+  });
+
+  it("shows a localized Stop tooltip and bounces the blocked setup card", async () => {
+    chatMocks.readiness = { canChat: false, missing: true };
+    chatMocks.thread.activeRunIds = ["run-1"];
+    const blockedEvents: CustomEvent[] = [];
+    const onBlocked = (event: Event) =>
+      blockedEvents.push(event as CustomEvent);
+    window.addEventListener("agent-chat:missing-api-key", onBlocked);
+    await mount(baseProps({ providerStatusChecksEnabled: true }));
+
+    const stopButton = chatMocks.composerProps.stopButton as React.ReactElement;
+    expect(stopButton.props).toMatchObject({
+      "aria-label": "agentChat.composer.stopResponse",
+      title: "agentChat.composer.stopResponse",
+    });
+    expect(chatMocks.setupCardProps.bouncePulse).toBe(0);
+
+    await act(async () => chatMocks.composerProps.onDisabledClick());
+
+    expect(chatMocks.setupCardProps.bouncePulse).toBeGreaterThan(0);
+    expect(blockedEvents).toHaveLength(1);
+    window.removeEventListener("agent-chat:missing-api-key", onBlocked);
+  });
+
+  it("dispatches custom-transport running changes to the chat host", async () => {
+    const runningEvents: CustomEvent[] = [];
+    const onRunning = (event: Event) =>
+      runningEvents.push(event as CustomEvent);
+    const createTransport = () => chatMocks.transport;
+    window.addEventListener("agentNative.chatRunning", onRunning);
+    await mount(baseProps({ createTransport, tabId: "custom-tab" }));
+    chatMocks.thread.activeRunIds = ["custom-run"];
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, tabId: "custom-tab" })}
+        />,
+      );
+    });
+
+    expect(
+      runningEvents.some(
+        (event) =>
+          event.detail.isRunning === true &&
+          event.detail.threadId === "thread-1" &&
+          event.detail.tabId === "custom-tab" &&
+          event.detail.runId === "custom-run",
+      ),
+    ).toBe(true);
+    window.removeEventListener("agentNative.chatRunning", onRunning);
+  });
+
+  it("shows an expired-session card and emits the session-expired event", async () => {
+    chatMocks.failureError = { code: "unauthorized", message: "HTTP 401" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ error: "unauthorized" }, { status: 401 }),
+      ),
+    );
+    const authEvents: CustomEvent[] = [];
+    const onAuthError = (event: Event) => authEvents.push(event as CustomEvent);
+    window.addEventListener("agent-chat:auth-error", onAuthError);
+    await mount(baseProps());
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:auth-error", {
+          detail: { reason: "session-expired", threadId: "thread-1" },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      authEvents.some((event) => event.detail.reason === "session-expired"),
+    ).toBe(true);
+    expect(container.textContent).toContain("agentChat.auth.expiredTitle");
+    expect(container.textContent).toContain("agentChat.auth.logOut");
+    window.removeEventListener("agent-chat:auth-error", onAuthError);
+  });
+
+  it("routes first-class approval decisions through host policy hooks", async () => {
+    chatMocks.approvalRequest = {
+      id: "approval-1",
+      title: "Allow publishing?",
+      description: "publish-release",
+      kind: "approval",
+      metadata: { toolName: "publish-release" },
+    };
+    const onDeny = vi.fn();
+    const onAlwaysAllow = vi.fn(async () => undefined);
+    await mount(baseProps({ approvalActions: { onDeny, onAlwaysAllow } }));
+
+    const denyButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.approval.deny",
+    );
+    const alwaysAllowButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.approval.alwaysAllowAction",
+    );
+    expect(denyButton).toBeDefined();
+    expect(alwaysAllowButton).toBeDefined();
+
+    await act(async () => {
+      denyButton?.click();
+      await Promise.resolve();
+    });
+    expect(chatMocks.control.resolveApproval).toHaveBeenCalledWith(
+      "run-1",
+      "approval-1",
+      { decision: "deny", optionIds: ["deny"] },
+    );
+    expect(onDeny).toHaveBeenCalledWith("approval-1");
+
+    await act(async () => {
+      alwaysAllowButton?.click();
+      await Promise.resolve();
+    });
+    expect(onAlwaysAllow).toHaveBeenCalledWith("approval-1", "publish-release");
+    expect(chatMocks.control.resolveApproval).toHaveBeenLastCalledWith(
+      "run-1",
+      "approval-1",
+      { decision: "approve", optionIds: ["approve"] },
+    );
+  });
+
+  it("labels host always-allow approval actions with their declared scope", async () => {
+    chatMocks.approvalRequest = {
+      id: "approval-exact-command",
+      title: "Allow this command?",
+      description: "run-command",
+      kind: "approval",
+      metadata: { toolName: "run-command" },
+    };
+    const onAlwaysAllow = vi.fn(async () => undefined);
+    await mount(
+      baseProps({
+        approvalActions: {
+          onAlwaysAllow,
+          alwaysAllowScope: "exact-command",
+        },
+      }),
+    );
+
+    expect(chatMocks.approvalCardProps).toMatchObject({
+      alwaysAllowLabel: "agentChat.approval.alwaysAllow",
+      alwaysAllowHint: "agentChat.approval.alwaysAllowHint",
+    });
+  });
+
+  it("opens active reasoning and omits explicitly hidden reasoning", async () => {
+    chatMocks.thread.events = [
+      {
+        id: "reasoning-event",
+        type: "reasoning.delta",
+        messageId: "assistant-reasoning",
+        runId: "run-reasoning",
+      },
+    ];
+    chatMocks.thread.runs = {
+      "run-reasoning": {
+        startedAt: "2026-01-01T00:00:00.000Z",
+        completedAt: "2026-01-01T00:00:02.000Z",
+      },
+    };
+    await mount(baseProps());
+    const Reasoning = chatMocks.rootProps.slots.reasoning;
+
+    await act(async () => {
+      root.render(
+        <Reasoning
+          threadId="thread-1"
+          resetKey="thread-1:assistant-reasoning:0"
+          active
+          value={{ type: "reasoning", text: "Checking the result." }}
+        />,
+      );
+    });
+    expect(chatMocks.reasoningProps).toMatchObject({
+      defaultOpen: true,
+      isStreaming: true,
+      durationMs: 2000,
+    });
+
+    await act(async () => {
+      root.render(
+        <Reasoning
+          threadId="thread-1"
+          resetKey="thread-1:assistant-reasoning:0"
+          active={false}
+          value={{
+            type: "reasoning",
+            visibility: "hidden",
+            text: "Private chain of thought.",
+          }}
+        />,
+      );
+    });
+    expect(container.textContent).toBe("");
+  });
+
+  it("uses Core's friendly formatter for recognized run errors", async () => {
+    chatMocks.failureError = {
+      code: "context_length_exceeded",
+      message: "The request exceeded the model context window.",
+    };
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.info.message).toContain(
+      "[agentChat.errorMessages.startNewChat](agent-native:new-chat)",
+    );
+  });
+
+  it("activates the thread returned by run recovery fork", async () => {
+    const onForkedThread = vi.fn();
+    chatMocks.thread.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Original request" }],
+      },
+    ];
+    await mount(baseProps({ onForkedThread }));
+
+    await act(async () => {
+      await chatMocks.failureProps.onFork();
+    });
+
+    expect(chatMocks.control.fork).toHaveBeenCalledWith("user-1");
+    expect(onForkedThread).toHaveBeenCalledWith("thread-forked");
+  });
+});

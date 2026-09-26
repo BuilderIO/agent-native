@@ -2770,6 +2770,10 @@ export function parseSubmitFeedbackInput(
 ): SubmitFeedbackInput {
   const input = record(parseThreadIdInput(value, path), path);
   string(input.messageId, `${path}.messageId`);
+  optionalString(input.runId, `${path}.runId`);
+  if (input.messageSeq !== undefined) {
+    nonNegativeSafeInteger(input.messageSeq, `${path}.messageSeq`);
+  }
   if (
     input.value !== "positive" &&
     input.value !== "negative" &&

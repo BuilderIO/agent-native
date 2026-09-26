@@ -19,6 +19,7 @@ const messages = {
   "composer.contextLimitExceeded":
     "Context is too large. Remove an item or attach a smaller selection.",
   "activity.reasoning": "Reasoning",
+  "activity.groupLabel": "Agent activity",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
   "approval.alwaysAllowAction": "Always allow this action",
@@ -148,6 +149,7 @@ const messages = {
   "aboutAgentNative.copyDiagnostics": "Copy diagnostics",
   "aboutAgentNative.unknown": "Unknown",
   "common.agent": "Agent",
+  "common.you": "You",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "UI",
   "agentPanel.keyScope": "Key scope",
@@ -652,6 +654,7 @@ const messages = {
   "plan.ready": "Plan ready",
   "plan.switchToAct": "Switch to Act mode",
   "queue.count": "{{count}} queued",
+  "queue.label": "Queued messages",
   "queue.followUp": "Send a follow-up...",
   "queue.followUpWithCount": "{{count}} queued — send a follow-up...",
   "queue.remove": "Remove from queue",
@@ -679,6 +682,12 @@ const messages = {
     "The previous background agent run reached its time limit before finishing. The partial work was preserved; continue or retry to pick up from here.",
   "recovery.noProgress":
     "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
+  "recovery.stuckTitle": "This chat looks stuck.",
+  "recovery.stuckNoProgress":
+    "No progress. The agent may have hit a server timeout or lost its connection.",
+  "recovery.stuckWithDuration":
+    "No progress for {{seconds}}s. The agent may have hit a server timeout or lost its connection.",
+  "recovery.stuckRetrying": "Retrying automatically now.",
   "recovery.statusCheckFailed":
     "Couldn't reach the server to check whether the agent is still working. Send your message again to retry.",
   "recovery.streamEnded":
@@ -798,6 +807,7 @@ const messages = {
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
   "status.working": "Working",
+  "status.workingFor": "Working for {{duration}}",
   "shell.chat": "Chat",
   "shell.loadingTerminal": "Loading terminal...",
   "shell.toggleAgent": "Toggle agent",

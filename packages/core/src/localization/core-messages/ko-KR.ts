@@ -21,6 +21,7 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "컨텍스트가 너무 큽니다. 항목을 제거하거나 더 작은 선택 항목을 첨부하세요.",
   "activity.reasoning": "추론",
+  "activity.groupLabel": "에이전트 활동",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
     "이 명령과 정확히 일치하는 명령을 승인하고 항상 허용합니다",
@@ -149,6 +150,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "진단 정보 복사",
   "aboutAgentNative.unknown": "알 수 없음",
   "common.agent": "에이전트",
+  "common.you": "사용자",
   "agentPanel.mode": "모드",
   "agentPanel.uiMode": "UI",
   "agentPanel.keyScope": "키 범위",
@@ -647,6 +649,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "계획 준비 완료",
   "plan.switchToAct": "실행 모드로 전환",
   "queue.count": "{{count}}개 대기 중",
+  "queue.label": "대기 중인 메시지",
   "queue.followUp": "후속 메시지 보내기...",
   "queue.followUpWithCount": "{{count}}개 대기 중 — 후속 메시지 보내기...",
   "queue.remove": "대기열에서 제거",
@@ -674,6 +677,12 @@ const messages: AgentChatTranslation = {
     "이전 백그라운드 에이전트 실행이 완료 전에 시간 제한에 도달했습니다. 부분 작업은 보존되었습니다. 여기서 계속하거나 다시 시도하세요.",
   "recovery.noProgress":
     "이전 에이전트 실행이 복구 중 진행 상황을 더 이상 표시하지 않아 반복 실행을 계속하기 전에 중지되었습니다.",
+  "recovery.stuckTitle": "이 채팅이 멈춘 것 같습니다.",
+  "recovery.stuckNoProgress":
+    "진행이 없습니다. 에이전트가 서버 시간 제한에 걸렸거나 연결이 끊겼을 수 있습니다.",
+  "recovery.stuckWithDuration":
+    "{{seconds}}초 동안 진행이 없습니다. 에이전트가 서버 시간 제한에 걸렸거나 연결이 끊겼을 수 있습니다.",
+  "recovery.stuckRetrying": "자동으로 다시 시도하는 중입니다.",
   "recovery.statusCheckFailed":
     "에이전트가 아직 작업 중인지 확인하기 위해 서버에 연결할 수 없습니다. 메시지를 다시 보내 재시도하세요.",
   "recovery.streamEnded":
@@ -793,6 +802,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",
   "status.working": "작업 중",
+  "status.workingFor": "{{duration}} 동안 작업 중",
   "shell.chat": "채팅",
   "shell.loadingTerminal": "터미널 불러오는 중...",
   "shell.toggleAgent": "에이전트 표시 전환",

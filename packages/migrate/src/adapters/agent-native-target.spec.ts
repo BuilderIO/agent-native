@@ -107,6 +107,12 @@ describe("scaffoldAgentNativeTarget", () => {
     );
     expect(agentRoute).toContain("AgentTabsPage");
 
+    const rootRoute = await fs.readFile(
+      path.join(outputRoot, "app/root.tsx"),
+      "utf-8",
+    );
+    expect(rootRoute).toContain("@agent-native/core/client/AgentSidebar");
+
     const navigateAction = await fs.readFile(
       path.join(outputRoot, "actions/navigate.ts"),
       "utf-8",

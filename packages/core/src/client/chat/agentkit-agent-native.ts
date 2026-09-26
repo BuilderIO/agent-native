@@ -2,13 +2,19 @@ import type {
   AgentMessage,
   AgentMessagePart,
   AgentObjectReference,
+  AgentRunSnapshot,
   AgentQueuedMessage,
   AgentThreadSnapshot,
   TextPart,
 } from "@agent-native/agentkit/protocol";
+import { parseAgentThreadSnapshot } from "@agent-native/agentkit/protocol";
 
 import { agentNativePath } from "../api-path.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
+import {
+  appendChatThreadScopeParams,
+  type ChatThreadScope,
+} from "../use-chat-threads.js";
 import {
   AGENT_NATIVE_PROTOCOL_METADATA_KEY,
   createAgentKitProtocolAdapter,
@@ -18,10 +24,15 @@ import {
 } from "./agentkit-protocol.js";
 import {
   createAgentNativeChatRuntime,
+  type AgentChatRuntime,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
 
 export interface CreateAgentNativeAgentKitTransportOptions extends CreateAgentNativeChatRuntimeOptions {
+  /** Optional host runtime executed through AgentKit's protocol lifecycle. */
+  readonly runtime?: AgentChatRuntime;
+  /** Restrict durable thread and queue requests to the configured resource scope. */
+  readonly isolateHistoryByScope?: boolean;
   readonly adapter?: Omit<CreateAgentKitProtocolAdapterOptions, "operations">;
   readonly operations?: CreateAgentKitProtocolAdapterOptions["operations"];
   /** Override the framework feedback endpoint for a custom host mount. */
@@ -40,6 +51,7 @@ interface StoredThread {
 interface ActiveRunStatus {
   active?: unknown;
   status?: unknown;
+  runId?: unknown;
   awaitingRedispatch?: unknown;
 }
 
@@ -222,9 +234,18 @@ function storedMessages(
         ...(asRecord(message.metadata)
           ? { metadata: asRecord(message.metadata)! }
           : {}),
+        ...(messageStatus(message.status)
+          ? { status: messageStatus(message.status) }
+          : {}),
       },
     ];
   });
+}
+
+function messageStatus(value: unknown): AgentMessage["status"] | undefined {
+  return value === "streaming" || value === "complete" || value === "error"
+    ? value
+    : undefined;
 }
 
 function storedQueue(
@@ -292,14 +313,95 @@ async function responseError(response: Response): Promise<Error> {
   try {
     body = await response.text();
   } catch (cause) {
-    return new Error(
-      `Agent chat request failed with ${response.status}, and its error body could not be read.`,
-      { cause },
+    return Object.assign(
+      new Error(
+        `Agent chat request failed with ${response.status}, and its error body could not be read.`,
+        { cause },
+      ),
+      {
+        code: httpErrorCode(response.status),
+        status: response.status,
+        retryable: isRetryableHttpStatus(response.status),
+      },
     );
   }
-  return new Error(
-    body.trim() || `Agent chat request failed with ${response.status}.`,
+  let payload: Record<string, unknown> | undefined;
+  try {
+    payload = asRecord(JSON.parse(body)) ?? undefined;
+  } catch {
+    payload = undefined;
+  }
+  const data = asRecord(payload?.data);
+  const nestedError = asRecord(payload?.error);
+  const nestedMessage =
+    typeof payload?.error === "string"
+      ? payload.error
+      : typeof data?.message === "string"
+        ? data.message
+        : typeof nestedError?.message === "string"
+          ? nestedError.message
+          : typeof payload?.message === "string"
+            ? payload.message
+            : typeof payload?.statusMessage === "string"
+              ? payload.statusMessage
+              : undefined;
+  const explicitRetryable =
+    data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
+  const error = new Error(
+    nestedMessage ??
+      (body.trim() || `Agent chat request failed with ${response.status}.`),
   );
+  Object.assign(error, {
+    code:
+      (typeof data?.code === "string" && data.code) ||
+      (typeof payload?.code === "string" && payload.code) ||
+      (typeof payload?.errorCode === "string" && payload.errorCode) ||
+      (typeof nestedError?.code === "string" && nestedError.code) ||
+      httpErrorCode(response.status),
+    status: response.status,
+    retryable:
+      typeof explicitRetryable === "boolean"
+        ? explicitRetryable
+        : isRetryableHttpStatus(response.status),
+    ...(data?.details === undefined &&
+    payload?.details === undefined &&
+    nestedError?.details === undefined
+      ? {}
+      : {
+          details: data?.details ?? payload?.details ?? nestedError?.details,
+        }),
+  });
+  return error;
+}
+
+function httpErrorCode(status: number): string {
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not_found";
+  if (status === 429) return "rate_limited";
+  return `http_${status}`;
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function scopedThreadEndpoint(
+  endpoint: string,
+  options: CreateAgentNativeAgentKitTransportOptions,
+): string {
+  if (!options.isolateHistoryByScope) return endpoint;
+  const scope = asRecord(options.scope);
+  if (typeof scope?.type !== "string" || typeof scope.id !== "string") {
+    return endpoint;
+  }
+  const params = new URLSearchParams();
+  appendChatThreadScopeParams(params, {
+    type: scope.type,
+    id: scope.id,
+  } satisfies ChatThreadScope);
+  const query = params.toString();
+  return query ? `${endpoint}?${query}` : endpoint;
 }
 
 /**
@@ -327,7 +429,10 @@ export function createAgentNativeAgentKitTransport(
 
   async function fetchThread(threadId: string): Promise<StoredThread | null> {
     const response = await fetcher(
-      `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+      scopedThreadEndpoint(
+        `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+        options,
+      ),
       { headers: await headers({ sessionId: threadId }) },
     );
     if (response.status === 404) return null;
@@ -353,18 +458,44 @@ export function createAgentNativeAgentKitTransport(
       updatedAt,
     );
     queueCache.set(threadId, queuedMessages);
+    const agentKit = asRecord(repository.agentKit);
+    const protocolSnapshot = agentKit
+      ? parseAgentThreadSnapshot({
+          id: threadId,
+          title: typeof stored.title === "string" ? stored.title : undefined,
+          createdAt,
+          updatedAt,
+          metadata: asRecord(stored.metadata) ?? undefined,
+          messages: agentKit.messages,
+          events: agentKit.events,
+          runs: agentKit.runs,
+          activeRunIds: agentKit.activeRunIds,
+          toolCalls: agentKit.toolCalls,
+          activities: agentKit.activities,
+        })
+      : undefined;
+    const messages =
+      protocolSnapshot?.messages ??
+      storedMessages(repository.messages, now, options.adapter?.textFormat);
     return {
       id: threadId,
       title: typeof stored.title === "string" ? stored.title : undefined,
       createdAt,
       updatedAt,
       metadata: asRecord(stored.metadata) ?? undefined,
-      messages: storedMessages(
-        repository.messages,
-        now,
-        options.adapter?.textFormat,
-      ),
+      messages,
       queuedMessages,
+      ...(protocolSnapshot?.events ? { events: protocolSnapshot.events } : {}),
+      ...(protocolSnapshot?.runs ? { runs: protocolSnapshot.runs } : {}),
+      ...(protocolSnapshot?.activeRunIds
+        ? { activeRunIds: protocolSnapshot.activeRunIds }
+        : {}),
+      ...(protocolSnapshot?.toolCalls
+        ? { toolCalls: protocolSnapshot.toolCalls }
+        : {}),
+      ...(protocolSnapshot?.activities
+        ? { activities: protocolSnapshot.activities }
+        : {}),
     };
   }
 
@@ -375,6 +506,67 @@ export function createAgentNativeAgentKitTransport(
     return stored ? projectThread(threadId, stored) : null;
   }
 
+  async function activeRunSnapshot(
+    threadId: string,
+  ): Promise<AgentRunSnapshot | undefined> {
+    const response = await fetcher(
+      `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+      { headers: await headers({ sessionId: threadId }) },
+    );
+    if (!response.ok) throw await responseError(response);
+    const value = asRecord(await response.json());
+    if (!value) {
+      throw new TypeError("Agent chat active-run response must be an object.");
+    }
+    const status = value.status;
+    if (
+      value.active !== true ||
+      typeof value.runId !== "string" ||
+      !value.runId ||
+      status === "completed" ||
+      status === "complete" ||
+      status === "failed" ||
+      status === "cancelled"
+    ) {
+      return undefined;
+    }
+    const runStatus: AgentRunSnapshot["status"] =
+      status === "queued" ||
+      status === "running" ||
+      status === "awaiting_approval" ||
+      status === "awaiting_input"
+        ? status
+        : "running";
+    return {
+      id: value.runId,
+      threadId,
+      status: runStatus,
+      // The durable SSE endpoint replays from its first event when a browser
+      // has no saved AgentKit cursor; the protocol adapter rebuilds the log.
+      lastSequence: 0,
+    };
+  }
+
+  async function threadSnapshotWithActiveRun(
+    threadId: string,
+  ): Promise<AgentThreadSnapshot | null> {
+    const thread = await snapshot(threadId);
+    if (!thread || options.runtime) return thread;
+    const activeRun = await activeRunSnapshot(threadId);
+    if (!activeRun) return thread;
+    const runs = [
+      ...(thread.runs ?? []).filter((entry) => entry.id !== activeRun.id),
+      activeRun,
+    ];
+    return {
+      ...thread,
+      runs,
+      activeRunIds: [
+        ...new Set([...(thread.activeRunIds ?? []), activeRun.id]),
+      ],
+    };
+  }
+
   async function persistQueue(
     threadId: string,
     queuedMessages: AgentQueuedMessage[],
@@ -382,7 +574,10 @@ export function createAgentNativeAgentKitTransport(
     const requestHeaders = await headers({ sessionId: threadId });
     requestHeaders.set("content-type", "application/json");
     const response = await fetcher(
-      `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued`,
+      scopedThreadEndpoint(
+        `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued`,
+        options,
+      ),
       {
         method: "POST",
         headers: requestHeaders,
@@ -454,7 +649,7 @@ export function createAgentNativeAgentKitTransport(
     return thread.queuedMessages ? [...thread.queuedMessages] : [];
   }
 
-  const runtime = createAgentNativeChatRuntime(options);
+  const runtime = options.runtime ?? createAgentNativeChatRuntime(options);
   const feedbackUrl =
     options.feedbackUrl ??
     agentNativePath("/_agent-native/observability/feedback");
@@ -482,7 +677,8 @@ export function createAgentNativeAgentKitTransport(
         } = thread;
         return summary;
       },
-      getThreadSnapshot: ({ threadId }) => snapshot(threadId),
+      getThreadSnapshot: ({ threadId }) =>
+        threadSnapshotWithActiveRun(threadId),
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
       queueMessage: ({ threadId, text, attachments, metadata }) =>
         withQueueWrite(threadId, async () => {
@@ -513,6 +709,23 @@ export function createAgentNativeAgentKitTransport(
           if (next.length === current.length) {
             throw new Error(`Unknown queued message: ${messageId}`);
           }
+          await persistQueue(threadId, next);
+          queueCache.set(threadId, next);
+        }),
+      moveQueuedMessageToTop: ({ threadId, messageId }) =>
+        withQueueWrite(threadId, async () => {
+          const current = await readQueue(threadId);
+          const index = current.findIndex(
+            (message) => message.id === messageId,
+          );
+          if (index < 0)
+            throw new Error(`Unknown queued message: ${messageId}`);
+          if (index === 0) return;
+          const selected = current[index]!;
+          const next = [
+            selected,
+            ...current.filter((message) => message.id !== messageId),
+          ];
           await persistQueue(threadId, next);
           queueCache.set(threadId, next);
         }),
@@ -627,6 +840,8 @@ export function createAgentNativeAgentKitTransport(
       submitFeedback: async ({
         threadId,
         messageId,
+        runId,
+        messageSeq,
         value,
         reason,
         metadata,
@@ -638,6 +853,8 @@ export function createAgentNativeAgentKitTransport(
           headers: requestHeaders,
           body: JSON.stringify({
             threadId,
+            ...(runId ? { runId } : {}),
+            ...(messageSeq !== undefined ? { messageSeq } : {}),
             feedbackType: value === "positive" ? "thumbs_up" : "thumbs_down",
             value: { messageId, value, reason, metadata },
           }),

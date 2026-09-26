@@ -402,10 +402,7 @@ const runtime = createAgentNativeChatRuntime({
 });
 ```
 
-전체가 필요할 때만 `<AssistantChat createAdapter={...} />`를 사용하세요
-assistant-ui 어댑터 제어. 제품을 사용할 때 `PromptComposer`만 사용하세요.
-외부 녹취록 전체를 소유하고 있으며 Agent-Native의 작곡가만 원합니다
-필드.
+사용자 지정 AgentKit 전송에는 `<AssistantChat createTransport={...} />`를 사용하고, 호스트가 턴 실행을 이미 소유하면 `runtime`을 전달하세요. 기존 `assistant-ui ChatModelAdapter` 구현은 AgentKit transcript와 composer를 사용하도록 `AgentTransport` 또는 `AgentChatRuntime`으로 포팅해야 합니다. 제품이 외부 transcript 전체를 소유하고 Agent-Native composer 필드만 필요할 때는 `PromptComposer`를 단독으로 사용하세요.
 
 OpenAI, AG-UI, Claude 에이전트 SDK 및 Vercel AI SDK 스트림은 표준을 사용할 수 있습니다.
 커넥터 도우미. ACP는 코딩 에이전트/편집기 상호 운용성을 유지하지만

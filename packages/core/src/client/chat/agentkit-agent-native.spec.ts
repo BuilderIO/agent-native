@@ -2,6 +2,7 @@ import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
+import type { AgentChatRuntime } from "./runtime.js";
 
 const runStateMocks = vi.hoisted(() => ({
   dispatchAgentChatRunning: vi.fn(),
@@ -17,6 +18,58 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("createAgentNativeAgentKitTransport", () => {
+  it.each([
+    {
+      isolateHistoryByScope: true,
+      expectedQuery: "?scopeType=workspace-app&scopeId=app-one",
+    },
+    { isolateHistoryByScope: false, expectedQuery: "" },
+  ])(
+    "scopes thread restore and queue persistence only when history isolation is enabled",
+    async ({ isolateHistoryByScope, expectedQuery }) => {
+      const apiUrl = "/_agent-native/agent-chat";
+      const fetcher = vi.fn(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          if (url.startsWith(`${apiUrl}/threads/thread-scope/queued`)) {
+            return json({ ok: true });
+          }
+          if (url.startsWith(`${apiUrl}/threads/thread-scope`)) {
+            return json({
+              id: "thread-scope",
+              createdAt: "2026-09-01T00:00:00.000Z",
+              updatedAt: "2026-09-01T00:00:00.000Z",
+              threadData: JSON.stringify({ messages: [], queuedMessages: [] }),
+            });
+          }
+          return json({ error: "Not found" }, 404);
+        },
+      );
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+        scope: { type: "workspace-app", id: "app-one" },
+        isolateHistoryByScope,
+        adapter: { createId: () => "queued-one" },
+      });
+
+      await transport.queueMessage?.({
+        threadId: "thread-scope",
+        text: "Run this next",
+      });
+
+      expect(
+        fetcher.mock.calls
+          .map(([input]) => String(input))
+          .filter((url) => url.includes("/threads/thread-scope")),
+      ).toEqual([
+        `${apiUrl}/threads/thread-scope${expectedQuery}`,
+        `${apiUrl}/threads/thread-scope/queued${expectedQuery}`,
+      ]);
+      await transport.dispose();
+    },
+  );
+
   it("loads durable history and promotes queued work into a real stream", async () => {
     const queueWrites: unknown[] = [];
     let activeRunChecks = 0;
@@ -125,7 +178,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
 
     expect(queueWrites).toEqual([{ queuedMessages: [] }]);
-    expect(activeRunChecks).toBe(2);
+    expect(activeRunChecks).toBe(3);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
       "run.status",
@@ -163,6 +216,518 @@ describe("createAgentNativeAgentKitTransport", () => {
         },
       ],
     });
+  });
+
+  it("persists a queued-message move to the front under the queue write lock", async () => {
+    const queueWrites: unknown[] = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/threads/thread-queue") && !init?.method) {
+          return json({
+            id: "thread-queue",
+            createdAt: "2026-08-29T00:00:00.000Z",
+            updatedAt: "2026-08-29T00:00:00.000Z",
+            threadData: JSON.stringify({
+              messages: [],
+              queuedMessages: [
+                {
+                  id: "queued-one",
+                  text: "First",
+                  createdAt: "2026-08-29T00:00:00.000Z",
+                },
+                {
+                  id: "queued-two",
+                  text: "Second",
+                  createdAt: "2026-08-29T00:00:01.000Z",
+                },
+                {
+                  id: "queued-three",
+                  text: "Third",
+                  createdAt: "2026-08-29T00:00:02.000Z",
+                },
+              ],
+            }),
+          });
+        }
+        if (url.endsWith("/threads/thread-queue/queued")) {
+          const body = JSON.parse(String(init?.body));
+          queueWrites.push(body);
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.listQueuedMessages?.({ threadId: "thread-queue" });
+    await transport.moveQueuedMessageToTop?.({
+      threadId: "thread-queue",
+      messageId: "queued-three",
+    });
+
+    expect(queueWrites).toEqual([
+      {
+        queuedMessages: [
+          expect.objectContaining({ id: "queued-three" }),
+          expect.objectContaining({ id: "queued-one" }),
+          expect.objectContaining({ id: "queued-two" }),
+        ],
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it("preserves completed side effects through the real AgentKit transport", async () => {
+    const fetcher = vi.fn(async () => {
+      const stream = [
+        { type: "tool_start", id: "tool-1", tool: "update-slide", input: {} },
+        {
+          type: "tool_done",
+          id: "tool-1",
+          tool: "update-slide",
+          result: "Updated slide 1",
+          completedSideEffect: true,
+        },
+        { type: "done" },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join("");
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "x-run-id": "run-side-effect",
+        },
+      });
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Update slide 1" }],
+        },
+      ],
+    });
+    const events: AgentEvent[] = [];
+    for await (const event of transport.subscribeToRun({
+      threadId: "thread-1",
+      runId,
+    })) {
+      events.push(event);
+    }
+
+    expect(events.find((event) => event.type === "tool.updated")).toMatchObject(
+      {
+        type: "tool.updated",
+        metadata: { completedSideEffect: true },
+        toolCall: { metadata: { completedSideEffect: true } },
+      },
+    );
+    await transport.dispose();
+  });
+
+  it("preserves structured tool metadata through the runtime and protocol", async () => {
+    const fetcher = vi.fn(async () => {
+      const stream = [
+        {
+          type: "tool_start",
+          id: "tool-edit",
+          tool: "update-file",
+          input: { path: "src/app.ts" },
+          structuredMeta: { toolKind: "edit", filePath: "src/app.ts" },
+        },
+        {
+          type: "tool_done",
+          id: "tool-edit",
+          tool: "update-file",
+          result: "Updated src/app.ts",
+          structuredMeta: {
+            toolKind: "edit",
+            filePath: "src/app.ts",
+            diff: "-old\n+new",
+          },
+        },
+        { type: "done" },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join("");
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "x-run-id": "run-tool-meta",
+        },
+      });
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Update src/app.ts" }],
+        },
+      ],
+    });
+    const events: AgentEvent[] = [];
+    for await (const event of transport.subscribeToRun({
+      threadId: "thread-1",
+      runId,
+    })) {
+      events.push(event);
+    }
+
+    expect(events.find((event) => event.type === "tool.updated")).toMatchObject(
+      {
+        type: "tool.updated",
+        metadata: {
+          toolKind: "edit",
+          filePath: "src/app.ts",
+          diff: "-old\n+new",
+        },
+        toolCall: {
+          metadata: {
+            toolKind: "edit",
+            filePath: "src/app.ts",
+            diff: "-old\n+new",
+          },
+        },
+      },
+    );
+    await transport.dispose();
+  });
+
+  it("shows the missing-final-response notice for a completed tool-only turn", async () => {
+    const fetcher = vi.fn(async () => {
+      const stream = [
+        { type: "tool_start", id: "tool-1", tool: "update-slide", input: {} },
+        {
+          type: "tool_done",
+          id: "tool-1",
+          tool: "update-slide",
+          result: "Updated slide 1",
+          completedSideEffect: true,
+        },
+        { type: "done" },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join("");
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "x-run-id": "run-no-final",
+        },
+      });
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Update slide 1" }],
+        },
+      ],
+    });
+    const events: AgentEvent[] = [];
+    for await (const event of transport.subscribeToRun({
+      threadId: "thread-1",
+      runId,
+    })) {
+      events.push(event);
+    }
+
+    expect(
+      events.find((event) => event.type === "message.completed"),
+    ).toMatchObject({
+      type: "message.completed",
+      message: {
+        metadata: {
+          custom: {
+            runWarning: {
+              errorCode: "final_response_missing_after_tool",
+              recoverable: true,
+            },
+          },
+        },
+        parts: [
+          {
+            type: "text",
+            text: expect.stringContaining(
+              "stopped before sending a final message",
+            ),
+          },
+        ],
+      },
+    });
+    await transport.dispose();
+  });
+
+  it("preserves the loop-limit error and iteration detail", async () => {
+    const fetcher = vi.fn(async () => {
+      const stream = [
+        { type: "text", text: "I am still working." },
+        { type: "loop_limit", maxIterations: 25 },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join("");
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "x-run-id": "run-loop-limit",
+        },
+      });
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        { id: "user-1", role: "user", parts: [{ type: "text", text: "Work" }] },
+      ],
+    });
+    const events: AgentEvent[] = [];
+    for await (const event of transport.subscribeToRun({
+      threadId: "thread-1",
+      runId,
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)).toMatchObject({
+      type: "run.failed",
+      error: {
+        code: "loop_limit",
+        retryable: false,
+        details: { maxIterations: 25 },
+      },
+    });
+    await transport.dispose();
+  });
+
+  it("preserves thread-load authentication errors as typed failures", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () =>
+        json(
+          {
+            statusMessage: "Your session has expired.",
+            data: {
+              code: "session_expired",
+              details: { loginUrl: "/login" },
+            },
+          },
+          401,
+        ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.getThreadSnapshot?.({ threadId: "thread-expired" }),
+    ).rejects.toMatchObject({
+      message: "Your session has expired.",
+      code: "session_expired",
+      status: 401,
+      retryable: false,
+      details: { loginUrl: "/login" },
+    });
+    await transport.dispose();
+  });
+
+  it("restores an active server run into a fresh transport and resumes its stream", async () => {
+    const requestUrls: string[] = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requestUrls.push(url);
+        if (url.endsWith("/threads/thread-resume") && !init?.method) {
+          return json({
+            id: "thread-resume",
+            threadData: JSON.stringify({ messages: [] }),
+          });
+        }
+        if (url.includes("/runs/active?threadId=thread-resume")) {
+          return json({
+            active: true,
+            status: "running",
+            runId: "run-durable",
+          });
+        }
+        if (url.endsWith("/runs/run-durable/events?after=0")) {
+          const stream = [
+            { type: "text", text: "Recovered response", seq: 1 },
+            { type: "done", seq: 2 },
+          ]
+            .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+            .join("");
+          return new Response(stream, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-resume",
+    });
+    expect(snapshot?.activeRunIds).toContain("run-durable");
+    expect(transport.capabilities?.resumableRuns).toBe(true);
+
+    const events: AgentEvent[] = [];
+    for await (const event of transport.subscribeToRun({
+      threadId: "thread-resume",
+      runId: "run-durable",
+    })) {
+      events.push(event);
+    }
+
+    expect(requestUrls).toContain(
+      "/_agent-native/agent-chat/runs/run-durable/events?after=0",
+    );
+    expect(events[0]?.type).toBe("run.started");
+    expect(
+      events.find((event) => event.type === "message.completed"),
+    ).toMatchObject({
+      type: "message.completed",
+      message: {
+        parts: [{ type: "text", text: "Recovered response" }],
+      },
+    });
+    expect(events.at(-1)?.type).toBe("run.completed");
+    await transport.dispose();
+  });
+
+  it("runs the supplied host runtime through AgentKit", async () => {
+    const fetcher = vi.fn(async () =>
+      json({ error: "Unexpected request" }, 500),
+    );
+    const startTurn = vi.fn(async ({ sessionId }: { sessionId?: string }) => ({
+      id: "turn-local",
+      runId: "run-local",
+      sessionId: sessionId ?? "thread-local",
+      events: (async function* () {
+        yield {
+          type: "message-start",
+          message: {
+            id: "assistant-local",
+            role: "assistant",
+            content: [],
+          },
+        } as const;
+        yield {
+          type: "message-delta",
+          messageId: "assistant-local",
+          delta: { type: "text", text: "Local runtime reply." },
+        } as const;
+        yield {
+          type: "message-done",
+          message: {
+            id: "assistant-local",
+            role: "assistant",
+            content: [{ type: "text", text: "Local runtime reply." }],
+          },
+        } as const;
+        yield { type: "done", reason: "complete" } as const;
+      })(),
+    }));
+    const runtime: AgentChatRuntime = {
+      id: "test:local",
+      kind: "external-agent",
+      label: "Local test runtime",
+      capabilities: {
+        messages: {
+          streaming: true,
+          history: true,
+          structuredContent: true,
+          attachments: true,
+        },
+        tools: {
+          events: true,
+          hostTools: true,
+          inputStreaming: true,
+          resultStreaming: true,
+        },
+        sessions: { create: true, restore: true, persistent: true },
+        cancellation: {
+          abortSignal: true,
+          explicitCancel: true,
+          interrupt: true,
+        },
+      },
+      async createSession(input) {
+        const sessionId = input?.id ?? "thread-local";
+        return {
+          id: sessionId,
+          threadId: input?.threadId,
+          runtimeId: "test:local",
+          startTurn: ({ abortSignal: _abortSignal }) =>
+            startTurn({ sessionId }),
+        };
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      runtime,
+      fetch: fetcher,
+    });
+
+    const { runId } = await transport.startRun({
+      threadId: "thread-local",
+      messages: [
+        {
+          id: "user-local",
+          role: "user",
+          parts: [{ type: "text", text: "Use the local runtime." }],
+        },
+      ],
+    });
+    const events: AgentEvent[] = [];
+    for await (const event of transport.subscribeToRun({
+      threadId: "thread-local",
+      runId,
+    })) {
+      events.push(event);
+    }
+
+    expect(startTurn).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "message.completed",
+        message: expect.objectContaining({
+          id: "assistant-local",
+          role: "assistant",
+        }),
+      }),
+    );
+    expect(events.at(-1)).toMatchObject({ type: "run.completed" });
+    expect(fetcher).not.toHaveBeenCalled();
+    await transport.dispose();
   });
 
   it("keeps queued work durable while the runtime owns a continuation", async () => {
@@ -306,6 +871,8 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.submitFeedback?.({
       threadId: "thread-1",
       messageId: "assistant-1",
+      runId: "run-1",
+      messageSeq: 2,
       value: "positive",
     });
     const fork = await transport.forkThread?.({
@@ -317,6 +884,8 @@ describe("createAgentNativeAgentKitTransport", () => {
       url: "/_agent-native/observability/feedback",
       body: {
         threadId: "thread-1",
+        runId: "run-1",
+        messageSeq: 2,
         feedbackType: "thumbs_up",
         value: { messageId: "assistant-1", value: "positive" },
       },
@@ -449,7 +1018,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       actions: false,
       feedback: true,
       messageQueue: true,
-      resumableRuns: false,
+      resumableRuns: true,
       threadForking: true,
       threadHistory: true,
       uploads: false,

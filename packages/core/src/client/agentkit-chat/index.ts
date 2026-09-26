@@ -30,3 +30,18 @@ export {
   McpAgentKitConnectionResume,
 } from "./connections.js";
 export { useAgentChatRunningThreads } from "../use-agent-chat-running-threads.js";
+export {
+  AgentKitDevCheckpointProvider,
+  AgentKitDevCheckpointRestore,
+  AgentKitHistoryBeginningRevert,
+  AgentKitHistoryMessageSupplement,
+  AgentKitHistoryProvider,
+  findAgentKitHistoryBeginningVersion,
+  findAgentKitHistoryVersion,
+  useAgentKitHistory,
+  type AgentKitHistoryConfig,
+  type AgentKitHistoryContextValue,
+  type AgentKitHistoryMessage,
+  type AgentKitHistoryScope,
+  type AgentKitHistoryVersion,
+} from "./history.js";

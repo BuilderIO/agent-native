@@ -206,6 +206,10 @@ import {
 } from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
+  queuedMessagesNeedAgentChatAiSetup,
+  requireAgentChatAiSetup,
+} from "./agent-chat-ai-setup.js";
+import {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
   AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
@@ -6615,6 +6619,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const queued = Array.isArray(body?.queuedMessages)
                 ? body.queuedMessages
                 : [];
+              if (
+                queuedMessagesNeedAgentChatAiSetup(thread.threadData, queued)
+              ) {
+                await runWithRequestContext({ userEmail: owner, orgId }, () =>
+                  requireAgentChatAiSetup(),
+                );
+              }
               const saved = await setThreadQueuedMessages(threadId, queued);
               if (!saved) {
                 setResponseStatus(event, 404);
@@ -6928,17 +6939,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         await ensureMcpInitialized();
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
+        const isBackgroundWorker = Boolean(
+          (event as any).context?.__agentChatBackgroundBody,
+        );
 
         return runWithAgentRunContext(
           {
             event,
             ownerContext,
             resolveOrgId: options?.resolveOrgId,
-            isBackgroundWorker: Boolean(
-              (event as any).context?.__agentChatBackgroundBody,
-            ),
+            isBackgroundWorker,
           },
-          () => {
+          async () => {
+            // Public anonymous readers use the host-owned read-only lane, and
+            // durable workers resume a request that already passed this gate.
+            if (!ownerContext.anonymous && !isBackgroundWorker) {
+              await requireAgentChatAiSetup();
+            }
             // App-rendered chat can't host direct code edits — HMR/full
             // reloads would kill the same chat surface mid-run. Force the
             // prod handler (no shell / no fs); the prompt block injected by

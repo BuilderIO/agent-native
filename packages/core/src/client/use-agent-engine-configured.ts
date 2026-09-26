@@ -1,24 +1,18 @@
 import { useEffect, useState } from "react";
 
-import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 import {
   fetchAgentEngineStatus,
-  fetchBuilderStatus,
-  fetchEnvironmentStatus,
   invalidateClientStatusRequest,
   type ClientStatusResult,
 } from "./client-status-requests.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
 
-const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
-
 /**
  * Three distinct situations, never collapsed:
- * - `configured` / `missing` are authoritative answers from the status routes.
+ * - `configured` / `missing` are authoritative chat-eligibility answers.
  * - `unknown` (first check in flight) and `unavailable` (the check failed, a
- *   retry is scheduled) both mean *we do not know*. They are not evidence that
- *   no provider is configured, but chat input stays closed until the route
- *   confirms readiness.
+ *   retry is scheduled) both mean *we do not know*. Neither is evidence that
+ *   chat is eligible, so the composer stays unavailable until a retry succeeds.
  */
 export type AgentEngineConfiguredState =
   | "unknown"
@@ -27,17 +21,15 @@ export type AgentEngineConfiguredState =
   | "unavailable";
 
 export interface UseAgentEngineConfiguredResult {
-  /** True once we know nothing can run the agent (no key / Builder / BYOK). */
+  /** True only when the authoritative status confirms chat-eligible AI. */
+  canChat: boolean;
+  /** True only when the authoritative status says interactive chat is ineligible. */
   missing: boolean;
   state: AgentEngineConfiguredState;
 }
 
 export interface FetchAgentEngineConfiguredStateOptions {
-  /**
-   * Legacy hint from explicit missing-key stream events. Kept for API
-   * compatibility, but missing state still requires authoritative status
-   * responses so transient endpoint failures do not clobber connected state.
-   */
+  /** Kept for API compatibility; readiness always comes from chatEligible. */
   missingFallback?: boolean;
   timeoutMs?: number;
 }
@@ -75,12 +67,14 @@ async function waitForStatus<T>(
   }
 }
 
-function hasConfiguredFlag(value: unknown): value is { configured: boolean } {
+function hasChatEligibleFlag(
+  value: unknown,
+): value is { chatEligible: boolean } {
   return (
     typeof value === "object" &&
     value !== null &&
-    "configured" in value &&
-    typeof (value as { configured?: unknown }).configured === "boolean"
+    "chatEligible" in value &&
+    typeof (value as { chatEligible?: unknown }).chatEligible === "boolean"
   );
 }
 
@@ -121,60 +115,29 @@ export async function fetchAgentEngineConfiguredState(
     timeoutMs,
   );
   if (
-    engineResult.state === "available" &&
-    hasConfiguredFlag(engineResult.value)
+    engineResult.state !== "available" ||
+    !hasChatEligibleFlag(engineResult.value)
   ) {
-    return engineResult.value.configured ? "configured" : "missing";
+    // A reachable legacy server may expose only the broad `configured` flag.
+    // It cannot prove this stricter chat-specific policy, so fail closed and
+    // let the existing retry loop refresh after the server is upgraded.
+    return "unavailable";
   }
-
-  // Older hosts may not expose the canonical route. Only then pay for the two
-  // legacy probes; current hosts answer readiness with one request.
-  const [envResult, builderResult] = await Promise.all([
-    waitForStatus(
-      fetchEnvironmentStatus(),
-      "/_agent-native/env-status",
-      timeoutMs,
-    ),
-    waitForStatus(
-      fetchBuilderStatus(),
-      "/_agent-native/builder/status",
-      timeoutMs,
-    ),
-  ]);
-  const envKeys = envResult.state === "available" ? envResult.value : undefined;
-  const builderStatus =
-    builderResult.state === "available" ? builderResult.value : undefined;
-  const envKeysKnown = Array.isArray(envKeys);
-  const builderStatusKnown = hasConfiguredFlag(builderStatus);
-  const keys = envKeysKnown
-    ? (envKeys as Array<{
-        key: string;
-        configured: boolean;
-      }>)
-    : [];
-  const llmKeys = keys.filter((k) => PROVIDER_ENV_VAR_SET.has(k.key));
-  const anyConfigured =
-    llmKeys.some((k) => k.configured) ||
-    (builderStatusKnown && builderStatus.configured);
-  if (anyConfigured) return "configured";
-
-  // Compatibility fallback for older hosts without the canonical route.
-  return envKeysKnown && builderStatusKnown ? "missing" : "unavailable";
+  return engineResult.value.chatEligible ? "configured" : "missing";
 }
 
 /**
- * Shared "can the agent run?" gate — the single source of truth for the sidebar
- * composer and app prompt boxes. Checks the env-key / Builder / BYOK status
- * endpoints on mount, re-checks on `agent-engine:configured-changed`, and folds
- * in the adapter's `agent-chat:missing-api-key` signal. Pass `enabled = false`
- * only for runtimes that do not use a hosted LLM provider. A check that cannot
- * reach an authoritative answer retries on a backoff until it does.
+ * Shared interactive-chat gate — its status comes only from the canonical
+ * chat-specific eligibility field. Pass `enabled = false` to preserve the
+ * legacy status short-circuit; `canChat` remains false in that mode. A check
+ * without an authoritative answer retries on a backoff until it does.
  */
 export function useAgentEngineConfigured(
   enabled = true,
   options?: UseAgentEngineConfiguredOptions,
 ): UseAgentEngineConfiguredResult {
   const [state, setState] = useState<AgentEngineConfiguredState>("unknown");
+  const [canChat, setCanChat] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -205,6 +168,7 @@ export function useAgentEngineConfigured(
       const nextState = await fetchAgentEngineConfiguredState(enabled, options);
       if (cancelled || seq !== requestSeq) return;
       setState(nextState === "unknown" ? "unavailable" : nextState);
+      setCanChat(enabled && nextState === "configured");
       if (nextState === "configured" || nextState === "missing") {
         retryAttempt = 0;
         return;
@@ -241,6 +205,7 @@ export function useAgentEngineConfigured(
       if (!missingKeyEventMatchesScope(event, options)) return;
       if (!enabled) {
         setState("configured");
+        setCanChat(false);
         return;
       }
       checkNow({ missingFallback: true });
@@ -274,5 +239,9 @@ export function useAgentEngineConfigured(
     };
   }, [enabled, options?.tabId, options?.threadId]);
 
-  return { missing: state === "missing", state };
+  return {
+    canChat: enabled && canChat,
+    missing: state === "missing",
+    state,
+  };
 }

@@ -54,6 +54,7 @@ import {
   isLocalRuntimeEngine,
   TiptapComposer,
   type ComposerAgentOption,
+  type ComposerImageModelMenu,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
@@ -96,6 +97,12 @@ export interface PromptComposerProps {
     references: Reference[],
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
+  /** Return false to stop a submit before it reaches the host runtime. */
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  /** Handle file paste/drop errors in the host chat surface. */
+  onAttachmentError?: (message: string) => void;
+  /** Delegate app-scaffolding prompts to the enclosing Builder chat. */
+  interceptBuildRequestsForBuilder?: boolean;
   placeholder?: string;
   /** Accessible name forwarded to the rich text editor. */
   ariaLabel?: string;
@@ -156,6 +163,10 @@ export interface PromptComposerProps {
   execMode?: "build" | "plan";
   /** Called when the user switches between acting and read-only planning. */
   onExecModeChange?: (mode: "build" | "plan") => void;
+  /** Disable Plan mode while leaving Act mode available. */
+  planModeDisabled?: boolean;
+  /** Explanation shown next to the disabled Plan option. */
+  planModeDisabledReason?: string;
   /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
   toolbarSlot?: ReactNode;
   /** Custom attachment button to render instead of the default "+" affordance. */
@@ -164,6 +175,8 @@ export interface PromptComposerProps {
   actionButton?: ReactNode;
   /** Extra button rendered alongside the default send button. */
   extraActionButton?: ReactNode;
+  /** Optional stop control shown while the host runtime is active. */
+  stopButton?: ReactNode;
   /** Shared sizing/layout variant for host surfaces. Default keeps sidebar behavior. */
   layoutVariant?: AgentComposerLayoutVariant;
   /** Additional slash commands surfaced in the shared / menu. */
@@ -213,6 +226,7 @@ export interface PromptComposerProps {
   onConnectProvider?: () => void;
   /** Called when a local runtime needs its native sign-in/setup flow. */
   onConnectLocalRuntime?: (engine: string) => void;
+  imageModelMenu?: ComposerImageModelMenu;
   /** Imperative handle for focusing the composer. */
   composerRef?: Ref<TiptapComposerHandle>;
 }
@@ -595,10 +609,13 @@ function PromptComposerInner({
   modeControl,
   execMode,
   onExecModeChange,
+  planModeDisabled,
+  planModeDisabledReason,
   toolbarSlot,
   attachButton,
   actionButton,
   extraActionButton,
+  stopButton,
   layoutVariant,
   slashCommands,
   slashSkills,
@@ -623,7 +640,11 @@ function PromptComposerInner({
   onModelSelectionChange,
   onConnectProvider,
   onConnectLocalRuntime,
+  imageModelMenu,
   composerRef,
+  onBeforeSubmit,
+  onAttachmentError,
+  interceptBuildRequestsForBuilder,
 }: PromptComposerProps) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
@@ -863,6 +884,9 @@ function PromptComposerInner({
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
+          onBeforeSubmit={onBeforeSubmit}
+          onAttachmentError={onAttachmentError}
+          interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             gateComposer
@@ -878,9 +902,12 @@ function PromptComposerInner({
           modeControl={modeControl}
           execMode={execMode}
           onExecModeChange={onExecModeChange}
+          planModeDisabled={planModeDisabled}
+          planModeDisabledReason={planModeDisabledReason}
           toolbarSlot={toolbarSlot}
           actionButton={actionButton}
           extraActionButton={extraActionButton}
+          stopButton={stopButton}
           layoutVariant={layoutVariant}
           slashCommands={slashCommands}
           slashSkills={slashSkills}
@@ -907,6 +934,7 @@ function PromptComposerInner({
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}
+          imageModelMenu={imageModelMenu}
         />
       </AgentComposerFrame>
     </>

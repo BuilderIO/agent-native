@@ -37,6 +37,8 @@ export interface McpConnectionSuggestionProps {
    * composer. User-authored composer text must never promote integrations.
    */
   requestedByAgent?: boolean;
+  /** Offer a composer connection card when the user names a known provider. */
+  requestedByUser?: boolean;
   integrations?: DefaultMcpIntegration[];
   /** Trusted catalog identifier used by structured AgentKit requests. */
   integrationId?: string;
@@ -93,6 +95,7 @@ export function findMcpConnectionSuggestionIntegration({
   contextText = "",
   variant = "composer",
   requestedByAgent = false,
+  requestedByUser = false,
   integrations = getDefaultMcpIntegrations(),
   integrationId,
 }: McpConnectionSuggestionProps): DefaultMcpIntegration | null {
@@ -108,11 +111,17 @@ export function findMcpConnectionSuggestionIntegration({
   }
   const responseText = visibleUserAuthoredText(text);
   if (variant !== "response") {
-    if (!requestedByAgent) return null;
-    if (
-      !isMcpConnectionSuggestionText(responseText) &&
-      !isMcpConnectionFailureText(responseText)
-    ) {
+    if (requestedByUser) {
+      return findMcpIntegrationForText(responseText, integrations);
+    }
+    if (requestedByAgent) {
+      if (
+        !isMcpConnectionSuggestionText(responseText) &&
+        !isMcpConnectionFailureText(responseText)
+      ) {
+        return null;
+      }
+    } else {
       return null;
     }
   }
@@ -165,6 +174,7 @@ export function McpConnectionSuggestion({
   contextText = "",
   variant = "composer",
   requestedByAgent = false,
+  requestedByUser = false,
   integrations: integrationOptions,
   integrationId,
   onConnected,
@@ -197,10 +207,19 @@ export function McpConnectionSuggestion({
         contextText,
         variant,
         requestedByAgent,
+        requestedByUser,
         integrations,
         integrationId,
       }),
-    [contextText, integrationId, integrations, requestedByAgent, text, variant],
+    [
+      contextText,
+      integrationId,
+      integrations,
+      requestedByAgent,
+      requestedByUser,
+      text,
+      variant,
+    ],
   );
   const apiFallback = integration
     ? getMcpIntegrationApiFallback(integration)

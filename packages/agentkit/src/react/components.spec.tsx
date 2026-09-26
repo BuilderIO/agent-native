@@ -13,6 +13,7 @@ import { AgentKitClient } from "../client/index.js";
 import type { AgentEvent, AgentTransport } from "../protocol/index.js";
 import { AgentChat } from "./chat.js";
 import {
+  AgentKitComposer,
   AgentKitChat,
   type AgentKitComposerProps,
   AgentMessagePartView,
@@ -209,6 +210,9 @@ describe("AgentKitChat", () => {
       /\.agentkit-agent \{[\s\S]*padding: 0\.125rem 0\.5rem;[\s\S]*border: 1px solid var\(--agentkit-border\);[\s\S]*border-radius: 999px;[\s\S]*background: var\(--agentkit-subtle\);/,
     );
     expect(styles).toContain("overscroll-behavior-block: contain;");
+    expect(styles).toContain("max-block-size: 200px;");
+    expect(styles).toContain(".agentkit-mention-label {");
+    expect(styles).toContain(".agentkit-file-drop-overlay {");
     expect(styles).toContain("scrollbar-color: transparent transparent;");
     expect(styles).toMatch(
       /\.agentkit-transcript\[data-scrollbar-visible="true"\][\s\S]*var\(--agentkit-text-muted\) 42%/,
@@ -335,11 +339,22 @@ describe("AgentKitChat", () => {
     expect(source).toContain(
       "includeDefaultSlashSkills={includeDefaultSlashSkills ?? false}",
     );
-    expect(source).toContain(
-      'plusMenuMode ?? (canUpload ? "upload-only" : "hidden")',
-    );
+    expect(source).toContain('plusMenuMode ?? "full"');
     expect(source).toContain("autoFocus={autoFocus}");
     expect(source).toContain("composerRef={composerRef}");
+    expect(source).toContain("onAttachmentError={reportAttachmentError}");
+    expect(source).toContain(
+      "interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}",
+    );
+    expect(source).toContain(
+      'window.dispatchEvent(\n      new CustomEvent("agentkit:attach-files"',
+    );
+    expect(source).toContain(
+      "if (onAttachmentError) onAttachmentError(message)",
+    );
+    expect(source).toContain(
+      'className="agentkit-composer-error" role="alert"',
+    );
     expect(source).toContain(".finally(focusComposer)");
     expect(source).toContain(
       'execMode={executionMode === "plan" ? "plan" : "build"}',
@@ -347,6 +362,13 @@ describe("AgentKitChat", () => {
     expect(source).toContain("mode: executionMode");
     expect(source).toContain("control.steerQueued(item.id)");
     expect(source).toContain("control.removeQueued(item.id)");
+    expect(source).toContain("await onBeforeSubmit()");
+    expect(source).toContain(
+      "await onSubmitOverride(text, files, references, options)",
+    );
+    expect(source).toContain("await control.removeQueued(item.id)");
+    expect(source).toContain("pending={command.pending || Boolean(disabled)}");
+    expect(source).toContain("if (disabled)");
     expect(source).toContain(
       "willQueue={active && queueWhileRunning && canQueue}",
     );
@@ -355,7 +377,7 @@ describe("AgentKitChat", () => {
     );
     expect(source).toContain("command.execute");
     expect(source.indexOf('className="agentkit-suggestions"')).toBeLessThan(
-      source.indexOf("<PromptComposer"),
+      source.indexOf("<PromptComposer\n"),
     );
   });
 
@@ -617,7 +639,12 @@ describe("AgentKitChat", () => {
 
   it("server-renders approvals, widgets, and queued messages", async () => {
     const transport: AgentTransport = {
-      capabilities: { messageQueue: true, widgets: true, approvals: true },
+      capabilities: {
+        messageQueue: true,
+        widgets: true,
+        approvals: true,
+        connectionRequests: true,
+      },
       async startRun() {
         return { runId: "run-1" };
       },
@@ -637,19 +664,69 @@ describe("AgentKitChat", () => {
           ...base,
           id: "event-2",
           sequence: 2,
+          type: "activity.started",
+          activity: {
+            id: "activity-1",
+            kind: "search",
+            label: "Searching workspace",
+            status: "running",
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-3",
+          sequence: 3,
+          type: "activity.completed",
+          activity: {
+            id: "activity-1",
+            kind: "search",
+            label: "Searched workspace",
+            status: "completed",
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-4",
+          sequence: 4,
           type: "approval.requested",
           request: {
             id: "approval-1",
             title: "Publish the dashboard?",
             description: "Review the workspace changes before continuing.",
           },
-        };
+        } as const;
         yield {
           ...base,
-          id: "event-3",
-          sequence: 3,
+          id: "event-5",
+          sequence: 5,
+          type: "connection.requested",
+          request: {
+            id: "connection-1",
+            provider: "docs",
+            reason: "connect",
+            status: "requested",
+            detail: "Connect the workspace documentation source.",
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-6",
+          sequence: 6,
+          type: "connection.updated",
+          request: {
+            id: "connection-1",
+            provider: "docs",
+            reason: "connect",
+            status: "connected",
+            detail: "Connected the workspace documentation source.",
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-7",
+          sequence: 7,
           type: "run.completed",
-        };
+        } as const;
       },
       async cancelRun() {},
       async removeQueuedMessage() {},
@@ -716,6 +793,12 @@ describe("AgentKitChat", () => {
     expect(html).toContain("Open report");
     expect(html).toContain("Explain the remaining failures");
     expect(html).toContain('aria-label="Queued messages"');
+    expect(html).toContain("agentkit-connection-request");
+    expect(html).toContain('data-status="connected"');
+    expect(html).toContain("Connected the workspace documentation source.");
+    expect(html.indexOf("agentkit-connection-request")).toBeGreaterThan(
+      html.indexOf('class="agentkit-activities"'),
+    );
   });
 
   it("renders message mutations only when the transport advertises them", async () => {
@@ -741,8 +824,35 @@ describe("AgentKitChat", () => {
           updatedAt: "2026-08-29T00:00:00.000Z",
           messages: [
             {
+              id: "user-1",
+              role: "user",
+              parts: [
+                {
+                  type: "text",
+                  text: "Review @[latest run|folder].",
+                },
+                {
+                  type: "text",
+                  text: "Also tell @Steve.",
+                },
+                {
+                  type: "file",
+                  name: "latest-run.png",
+                  mediaType: "image/png",
+                  url: "https://example.test/latest-run.png",
+                },
+                {
+                  type: "file",
+                  name: "pasted-text-1.txt",
+                  mediaType: "text/plain",
+                  url: "https://example.test/pasted-text-1.txt",
+                },
+              ],
+            },
+            {
               id: "assistant-1",
               role: "assistant",
+              status: "complete",
               parts: [{ type: "text", text: "Ready." }],
             },
           ],
@@ -776,6 +886,195 @@ describe("AgentKitChat", () => {
     );
 
     expect(htmlWithNavigation).toContain('aria-label="Fork conversation"');
+    expect(htmlWithNavigation).toContain('aria-label="Regenerate response"');
+
+    const htmlWithComposer = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        onThreadForked={() => undefined}
+      >
+        <AgentKitChat />
+      </AgentKitProvider>,
+    );
+
+    expect(htmlWithComposer).toContain('aria-label="Edit message"');
+    expect(htmlWithComposer).toContain('data-mention-label="latest run"');
+    expect(htmlWithComposer).toContain('data-mention-label="Steve"');
+    expect(htmlWithComposer).toContain('aria-label="Preview latest-run.png"');
+    expect(htmlWithComposer).toContain("Pasted text");
+    expect(htmlWithComposer).toContain("agentkit-file--pasted-text");
+
+    function CoreComposerSlot({ threadId }: { threadId: string }) {
+      return (
+        <AgentKitComposer threadId={threadId} onSubmit={() => undefined} />
+      );
+    }
+    const htmlWithHostComposer = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ composer: CoreComposerSlot }}
+        onThreadForked={() => undefined}
+      >
+        <AgentKitChat />
+      </AgentKitProvider>,
+    );
+    expect(htmlWithHostComposer).toContain('aria-label="Edit message"');
+    expect(htmlWithHostComposer).toContain('data-mention-label="latest run"');
+  });
+
+  it("places tool results before the final assistant message", async () => {
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-tool-result" };
+      },
+      async *subscribeToRun() {
+        const base = {
+          threadId: "thread-tool-result",
+          runId: "run-tool-result",
+          occurredAt: "2026-08-29T00:00:00.000Z",
+        };
+        yield {
+          ...base,
+          id: "event-0",
+          sequence: 1,
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [{ type: "text", text: "Updating the slide." }],
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-1",
+          sequence: 2,
+          type: "activity.started",
+          activity: {
+            id: "activity-1",
+            kind: "search",
+            label: "Searching documents",
+            status: "running",
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-2",
+          sequence: 3,
+          type: "tool.started",
+          toolCall: {
+            id: "tool-1",
+            name: "mcp__docs__search",
+            status: "running",
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-3",
+          sequence: 4,
+          type: "activity.started",
+          activity: {
+            id: "tool-1",
+            kind: "search",
+            label: "Searching documents",
+            status: "running",
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-4",
+          sequence: 5,
+          type: "tool.updated",
+          toolCall: {
+            id: "tool-1",
+            name: "mcp__docs__search",
+            output: "Found three matching documents.",
+            status: "completed",
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-5",
+          sequence: 6,
+          type: "activity.completed",
+          activity: {
+            id: "tool-1",
+            kind: "search",
+            label: "Searched documents",
+            status: "completed",
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-6",
+          sequence: 7,
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: " The slide is updated.",
+        } as const;
+        yield {
+          ...base,
+          id: "event-7",
+          sequence: 8,
+          type: "message.completed",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [
+              {
+                type: "text",
+                text: "Updating the slide. The slide is updated.",
+              },
+            ],
+          },
+        } as const;
+        yield {
+          ...base,
+          id: "event-8",
+          sequence: 9,
+          type: "run.completed",
+        } as const;
+      },
+      async cancelRun() {},
+    };
+    function ToolResult({
+      value,
+    }: {
+      value: { id: string; output?: unknown };
+    }) {
+      return (
+        <output data-tool-result={value.id}>{String(value.output)}</output>
+      );
+    }
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({
+      threadId: "thread-tool-result",
+      text: "Search the docs",
+    });
+    await run.completed;
+
+    const html = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-tool-result"
+        slots={{ tool: ToolResult }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    const resultIndex = html.indexOf('data-tool-result="tool-1"');
+    const activityIndex = html.indexOf('class="agentkit-activities"');
+    const finalMessageIndex = html.indexOf("The slide is updated.");
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    expect(activityIndex).toBeGreaterThan(resultIndex);
+    expect(finalMessageIndex).toBeGreaterThan(activityIndex);
+    expect(html.slice(resultIndex, activityIndex)).toContain(
+      "Found three matching documents.",
+    );
   });
 
   it("passes product slots, labels, and registries through the AgentChat facade", async () => {

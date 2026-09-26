@@ -532,6 +532,14 @@ export function createAgentKitHttpTransport(
         context,
       );
     },
+    async moveQueuedMessageToTop(input, context) {
+      await request(
+        `/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/move-to-top`,
+        parseVoidResponse,
+        { method: "POST" },
+        context,
+      );
+    },
     async startRun(input, context) {
       return request(
         "/runs",
@@ -1127,7 +1135,7 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
         );
       }
       const queueItemMatch = path.match(
-        /^\/threads\/([^/]+)\/queue\/([^/]+)(?:\/(steer))?$/,
+        /^\/threads\/([^/]+)\/queue\/([^/]+)(?:\/(steer|move-to-top))?$/,
       );
       if (queueItemMatch?.[1] && queueItemMatch[2]) {
         const routeInput = {
@@ -1155,6 +1163,17 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
           return respond(
             await invoke((context) => steerQueuedMessage(input, context)),
           );
+        }
+        if (request.method === "POST" && queueItemMatch[3] === "move-to-top") {
+          const moveQueuedMessageToTop = transport.moveQueuedMessageToTop;
+          if (!moveQueuedMessageToTop)
+            return notSupported(
+              "moveQueuedMessageToTop",
+              "Queue reordering is not supported.",
+            );
+          const input = parseThreadMessageInput(routeInput);
+          await invoke((context) => moveQueuedMessageToTop(input, context));
+          return respond(undefined);
         }
         if (request.method === "DELETE" && !queueItemMatch[3]) {
           const removeQueuedMessage = transport.removeQueuedMessage;

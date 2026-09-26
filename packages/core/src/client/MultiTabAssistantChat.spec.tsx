@@ -61,6 +61,15 @@ const chatHandleMocks = vi.hoisted(() => ({
 const assistantChatMockState = vi.hoisted(() => ({
   onThreadRestoreNotFound: undefined as (() => void) | undefined,
   onSlashCommand: undefined as ((command: string) => void) | undefined,
+  onForkedThread: undefined as ((threadId: string) => void) | undefined,
+  branchNavigation: undefined as
+    | {
+        index: number;
+        count: number;
+        onPrevious: () => void | Promise<void>;
+        onNext: () => void | Promise<void>;
+      }
+    | undefined,
 }));
 
 const threadMocks = vi.hoisted(() => ({
@@ -245,10 +254,10 @@ async function mountWithCatalog(
 
 chatThreadHookMocks.useChatThreads.mockImplementation(() => threadMocks);
 
-vi.mock("./AssistantChat.js", async () => {
+vi.mock("./AgentKitAssistantChat.js", async () => {
   const React = await import("react");
   return {
-    AssistantChat: React.forwardRef(function AssistantChatMock(
+    AgentKitAssistantChat: React.forwardRef(function AgentKitAssistantChatMock(
       _props: unknown,
       ref,
     ) {
@@ -264,10 +273,14 @@ vi.mock("./AssistantChat.js", async () => {
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
         onSlashCommand?: (command: string) => void;
+        onForkedThread?: (threadId: string) => void;
+        branchNavigation?: typeof assistantChatMockState.branchNavigation;
       };
       assistantChatMockState.onThreadRestoreNotFound =
         props.onThreadRestoreNotFound;
       assistantChatMockState.onSlashCommand = props.onSlashCommand;
+      assistantChatMockState.onForkedThread = props.onForkedThread;
+      assistantChatMockState.branchNavigation = props.branchNavigation;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
         implementPlan: chatHandleMocks.implementPlan,
@@ -278,6 +291,7 @@ vi.mock("./AssistantChat.js", async () => {
         sendRecoveryMessage: chatHandleMocks.sendRecoveryMessage,
         queueMessage: chatHandleMocks.queueMessage,
         isRunning: () => false,
+        hasInFlightWork: () => false,
         focusComposer: chatHandleMocks.focusComposer,
         exportThreadSnapshot: chatHandleMocks.exportThreadSnapshot,
       }));
@@ -309,6 +323,8 @@ vi.mock("./AssistantChat.js", async () => {
 function resetThreadMocks() {
   assistantChatMockState.onThreadRestoreNotFound = undefined;
   assistantChatMockState.onSlashCommand = undefined;
+  assistantChatMockState.onForkedThread = undefined;
+  assistantChatMockState.branchNavigation = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.threads = [
     {
@@ -937,6 +953,79 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(chatHandleMocks.implementPlan).toHaveBeenCalledOnce();
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("opens a forked thread reported by AgentKit recovery", () => {
+    act(() => {
+      assistantChatMockState.onForkedThread?.("thread-forked");
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-forked");
+  });
+
+  it("persists AgentKit fork parents and navigates between sibling threads", async () => {
+    await act(async () => {
+      assistantChatMockState.onForkedThread?.("thread-forked-a");
+      assistantChatMockState.onForkedThread?.("thread-forked-b");
+    });
+
+    expect(
+      window.localStorage.getItem(
+        `agent-chat-fork-parent-map:bridge-test:tab:${getBrowserTabId()}`,
+      ),
+    ).toBe(
+      JSON.stringify({
+        "thread-forked-a": "thread-1",
+        "thread-forked-b": "thread-1",
+      }),
+    );
+    expect(assistantChatMockState.branchNavigation).toMatchObject({
+      index: 1,
+      count: 3,
+    });
+
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-forked-a",
+        title: "Fork A",
+        preview: "",
+        messageCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+      {
+        id: "thread-forked-b",
+        title: "Fork B",
+        preview: "",
+        messageCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+
+    act(() => assistantChatMockState.branchNavigation?.onNext());
+    expect(threadMocks.switchThread).toHaveBeenLastCalledWith(
+      "thread-forked-a",
+    );
+
+    threadMocks.activeThreadId = "thread-forked-a";
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+    expect(assistantChatMockState.branchNavigation).toMatchObject({
+      index: 2,
+      count: 3,
+    });
+
+    act(() => assistantChatMockState.branchNavigation?.onNext());
+    expect(threadMocks.switchThread).toHaveBeenLastCalledWith(
+      "thread-forked-b",
+    );
   });
 
   it("reuses a known-new empty active chat for opted-in foreground sends", () => {

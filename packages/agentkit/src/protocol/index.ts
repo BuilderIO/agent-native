@@ -1178,6 +1178,11 @@ export interface AgentTransportThreadOperations {
     input: ThreadMessageInput,
     context?: AgentRequestContext,
   ): Promise<void>;
+  /** Move an existing queued message to the head of the durable queue. */
+  moveQueuedMessageToTop?(
+    input: ThreadMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<void>;
 }
 
 export interface AgentTransport extends AgentTransportThreadOperations {
@@ -1341,6 +1346,8 @@ export interface CancelUploadInput extends CompleteUploadInput {}
 export interface SubmitFeedbackInput {
   threadId: ThreadId;
   messageId: string;
+  runId?: RunId;
+  messageSeq?: number;
   value: "positive" | "negative" | "dismissed";
   reason?: string;
   metadata?: AgentProtocolMetadata;

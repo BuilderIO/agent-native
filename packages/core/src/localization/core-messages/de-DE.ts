@@ -21,6 +21,7 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "Der Kontext ist zu groß. Entferne ein Element oder füge eine kleinere Auswahl hinzu.",
   "activity.reasoning": "Überlegung",
+  "activity.groupLabel": "Agentenaktivität",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
     "Diesen exakten Befehl genehmigen und immer erlauben",
@@ -158,6 +159,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "Diagnosedaten kopieren",
   "aboutAgentNative.unknown": "Unbekannt",
   "common.agent": "Agent",
+  "common.you": "Du",
   "agentPanel.mode": "Modus",
   "agentPanel.uiMode": "Benutzeroberfläche",
   "agentPanel.keyScope": "Schlüsselbereich",
@@ -349,6 +351,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "Plan bereit",
   "plan.switchToAct": "Zum Ausführungsmodus wechseln",
   "queue.count": "{{count}} in der Warteschlange",
+  "queue.label": "Wartende Nachrichten",
   "queue.followUp": "Folgenachricht senden...",
   "queue.followUpWithCount":
     "{{count}} in der Warteschlange – Folgenachricht senden...",
@@ -378,6 +381,12 @@ const messages: AgentChatTranslation = {
     "Der vorherige Hintergrundlauf des Agenten hat sein Zeitlimit vor dem Abschluss erreicht. Die Teilergebnisse wurden beibehalten; fahre fort oder versuche es erneut.",
   "recovery.noProgress":
     "Der vorherige Agentenlauf zeigte während der Wiederherstellung keinen sichtbaren Fortschritt mehr und wurde beendet, bevor er in einer Schleife weiterlaufen konnte.",
+  "recovery.stuckTitle": "Dieser Chat scheint festzustecken.",
+  "recovery.stuckNoProgress":
+    "Kein Fortschritt. Der Agent hat möglicherweise ein Server-Timeout erreicht oder die Verbindung verloren.",
+  "recovery.stuckWithDuration":
+    "Seit {{seconds}} s kein Fortschritt. Der Agent hat möglicherweise ein Server-Timeout erreicht oder die Verbindung verloren.",
+  "recovery.stuckRetrying": "Automatischer erneuter Versuch läuft.",
   "recovery.statusCheckFailed":
     "Der Server war nicht erreichbar, um zu prüfen, ob der Agent noch arbeitet. Sende deine Nachricht erneut, um es noch einmal zu versuchen.",
   "recovery.streamEnded":
@@ -443,6 +452,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "Arbeitet weiter",
   "status.thinking": "Denkt nach",
   "status.working": "Arbeitet",
+  "status.workingFor": "Arbeitet seit {{duration}}",
   "shell.chat": "Chat",
   "shell.loadingTerminal": "Terminal wird geladen...",
   "shell.toggleAgent": "Agent ein-/ausblenden",

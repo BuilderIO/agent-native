@@ -20,6 +20,7 @@ const messages: AgentChatTranslation = {
   "composer.retryContext": "重试 {{name}} 上下文",
   "composer.contextLimitExceeded": "上下文过大。请移除一项或附加更小的选区。",
   "activity.reasoning": "推理",
+  "activity.groupLabel": "智能体活动",
   "approval.alwaysAllow": "始终允许",
   "approval.alwaysAllowHint": "批准并始终允许此完全相同的命令",
   "approval.alwaysAllowAction": "始终允许此操作",
@@ -142,6 +143,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "复制诊断信息",
   "aboutAgentNative.unknown": "未知",
   "common.agent": "智能体",
+  "common.you": "你",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "界面",
   "agentPanel.keyScope": "密钥范围",
@@ -620,6 +622,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "规划已就绪",
   "plan.switchToAct": "切换到执行模式",
   "queue.count": "{{count}} 条排队中",
+  "queue.label": "排队中的消息",
   "queue.followUp": "发送后续消息...",
   "queue.followUpWithCount": "{{count}} 条排队中——发送后续消息...",
   "queue.remove": "从队列中移除",
@@ -646,6 +649,11 @@ const messages: AgentChatTranslation = {
     "上一次智能体后台运行在完成前达到时间限制。部分工作已保留；请继续或重试以从这里接续。",
   "recovery.noProgress":
     "上一次智能体运行在恢复期间停止显示进度，因此已在可能继续循环前停止。",
+  "recovery.stuckTitle": "此聊天似乎卡住了。",
+  "recovery.stuckNoProgress": "暂无进展。智能体可能遇到服务器超时或连接中断。",
+  "recovery.stuckWithDuration":
+    "已有 {{seconds}} 秒没有进展。智能体可能遇到服务器超时或连接中断。",
+  "recovery.stuckRetrying": "正在自动重试。",
   "recovery.statusCheckFailed":
     "无法连接服务器以检查智能体是否仍在工作。请重新发送消息以重试。",
   "recovery.streamEnded":
@@ -760,6 +768,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "仍在处理",
   "status.thinking": "正在思考",
   "status.working": "正在处理",
+  "status.workingFor": "已工作 {{duration}}",
   "shell.chat": "聊天",
   "shell.loadingTerminal": "正在加载终端...",
   "shell.toggleAgent": "显示或隐藏智能体",

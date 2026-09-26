@@ -139,6 +139,7 @@ export default function AppScreen() {
       captureSessionToken
       parentSessionTokenKey={SESSION_TOKEN_KEY}
       workspaceAppId={usesWorkspaceEmbed ? app.id : undefined}
+      enableMobileDeckSaveFlushBridge={app.id === "slides" && app.isBuiltIn}
     />
   );
 }

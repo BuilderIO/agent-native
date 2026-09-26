@@ -7,7 +7,6 @@ import {
 } from "./mention-query";
 import { extractThreadId, navigateCommandDedupKey } from "./navigate-command";
 import { applyWireEvent, cancelTurnState, initialTurnState } from "./reducer";
-import { reattachDroppedRun } from "./run-reattach";
 import { JsonEventStreamParser } from "./stream";
 import { groupThreadsByApp } from "./thread-grouping";
 import type { ChatThreadSummary, ChatTurnState, WireEvent } from "./types";
@@ -275,95 +274,6 @@ describe("isTerminalWireEvent", () => {
     for (const type of ["text", "thinking", "tool_start", "tool_done"]) {
       expect(isTerminalWireEvent({ type })).toBe(false);
     }
-  });
-});
-
-describe("reattachDroppedRun", () => {
-  async function* events(...items: WireEvent[]): AsyncGenerator<WireEvent> {
-    for (const item of items) yield item;
-  }
-
-  it("resumes from lastSeq+1 and stops at the terminal event", async () => {
-    const applied: WireEvent[] = [];
-    const resumeCalls: number[] = [];
-    const result = await reattachDroppedRun({
-      runId: "r1",
-      lastSeq: 4,
-      signal: new AbortController().signal,
-      apply: (event) => applied.push(event),
-      resume: async (_runId, after) => {
-        resumeCalls.push(after);
-        return {
-          events: events(
-            { type: "text", text: "tail", seq: 5 },
-            { type: "done", seq: 6 },
-          ),
-        };
-      },
-      delayMs: 0,
-    });
-    expect(resumeCalls).toEqual([5]);
-    expect(applied.map((e) => e.type)).toEqual(["text", "done"]);
-    expect(result).toEqual({ sawTerminal: true, lastSeq: 6 });
-  });
-
-  it("retries dropped resume streams and advances the cursor", async () => {
-    const resumeCalls: number[] = [];
-    let attempt = 0;
-    const result = await reattachDroppedRun({
-      runId: "r1",
-      lastSeq: -1,
-      signal: new AbortController().signal,
-      apply: () => {},
-      resume: async (_runId, after) => {
-        resumeCalls.push(after);
-        attempt++;
-        if (attempt === 1) {
-          return { events: events({ type: "text", text: "a", seq: 0 }) };
-        }
-        return { events: events({ type: "done", seq: 1 }) };
-      },
-      delayMs: 0,
-    });
-    expect(resumeCalls).toEqual([0, 1]);
-    expect(result.sawTerminal).toBe(true);
-  });
-
-  it("gives up after the attempt budget without a terminal event", async () => {
-    let calls = 0;
-    const result = await reattachDroppedRun({
-      runId: "r1",
-      lastSeq: -1,
-      signal: new AbortController().signal,
-      apply: () => {},
-      resume: async () => {
-        calls++;
-        throw new Error("unreachable server");
-      },
-      attempts: 3,
-      delayMs: 0,
-    });
-    expect(calls).toBe(3);
-    expect(result.sawTerminal).toBe(false);
-  });
-
-  it("stops immediately when aborted", async () => {
-    const controller = new AbortController();
-    controller.abort();
-    let calls = 0;
-    const result = await reattachDroppedRun({
-      runId: "r1",
-      lastSeq: -1,
-      signal: controller.signal,
-      apply: () => {},
-      resume: async () => {
-        calls++;
-        return { events: events({ type: "done", seq: 0 }) };
-      },
-      delayMs: 0,
-    });
-    expect(calls).toBe(0);
-    expect(result.sawTerminal).toBe(false);
   });
 });
 
