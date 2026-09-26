@@ -222,8 +222,7 @@ function cacheCanonicalSource(
     : 0;
   const retainedNodes = result.changed ? result.nodeIdMap.size : 0;
   if (
-    Math.max(contentBytes, changedBytes) <=
-      CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
+    changedBytes <= CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
     retainedNodes <= CANONICAL_SOURCE_CACHE_MAX_NODES
   ) {
     removeCanonicalSourceCacheEntry(fileId);

@@ -67,7 +67,7 @@ it("reuses canonical preparation for unchanged screen content", () => {
   expect(second).toBe(first);
 });
 
-it("does not retain an oversized screen in the canonical cache", () => {
+it("keeps an oversized unchanged screen cached", () => {
   const content = `<main data-agent-native-node-id="screen">${" ".repeat(256 * 1024)}<button data-agent-native-node-id="cta">Continue</button></main>`;
 
   const first = prepareCanonicalSourceContent(content, {
@@ -79,11 +79,11 @@ it("does not retain an oversized screen in the canonical cache", () => {
     fileType: "html",
   });
 
-  expect(second).not.toBe(first);
+  expect(second).toBe(first);
 });
 
-it("bounds canonical cache retention by UTF-8 bytes", () => {
-  const content = `<main data-agent-native-node-id="screen">${"😀".repeat(70_000)}</main>`;
+it("bounds repaired-screen cache retention by UTF-8 bytes", () => {
+  const content = `<main>${"😀".repeat(70_000)}</main>`;
 
   const first = prepareCanonicalSourceContent(content, {
     fileId: "unicode-screen-cache",

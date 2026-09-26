@@ -12407,33 +12407,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       label: string;
       info: unknown;
     }> = [];
-    pointTargets.forEach(function (pointTarget) {
-      if (!pointTarget || pointTarget.nodeType !== 1) return;
-      if (isOverlayElement(pointTarget)) return;
-      var candidate = selectionTargetForHit(pointTarget);
-      if (
-        !candidate ||
-        isDocumentRootElement(candidate) ||
-        isOverlayElement(candidate) ||
-        isLayerInteractionBlocked(candidate) ||
-        isTemplateCloneElement(candidate) ||
-        elements.indexOf(candidate) !== -1
-      ) {
-        return;
-      }
-      elements.push(candidate);
-      var candidateInfo = getElementInfo(candidate);
-      var label = layerCandidateLabelFor(candidate, candidateInfo);
-      var identity =
-        candidateInfo.sourceId ||
-        candidateInfo.selector ||
-        String(layerCandidates.length);
-      layerCandidates.push({
-        key: String(identity) + ":" + String(layerCandidates.length),
-        label: String(label).slice(0, 80),
-        info: candidateInfo,
+    // The hit stack is nested, so each candidate's subtree snapshot contains
+    // the next one's; a shared cache reads each element's styles once.
+    portableStyleProbeDocument();
+    var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+    try {
+      pointTargets.forEach(function (pointTarget) {
+        if (!pointTarget || pointTarget.nodeType !== 1) return;
+        if (isOverlayElement(pointTarget)) return;
+        var candidate = selectionTargetForHit(pointTarget);
+        if (
+          !candidate ||
+          isDocumentRootElement(candidate) ||
+          isOverlayElement(candidate) ||
+          isLayerInteractionBlocked(candidate) ||
+          isTemplateCloneElement(candidate) ||
+          elements.indexOf(candidate) !== -1
+        ) {
+          return;
+        }
+        elements.push(candidate);
+        var candidateInfo = getElementInfo(
+          candidate,
+          portableComputedStylesCache,
+        );
+        var label = layerCandidateLabelFor(candidate, candidateInfo);
+        var identity =
+          candidateInfo.sourceId ||
+          candidateInfo.selector ||
+          String(layerCandidates.length);
+        layerCandidates.push({
+          key: String(identity) + ":" + String(layerCandidates.length),
+          label: String(label).slice(0, 80),
+          info: candidateInfo,
+        });
       });
-    });
+    } finally {
+      if (portableComputedStylesCache) {
+        portableComputedStylesCache.mutationObserver.disconnect();
+        portableComputedStylesCache.restoreCssomHooks();
+      }
+    }
     return { elements: elements, layerCandidates: layerCandidates };
   }
 
