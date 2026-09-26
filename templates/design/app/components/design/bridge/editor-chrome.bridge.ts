@@ -17160,6 +17160,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         containerStyles.display === "inline-grid") &&
       (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
         .length > 1;
+    var reverseFlow =
+      !multiTrackGrid &&
+      ((axis === "x" &&
+        (containerStyles.flexDirection === "row" ||
+          containerStyles.flexDirection === "row-reverse") &&
+        (containerStyles.flexDirection === "row-reverse") !==
+          (containerStyles.direction === "rtl")) ||
+        (axis === "y" && containerStyles.flexDirection === "column-reverse"));
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
@@ -17187,14 +17195,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bestDistance = distance;
         best = children[j];
         var placementPointer = axis === "x" ? clientX : clientY;
-        placement =
-          multiTrackGrid || wrappedFlexAxis
-            ? placementPointer < center
-              ? "before"
-              : "after"
-            : pointer < center
-              ? "before"
-              : "after";
+        var before = placementPointer < center;
+        if (reverseFlow) before = !before;
+        placement = before ? "before" : "after";
       }
     }
     if (!best) return null;
@@ -17529,7 +17532,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
 
-    var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+    var receivingContainer = currentParent.parentElement;
+    var target = null;
+    if (
+      pointerOutsideCurrentParent &&
+      receivingContainer &&
+      isAutoLayoutElement(receivingContainer) &&
+      pointHit === receivingContainer
+    ) {
+      target = nearestChildInsertionTarget(
+        receivingContainer,
+        clientX,
+        clientY,
+        dragged,
+      ) || {
+        anchor: receivingContainer,
+        placement: "inside",
+        axis: parentFlowAxis(receivingContainer),
+        dropMode: "flow-insert",
+      };
+    } else {
+      target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+    }
     if (
       (forceNestedAutoLayout || ignoreTargetAutoLayout) &&
       !pointerOutsideCurrentParent
@@ -17601,14 +17625,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Body has no node-id, so persist cannot resolve `html > body` as an
-    // inside-anchor. After the current parent lands the same freeform root
-    // sibling and gives persist a real node-id.
+    // Body has no node-id. Preserve only an unnest target that already names a
+    // board-root sibling; ordinary flow slots under body must escape as an
+    // absolute drop at the pointer instead of inheriting body's flow origin.
+    var unnestPromotedBoardRootTarget =
+      target?.dropMode === "absolute-container" &&
+      target.placement !== "inside" &&
+      target.anchor?.parentElement === document.body;
     if (
       currentParent !== document.body &&
       (container === document.body ||
         container === document.documentElement ||
-        target?.anchor === document.body)
+        target?.anchor === document.body) &&
+      !unnestPromotedBoardRootTarget
     ) {
       target = {
         anchor: currentParent,
@@ -17630,7 +17659,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       exitedContainer &&
       receivingContainer &&
       isContainerDropTarget(exitedContainer) &&
-      targetContainer === receivingContainer &&
+      !isAutoLayoutElement(receivingContainer) &&
+      target.anchor?.parentElement !== document.body &&
+      (targetContainer === receivingContainer ||
+        target?.anchor === receivingContainer) &&
       (pointHit === receivingContainer ||
         !pointHit ||
         pointHit === document.body ||
@@ -18066,25 +18098,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // After-the-parent (not inside body): body often has no node-id, so persist
   // cannot resolve it and the style-only write leaves the child clipped.
   function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
-    var parent = el && el.parentElement;
+    var child = el && el.parentElement;
+    var childRect = child && child.getBoundingClientRect();
     if (
-      !parent ||
-      parent === document.body ||
-      parent === document.documentElement
+      !child ||
+      child === document.body ||
+      child === document.documentElement ||
+      !childRect ||
+      (clientX >= childRect.left &&
+        clientX <= childRect.right &&
+        clientY >= childRect.top &&
+        clientY <= childRect.bottom)
     ) {
       return null;
     }
-    var parentRect = parent.getBoundingClientRect();
-    if (
-      clientX >= parentRect.left &&
-      clientX <= parentRect.right &&
-      clientY >= parentRect.top &&
-      clientY <= parentRect.bottom
+    var parent = child.parentElement;
+    while (
+      parent &&
+      parent !== document.body &&
+      parent !== document.documentElement
     ) {
-      return null;
+      var parentRect = parent.getBoundingClientRect();
+      if (
+        clientX >= parentRect.left &&
+        clientX <= parentRect.right &&
+        clientY >= parentRect.top &&
+        clientY <= parentRect.bottom
+      ) {
+        return {
+          anchor: child,
+          placement: "after",
+          axis: parentFlowAxis(parent),
+          dropMode: "absolute-container",
+        };
+      }
+      child = parent;
+      parent = parent.parentElement;
     }
     return {
-      anchor: parent,
+      anchor: child,
       placement: "after",
       axis: "y",
       dropMode: "absolute-container",

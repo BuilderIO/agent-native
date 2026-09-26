@@ -7416,13 +7416,22 @@ function DesignEditor() {
     (
       screenId: string,
       request?: {
+        mode?: "alt-click" | "alt-drag";
         canvasPosition?: { x: number; y: number };
+        canvasFrameGeometryById?: CanvasFrameGeometryById;
         preserveCamera?: boolean;
         historyBatchId?: string;
-        duplicateStackIndex?: number;
+        duplicateStackSourceIds?: string[];
       },
-    ) =>
-      runDuplicateScreen(
+    ) => {
+      const duplicateRequest = {
+        ...request,
+        canvasFrameGeometryById: {
+          ...displayedCanvasFrameGeometryById,
+          ...request?.canvasFrameGeometryById,
+        },
+      };
+      return runDuplicateScreen(
         {
           canEditDesign,
           createFileAsync,
@@ -7445,12 +7454,14 @@ function DesignEditor() {
           writeFrameGeometrySnapshot,
         },
         screenId,
-        request,
-      ),
+        duplicateRequest,
+      );
+    },
     [
       canEditDesign,
       createFileAsync,
       deleteFileMutation,
+      displayedCanvasFrameGeometryById,
       files,
       focusCreatedScreen,
       recordFileCreationHistoryEntry,

@@ -580,7 +580,7 @@ export function runDuplicateSelection({
   // multi-screen overview selection (no deeper layer focus) previously
   // silently duplicated only activeFile.id and dropped the rest.
   const screenIdsToDuplicate =
-    viewModeRef.current === "overview" && overviewSelectedScreenIds.length > 1
+    viewModeRef.current === "overview" && overviewSelectedScreenIds.length > 0
       ? overviewSelectedScreenIds
       : activeFile
         ? [activeFile.id]

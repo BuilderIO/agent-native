@@ -142,6 +142,23 @@ async function selectionContext(
   return res.json();
 }
 
+async function selectedScreenFilenames(
+  request: APIRequestContext,
+  designId: string,
+): Promise<string[]> {
+  const [selection, record] = await Promise.all([
+    selectionContext(request),
+    designRecord(request, designId),
+  ]);
+  return (selection.selectedScreenIds ?? [])
+    .map(
+      (id) =>
+        record.files?.find((file: { id: string }) => file.id === id)
+          ?.filename ?? `missing:${id}`,
+    )
+    .sort();
+}
+
 function layersTree(page: Page): Locator {
   return page.getByRole("tree", { name: "Layers" });
 }
@@ -636,15 +653,21 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     ).toBeGreaterThanOrEqual(1);
   });
 
-  test("step 5 [overview, screens as top-level frames]: Cmd+D duplicates the assembled page screen twice; each copy keeps the source content and one undo removes a copy", async ({
+  test("step 5 [overview, screens as top-level frames]: Cmd+D finds free slots, stacks above the source, and groups undo/redo", async ({
     page,
     request,
   }) => {
     ({ designId } = await newDesign(request, [
       { filename: "index.html", content: NAV_SCREEN },
+      { filename: "neighbor.html", content: BLANK_SCREEN("Neighbor") },
+      { filename: "farther.html", content: BLANK_SCREEN("Farther") },
     ]));
     const sourceId = await fileId(request, designId, "index.html");
-    const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 4 };
+    const neighborId = await fileId(request, designId, "neighbor.html");
+    const fartherId = await fileId(request, designId, "farther.html");
+    const sourceGeometry = { x: 0, y: 120, width: 320, height: 240, z: 0 };
+    const neighborGeometry = { x: 376, y: 120, width: 320, height: 240, z: 1 };
+    const fartherGeometry = { x: 1128, y: 120, width: 320, height: 240, z: 2 };
     await action(request, "update-design", {
       id: designId,
       dataOperations: [
@@ -653,16 +676,32 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
           path: ["canvasFrames", sourceId],
           value: sourceGeometry,
         },
+        {
+          op: "set",
+          path: ["canvasFrames", neighborId],
+          value: neighborGeometry,
+        },
+        {
+          op: "set",
+          path: ["canvasFrames", fartherId],
+          value: fartherGeometry,
+        },
       ],
     });
     await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=30`, {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
       timeout: 40_000,
     });
-    const card = page.locator("[data-screen-card]").first();
+    const card = page.locator(
+      `[data-frame-id="${sourceId}"] [data-screen-card]`,
+    );
+    const frameLabel = page.locator(
+      `[data-frame-id="${sourceId}"] [data-frame-label]`,
+    );
     await expect(card).toBeVisible();
+    await expect(frameLabel).toBeVisible();
     // Overview layout settles asynchronously with no discrete event — poll
     // the card's box until two consecutive reads agree before force-clicking
     // its current position.
@@ -687,8 +726,17 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .toContain("__board__.html");
     const filesBefore = await fileList(request, designId);
 
-    await card.click({ force: true });
-    await page.waitForTimeout(400);
+    await page
+      .getByRole("button", { name: /^\d+%$/ })
+      .first()
+      .click();
+    await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
+    await expect(card).toBeInViewport();
+    await expect(frameLabel).toBeInViewport();
+    await frameLabel.click({ force: true });
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds)
+      .toEqual([sourceId]);
     await focusCanvas(page);
     await page.keyboard.press(`${MOD}+d`);
     let filesAfter: string[] = [];
@@ -708,14 +756,20 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const dup1 = filesAfter.find((f) => !filesBefore.includes(f));
     expect(dup1, "duplicated screen file should exist").toBe("index-copy.html");
     const dup1Id = await fileId(request, designId, dup1!);
-    const dup1Geometry = (await designData(request, designId)).canvasFrames?.[
-      dup1Id
-    ];
-    expect(dup1Geometry).toMatchObject({
-      x: sourceGeometry.x + sourceGeometry.width + 56,
-      y: sourceGeometry.y,
-      z: sourceGeometry.z + 1,
-    });
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          copy: frames?.[dup1Id],
+          neighborZ: frames?.[neighborId]?.z,
+          fartherZ: frames?.[fartherId]?.z,
+        };
+      })
+      .toEqual({
+        copy: { ...sourceGeometry, x: 752, z: 1 },
+        neighborZ: 2,
+        fartherZ: 3,
+      });
     // Figma selects the new copy after Cmd+D.
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds, {
@@ -733,7 +787,19 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     expect(dup1Content).toContain('data-agent-native-component="Navigation"');
     expect(dup1Content).toContain("Wordmark");
 
-    // The second Cmd+D chains onto the selected copy, dup1.
+    // Reselecting the source must use the next free board slot and insert the
+    // new copy immediately above that source in the screen stack.
+    await page
+      .getByRole("button", { name: /^\d+%$/ })
+      .first()
+      .click();
+    await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
+    await expect(card).toBeInViewport();
+    await expect(frameLabel).toBeInViewport();
+    await frameLabel.click({ force: true });
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds)
+      .toEqual([sourceId]);
     await focusCanvas(page);
     await page.keyboard.press(`${MOD}+d`);
     await expect
@@ -746,20 +812,27 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       )
       .toBe(filesBefore.length + 2);
     const dup2 = filesAfter.find((f) => !filesBefore.includes(f) && f !== dup1);
-    // The copy is named after its source, so only a duplicate of dup1 reads
-    // "index-copy-copy"; re-duplicating the original gives "index-copy-2".
-    expect(dup2, "the second Cmd+D should duplicate dup1").toBe(
-      "index-copy-copy.html",
-    );
+    expect(
+      dup2,
+      "the second Cmd+D should duplicate the reselected source",
+    ).toBe("index-copy-2.html");
     const dup2Id = await fileId(request, designId, dup2!);
-    const dup2Geometry = (await designData(request, designId)).canvasFrames?.[
-      dup2Id
-    ];
-    expect(dup2Geometry).toMatchObject({
-      x: dup1Geometry.x + dup1Geometry.width + 56,
-      y: dup1Geometry.y,
-      z: dup1Geometry.z + 1,
-    });
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          copy: frames?.[dup2Id],
+          firstCopyZ: frames?.[dup1Id]?.z,
+          neighborZ: frames?.[neighborId]?.z,
+          fartherZ: frames?.[fartherId]?.z,
+        };
+      })
+      .toEqual({
+        copy: { ...sourceGeometry, x: 1504, z: 1 },
+        firstCopyZ: 2,
+        neighborZ: 3,
+        fartherZ: 4,
+      });
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds, {
         timeout: 10_000,
@@ -767,15 +840,12 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
           "the second Cmd+D should select its own copy too (Figma parity)",
       })
       .toEqual([dup2Id]);
-    await expect(
-      page.locator(`[data-frame-id="${dup2Id}"] [data-screen-card]`),
-    ).toBeInViewport();
+    // Cmd+D preserves the camera, so a later free slot can be offscreen.
     const dup2Content = await fileContent(request, designId, dup2!);
     expect(dup2Content).toContain('data-agent-native-component="Navigation"');
     expect(dup2Content).toContain("Wordmark");
 
-    // One undo removes the most recent duplicate only. The count drops by one
-    // whichever copy is removed, so assert which one survives.
+    // One undo removes the most recent duplicate and restores the prior stack.
     await page.keyboard.press(`${MOD}+z`);
     let filesAfterUndo: string[] = [];
     await expect
@@ -799,6 +869,156 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       filesAfterUndo.includes(dup2!),
       `undo should remove the SECOND (most recent) duplicate (${dup2}), not the first — files after undo: ${JSON.stringify(filesAfterUndo)}`,
     ).toBe(false);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          sourceZ: frames?.[sourceId]?.z,
+          firstCopyZ: frames?.[dup1Id]?.z,
+          neighborZ: frames?.[neighborId]?.z,
+          fartherZ: frames?.[fartherId]?.z,
+        };
+      })
+      .toEqual({ sourceZ: 0, firstCopyZ: 1, neighborZ: 2, fartherZ: 3 });
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(async () => (await fileList(request, designId)).includes(dup2!))
+      .toBe(true);
+    const redoneCopyId = await fileId(request, designId, dup2!);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          copy: frames?.[redoneCopyId],
+          firstCopyZ: frames?.[dup1Id]?.z,
+          neighborZ: frames?.[neighborId]?.z,
+          fartherZ: frames?.[fartherId]?.z,
+        };
+      })
+      .toEqual({
+        copy: { ...sourceGeometry, x: 1504, z: 1 },
+        firstCopyZ: 2,
+        neighborZ: 3,
+        fartherZ: 4,
+      });
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds)
+      .toEqual([redoneCopyId]);
+  });
+
+  test("step 5 [overview, multi-selection]: Cmd+D duplicates every selected screen in one undo step", async ({
+    page,
+    request,
+  }) => {
+    ({ designId } = await newDesign(request, [
+      { filename: "index.html", content: BLANK_SCREEN("Source") },
+      { filename: "neighbor.html", content: BLANK_SCREEN("Neighbor") },
+      { filename: "farther.html", content: BLANK_SCREEN("Farther") },
+    ]));
+    const sourceId = await fileId(request, designId, "index.html");
+    const neighborId = await fileId(request, designId, "neighbor.html");
+    const fartherId = await fileId(request, designId, "farther.html");
+    const geometry = {
+      [sourceId]: { x: 0, y: 120, width: 320, height: 240, z: 0 },
+      [neighborId]: { x: 376, y: 120, width: 320, height: 240, z: 1 },
+      [fartherId]: { x: 1128, y: 120, width: 320, height: 240, z: 2 },
+    };
+    await action(request, "update-design", {
+      id: designId,
+      dataOperations: Object.entries(geometry).map(([id, value]) => ({
+        op: "set",
+        path: ["canvasFrames", id],
+        value,
+      })),
+    });
+    await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=30`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
+      timeout: 40_000,
+    });
+    const sourceCard = page.locator(
+      `[data-frame-id="${sourceId}"] [data-screen-card]`,
+    );
+    await expect(sourceCard).toBeVisible();
+    await sourceCard.click({ force: true });
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds)
+      .toEqual([sourceId]);
+    await page.keyboard.press(`${MOD}+a`);
+    await expect
+      .poll(async () =>
+        (await selectionContext(request)).selectedScreenIds?.slice().sort(),
+      )
+      .toEqual([sourceId, neighborId, fartherId].sort());
+
+    const filesBefore = await fileList(request, designId);
+    await focusCanvas(page);
+    await page.keyboard.press(`${MOD}+d`);
+    let filesAfter: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          filesAfter = await fileList(request, designId);
+          return filesAfter.length;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(filesBefore.length + 3);
+    const copies = filesAfter.filter(
+      (filename) => !filesBefore.includes(filename),
+    );
+    expect(copies.slice().sort()).toEqual(
+      ["index-copy.html", "neighbor-copy.html", "farther-copy.html"].sort(),
+    );
+    const [sourceCopyId, neighborCopyId, fartherCopyId] = await Promise.all([
+      fileId(request, designId, "index-copy.html"),
+      fileId(request, designId, "neighbor-copy.html"),
+      fileId(request, designId, "farther-copy.html"),
+    ]);
+    await expect
+      .poll(() => selectedScreenFilenames(request, designId))
+      .toEqual(copies.slice().sort());
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          sourceCopy: frames?.[sourceCopyId],
+          neighborCopy: frames?.[neighborCopyId],
+          fartherCopy: frames?.[fartherCopyId],
+          farther: frames?.[fartherId],
+        };
+      })
+      .toEqual({
+        sourceCopy: { ...geometry[sourceId], x: 752, z: 1 },
+        neighborCopy: { ...geometry[neighborId], x: 1504, z: 3 },
+        fartherCopy: { ...geometry[fartherId], x: 1880, z: 5 },
+        farther: { ...geometry[fartherId], z: 4 },
+      });
+
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(async () => (await fileList(request, designId)).length)
+      .toBe(filesBefore.length);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return [
+          frames?.[sourceId]?.z,
+          frames?.[neighborId]?.z,
+          frames?.[fartherId]?.z,
+        ];
+      })
+      .toEqual([0, 1, 2]);
+
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(async () => (await fileList(request, designId)).length)
+      .toBe(filesBefore.length + 3);
+    await expect
+      .poll(() => selectedScreenFilenames(request, designId))
+      .toEqual(copies.slice().sort());
   });
 
   test("step 6 [in-screen]: dragging a new element into the assembled page reorders it between existing children via the layers panel", async ({

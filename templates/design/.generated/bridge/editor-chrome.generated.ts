@@ -12443,6 +12443,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      var reverseFlow = !multiTrackGrid && (axis === "x" && (containerStyles.flexDirection === "row" || containerStyles.flexDirection === "row-reverse") && containerStyles.flexDirection === "row-reverse" !== (containerStyles.direction === "rtl") || axis === "y" && containerStyles.flexDirection === "column-reverse");
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -12459,7 +12460,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           bestDistance = distance;
           best = children[j];
           var placementPointer = axis === "x" ? clientX : clientY;
-          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
+          var before = placementPointer < center;
+          if (reverseFlow) before = !before;
+          placement = before ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -12650,7 +12653,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: "flow-insert"
         };
       }
-      var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      var receivingContainer = currentParent.parentElement;
+      var target = null;
+      if (pointerOutsideCurrentParent && receivingContainer && isAutoLayoutElement(receivingContainer) && pointHit === receivingContainer) {
+        target = nearestChildInsertionTarget(
+          receivingContainer,
+          clientX,
+          clientY,
+          dragged
+        ) || {
+          anchor: receivingContainer,
+          placement: "inside",
+          axis: parentFlowAxis(receivingContainer),
+          dropMode: "flow-insert"
+        };
+      } else {
+        target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      }
       if ((forceNestedAutoLayout || ignoreTargetAutoLayout) && !pointerOutsideCurrentParent) {
         var nestedHit = elementFromEditorPoint(clientX, clientY);
         while (nestedHit && nestedHit.parentElement !== currentParent && nestedHit !== el && !el.contains(nestedHit)) {
@@ -12686,7 +12705,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: "absolute-container"
         };
       }
-      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
+      var unnestPromotedBoardRootTarget = target?.dropMode === "absolute-container" && target.placement !== "inside" && target.anchor?.parentElement === document.body;
+      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body) && !unnestPromotedBoardRootTarget) {
         target = {
           anchor: currentParent,
           placement: "after",
@@ -12697,7 +12717,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var exitedContainer = el.parentElement;
       var receivingContainer = exitedContainer && exitedContainer.parentElement;
       var targetContainer = dropContainerForTarget(target);
-      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && targetContainer === receivingContainer && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && target.anchor?.parentElement !== document.body && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
         target = {
           ...target,
           anchor: exitedContainer,
@@ -12924,16 +12944,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       return screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) || unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
     function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
-      var parent = el && el.parentElement;
-      if (!parent || parent === document.body || parent === document.documentElement) {
+      var child = el && el.parentElement;
+      var childRect = child && child.getBoundingClientRect();
+      if (!child || child === document.body || child === document.documentElement || !childRect || clientX >= childRect.left && clientX <= childRect.right && clientY >= childRect.top && clientY <= childRect.bottom) {
         return null;
       }
-      var parentRect = parent.getBoundingClientRect();
-      if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
-        return null;
+      var parent = child.parentElement;
+      while (parent && parent !== document.body && parent !== document.documentElement) {
+        var parentRect = parent.getBoundingClientRect();
+        if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
+          return {
+            anchor: child,
+            placement: "after",
+            axis: parentFlowAxis(parent),
+            dropMode: "absolute-container"
+          };
+        }
+        child = parent;
+        parent = parent.parentElement;
       }
       return {
-        anchor: parent,
+        anchor: child,
         placement: "after",
         axis: "y",
         dropMode: "absolute-container"

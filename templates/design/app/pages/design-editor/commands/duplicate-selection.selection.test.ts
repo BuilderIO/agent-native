@@ -12,6 +12,45 @@ import type { DesignFile } from "@/pages/design-editor/types";
 import { runDuplicateSelection } from "./duplicate-selection";
 
 describe("runDuplicateSelection selection tracking", () => {
+  it("duplicates the selected overview screen when it differs from activeFile", () => {
+    const activeFile: DesignFile = {
+      id: "first-copy",
+      filename: "index-copy.html",
+      fileType: "html",
+      content: "<main>first copy</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const duplicateScreen = vi.fn();
+
+    runDuplicateSelection({
+      activeFile,
+      designId: "design",
+      applyFileContentUpdate: vi.fn(),
+      applyLocalContentUpdate: vi.fn(),
+      canEditDesign: true,
+      files: [activeFile],
+      getFreshActiveContent: () => activeFile.content,
+      getScreenContent: () => activeFile.content,
+      getSelectedLayerSnapshots: () => [],
+      handleDuplicateScreen: duplicateScreen,
+      lastDuplicateTransformRef: { current: null },
+      overviewSelectedScreenIds: ["source"],
+      remapMotionTracksForClone: vi.fn(),
+      selectedCanvasSelector: "",
+      selectedElement: null,
+      selectedLayerIdsState: [],
+      setOverviewSelectedScreenIds: vi.fn(),
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key) => key,
+      undoManagerRef: { current: null },
+      viewModeRef: { current: "overview" },
+    });
+
+    expect(duplicateScreen).toHaveBeenCalledExactlyOnceWith("source");
+  });
+
   // The editor re-derives a single selection from selectedElement a render
   // later, so e2e cannot see this command selecting the wrong node.
   it("selects the newly inserted copy, not the pre-duplication original", () => {

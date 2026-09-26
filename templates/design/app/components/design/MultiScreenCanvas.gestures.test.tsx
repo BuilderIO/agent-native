@@ -1719,6 +1719,12 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
 
     expect(onDuplicate).toHaveBeenCalledTimes(2);
+    expect(onDuplicate.mock.calls[0]![1].canvasFrameGeometryById).toMatchObject(
+      {
+        "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+        "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+      },
+    );
     expect(
       new Set(
         onDuplicate.mock.calls.map(([, request]) => request.historyBatchId),
