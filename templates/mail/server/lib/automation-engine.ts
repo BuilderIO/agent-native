@@ -634,7 +634,11 @@ async function evaluateRulesWithJev(
   } else {
     throw new Error("Jev is not enabled.");
   }
-  if (!payload.answers || typeof payload.answers !== "object") {
+  if (
+    !payload.answers ||
+    typeof payload.answers !== "object" ||
+    Array.isArray(payload.answers)
+  ) {
     throw new Error("TypeSafe Jev returned no answers.");
   }
 
@@ -657,26 +661,36 @@ async function evaluateRulesWithJev(
     }
   }
 
-  const results = new Map<string, RuleMatch[]>();
+  const results = new Map<string, RuleMatch[]>(
+    emails.map((email) => [email.id, []]),
+  );
+  const answeredQuestionIds = new Set<string>();
   for (const [questionId, answer] of Object.entries(payload.answers)) {
     const question = questionIds.get(questionId);
     const probability = answer?.noul;
+    if (!question) {
+      throw new Error("TypeSafe Jev returned an unexpected rule answer.");
+    }
     if (
-      !question ||
       typeof probability !== "number" ||
       !Number.isFinite(probability) ||
-      probability < 0.5
+      probability < 0 ||
+      probability > 1
     ) {
-      continue;
+      throw new Error("TypeSafe Jev returned an invalid rule answer.");
     }
-    const matches = results.get(question.emailId) ?? [];
-    matches.push({
-      ruleId: question.ruleId,
-      match: true,
-      confidence: Math.min(1, Math.max(0, probability)),
-      reason: `Jev match probability ${Math.round(probability * 100)}%`,
-    });
-    results.set(question.emailId, matches);
+    answeredQuestionIds.add(questionId);
+    if (probability >= 0.5) {
+      results.get(question.emailId)!.push({
+        ruleId: question.ruleId,
+        match: true,
+        confidence: probability,
+        reason: `Jev match probability ${Math.round(probability * 100)}%`,
+      });
+    }
+  }
+  if (answeredQuestionIds.size !== questionIds.size) {
+    throw new Error("TypeSafe Jev omitted one or more rule answers.");
   }
   return results;
 }
@@ -690,8 +704,20 @@ async function evaluateRules(
   jevCredentials?: JevContextCredentials,
   legacyTypesafeApiKey?: string,
 ): Promise<Map<string, RuleMatch[]>> {
-  // Returns: messageId → array of matched rules with model confidence/reason.
-  const results = new Map<string, RuleMatch[]>();
+  // Returns every message ID, including those classified as no-match.
+  const results = new Map<string, RuleMatch[]>(
+    emails.map((email) => [email.id, []]),
+  );
+  const expectedEmailIds = new Set(emails.map((email) => email.id));
+  const expectedRuleIds = new Set(rules.map((rule) => rule.id));
+  if (
+    expectedEmailIds.size !== emails.length ||
+    expectedRuleIds.size !== rules.length
+  ) {
+    throw new Error(
+      "Mail AI rule evaluation requires unique email and rule IDs.",
+    );
+  }
   if (emails.length === 0 || rules.length === 0) return results;
 
   if (modelSettings.engine === TYPESAFE_AUTOMATION_ENGINE) {
@@ -748,69 +774,84 @@ ${emailsText}
 User-confirmed examples (use these as feedback, not as absolute rules):
 ${feedbackText}
 
-For each email, evaluate ALL rules. Respond with ONLY a JSON array, no other text. Format:
+For each email, evaluate ALL rules. Include one result for every rule, even when it does not match, and never omit an email or rule. Respond with ONLY a JSON array, no other text. Format:
 [{"emailId": "<id>", "matches": [{"ruleId": "<id>", "match": true/false, "confidence": 0.0, "reason": "short explanation"}]}]
 
 Be precise: only mark a rule as matching if the email clearly fits the condition. When a condition mentions a specific sender, check the From field. When it mentions a topic or category, use the subject and snippet. Confidence must be between 0 and 1. Give a short reason for every match.`;
 
-    try {
-      const text = await callModel(prompt, ownerEmail, modelSettings);
+    const text = await callModel(prompt, ownerEmail, modelSettings);
 
-      // Parse JSON from response (handle markdown code blocks)
-      const jsonStr = text
-        .replace(/```json?\n?/g, "")
-        .replace(/```/g, "")
-        .trim();
-      const parsed = JSON.parse(jsonStr) as Array<{
-        emailId: string;
-        matches: Array<{
-          ruleId: string;
-          match: boolean;
-          confidence?: number;
-          reason?: string;
-        }>;
-      }>;
-      if (!Array.isArray(parsed)) {
-        throw new Error("Model returned a non-array result");
-      }
+    // Parse JSON from response (handle markdown code blocks)
+    const jsonStr = text
+      .replace(/```json?\n?/g, "")
+      .replace(/```/g, "")
+      .trim();
+    const parsed: unknown = JSON.parse(jsonStr);
+    if (!Array.isArray(parsed)) {
+      throw new Error("Model returned a non-array result.");
+    }
 
-      for (const emailResult of parsed) {
-        if (
-          typeof emailResult?.emailId !== "string" ||
-          !Array.isArray(emailResult.matches)
-        ) {
-          throw new Error("Model returned an invalid email classification");
-        }
-        const matchedRules = emailResult.matches
-          .filter((m) => m.match)
-          .map((m) => ({
-            ruleId: m.ruleId,
-            match: true,
-            confidence:
-              typeof m.confidence === "number" &&
-              Number.isFinite(m.confidence) &&
-              m.confidence >= 0 &&
-              m.confidence <= 1
-                ? m.confidence
-                : 0,
-            ...(typeof m.reason === "string"
-              ? { reason: m.reason.slice(0, 500) }
-              : {}),
-          }));
-        if (matchedRules.length > 0) {
-          results.set(emailResult.emailId, matchedRules);
-        }
-      }
-    } catch (err: any) {
+    const batchEmailIds = new Set(batch.map((email) => email.id));
+    const classifiedEmailIds = new Set<string>();
+    for (const emailResult of parsed) {
       if (
-        /No LLM provider is connected|Connect an LLM provider|missing_credentials/i.test(
-          err?.message ?? "",
-        )
+        !emailResult ||
+        typeof emailResult !== "object" ||
+        typeof emailResult.emailId !== "string" ||
+        !Array.isArray(emailResult.matches)
       ) {
-        throw err;
+        throw new Error("Model returned an invalid email classification.");
       }
-      console.error("[automation-engine] Rule evaluation failed:", err.message);
-      // Skip this batch, will retry on next cron tick
+      if (
+        !batchEmailIds.has(emailResult.emailId) ||
+        classifiedEmailIds.has(emailResult.emailId)
+      ) {
+        throw new Error("Model returned an unexpected email classification.");
+      }
+      if (emailResult.matches.length !== expectedRuleIds.size) {
+        throw new Error("Model returned an incomplete rule classification.");
+      }
+      classifiedEmailIds.add(emailResult.emailId);
+
+      const matchedRules: RuleMatch[] = [];
+      const classifiedRuleIds = new Set<string>();
+      for (const match of emailResult.matches) {
+        if (
+          !match ||
+          typeof match !== "object" ||
+          typeof match.ruleId !== "string" ||
+          !expectedRuleIds.has(match.ruleId) ||
+          classifiedRuleIds.has(match.ruleId) ||
+          typeof match.match !== "boolean"
+        ) {
+          throw new Error("Model returned an invalid rule classification.");
+        }
+        classifiedRuleIds.add(match.ruleId);
+        if (!match.match) continue;
+        if (
+          typeof match.confidence !== "number" ||
+          !Number.isFinite(match.confidence) ||
+          match.confidence < 0 ||
+          match.confidence > 1
+        ) {
+          throw new Error("Model returned an invalid rule confidence.");
+        }
+        matchedRules.push({
+          ruleId: match.ruleId,
+          match: true,
+          confidence: match.confidence,
+          ...(typeof match.reason === "string"
+            ? { reason: match.reason.slice(0, 500) }
+            : {}),
+        });
+      }
+      if (classifiedRuleIds.size !== expectedRuleIds.size) {
+        throw new Error("Model returned an incomplete rule classification.");
+      }
+      results.set(emailResult.emailId, matchedRules);
+    }
+    if (classifiedEmailIds.size !== batchEmailIds.size) {
+      throw new Error("Model omitted one or more email classifications.");
     }
   }
 
@@ -1284,7 +1325,7 @@ export async function processAutomationsForAccount(
   );
 
   // 6. Execute matched actions
-  if (matches.size > 0) {
+  if ([...matches.values()].some((matchedRules) => matchedRules.length > 0)) {
     const labelCache = await buildLabelCache(accessToken);
     const rulesById = new Map(rules.map((r) => [r.id, r]));
     const aiDecisions: AiFilterDecision[] = [];

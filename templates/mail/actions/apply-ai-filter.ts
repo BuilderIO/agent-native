@@ -145,20 +145,22 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
 
     if (args.mode === "settings") {
-      const settingKeys = Object.keys(args.settings ?? {});
+      if (!args.settings || Object.keys(args.settings).length === 0) {
+        return {
+          changed: 0,
+          failures: [],
+          state: await getAiFilterState(ownerEmail),
+        };
+      }
+      const settingKeys = Object.keys(args.settings);
       const disableOnly =
         settingKeys.length === 1 && args.settings?.enabled === false;
       if (settingKeys.length > 0 && !disableOnly) {
         await assertMailJevEnabled(ownerEmail);
       }
-      const state = await getAiFilterState(ownerEmail);
-      const next = {
-        ...state,
-        ...args.settings,
-      };
-      await saveAiFilterState(ownerEmail, next);
+      const state = await saveAiFilterState(ownerEmail, args.settings);
       await writeAppState("refresh-signal", { ts: Date.now() });
-      return { changed: 0, failures: [], state: next };
+      return { changed: 0, failures: [], state };
     }
 
     await assertMailJevEnabled(ownerEmail);

@@ -170,6 +170,79 @@ describe("Mail Jev automation routing", () => {
     );
   });
 
+  it("preserves a complete no-match classification", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({
+      answers: { q_0_0: { noul: 0.2 } },
+    });
+
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Work from the finance team",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+      {} as never,
+    );
+
+    expect(result.matches.get("email-1")).toEqual([]);
+  });
+
+  it("fails when Jev omits a rule answer instead of treating it as no-match", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({ answers: {} });
+
+    await expect(
+      previewAutomationRules(
+        [email],
+        [
+          {
+            id: "rule-1",
+            name: "Important",
+            condition: "Work from the finance team",
+            actions: [],
+          },
+        ],
+        "owner@example.com",
+        { feedback: [] } as never,
+      ),
+    ).rejects.toThrow("TypeSafe Jev omitted one or more rule answers.");
+  });
+
+  it("fails when a model omits an email classification", async () => {
+    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
+    mocks.resolveCredential.mockResolvedValue("test-anthropic-key");
+    mocks.resolveEngine.mockImplementation(async () => ({
+      defaultModel: "claude-sonnet-5",
+      configured: true,
+      stream: async function* () {
+        yield { type: "text-delta", text: "[]" };
+      },
+    }));
+
+    await expect(
+      previewAutomationRules(
+        [email],
+        [
+          {
+            id: "rule-1",
+            name: "Important",
+            condition: "Work from the finance team",
+            actions: [],
+          },
+        ],
+        "owner@example.com",
+        { feedback: [] } as never,
+      ),
+    ).rejects.toThrow("Model omitted one or more email classifications.");
+  });
+
   it("keeps Jev priority answers distinct for matching IDs across accounts", async () => {
     mocks.requestJevThroughBuilder.mockResolvedValue({
       answers: {

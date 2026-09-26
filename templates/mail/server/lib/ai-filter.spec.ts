@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const settings = vi.hoisted(() => {
   let current: Record<string, unknown> | null = null;
+  let mutationQueue: Promise<void> = Promise.resolve();
   const copy = (value: Record<string, unknown> | null) =>
     value === null ? null : structuredClone(value);
   const getUserSetting = vi.fn(async () => copy(current));
@@ -13,8 +14,18 @@ const settings = vi.hoisted(() => {
         value: Record<string, unknown> | null,
       ) => Record<string, unknown> | Promise<Record<string, unknown>>,
     ) => {
-      current = await updater(copy(current));
-      return structuredClone(current);
+      const previous = mutationQueue;
+      let release!: () => void;
+      mutationQueue = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        current = await updater(copy(current));
+        return structuredClone(current);
+      } finally {
+        release();
+      }
     },
   );
 
@@ -24,6 +35,7 @@ const settings = vi.hoisted(() => {
     read: () => copy(current),
     reset: () => {
       current = null;
+      mutationQueue = Promise.resolve();
     },
   };
 });
@@ -35,7 +47,6 @@ vi.mock("@agent-native/core/settings", () => ({
 
 import type { AiFilterDecision } from "../../shared/ai-filter.js";
 import {
-  getAiFilterState,
   recordAiFilterFeedback,
   recordAiFilterDecisions,
   saveAiFilterState,
@@ -47,9 +58,8 @@ describe("AI filter settings persistence", () => {
     vi.clearAllMocks();
   });
 
-  it("applies a settings change without dropping decisions added after its read", async () => {
+  it("merges concurrent independent settings patches into the latest state", async () => {
     const ownerEmail = "owner@example.test";
-    const settingsSnapshot = await getAiFilterState(ownerEmail);
     const decision: AiFilterDecision = {
       id: "decision-1",
       messageId: "message-1",
@@ -61,24 +71,23 @@ describe("AI filter settings persistence", () => {
     };
 
     await recordAiFilterDecisions(ownerEmail, [decision]);
+    const [autoFilterUpdate, thresholdUpdate] = await Promise.all([
+      saveAiFilterState(ownerEmail, { autoFilter: false }),
+      saveAiFilterState(ownerEmail, { suggestionThreshold: 0.8 }),
+    ]);
 
-    const updated = await saveAiFilterState(ownerEmail, {
-      ...settingsSnapshot,
-      autoFilter: false,
-    });
-
-    expect(updated.autoFilter).toBe(false);
-    expect(updated.decisions).toEqual([decision]);
+    expect(autoFilterUpdate.autoFilter).toBe(false);
+    expect(thresholdUpdate.suggestionThreshold).toBe(0.8);
     expect(settings.read()).toMatchObject({
       autoFilter: false,
+      suggestionThreshold: 0.8,
       decisions: [decision],
     });
-    expect(settings.mutateUserSetting).toHaveBeenCalledTimes(2);
+    expect(settings.mutateUserSetting).toHaveBeenCalledTimes(3);
   });
 
-  it("preserves feedback recorded after the settings snapshot", async () => {
+  it("preserves feedback and decisions while updating requested settings", async () => {
     const ownerEmail = "owner@example.test";
-    const snapshot = await getAiFilterState(ownerEmail);
 
     await recordAiFilterFeedback(ownerEmail, {
       targets: [
@@ -92,7 +101,6 @@ describe("AI filter settings persistence", () => {
     });
 
     const updated = await saveAiFilterState(ownerEmail, {
-      ...snapshot,
       suggestionThreshold: 0.8,
     });
 
@@ -108,5 +116,20 @@ describe("AI filter settings persistence", () => {
       messageId: "message-2",
       disposition: "kept",
     });
+  });
+
+  it("rejects invalid setting patches without writing them", async () => {
+    await expect(
+      saveAiFilterState("owner@example.test", {
+        suggestionThreshold: 1.2,
+      }),
+    ).rejects.toThrow("Invalid AI filter settings.");
+    await expect(
+      saveAiFilterState("owner@example.test", {
+        labelName: "custom-label",
+      } as never),
+    ).rejects.toThrow("Invalid AI filter settings.");
+
+    expect(settings.mutateUserSetting).not.toHaveBeenCalled();
   });
 });

@@ -133,6 +133,12 @@ type BackfillState = {
 
 type BackfillRow = typeof schema.aiFilterBackfills.$inferSelect;
 type BackfillStatus = AiFilterBackfillStatus["status"];
+type ClaimedBackfillStatus = Extract<BackfillStatus, "running" | "undoing">;
+type ClaimedBackfill = {
+  claimId: string;
+  status: ClaimedBackfillStatus;
+  stateJson: string;
+};
 const ACTIVE_BACKFILL_STATUSES = ["queued", "running", "undoing"] as const;
 
 export function planConditionalUndo(
@@ -1434,14 +1440,27 @@ async function ensureEvaluations(
       ...state.aiFilterSettings,
     },
   );
-  for (const candidate of batch) {
-    state.evaluations[candidate.key] = (
-      matchMap.get(candidate.email.id) ?? []
-    ).map(({ ruleId, confidence, reason }) => ({
-      ruleId,
-      confidence,
-      ...(reason ? { reason } : {}),
-    }));
+  if (matchMap.size !== batch.length) {
+    throw new Error("Mail AI-filter evaluation did not classify every thread.");
+  }
+  const evaluations = batch.map((candidate) => {
+    const matches = matchMap.get(candidate.email.id);
+    if (matches === undefined) {
+      throw new Error(
+        "Mail AI-filter evaluation did not classify every thread.",
+      );
+    }
+    return [
+      candidate.key,
+      matches.map(({ ruleId, confidence, reason }) => ({
+        ruleId,
+        confidence,
+        ...(reason ? { reason } : {}),
+      })),
+    ] as const;
+  });
+  for (const [key, matches] of evaluations) {
+    state.evaluations[key] = matches;
   }
   return saveRunState(row.id, claimId, state, "running");
 }
@@ -1850,7 +1869,7 @@ async function processUndoBatch(
   }
 }
 
-async function claimRun(row: BackfillRow): Promise<string | null> {
+async function claimRun(row: BackfillRow): Promise<ClaimedBackfill | null> {
   const claimId = nanoid(16);
   const now = Date.now();
   return db.transaction(async (tx: any) => {
@@ -1885,7 +1904,6 @@ async function claimRun(row: BackfillRow): Promise<string | null> {
       .set({
         claimId,
         claimedAt: now,
-        status: row.status === "queued" ? "running" : row.status,
         updatedAt: now,
       })
       .where(
@@ -1903,8 +1921,36 @@ async function claimRun(row: BackfillRow): Promise<string | null> {
           ),
         ),
       )
-      .returning({ id: schema.aiFilterBackfills.id });
+      .returning({
+        status: schema.aiFilterBackfills.status,
+        stateJson: schema.aiFilterBackfills.stateJson,
+      });
     if (!claimed) return null;
+
+    let status = claimed.status as BackfillStatus;
+    let stateJson = claimed.stateJson;
+    if (status === "queued") {
+      const [started] = await tx
+        .update(schema.aiFilterBackfills)
+        .set({ status: "running", updatedAt: now })
+        .where(
+          and(
+            eq(schema.aiFilterBackfills.id, row.id),
+            eq(schema.aiFilterBackfills.claimId, claimId),
+            eq(schema.aiFilterBackfills.status, "queued"),
+          ),
+        )
+        .returning({
+          status: schema.aiFilterBackfills.status,
+          stateJson: schema.aiFilterBackfills.stateJson,
+        });
+      if (!started) return null;
+      status = started.status as BackfillStatus;
+      stateJson = started.stateJson;
+    }
+    if (status !== "running" && status !== "undoing") {
+      throw new Error("Claimed Mail AI backfill has an invalid status.");
+    }
 
     const undoRows = await tx
       .select()
@@ -1924,7 +1970,7 @@ async function claimRun(row: BackfillRow): Promise<string | null> {
           .where(eq(schema.aiFilterBackfills.id, previous.id));
       }
     }
-    return claimed ? claimId : null;
+    return { claimId, status, stateJson };
   });
 }
 
@@ -1970,21 +2016,27 @@ export async function processMailAiFilterBackfills(
   let processed = 0;
   for (const row of rows) {
     if (processed >= MAX_RUNS_PER_TICK) break;
-    const claimId = await claimRun(row);
-    if (!claimId) continue;
+    const claim = await claimRun(row);
+    if (!claim) continue;
     processed += 1;
+    const claimId = claim.claimId;
+    const claimedRow = {
+      ...row,
+      status: claim.status,
+      stateJson: claim.stateJson,
+    };
     const stopClaimHeartbeat = startClaimHeartbeat(row.id, claimId);
     let state: BackfillState | undefined;
     try {
-      state = parseState(row.stateJson);
-      if (row.status === "undoing") {
-        await processUndoBatch(row, claimId, state);
+      state = parseState(claimedRow.stateJson);
+      if (claimedRow.status === "undoing") {
+        await processUndoBatch(claimedRow, claimId, state);
       } else {
-        await processRunningBatch(row, claimId, state);
+        await processRunningBatch(claimedRow, claimId, state);
       }
     } catch (error) {
       try {
-        state ??= parseState(row.stateJson);
+        state ??= parseState(claimedRow.stateJson);
         state.error = safeError(error);
         if (state.pendingDecisions.length > 0) {
           try {
@@ -2000,7 +2052,8 @@ export async function processMailAiFilterBackfills(
             );
           }
         }
-        const activeStatus = row.status === "undoing" ? "undoing" : "running";
+        const activeStatus =
+          claimedRow.status === "undoing" ? "undoing" : "running";
         const [failed] = await db
           .update(schema.aiFilterBackfills)
           .set({

@@ -572,6 +572,7 @@ export function AiInboxSetup({
       setSelectedTags(new Set());
       setCustomTagSelected(false);
     }
+    if (step === 1) setImportantPrompt("");
     if (step === 2) {
       if (jevConfigured) void saveStep(true);
       else setStep(3);

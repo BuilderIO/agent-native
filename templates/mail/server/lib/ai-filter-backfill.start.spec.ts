@@ -4,6 +4,7 @@ const database = vi.hoisted(() => {
   const rows: Array<Record<string, any>> = [];
   let id = 0;
   const advisoryLocks = new Map<string, Promise<void>>();
+  let beforeNextTransaction: (() => Promise<void>) | undefined;
   const aiFilterBackfills = Object.fromEntries(
     [
       "id",
@@ -106,6 +107,9 @@ const database = vi.hoisted(() => {
       }),
     }),
     transaction: async (callback: (tx: any) => unknown) => {
+      const before = beforeNextTransaction;
+      beforeNextTransaction = undefined;
+      await before?.();
       const releases: Array<() => void> = [];
       const tx = {
         ...db,
@@ -138,6 +142,9 @@ const database = vi.hoisted(() => {
     db,
     schema: { aiFilterBackfills },
     nextId: () => `backfill-${++id}`,
+    setBeforeNextTransaction: (callback: () => Promise<void>) => {
+      beforeNextTransaction = callback;
+    },
     resetId: () => {
       id = 0;
     },
@@ -160,6 +167,7 @@ const mocks = vi.hoisted(() => ({
   gmailGetThread: vi.fn(),
   gmailModifyThread: vi.fn(),
   syncInboxLabelDelta: vi.fn(),
+  evaluateAiFilterBackfillRules: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -197,7 +205,7 @@ vi.mock("./ai-filter.js", () => ({
   recordAiFilterDecisions: vi.fn(),
 }));
 vi.mock("./automation-engine.js", () => ({
-  evaluateAiFilterBackfillRules: vi.fn(),
+  evaluateAiFilterBackfillRules: mocks.evaluateAiFilterBackfillRules,
 }));
 vi.mock("./automations.js", () => ({
   assertMailJevEnabled: vi.fn(),
@@ -357,6 +365,7 @@ function runningRow(rules: Array<Record<string, any>>) {
 describe("startMailAiFilterBackfill", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.evaluateAiFilterBackfillRules.mockReset();
     database.rows.splice(0, database.rows.length);
     database.resetId();
     mocks.rules = [];
@@ -456,6 +465,67 @@ describe("startMailAiFilterBackfill", () => {
       startMailAiFilterBackfill(ownerEmail, ["rule-a"]),
     ).rejects.toMatchObject({ errorCode: "ai_filter_backfill_active" });
     expect(database.rows).toHaveLength(1);
+  });
+
+  it("claims the current undoing status when Undo races the scheduler read", async () => {
+    mocks.rules = [rule("rule-a")];
+    const started = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
+    const row = database.rows[0];
+    database.setBeforeNextTransaction(async () => {
+      await requestMailAiFilterBackfillUndo(
+        ownerEmail,
+        started.runId,
+        row.undoToken,
+      );
+    });
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("undone");
+    expect(mocks.evaluateAiFilterBackfillRules).not.toHaveBeenCalled();
+    expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
+  });
+
+  it("fails without checkpointing when evaluation omits a captured thread", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    mocks.emails = [localEmail()];
+    const state = { ...backfillState([activeRule]), evaluations: {} };
+    database.rows.push({
+      ...runningRow([activeRule]),
+      stateJson: JSON.stringify(state),
+    });
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(new Map());
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(database.rows[0].status).toBe("failed");
+    const saved = JSON.parse(database.rows[0].stateJson);
+    expect(saved.evaluations).toEqual({});
+    expect(saved.candidateIndex).toBe(0);
+    expect(saved.error).toMatch("did not classify every thread");
+    expect(mocks.writeLocalEmails).not.toHaveBeenCalled();
+  });
+
+  it("checkpoints an explicit no-match classification", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    mocks.emails = [localEmail()];
+    const state = { ...backfillState([activeRule]), evaluations: {} };
+    database.rows.push({
+      ...runningRow([activeRule]),
+      stateJson: JSON.stringify(state),
+    });
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
+      new Map([["thread-a", []]]),
+    );
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(database.rows[0].status).toBe("completed");
+    const saved = JSON.parse(database.rows[0].stateJson);
+    expect(saved.evaluations["local:thread-a"]).toEqual([]);
+    expect(saved.processedThreads).toBe(1);
   });
 
   it("queues edited rules behind an active run and retires its undo before applying the replacement", async () => {

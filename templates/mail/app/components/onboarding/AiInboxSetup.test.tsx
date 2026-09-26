@@ -263,6 +263,40 @@ describe("AiInboxSetup", () => {
     expect(mocks.createRule).toHaveBeenCalledTimes(2);
   });
 
+  it("does not save or backfill a draft Important rule after skipping that step", async () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.change(
+      await screen.findByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+      { target: { value: "Anything from my manager" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["rule-1", "rule-2"],
+      }),
+    );
+    expect(mocks.createRule).toHaveBeenCalledTimes(2);
+    expect(mocks.createRule).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        condition: "Anything from my manager",
+        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
+      }),
+    );
+  });
+
   it("saves tags and Important when skipping optional cleanup", async () => {
     render(<AiInboxSetup forceOpen />);
 

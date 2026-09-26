@@ -13,6 +13,22 @@ import {
 const AI_FILTER_SETTING_KEY = "ai-filter-state";
 const MAX_FEEDBACK = 100;
 const MAX_DECISIONS = 200;
+const aiFilterSettingsPatchSchema = aiFilterStateSchema
+  .pick({
+    enabled: true,
+    autoFilter: true,
+    autoFilterThreshold: true,
+    suggestionThreshold: true,
+  })
+  .partial()
+  .strict();
+
+type AiFilterSettingsPatch = Partial<
+  Pick<
+    AiFilterState,
+    "enabled" | "autoFilter" | "autoFilterThreshold" | "suggestionThreshold"
+  >
+>;
 
 function parseAiFilterState(stored: unknown): AiFilterState {
   if (stored === undefined || stored === null) {
@@ -37,10 +53,10 @@ export async function getAiFilterState(
 
 export async function saveAiFilterState(
   ownerEmail: string,
-  state: AiFilterState,
+  patch: AiFilterSettingsPatch,
 ): Promise<AiFilterState> {
-  const parsed = aiFilterStateSchema.safeParse(state);
-  if (!parsed.success) {
+  const parsedPatch = aiFilterSettingsPatchSchema.safeParse(patch);
+  if (!parsedPatch.success) {
     throw new Error("Invalid AI filter settings.");
   }
   const updated = await mutateUserSetting(
@@ -48,11 +64,7 @@ export async function saveAiFilterState(
     AI_FILTER_SETTING_KEY,
     (current) => {
       const latest = parseAiFilterState(current);
-      const next = {
-        ...parsed.data,
-        feedback: latest.feedback,
-        decisions: latest.decisions,
-      };
+      const next = { ...latest, ...parsedPatch.data };
       const nextParsed = aiFilterStateSchema.safeParse(next);
       if (!nextParsed.success) throw new Error("Invalid AI filter settings.");
       return nextParsed.data;
