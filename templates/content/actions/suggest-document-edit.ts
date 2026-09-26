@@ -8,12 +8,14 @@ import {
   suggestionActorKind,
   suggestionActorKindMatchesReceipt,
 } from "@agent-native/core/review";
-import createResourceSuggestion from "@agent-native/core/review/suggestions/actions/create-resource-suggestion";
+import createResourceSuggestionProposal from "@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal";
+import getResourceSuggestionProposalByCreationKey from "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key";
 import { roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
+import { markdownSuggestionOperationsForFindReplace } from "../shared/suggestion-diff.js";
 import { contentSuggestionPath } from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
@@ -39,6 +41,13 @@ const suggestDocumentEditSchema = z.object({
     .max(200)
     .optional()
     .describe("Caller-generated stable key for one logical suggested edit."),
+  proposalId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Existing proposal ID for another edit in the same review pass. Reuse its summary.",
+    ),
   find: z
     .string()
     .optional()
@@ -169,6 +178,21 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
     if (!args.find) throw new Error("--find is required");
+    if (args.proposalId && !args.summary?.trim()) {
+      throw new ActionContractError(
+        "Appending to a proposal requires the same summary returned by its first suggested edit.",
+        { errorCode: "SUGGESTION_PROPOSAL_SUMMARY_REQUIRED", statusCode: 400 },
+      );
+    }
+    if (args.find === (args.replace ?? "")) {
+      throw new ActionContractError(
+        "The proposed replacement does not change the page.",
+        {
+          errorCode: "SUGGESTION_EDIT_NO_CHANGE",
+          statusCode: 400,
+        },
+      );
+    }
 
     const isExternalCaller =
       ctx?.caller === "tool" ||
@@ -204,6 +228,11 @@ export default defineAction({
     }
     const existing = access.resource;
     const content = existing.content ?? "";
+    const suggestionContext = {
+      ...(ctx as ActionRunContext),
+      orgId:
+        access.authority?.orgId ?? existing.orgId ?? ctx?.orgId ?? undefined,
+    };
 
     // A retried call with the same key must return the first receipt even when
     // the page moved underneath it: rebuilding from current content would
@@ -241,6 +270,7 @@ export default defineAction({
           );
         }
         const sameEdit =
+          !args.proposalId &&
           receipt.suggestion.adapterKind === "content.document-markdown" &&
           (receipt.suggestion.operations?.length ?? 0) === 1 &&
           first?.targetId === "body" &&
@@ -273,6 +303,41 @@ export default defineAction({
           url: contentSuggestionPath(id, receipt.suggestion.id),
         };
       }
+      const groupedReceipt =
+        await getResourceSuggestionProposalByCreationKey.run(
+          { idempotencyKey: args.idempotencyKey },
+          suggestionContext,
+        );
+      if (groupedReceipt) {
+        const first = groupedReceipt.suggestions[0];
+        const sameEdit =
+          groupedReceipt.proposal.resourceType === "document" &&
+          groupedReceipt.proposal.resourceId === id &&
+          groupedReceipt.proposal.adapterKind === "content.document-markdown" &&
+          groupedReceipt.proposal.summary === effectiveSummary &&
+          (first?.metadata?.sourceProposalId ?? null) ===
+            (args.proposalId ?? null) &&
+          first?.metadata?.sourceFind === args.find &&
+          first?.metadata?.sourceReplace === (args.replace ?? "");
+        if (!first || !sameEdit) {
+          throw new ActionContractError(
+            "This idempotencyKey already created a different suggested edit; use a fresh key.",
+            {
+              errorCode: "SUGGESTION_EDIT_PROTOCOL_KEY_MISMATCH",
+              statusCode: 409,
+            },
+          );
+        }
+        return {
+          suggestionId: first.id,
+          suggestionIds: groupedReceipt.suggestions.map((item) => item.id),
+          proposalId: groupedReceipt.proposal.id,
+          status: first.status,
+          revision: first.revision,
+          threadId: first.threadId,
+          url: contentSuggestionPath(id, first.id),
+        };
+      }
     }
 
     const resolved = resolveDocumentTextEdits(content, [
@@ -281,38 +346,56 @@ export default defineAction({
     if (!resolved.ok) rejectedFind(resolved.error);
     const range = resolved.ranges[0]!;
 
-    const operation = buildMarkdownSuggestionOperation({
-      content,
+    const operations = markdownSuggestionOperationsForFindReplace({
+      before: content,
       find: args.find,
       replace: args.replace ?? "",
       start: range.start,
     });
+    if (operations.length === 0) {
+      throw new ActionContractError(
+        "The proposed replacement does not change the page.",
+        {
+          errorCode: "SUGGESTION_EDIT_NO_CHANGE",
+          statusCode: 400,
+        },
+      );
+    }
 
     const summary = effectiveSummary;
 
-    const result = await createResourceSuggestion.run(
+    const grouped = await createResourceSuggestionProposal.run(
       {
         resourceType: "document",
         resourceId: id,
         adapterKind: "content.document-markdown",
-        // External callers pin the exact body they read; internal callers anchor
-        // to the body this action just resolved so the base is never stale-empty.
         baseRevision:
           args.baseRevision ||
           documentRevisionToken(existing.bodyRevision, content),
         summary,
+        proposalId: args.proposalId,
         idempotencyKey: args.idempotencyKey ?? crypto.randomUUID(),
-        operations: [operation],
+        suggestions: operations.map((operation, index) => ({
+          summary:
+            operation.before.changedText && operation.after.changedText
+              ? `Replace "${operation.before.changedText.slice(0, 80)}" with "${operation.after.changedText.slice(0, 80)}"`
+              : operation.before.changedText
+                ? `Delete "${operation.before.changedText.slice(0, 80)}"`
+                : `Insert "${operation.after.changedText.slice(0, 80)}"`,
+          operations: [{ ...operation, ordinal: 0 }],
+          metadata:
+            index === 0
+              ? {
+                  sourceFind: args.find,
+                  sourceReplace: args.replace ?? "",
+                  sourceProposalId: args.proposalId ?? null,
+                }
+              : undefined,
+        })),
       },
-      // The document's own organization wins when it differs from the caller's
-      // active org, so the generic path's review access check resolves the same
-      // way the read above did.
-      {
-        ...(ctx as ActionRunContext),
-        orgId:
-          access.authority?.orgId ?? existing.orgId ?? ctx?.orgId ?? undefined,
-      },
+      suggestionContext,
     );
+    const first = grouped.suggestions[0]!;
 
     if (isExternalCaller) {
       track(
@@ -322,25 +405,21 @@ export default defineAction({
           template_name: "content",
           output_id: id,
           output_type: "document",
-          edit_count: 1,
+          edit_count: operations.length,
           refine_type: "suggested_edit",
         },
         ctx,
       );
     }
 
-    const suggestion = result as {
-      id: string;
-      status: string;
-      revision: number;
-      threadId: string;
-    };
     return {
-      suggestionId: suggestion.id,
-      status: suggestion.status,
-      revision: suggestion.revision,
-      threadId: suggestion.threadId,
-      url: contentSuggestionPath(id, suggestion.id),
+      suggestionId: first.id,
+      suggestionIds: grouped.suggestions.map((item) => item.id),
+      proposalId: grouped.proposal.id,
+      status: first.status,
+      revision: first.revision,
+      threadId: first.threadId,
+      url: contentSuggestionPath(id, first.id),
     };
   },
 });

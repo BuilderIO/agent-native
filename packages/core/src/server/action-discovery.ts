@@ -968,6 +968,21 @@ export async function mergeCoreSharingActions(
         import("../review/suggestions/actions/create-resource-suggestion.js"),
     ],
     [
+      "create-resource-suggestion-proposal",
+      () =>
+        import("../review/suggestions/actions/create-resource-suggestion-proposal.js"),
+    ],
+    [
+      "get-resource-suggestion-proposal-by-creation-key",
+      () =>
+        import("../review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key.js"),
+    ],
+    [
+      "decide-resource-suggestion-proposal",
+      () =>
+        import("../review/suggestions/actions/decide-resource-suggestion-proposal.js"),
+    ],
+    [
       "list-resource-suggestions",
       () =>
         import("../review/suggestions/actions/list-resource-suggestions.js"),

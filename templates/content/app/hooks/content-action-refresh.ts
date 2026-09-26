@@ -19,6 +19,7 @@ const COMMENT_MUTATIONS = new Set([
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
   "decide-resource-suggestion",
+  "decide-resource-suggestion-proposal",
   "delete-document",
   "delete-document-property",
   "delete-content-database",
@@ -110,15 +111,19 @@ const CONTENT_MUTATIONS = new Set([
 
 const SUGGESTION_MUTATIONS = new Set([
   "create-resource-suggestion",
+  "create-resource-suggestion-proposal",
   "suggest-document-edit",
   "update-resource-suggestion",
   "decide-resource-suggestion",
+  "decide-resource-suggestion-proposal",
 ]);
 
 const REVIEW_MUTATIONS = new Set([
   "create-resource-suggestion",
+  "create-resource-suggestion-proposal",
   "suggest-document-edit",
   "decide-resource-suggestion",
+  "decide-resource-suggestion-proposal",
   "create-review-comment",
   "reply-review-comment",
   "resolve-review-thread",
@@ -196,7 +201,10 @@ function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
     return queryName === "list-comments";
   if (eventKey === "apply-comment-ai-request")
     return queryName === "get-document" || queryName === "list-comments";
-  if (eventKey === "decide-resource-suggestion")
+  if (
+    eventKey === "decide-resource-suggestion" ||
+    eventKey === "decide-resource-suggestion-proposal"
+  )
     return queryName === "get-document";
   return CONTENT_MUTATIONS.has(eventKey);
 }

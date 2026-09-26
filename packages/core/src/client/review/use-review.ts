@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import type {
   ResourceSuggestion,
+  ResourceSuggestionProposal,
   SuggestionDecision,
   SuggestionOperation,
   SuggestionStatus,
@@ -246,6 +247,30 @@ export interface DecideResourceSuggestionInput {
   idempotencyKey: string;
   observedBase: string;
   observedRevision?: number;
+}
+export interface CreateResourceSuggestionProposalInput {
+  resourceType: string;
+  resourceId: string;
+  adapterKind: string;
+  baseRevision: string;
+  summary: string;
+  proposalId?: string;
+  idempotencyKey: string;
+  suggestions: {
+    summary: string;
+    operations: SuggestionOperation[];
+    metadata?: Record<string, unknown>;
+  }[];
+}
+export interface DecideResourceSuggestionProposalInput {
+  proposalId: string;
+  decision: SuggestionDecision;
+  idempotencyKey: string;
+  members: { id: string; observedRevision: number; observedBase: string }[];
+}
+export interface ResourceSuggestionProposalResult {
+  proposal: ResourceSuggestionProposal;
+  suggestions: ResourceSuggestion[];
 }
 
 export interface UpdateResourceSuggestionInput {
@@ -1035,6 +1060,20 @@ export function useCreateResourceSuggestion() {
         ),
     };
   });
+}
+
+export function useCreateResourceSuggestionProposal() {
+  return useActionMutation<
+    ResourceSuggestionProposalResult,
+    CreateResourceSuggestionProposalInput
+  >("create-resource-suggestion-proposal");
+}
+
+export function useDecideResourceSuggestionProposal() {
+  return useActionMutation<
+    ResourceSuggestionProposalResult,
+    DecideResourceSuggestionProposalInput
+  >("decide-resource-suggestion-proposal");
 }
 
 export function useDecideResourceSuggestion() {

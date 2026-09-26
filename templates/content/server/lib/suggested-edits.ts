@@ -181,6 +181,8 @@ function decisionChatContext(ctx: Record<string, unknown> | undefined) {
 type ContentDecisionCoordination = {
   ydoc: PreparedYDocMutationLease;
   sync: TransactionalChange;
+  deferPersistence?: boolean;
+  finalContent?: string;
 };
 
 export function publishPersistedAcceptedSuggestion(
@@ -189,8 +191,11 @@ export function publishPersistedAcceptedSuggestion(
 ): void {
   if (
     sync.isPersisted() &&
-    (result as { decision?: { outcome?: string } }).decision?.outcome ===
-      "accepted"
+    ((result as { decision?: { outcome?: string } }).decision?.outcome ===
+      "accepted" ||
+      (result as { suggestions?: { status?: string }[] }).suggestions?.some(
+        (suggestion) => suggestion.status === "accepted",
+      ))
   ) {
     sync.publish();
   }
@@ -536,10 +541,29 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     const result = await withPreparedYDocMutation(
       context.resourceId,
       acceptedSuggestionRequestSource(context.ctx?.requestSource),
-      (ydoc) => run({ ydoc, sync } satisfies ContentDecisionCoordination),
+      (ydoc) =>
+        run({
+          ydoc,
+          sync,
+          deferPersistence: context.proposalDecision === true,
+        } satisfies ContentDecisionCoordination),
     );
     publishPersistedAcceptedSuggestion(sync, result);
     return result;
+  },
+  async finalizeProposalDecision(context) {
+    const coordination = context.coordination as
+      | ContentDecisionCoordination
+      | undefined;
+    if (
+      !coordination?.deferPersistence ||
+      coordination.finalContent === undefined
+    ) {
+      throw new Error("Content proposal decision coordination is incomplete");
+    }
+    const tx = context.transaction as DbExec;
+    await coordination.ydoc.persist(tx, coordination.finalContent);
+    await coordination.sync.persist(tx);
   },
   async apply(context) {
     const operations = validateOperations(context.operations);
@@ -661,8 +685,12 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
             now,
           ],
         });
-        await coordination.ydoc.persist(tx, nextContent);
-        await coordination.sync.persist(tx);
+        if (coordination.deferPersistence) {
+          coordination.finalContent = nextContent;
+        } else {
+          await coordination.ydoc.persist(tx, nextContent);
+          await coordination.sync.persist(tx);
+        }
       },
     });
     if (!applied) {

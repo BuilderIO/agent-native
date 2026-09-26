@@ -9,6 +9,8 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { markdownSuggestionOperations } from "../../shared/suggestion-diff.js";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-suggested-edits-${process.pid}-${Date.now()}.pglite`,
@@ -26,8 +28,11 @@ let adapter: Adapter;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let updateDocumentAction: typeof import("../../actions/update-document.js").default;
 let commentThreadDigest: typeof import("./comment-ai.js").commentThreadDigest;
+const previousSyncEventsEnabled =
+  process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
 
 beforeAll(async () => {
+  process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
@@ -41,10 +46,16 @@ beforeAll(async () => {
   commentThreadDigest = (await import("./comment-ai.js")).commentThreadDigest;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
+  await (await import("../plugins/suggested-edits.js")).default();
 }, 60_000);
 
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
+  if (previousSyncEventsEnabled === undefined)
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
+  else
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS =
+      previousSyncEventsEnabled;
 });
 
 const ownerEmail = "owner@example.com";
@@ -181,6 +192,140 @@ async function accept(
 }
 
 describe("Content suggested edits Blocks transaction", () => {
+  it("accepts two proposal edits with one prepared Yjs persistence and replays safely", async () => {
+    sequence += 1;
+    const documentId = `suggestion-proposal-page-${sequence}`;
+    const before = "Alpha, beta is good.";
+    const after = "Alpha beta is great.";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Proposal page",
+      content: before,
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    const actions =
+      await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal");
+    const decisions =
+      await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal");
+    const run = () =>
+      runWithRequestContext({ userEmail: ownerEmail }, async () => {
+        const document = await getDocumentAction.run({ id: documentId }, ctx);
+        const operations = markdownSuggestionOperations(before, after);
+        expect(operations).toHaveLength(2);
+        const created = await actions.default.run(
+          {
+            resourceType: "document",
+            resourceId: documentId,
+            adapterKind: adapter.kind,
+            baseRevision: document.revision,
+            summary: "Two edits",
+            idempotencyKey: `content-proposal-${documentId}`,
+            suggestions: operations.map((part, index) => ({
+              summary: `Edit ${index + 1}`,
+              operations: [part],
+            })),
+          },
+          ctx,
+        );
+        const members = created.suggestions.map((suggestion) => ({
+          id: suggestion.id,
+          observedRevision: suggestion.revision,
+          observedBase: suggestion.baseRevision,
+        }));
+        const request = {
+          proposalId: created.proposal.id,
+          decision: "accepted" as const,
+          idempotencyKey: `content-proposal-decision-${documentId}`,
+          members,
+        };
+        const accepted = await decisions.default.run(request, ctx);
+        expect(
+          accepted.suggestions.map((suggestion) => suggestion.status),
+        ).toEqual(["accepted", "accepted"]);
+        const replay = await decisions.default.run(request, ctx);
+        expect(replay.suggestions.map((suggestion) => suggestion.id)).toEqual(
+          created.suggestions.map((suggestion) => suggestion.id),
+        );
+        const updated = await getDocumentAction.run({ id: documentId }, ctx);
+        expect(updated.content).toBe(after);
+        expect(updated.bodyRevision).toBe(2);
+      });
+    await run();
+  });
+
+  it("rolls back the first Content edit when the second proposal edit conflicts", async () => {
+    sequence += 1;
+    const documentId = `suggestion-conflict-page-${sequence}`;
+    const before = "Alpha, beta is good.";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Conflict page",
+      content: before,
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      const first = markdownSuggestionOperations(
+        before,
+        "Alpha beta is good.",
+      )[0]!;
+      const second = markdownSuggestionOperations(
+        before,
+        "Alpha; beta is good.",
+      )[0]!;
+      const created = await (
+        await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal")
+      ).default.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: adapter.kind,
+          baseRevision: document.revision,
+          summary: "Conflicting edits",
+          idempotencyKey: `content-conflict-${documentId}`,
+          suggestions: [
+            { summary: "Remove comma", operations: [first] },
+            { summary: "Replace comma", operations: [second] },
+          ],
+        },
+        ctx,
+      );
+      await expect(
+        (
+          await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal")
+        ).default.run(
+          {
+            proposalId: created.proposal.id,
+            decision: "accepted",
+            idempotencyKey: `content-conflict-decision-${documentId}`,
+            members: created.suggestions.map((suggestion) => ({
+              id: suggestion.id,
+              observedRevision: suggestion.revision,
+              observedBase: suggestion.baseRevision,
+            })),
+          },
+          ctx,
+        ),
+      ).rejects.toThrow("proposal member is stale");
+      const unchanged = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(unchanged.content).toBe(before);
+      expect(unchanged.bodyRevision).toBe(0);
+      const listed = await (
+        await import("@agent-native/core/review/suggestions/actions/list-resource-suggestions")
+      ).default.run({ resourceType: "document", resourceId: documentId }, ctx);
+      expect(listed.suggestions.map((suggestion) => suggestion.status)).toEqual(
+        ["pending", "pending"],
+      );
+    });
+  });
   it("rechecks the bound comment thread inside suggestion creation", async () => {
     const { documentId } = await seedSystemDatabasePage();
     const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>
