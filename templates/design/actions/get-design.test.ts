@@ -176,6 +176,16 @@ describe("get-design", () => {
   });
 
   it("can list file metadata without fetching file content", async () => {
+    mocks.selectChain.orderBy.mockResolvedValueOnce([
+      {
+        id: "file_123",
+        filename: "index.html",
+        fileType: "html",
+        createdAt: "2026-06-29T00:00:00.000Z",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+
     const result = await action.run({
       id: "design_123",
       includeFileContent: false,
