@@ -296,7 +296,7 @@ for (const target of targets) {
     const { errors } = collectAppPageErrors(page, target.origin);
     const initialPageNetwork = trackNetwork(page, target.origin);
     let postLinkPage: Page = page;
-    let postLinkErrors = errors;
+    let postLinkErrors = () => errors;
     let postLinkNetwork = initialPageNetwork;
     const steps: JourneyStep[] = [];
     const email = createQaEmail(target.app, target.environment);
@@ -395,7 +395,7 @@ for (const target of targets) {
         );
       }
       postLinkPage = verificationPage;
-      postLinkErrors = [...errors, ...verificationErrors];
+      postLinkErrors = () => [...errors, ...verificationErrors];
       postLinkNetwork = verificationPageNetwork;
     });
 
@@ -406,7 +406,7 @@ for (const target of targets) {
         await capture(
           postLinkPage,
           "after a browser reload",
-          postLinkErrors,
+          postLinkErrors(),
           postLinkNetwork.networkEvents,
           postLinkNetwork.pendingRequests,
         ),
