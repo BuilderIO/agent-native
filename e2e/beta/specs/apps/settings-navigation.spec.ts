@@ -203,14 +203,6 @@ for (const site of sites) {
     });
 
     test("⌘K › Settings opens Settings", async ({ browser }) => {
-      // Analytics ships its own command palette, which lists Settings rows
-      // but not the Settings command spec §3.2 puts in every app. Remove
-      // this once that palette gains the command; the test then passes and
-      // Playwright reports the stale expectation.
-      test.fail(
-        site.id === "analytics",
-        "Analytics' CommandPalette has no Settings command yet",
-      );
       const context = await signedInContext(browser, site, {
         seedModel: false,
       });

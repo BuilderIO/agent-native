@@ -1,5 +1,9 @@
 import {
+  CORE_SETTINGS_PAGES,
+  createSettingsBridge,
   getAgentSettingsSearchTabs,
+  isSettingsPageVisible,
+  type SettingsPageContext,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
 import {
@@ -118,6 +122,28 @@ interface CommandTab {
 export interface AnalyticsSettingsCommandOptions {
   /** The `settings-redesign` flag: link to the redesigned pages. */
   redesign?: boolean;
+  /** Who is viewing, for which redesigned pages they see. */
+  pageContext?: SettingsPageContext;
+}
+
+/** A viewer with no organization role: organization admin pages stay hidden. */
+const MEMBER_PAGE_CONTEXT: SettingsPageContext = {
+  role: null,
+  isOwner: false,
+  isAdmin: false,
+  hasOrganization: null,
+  soloDeploymentAdmin: false,
+  appId: null,
+  labs: {},
+  flags: {},
+};
+
+/**
+ * What `pages/Settings.tsx` hands the redesigned shell, as far as page
+ * visibility reads it. What's new stays out: the palette opens it itself.
+ */
+function analyticsSettingsBridge() {
+  return createSettingsBridge({ notifications: true });
 }
 
 export function buildAnalyticsSettingsCommandItems(
@@ -125,13 +151,13 @@ export function buildAnalyticsSettingsCommandItems(
   generalEntries: SettingsSearchEntry[],
   options: AnalyticsSettingsCommandOptions = {},
 ): SettingsCommandItem[] {
-  const tabs = options.redesign
-    ? redesignedCommandTabs(t)
-    : legacyCommandTabs(t, generalEntries);
+  const rows = options.redesign
+    ? redesignedCommandRows(t, options.pageContext ?? MEMBER_PAGE_CONTEXT)
+    : legacyCommandTabs(t, generalEntries).flatMap(tabCommandRows);
   const commandIndexByDestination = new Map<string, number>();
   const commands: SettingsCommandItem[] = [];
 
-  const add = (command: SettingsCommandItem) => {
+  for (const command of rows) {
     const destinationKey = `${normalizeLabel(command.label)}\0${command.href}`;
     const existingIndex = commandIndexByDestination.get(destinationKey);
     if (existingIndex !== undefined) {
@@ -142,34 +168,36 @@ export function buildAnalyticsSettingsCommandItems(
         // catalogs. Preserve both sources' search phrases and tab context.
         keywords: `${existing.keywords} ${command.keywords}`,
       };
-      return;
+      continue;
     }
 
     commandIndexByDestination.set(destinationKey, commands.length);
     commands.push(command);
-  };
+  }
 
-  for (const tab of tabs) {
-    add({
+  return commands;
+}
+
+function tabCommandRows(tab: CommandTab): SettingsCommandItem[] {
+  return [
+    {
       id: `tab:${tab.id}`,
       label: tab.label,
       keywords: `${tab.keywords} settings`,
       href: tab.href ?? buildSettingsRoute(tab.id),
-    });
-    for (const entry of tab.searchEntries ?? []) {
-      const tabId = entry.tabId ?? tab.id;
-      add({
-        id: entry.id,
-        label: entry.label,
-        keywords: `${entry.keywords ?? ""} ${entry.description ?? ""} ${tab.label} settings`,
-        href:
-          tab.entryHref?.(entry) ??
-          buildSettingsEntryRoute(tabId, entry.hash?.replace(/^#/, "")),
-      });
-    }
-  }
-
-  return commands;
+    },
+    ...(tab.searchEntries ?? []).map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      keywords: `${entry.keywords ?? ""} ${entry.description ?? ""} ${tab.label} settings`,
+      href:
+        tab.entryHref?.(entry) ??
+        buildSettingsEntryRoute(
+          entry.tabId ?? tab.id,
+          entry.hash?.replace(/^#/, ""),
+        ),
+    })),
+  ];
 }
 
 function legacyCommandTabs(
@@ -194,46 +222,80 @@ function legacyCommandTabs(
   ];
 }
 
-function redesignedCommandTabs(t: Translate): CommandTab[] {
+/** Analytics' own rows, right after the core page they live on. */
+function analyticsPageRows(
+  t: Translate,
+  pageId: string,
+): SettingsCommandItem[] {
   const anchored =
     (page: string, sub?: string) => (entry: SettingsSearchEntry) =>
       buildSettingsRoute(page, sub ?? null, {
         anchor: entry.hash?.replace(/^#/, ""),
       });
-  return [
-    {
-      id: "profile",
-      label: t("settings.account"),
-      keywords: "profile photo avatar email signed in identity",
-    },
-    {
-      id: "app",
-      label: "General",
-      keywords: "settings preferences configuration",
-    },
-    {
-      id: `app:${ANALYTICS_SETTINGS_AREAS.alerts}`,
-      label: t("settings.alertsTitle"),
-      keywords: ALERTS_KEYWORDS,
-      href: buildSettingsRoute("app", ANALYTICS_SETTINGS_AREAS.alerts),
-    },
-    {
-      id: `app:${ANALYTICS_SETTINGS_AREAS.dataSources}`,
-      label: t("navigation.dataSources"),
-      keywords: "data sources credentials api keys",
-      href: buildSettingsRoute("app", ANALYTICS_SETTINGS_AREAS.dataSources),
-      searchEntries: buildAnalyticsDataSourcesSearchEntries(t),
-      entryHref: anchored("app", ANALYTICS_SETTINGS_AREAS.dataSources),
-    },
-    {
-      id: "notifications",
-      label: t("settings.notificationsTitle"),
-      keywords: "notifications email sound bell",
-      searchEntries: buildAnalyticsNotificationsSearchEntries(t),
-      entryHref: anchored("notifications"),
-    },
-    // Today's agent tab ids; the shell's redirect table maps them onto
-    // the redesigned pages.
-    ...getAgentSettingsSearchTabs(),
-  ];
+  if (pageId === "app") {
+    const areas: CommandTab[] = [
+      {
+        id: `app:${ANALYTICS_SETTINGS_AREAS.alerts}`,
+        label: t("settings.alertsTitle"),
+        keywords: ALERTS_KEYWORDS,
+        href: buildSettingsRoute("app", ANALYTICS_SETTINGS_AREAS.alerts),
+      },
+      {
+        id: `app:${ANALYTICS_SETTINGS_AREAS.dataSources}`,
+        label: t("navigation.dataSources"),
+        keywords: "data sources credentials api keys",
+        href: buildSettingsRoute("app", ANALYTICS_SETTINGS_AREAS.dataSources),
+        searchEntries: buildAnalyticsDataSourcesSearchEntries(t),
+        entryHref: anchored("app", ANALYTICS_SETTINGS_AREAS.dataSources),
+      },
+    ];
+    return areas.flatMap(tabCommandRows);
+  }
+  if (pageId === "notifications") {
+    return buildAnalyticsNotificationsSearchEntries(t).map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      keywords: `${entry.keywords ?? ""} notifications settings`,
+      href: anchored("notifications")(entry),
+    }));
+  }
+  return [];
+}
+
+/**
+ * The redesigned Settings' own pages and search rows, under the labels its
+ * nav shows, so the palette never names a page Settings no longer has.
+ */
+function redesignedCommandRows(
+  t: Translate,
+  context: SettingsPageContext,
+): SettingsCommandItem[] {
+  const bridge = analyticsSettingsBridge();
+  const rows: SettingsCommandItem[] = [];
+  for (const page of CORE_SETTINGS_PAGES) {
+    if (page.href || !isSettingsPageVisible(page, context, bridge)) {
+      continue;
+    }
+    const label = page.labelKey ? t(page.labelKey) : (page.label ?? page.id);
+    rows.push({
+      id: `tab:${page.id}`,
+      label,
+      keywords: `${page.keywords ?? ""} settings`,
+      href: buildSettingsRoute(page.id),
+    });
+    for (const entry of page.searchEntries ?? []) {
+      const entryLabel = entry.labelKey ? t(entry.labelKey) : entry.label;
+      if (!entryLabel) continue;
+      rows.push({
+        id: `${page.id}:${entry.id}`,
+        label: entryLabel,
+        keywords: `${entry.keywords ?? ""} ${label} settings`,
+        href: buildSettingsRoute(page.id, entry.sub ?? null, {
+          anchor: entry.anchor,
+        }),
+      });
+    }
+    rows.push(...analyticsPageRows(t, page.id));
+  }
+  return rows;
 }
