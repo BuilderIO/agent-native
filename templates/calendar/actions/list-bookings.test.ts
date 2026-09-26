@@ -11,7 +11,10 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 const schemaMock = vi.hoisted(() => ({
-  bookingLinks: { slug: "bookingLinks.slug" },
+  bookingLinks: {
+    slug: "bookingLinks.slug",
+    conferencing: "bookingLinks.conferencing",
+  },
   bookingLinkShares: {},
   bookings: {
     id: "bookings.id",
@@ -124,6 +127,54 @@ describe("list-bookings", () => {
       action.run({} as never, undefined as never),
     ).resolves.toMatchObject([
       { id: "booking-2", zoomCancellationNeedsReview: true },
+    ]);
+  });
+
+  it("flags legacy Zoom bookings from their link config when no meeting data was saved", async () => {
+    const booking = {
+      id: "booking-3",
+      name: "Guest",
+      email: "guest@example.com",
+      additionalGuestEmails: null,
+      start: "2026-09-25T23:30:00.000Z",
+      end: "2026-09-26T00:00:00.000Z",
+      slug: "legacy-zoom",
+      eventTitle: "Planning",
+      notes: null,
+      fieldResponses: null,
+      meetingLink: null,
+      googleEventId: null,
+      zoomNeedsReview: false,
+      zoomMeetingId: null,
+      zoomAccountId: null,
+      status: "confirmed",
+      createdAt: "2026-09-25T17:00:00.000Z",
+    };
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn((table) => ({
+          where: vi.fn(() =>
+            table === schemaMock.bookingLinks
+              ? Promise.resolve([
+                  {
+                    slug: booking.slug,
+                    conferencing: JSON.stringify({ type: "zoom" }),
+                  },
+                ])
+              : { orderBy: vi.fn(async () => [booking]) },
+          ),
+        })),
+      })),
+    });
+
+    await expect(
+      action.run({} as never, undefined as never),
+    ).resolves.toMatchObject([
+      {
+        id: "booking-3",
+        zoomNeedsReview: false,
+        zoomCancellationNeedsReview: true,
+      },
     ]);
   });
 });

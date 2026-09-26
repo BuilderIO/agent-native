@@ -28,6 +28,7 @@ function rowToBooking(
     | "status"
     | "createdAt"
   >,
+  conferencing?: string | null,
 ): Booking {
   let fieldResponses: Record<string, string | boolean> | undefined;
   if (row.fieldResponses) {
@@ -52,7 +53,10 @@ function rowToBooking(
     meetingLink: row.meetingLink ?? undefined,
     googleEventId: row.googleEventId ?? undefined,
     zoomNeedsReview: row.zoomNeedsReview,
-    zoomCancellationNeedsReview: needsZoomCancellationReview(row),
+    zoomCancellationNeedsReview: needsZoomCancellationReview({
+      ...row,
+      conferencing,
+    }),
     status: row.status,
     createdAt: row.createdAt,
   };
@@ -64,11 +68,17 @@ export default defineAction({
   http: { method: "GET" },
   run: async () => {
     const accessibleLinks = await getDb()
-      .select({ slug: schema.bookingLinks.slug })
+      .select({
+        slug: schema.bookingLinks.slug,
+        conferencing: schema.bookingLinks.conferencing,
+      })
       .from(schema.bookingLinks)
       .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
     const slugs = accessibleLinks.map((link) => link.slug);
     if (slugs.length === 0) return [];
+    const conferencingBySlug = new Map(
+      accessibleLinks.map((link) => [link.slug, link.conferencing]),
+    );
 
     const rows = await getDb()
       .select({
@@ -93,7 +103,9 @@ export default defineAction({
       .from(schema.bookings)
       .where(inArray(schema.bookings.slug, slugs))
       .orderBy(schema.bookings.start);
-    return rows.map(rowToBooking);
+    return rows.map((row) =>
+      rowToBooking(row, conferencingBySlug.get(row.slug)),
+    );
   },
 });
 

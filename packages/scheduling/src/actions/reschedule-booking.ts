@@ -10,7 +10,7 @@ import { currentUserEmailOrNull } from "./_helpers.js";
 
 export default defineAction({
   description:
-    "Reschedule a booking, deleting its existing video meeting first. If a Zoom booking has no recorded meeting, the host must review and resolve it first.",
+    "Reschedule a booking, deleting its existing video meeting after the replacement is ready. If a Zoom booking has no recorded meeting, the host must review and resolve it first.",
   schema: z.object({
     uid: z.string().describe("Booking uid"),
     newStartTime: z.string().describe("New start time in ISO 8601 format"),

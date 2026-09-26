@@ -630,6 +630,50 @@ describe("rescheduleBooking", () => {
     expect((await getBookingByUid(original.uid))?.status).toBe("rescheduled");
   });
 
+  it("keeps the original active when the replacement Zoom meeting is missing", async () => {
+    const eventType = makeEventType();
+    await seedEventType(eventType);
+    const original = await createBooking({
+      eventType,
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-10T10:00:00.000Z",
+      endTime: "2026-08-10T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+    createZoomMeetingMock.mockRejectedValueOnce(
+      new Error("Zoom creation failed"),
+    );
+    deleteZoomMeetingMock.mockRejectedValueOnce(
+      new Error("old meeting must not be touched"),
+    );
+
+    await expect(
+      rescheduleBooking({
+        uid: original.uid,
+        newStartTime: "2026-08-10T11:00:00.000Z",
+        newEndTime: "2026-08-10T11:30:00.000Z",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      errorCode: "video_meeting_creation_failed",
+    });
+
+    expect(deleteZoomMeetingMock).not.toHaveBeenCalled();
+    expect((await getBookingByUid(original.uid))?.status).toBe("confirmed");
+    const { rows } = await execute({
+      sql: "SELECT uid, status FROM bookings WHERE from_reschedule = ?",
+      args: [original.uid],
+    });
+    expect(rows).toHaveLength(1);
+    const replacement = await getBookingByUid(String(rows[0]!.uid));
+    expect(replacement).toMatchObject({ status: "confirmed", references: [] });
+    await expect(cancelBooking({ uid: replacement!.uid })).rejects.toThrow(
+      /Zoom meeting needs host review/i,
+    );
+  });
+
   it("keeps the original slot confirmed when old Zoom cleanup fails", async () => {
     const eventType = makeEventType();
     await seedEventType(eventType);

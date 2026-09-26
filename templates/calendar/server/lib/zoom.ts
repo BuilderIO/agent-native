@@ -75,9 +75,25 @@ export function needsZoomCancellationReview(booking: {
   meetingLink?: string | null;
   zoomMeetingId?: string | null;
   zoomAccountId?: string | null;
+  conferencing?: string | null;
+  status?: string;
 }): boolean {
+  if (booking.status === "cancelled") return false;
   if (booking.zoomMeetingId && booking.zoomAccountId) return false;
   if (booking.zoomNeedsReview) return true;
+  if (booking.conferencing) {
+    try {
+      const config: unknown = JSON.parse(booking.conferencing);
+      if (!config || typeof config !== "object" || Array.isArray(config)) {
+        return true;
+      }
+      const type = (config as { type?: unknown }).type;
+      if (typeof type !== "string") return true;
+      if (type === "zoom") return true;
+    } catch {
+      return true;
+    }
+  }
   if (!booking.meetingLink) return false;
 
   try {

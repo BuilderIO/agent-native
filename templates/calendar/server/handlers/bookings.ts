@@ -3,6 +3,7 @@ import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
   getAppProductionUrl,
+  getRequestContext,
   recordChange,
   readBody,
   runWithRequestContext,
@@ -55,6 +56,7 @@ import {
 import {
   getBookingLinkCoHostEmails,
   getBookingLinkRequiredHostEmails,
+  isBookingLinkHost,
   normalizeBookingHosts,
 } from "../lib/booking-link-utils.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
@@ -93,16 +95,23 @@ async function getBookingLinkSlugsForOwners(
   return Array.from(new Set(rows.map((row) => row.slug)));
 }
 
-async function getBookingLinkOwnerEmail(
-  slug: string,
-): Promise<string | undefined> {
+async function getBookingLinkDetails(slug: string) {
   if (!slug) return undefined;
-  const row = await getDb()
-    .select({ ownerEmail: schema.bookingLinks.ownerEmail })
+  return getDb()
+    .select({
+      ownerEmail: schema.bookingLinks.ownerEmail,
+      hosts: schema.bookingLinks.hosts,
+      conferencing: schema.bookingLinks.conferencing,
+    })
     .from(schema.bookingLinks)
     .where(eq(schema.bookingLinks.slug, slug))
     .then((rows) => rows[0]);
-  return row?.ownerEmail;
+}
+
+async function getBookingLinkOwnerEmail(
+  slug: string,
+): Promise<string | undefined> {
+  return (await getBookingLinkDetails(slug))?.ownerEmail;
 }
 
 function stripCrlf(value: unknown): string {
@@ -1923,11 +1932,16 @@ export async function cancelBookingById(
 
   // Bookings have no ownerEmail of their own — scope through the booking link.
   const accessibleLinks = await db
-    .select({ slug: schema.bookingLinks.slug })
+    .select({
+      slug: schema.bookingLinks.slug,
+      ownerEmail: schema.bookingLinks.ownerEmail,
+      hosts: schema.bookingLinks.hosts,
+      conferencing: schema.bookingLinks.conferencing,
+    })
     .from(schema.bookingLinks)
     .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-  const accessibleSlugs = new Set(accessibleLinks.map((link) => link.slug));
-  if (!accessibleSlugs.has(existing.slug)) {
+  const link = accessibleLinks.find((item) => item.slug === existing.slug);
+  if (!link) {
     throw createError({ statusCode: 403, statusMessage: "Access denied" });
   }
 
@@ -1936,7 +1950,17 @@ export async function cancelBookingById(
   }
 
   if (
-    needsZoomCancellationReview(existing) &&
+    options.zoomMeetingResolved === true &&
+    !isBookingLinkHost(link, getRequestContext()?.userEmail)
+  ) {
+    throw createError({ statusCode: 403, statusMessage: "Access denied" });
+  }
+
+  if (
+    needsZoomCancellationReview({
+      ...existing,
+      conferencing: link.conferencing,
+    }) &&
     options.zoomMeetingResolved !== true
   ) {
     throw createError({
@@ -1953,7 +1977,7 @@ export async function cancelBookingById(
     });
   }
 
-  const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
+  const hostEmail = link.ownerEmail;
   const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
   const bookAgainUrl = existing.slug
     ? `${origin}/book/${existing.slug}`
@@ -2019,6 +2043,7 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
 
     // Return limited info — don't expose internal IDs
     const booking = rowToBooking(row);
+    const link = await getBookingLinkDetails(row.slug);
     return {
       eventTitle: booking.eventTitle,
       name: booking.name,
@@ -2026,7 +2051,10 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
       end: booking.end,
       slug: booking.slug,
       meetingLink: booking.meetingLink,
-      zoomCancellationNeedsReview: needsZoomCancellationReview(row),
+      zoomCancellationNeedsReview: needsZoomCancellationReview({
+        ...row,
+        conferencing: link?.conferencing,
+      }),
       status: booking.status,
     };
   } catch (error: any) {
@@ -2061,7 +2089,13 @@ export const cancelBookingByToken = defineEventHandler(
         return { success: true, alreadyCancelled: true };
       }
 
-      if (needsZoomCancellationReview(row)) {
+      const link = await getBookingLinkDetails(row.slug);
+      if (
+        needsZoomCancellationReview({
+          ...row,
+          conferencing: link?.conferencing,
+        })
+      ) {
         setResponseStatus(event, 409);
         return {
           error:
@@ -2082,7 +2116,7 @@ export const cancelBookingByToken = defineEventHandler(
         .set({ status: "cancelled", zoomNeedsReview: false })
         .where(eq(schema.bookings.id, row.id));
 
-      const hostEmail = await getBookingLinkOwnerEmail(row.slug);
+      const hostEmail = link?.ownerEmail;
       const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
       const reqUrl = getRequestURL(event);
       const bookAgainUrl = row.slug

@@ -100,6 +100,14 @@ export function getBookingLinkRequiredHostEmails(
   return emails;
 }
 
+export function isBookingLinkHost(
+  row: Pick<typeof schema.bookingLinks.$inferSelect, "hosts" | "ownerEmail">,
+  userEmail: unknown,
+): boolean {
+  const email = normalizeBookingHostEmail(userEmail);
+  return !!email && getBookingLinkRequiredHostEmails(row).includes(email);
+}
+
 export function rowToBookingLink(
   row: typeof schema.bookingLinks.$inferSelect,
 ): BookingLink {

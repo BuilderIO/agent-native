@@ -83,4 +83,26 @@ describe("needsZoomCancellationReview", () => {
       }),
     ).toBe(false);
   });
+
+  it("requires review for legacy Zoom bookings with no saved link or IDs", () => {
+    expect(
+      needsZoomCancellationReview({
+        conferencing: JSON.stringify({ type: "zoom" }),
+        zoomNeedsReview: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("requires review when a booking link conferencing config is unreadable", () => {
+    expect(needsZoomCancellationReview({ conferencing: "{" })).toBe(true);
+  });
+
+  it("does not require review for cancelled legacy Zoom bookings", () => {
+    expect(
+      needsZoomCancellationReview({
+        conferencing: JSON.stringify({ type: "zoom" }),
+        status: "cancelled",
+      }),
+    ).toBe(false);
+  });
 });

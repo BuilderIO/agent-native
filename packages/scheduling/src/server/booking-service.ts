@@ -52,6 +52,8 @@ export interface CreateBookingInput {
   orgId?: string;
   /** If set, we're rescheduling from this booking uid */
   fromReschedule?: string;
+  /** Keep Zoom reschedules uncommitted until the replacement meeting is usable. */
+  requireZoomMeeting?: boolean;
 }
 
 export class BookingLifecycleError extends Error {
@@ -60,7 +62,8 @@ export class BookingLifecycleError extends Error {
     readonly statusCode: 409 | 502,
     readonly errorCode:
       | "zoom_meeting_review_required"
-      | "video_meeting_cleanup_failed",
+      | "video_meeting_cleanup_failed"
+      | "video_meeting_creation_failed",
   ) {
     super(message);
   }
@@ -102,6 +105,8 @@ export async function createBooking(
     orgId: input.orgId,
   });
 
+  let usableZoomMeeting = false;
+
   // Create video meeting if location is a video kind
   if (booking.location && isVideoKind(booking.location.kind)) {
     const provider = getVideoProvider(
@@ -113,7 +118,7 @@ export async function createBooking(
           credentialId: booking.location.credentialId,
           booking,
         });
-        if (meeting.meetingUrl) {
+        if (meeting.meetingId && booking.location.credentialId) {
           await addBookingReference(booking.id, {
             type: provider.kind,
             externalId: meeting.meetingId,
@@ -121,11 +126,28 @@ export async function createBooking(
             meetingPassword: meeting.meetingPassword,
             credentialId: booking.location.credentialId,
           });
+          usableZoomMeeting =
+            provider.kind === "zoom_video" && Boolean(meeting.meetingUrl);
         }
       } catch {
+        if (input.requireZoomMeeting) {
+          throw new BookingLifecycleError(
+            "Replacement Zoom meeting could not be confirmed. The original booking remains active, and the replacement reservation needs host review.",
+            502,
+            "video_meeting_creation_failed",
+          );
+        }
         // Continue without the video link; the host can fix on the booking detail page
       }
     }
+  }
+
+  if (input.requireZoomMeeting && !usableZoomMeeting) {
+    throw new BookingLifecycleError(
+      "Replacement Zoom meeting could not be confirmed. The original booking remains active, and the replacement reservation needs host review.",
+      502,
+      "video_meeting_creation_failed",
+    );
   }
 
   // Write to destination calendar
@@ -173,6 +195,7 @@ export async function rescheduleBooking(input: {
     iCalUid: original.iCalUid,
     iCalSequence: original.iCalSequence + 1,
     fromReschedule: input.uid,
+    requireZoomMeeting: original.location?.kind === "zoom",
   });
 
   try {
