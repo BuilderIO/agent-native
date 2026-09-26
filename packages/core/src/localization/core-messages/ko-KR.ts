@@ -828,6 +828,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "새 이메일",
   "settings.emailNewPlaceholder": "새 이메일 입력",
   "usage.builderCredits": "Builder 크레딧",
+  "usage.inviteFriends": "친구 초대",
+  "usage.inviteCredits":
+    "친구가 구독하면 Builder 크레딧 {{amount}}개를 받을 수 있습니다.",
+  "usage.copyInviteLink": "초대 링크 복사",
+  "usage.inviteLinkCopied": "초대 링크를 복사했습니다",
   "usage.creditBalance": "워크스페이스 잔액",
   "usage.monthlyPlan": "월간 플랜",
   "usage.dailyFreeLimit": "무료 일일 한도",

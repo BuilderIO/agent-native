@@ -22,6 +22,7 @@ import {
   ensureGmailLabel,
 } from "../server/lib/automation-actions.js";
 import {
+  assertMailJevEnabled,
   createAutomationRule,
   listAutomationRules,
 } from "../server/lib/automations.js";
@@ -144,6 +145,12 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
 
     if (args.mode === "settings") {
+      const settingKeys = Object.keys(args.settings ?? {});
+      const disableOnly =
+        settingKeys.length === 1 && args.settings?.enabled === false;
+      if (settingKeys.length > 0 && !disableOnly) {
+        await assertMailJevEnabled(ownerEmail);
+      }
       const state = await getAiFilterState(ownerEmail);
       const next = {
         ...state,
@@ -154,6 +161,7 @@ export default defineAction({
       return { changed: 0, failures: [], state: next };
     }
 
+    await assertMailJevEnabled(ownerEmail);
     const targets = args.targets ?? [];
     if (targets.length === 0) throw new Error("targets are required");
 

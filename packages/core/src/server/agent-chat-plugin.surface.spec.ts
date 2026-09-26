@@ -781,6 +781,23 @@ describe("framework tool gating — wiring guards", () => {
     }
   });
 
+  it("lets apps hide the raw browser-session tools from every agent surface", () => {
+    const start = source.indexOf(
+      "let browserSessionTools: Record<string, ActionEntry> = {};",
+    );
+    const remoteStart = source.indexOf("let remoteBrowserTools:", start);
+    const remoteEnd = source.indexOf("// Core send-email tool.", remoteStart);
+    const rawTools = source.slice(start, remoteStart);
+    const relayTools = source.slice(remoteStart, remoteEnd);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(rawTools).toMatch(
+      /if \(frameworkTools\.isEnabled\("browserSessions"\)\) \{[\s\S]*createBrowserSessionActionEntries\([\s\S]*?\}\s+\}\s+catch \{\}\s*$/,
+    );
+    expect(relayTools).toContain("createRemoteBrowserActionEntries");
+    expect(relayTools).not.toContain('isEnabled("browserSessions")');
+  });
+
   it("leaves httpActions ungated so the UI keeps its routes", () => {
     // Disabling `sharing` must not 404 a share dialog that is still on screen:
     // the UI reaches these through client hooks, not the agent tool surface.

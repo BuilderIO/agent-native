@@ -11,9 +11,14 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The chat composer keeps a consistent background while AI setup is open.
 - First-run onboarding records setup choices and Builder connection outcomes
 - Human review previews Analytics dashboards as real charts
 - Relevant metric definitions and saved dashboard examples are available with the first response so Analytics queries can reuse proven definitions and query shapes.
+
+### Fixed
+
+- Opening Settings no longer opens the chat sidebar.
 
 ## 2026-09-24
 
