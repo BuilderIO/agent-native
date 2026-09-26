@@ -20,8 +20,11 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
-import { EMBED_START_PATH } from "../shared/embed-auth.js";
-import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_START_PATH,
+  EMBED_TARGET_HEADER,
+} from "../shared/embed-auth.js";
 import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_MAX_AGE,
@@ -580,11 +583,12 @@ function getBetterAuthSessionTokenValues(event: H3Event): string[] {
 
 function getFrameworkSessionCookieEntries(
   event: H3Event,
+  names = frameworkSessionCookieNamesToClear(),
 ): Array<{ name: string; value: string }> {
   const entries: Array<{ name: string; value: string }> = [];
   const seenValues = new Set<string>();
 
-  for (const name of frameworkSessionCookieNamesToClear()) {
+  for (const name of names) {
     for (const value of getCookieValues(event, name)) {
       if (seenValues.has(value)) continue;
       seenValues.add(value);
@@ -597,6 +601,10 @@ function getFrameworkSessionCookieEntries(
 
 function frameworkSessionCookieNamesToClear(): string[] {
   return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToClear;
+}
+
+function frameworkSessionCookieNamesToRead(): string[] {
+  return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToRead;
 }
 
 async function enrichLegacySessionIdentity(
@@ -708,6 +716,7 @@ export function clearFrameworkSessionCookies(event: H3Event): void {
   for (const name of frameworkSessionCookieNamesToClear()) {
     deleteCookieFromEveryScope(event, name);
   }
+  deleteCookieFromEveryScope(event, EMBED_SESSION_COOKIE);
 }
 
 function clearBetterAuthSessionCookies(event: H3Event): void {
@@ -720,7 +729,10 @@ function clearBetterAuthSessionCookies(event: H3Event): void {
 async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
+  for (const { name, value } of getFrameworkSessionCookieEntries(
+    event,
+    frameworkSessionCookieNamesToRead(),
+  )) {
     let resolvedToken: string | undefined;
     let email: string | null = null;
     for (const candidate of sessionTokenLookupCandidates(value)) {
@@ -2086,6 +2098,12 @@ async function performLogout(
     return { error: "Unable to revoke session" };
   }
   return { ok: true };
+}
+
+export async function logout(
+  event: H3Event,
+): Promise<{ ok: true } | { error: string }> {
+  return performLogout(event, () => getBetterAuth());
 }
 
 /**

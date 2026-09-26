@@ -21,6 +21,7 @@ import {
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
 const TOKEN_KIND = "agent-native-embed-session";
@@ -127,6 +128,7 @@ export interface EmbedSessionTokenClaims {
   ownerEmail: string;
   orgId?: string;
   targetPath: string;
+  audienceHost?: string;
   scope?: string;
   iat: number;
   exp: number;
@@ -475,6 +477,30 @@ function requestHost(event: H3Event): string | null {
   }
 }
 
+function requestHostname(event: H3Event): string | null {
+  const host = requestHost(event)?.split(",")[0]?.trim().toLowerCase();
+  if (!host) return null;
+  return host.replace(/:\d+$/, "").replace(/\.$/, "") || null;
+}
+
+function isFirstPartyAppRequest(event: H3Event): boolean {
+  const hostname = requestHostname(event);
+  return Boolean(
+    hostname?.endsWith(".agent-native.com") &&
+    hostname !== "www.agent-native.com",
+  );
+}
+
+function embedTokenMatchesRequestAudience(
+  event: H3Event,
+  claims: EmbedSessionTokenClaims,
+): boolean {
+  return (
+    !isFirstPartyAppRequest(event) ||
+    claims.audienceHost === requestHostname(event)
+  );
+}
+
 function referrerTargetPathname(event: H3Event): string | null {
   let raw: string | null =
     (event as any).request?.headers?.get?.("referer") ??
@@ -813,6 +839,7 @@ export function signEmbedSessionToken(input: {
   ownerEmail: string;
   orgId?: string | null;
   targetPath: string;
+  audienceHost?: string;
   scope?: string | null;
   ttlSeconds?: number;
 }): string {
@@ -827,6 +854,9 @@ export function signEmbedSessionToken(input: {
     exp: now + ttl,
   };
   if (input.orgId) claims.orgId = input.orgId;
+  if (input.audienceHost) {
+    claims.audienceHost = input.audienceHost.toLowerCase();
+  }
   if (input.scope) claims.scope = input.scope;
   const payload = base64UrlEncode(JSON.stringify(claims));
   return `${payload}.${signPayload(payload)}`;
@@ -890,8 +920,9 @@ function isHttpsRequest(event: H3Event): boolean {
   return false;
 }
 
-function cookieDomainAttrs(): { domain?: string } {
-  const domain = process.env.COOKIE_DOMAIN?.trim();
+function cookieDomainAttrs(event: H3Event): { domain?: string } {
+  if (isFirstPartyAppRequest(event)) return {};
+  const domain = resolveAuthCookieNamespace().frameworkCookieDomain;
   return domain ? { domain } : {};
 }
 
@@ -909,7 +940,7 @@ export function setEmbedSessionCookie(event: H3Event, token: string): void {
   setCookie(event, EMBED_SESSION_COOKIE, token, {
     httpOnly: true,
     ...crossSiteCookieAttrs(event),
-    ...cookieDomainAttrs(),
+    ...cookieDomainAttrs(event),
     path: "/",
     maxAge: DEFAULT_TOKEN_TTL_SECONDS,
   });
@@ -949,6 +980,7 @@ export async function resolveEmbedSessionFromRequest(
   for (const candidate of candidates) {
     const verified = verifyEmbedSessionToken(candidate.token);
     if (!verified.ok) continue;
+    if (!embedTokenMatchesRequestAudience(event, verified.claims)) continue;
     const matchesTarget = requestMatchesEmbedTarget(
       event,
       verified.claims.targetPath,
@@ -1009,6 +1041,7 @@ export function requestHasEmbedAuthMarker(event: H3Event): boolean {
           isEmbedStaticRuntimeRequest(event));
       if (
         verified.ok &&
+        embedTokenMatchesRequestAudience(event, verified.claims) &&
         (requestMatchesEmbedTarget(event, verified.claims.targetPath) ||
           (candidate.allowRuntime &&
             runtimeRequest &&

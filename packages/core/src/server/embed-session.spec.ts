@@ -21,6 +21,7 @@ import {
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
   consumeEmbedSessionTicket,
+  setEmbedSessionCookie,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
@@ -171,6 +172,7 @@ describe("requestMatchesEmbedTarget", () => {
       request: { headers: new Headers(headers) },
       headers: new Headers(headers),
       node: { req: { url: path, headers } },
+      res: { headers: new Headers(), status: 200 },
     } as any;
   }
 
@@ -434,6 +436,66 @@ describe("requestMatchesEmbedTarget", () => {
         }),
       ),
     ).resolves.toBeNull();
+  });
+
+  it("binds first-party embed sessions to the host that redeemed the ticket", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const betaHost = "beta.calendar.agent-native.com";
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/inbox",
+      audienceHost: betaHost,
+      ttlSeconds: 60,
+    });
+    const betaRequest = fakeEvent("/inbox", {
+      host: betaHost,
+      cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(betaRequest),
+    ).resolves.toMatchObject({
+      email: "owner@example.com",
+    });
+
+    const siblingRequest = fakeEvent("/inbox", {
+      host: "mail.agent-native.com",
+      cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(siblingRequest),
+    ).resolves.toBeNull();
+    expect(requestHasEmbedAuthMarker(siblingRequest)).toBe(false);
+
+    const legacyToken = signEmbedSessionToken({
+      ownerEmail: "previous-owner@example.com",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: betaHost,
+          cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
+        }),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps first-party embed session cookies host-only", () => {
+    vi.stubEnv("APP_NAME", "calendar");
+    process.env.APP_URL = "https://beta.calendar.agent-native.com";
+    process.env.COOKIE_DOMAIN = ".agent-native.com";
+    const event = fakeEvent("/", {
+      host: "beta.calendar.agent-native.com",
+      "x-forwarded-proto": "https",
+    });
+
+    setEmbedSessionCookie(event, "embed-token");
+
+    const cookie = event.res.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain(`${EMBED_SESSION_COOKIE}=embed-token`);
+    expect(cookie).not.toMatch(/Domain=\.agent-native\.com/i);
   });
 
   it("allows Vite module runtime requests with the embed query token", async () => {

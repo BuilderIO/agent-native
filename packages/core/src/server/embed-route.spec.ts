@@ -8,6 +8,7 @@ vi.mock("h3", () => ({
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
   getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
+  getRequestURL: (event: any) => event.url ?? new URL("https://app.test/"),
   setResponseHeader: (...a: any[]) => setResponseHeader(...a),
 }));
 
@@ -116,6 +117,7 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: "steve@example.com",
       orgId: "builder",
       targetPath: "/inbox",
+      audienceHost: "app.test",
       scope: "full",
     });
     expect(res.status).toBe(302);
@@ -238,6 +240,7 @@ describe("createEmbedStartRouteHandler", () => {
         ownerEmail: "steve@example.com",
         orgId: undefined,
         targetPath: "/visual-edit/design_1",
+        audienceHost: "app.test",
         scope: "capability:visual-edit:design:design_1",
         ttlSeconds: 45,
       });
@@ -271,6 +274,7 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: localWorkspacePrincipal,
       orgId: undefined,
       targetPath: "/visual-edit/design_1",
+      audienceHost: "app.test",
       scope: "capability:visual-edit:design:design_1",
       ttlSeconds: expect.any(Number),
     });

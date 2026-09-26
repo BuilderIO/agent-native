@@ -4,6 +4,7 @@ import {
   getHeader,
   getMethod,
   getQuery,
+  getRequestURL,
   setResponseHeader,
 } from "h3";
 
@@ -363,6 +364,7 @@ export function createEmbedStartRouteHandler(
       ownerEmail: consumed.ownerEmail,
       orgId: consumed.orgId,
       targetPath: target,
+      audienceHost: getRequestURL(event).hostname,
       scope: consumed.scope,
       ...(isEmbedCapabilityScope(consumed.scope)
         ? {

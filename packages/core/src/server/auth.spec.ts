@@ -8361,10 +8361,11 @@ describe("server/auth", () => {
       });
     });
 
-    it("migrates a legacy shared framework cookie into the isolated cookie name", async () => {
+    it("does not restore a shared legacy cookie on a first-party beta host", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
-      vi.stubEnv("APP_NAME", "slides");
+      vi.stubEnv("URL", "https://beta.calendar.agent-native.com");
+      delete process.env.COOKIE_DOMAIN;
+      vi.stubEnv("APP_NAME", "");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
@@ -8396,15 +8397,40 @@ describe("server/auth", () => {
         },
       });
 
-      expect(await getSession(event)).toEqual({
-        email: "user@gmail.com",
-        token: "legacy-token",
+      expect(await getSession(event)).toBeNull();
+      expect(
+        mockExecute.mock.calls.some(([query]) =>
+          JSON.stringify(query).includes("legacy-token"),
+        ),
+      ).toBe(false);
+      expect(event.res.headers.get("set-cookie") ?? "").not.toContain(
+        "legacy-token",
+      );
+    });
+
+    it("clears embed identities from host-only and legacy first-party cookie scopes", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("URL", "https://beta.calendar.agent-native.com");
+      vi.stubEnv("APP_NAME", "calendar");
+      delete process.env.COOKIE_DOMAIN;
+
+      const { clearFrameworkSessionCookies } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: { "x-forwarded-proto": "https" },
       });
+
+      clearFrameworkSessionCookies(event);
+
       const setCookie = event.res.headers.get("set-cookie") ?? "";
-      expect(setCookie).toContain("an_session=");
-      expect(setCookie).toContain("Max-Age=0");
-      expect(setCookie).toContain("Domain=.agent-native.com");
-      expect(setCookie).toContain("an_session_slides=legacy-token");
+      expect(setCookie).toContain(
+        "an_embed_session=; Max-Age=0; Path=/; Secure; Partitioned; SameSite=None",
+      );
+      expect(setCookie).toContain(
+        "an_embed_session=; Max-Age=0; Domain=.agent-native.com; Path=/; Secure; Partitioned; SameSite=None",
+      );
+      expect(setCookie).toContain(
+        "an_session=; Max-Age=0; Domain=.agent-native.com; Path=/; Secure; Partitioned; SameSite=None",
+      );
     });
 
     it("marks promoted cross-site session cookies secure on forwarded HTTPS requests", async () => {

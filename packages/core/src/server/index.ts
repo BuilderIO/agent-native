@@ -84,6 +84,7 @@ export {
   registerAuthPublicPaths,
   getSession,
   getMcpOAuthBearerSession,
+  logout,
   COOKIE_NAME,
   addSession,
   removeSession,
