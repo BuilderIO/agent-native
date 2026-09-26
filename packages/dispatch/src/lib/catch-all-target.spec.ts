@@ -1,6 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveCatchAllTarget } from "./catch-all-target.js";
+import {
+  resolveCatchAllTarget,
+  resolveServerCatchAllTarget,
+} from "./catch-all-target.js";
+
+const agentDiscovery = vi.hoisted(() => ({
+  getBuiltinAgents: vi.fn(() => []),
+  loadWorkspaceAppsManifest: vi.fn(async () => [
+    { id: "forms", path: "/forms" },
+  ]),
+  normalizeAgentId: vi.fn((id: string) => id),
+}));
+
+vi.mock("@agent-native/core/server/agent-discovery", () => agentDiscovery);
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
 describe("resolveCatchAllTarget", () => {
   it("prefers the workspace manifest entry when one matches", () => {
@@ -160,5 +178,18 @@ describe("resolveCatchAllTarget", () => {
         workspaceApps: [{ id: "dispatch", path: "/dispatch" }],
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveServerCatchAllTarget", () => {
+  it("resolves workspace apps in a Node server runtime", async () => {
+    await expect(resolveServerCatchAllTarget("forms")).resolves.toBe("/forms");
+  });
+
+  it("does not load server discovery in a browser runtime", async () => {
+    vi.stubGlobal("window", {});
+
+    await expect(resolveServerCatchAllTarget("forms")).resolves.toBeNull();
+    expect(agentDiscovery.loadWorkspaceAppsManifest).not.toHaveBeenCalled();
   });
 });
