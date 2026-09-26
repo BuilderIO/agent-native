@@ -61,6 +61,54 @@ function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function workspaceManifestDispatchState(
+  appsJson: string | undefined,
+): "missing" | "dispatch" | "no-dispatch" {
+  if (appsJson === undefined) return "missing";
+  if (!appsJson.trim()) {
+    throw new Error("AGENT_NATIVE_WORKSPACE_APPS_JSON must not be empty.");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(appsJson);
+  } catch (error) {
+    throw new Error(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain valid JSON.",
+      { cause: error },
+    );
+  }
+
+  const apps = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && "apps" in parsed
+      ? (parsed as { apps?: unknown }).apps
+      : null;
+  if (
+    !Array.isArray(apps) ||
+    apps.length === 0 ||
+    apps.some(
+      (app) =>
+        !app ||
+        typeof app !== "object" ||
+        typeof (app as { id?: unknown }).id !== "string" ||
+        !(app as { id: string }).id.trim(),
+    )
+  ) {
+    throw new Error(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain apps with non-empty string ids.",
+    );
+  }
+
+  const hasDispatch = apps.some((app) => {
+    const entry = app as { id: string; isDispatch?: unknown };
+    return (
+      entry.id.trim().toLowerCase() === "dispatch" || entry.isDispatch === true
+    );
+  });
+  return hasDispatch ? "dispatch" : "no-dispatch";
+}
+
 export function isStandaloneDispatchRuntime(): boolean {
   const app = getAppConfig().app;
   const isDispatch = [
@@ -77,6 +125,10 @@ function configuredWorkspaceDirectory(): string | null {
   const workspace = getAppConfig().workspace;
   const orgDirectoryUrl = workspace.orgDirectoryUrl?.trim();
   if (orgDirectoryUrl) return orgDirectoryUrl;
+
+  if (workspaceManifestDispatchState(workspace.appsJson) === "no-dispatch") {
+    return null;
+  }
 
   const gatewayUrl = workspace.gatewayUrl?.trim();
   if (!gatewayUrl) return null;

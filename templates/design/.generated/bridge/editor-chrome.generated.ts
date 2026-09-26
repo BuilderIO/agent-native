@@ -943,12 +943,45 @@ export const editorChromeBridgeScript: string = `"use strict";
     var editorChromeDocumentObserver = null;
     var editorChromeRootObserver = null;
     var repairingEditorChromeHost = false;
+    function isCanvasFocusTransferSafe() {
+      if (activeTextEditEl) return false;
+      var active = document.activeElement;
+      var visited = /* @__PURE__ */ new Set();
+      var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+      while (active && !visited.has(active)) {
+        visited.add(active);
+        if (isEditorTypingTarget(active) || active.closest?.(focusTargetSelector)) {
+          return false;
+        }
+        var shadowActive = active.shadowRoot?.activeElement;
+        if (shadowActive) {
+          active = shadowActive;
+          continue;
+        }
+        if (active !== document.body && active !== document.documentElement && active.matches?.(":focus-within")) {
+          return false;
+        }
+        return true;
+      }
+      return true;
+    }
+    function reportCanvasFocusState() {
+      if (readOnly || interactionMode) return;
+      window.parent.postMessage(
+        {
+          type: "agent-native:canvas-focus-state",
+          focusSafe: isCanvasFocusTransferSafe()
+        },
+        "*"
+      );
+    }
     function sendEditorChromeReady() {
       window.parent.postMessage(
         {
           type: "agent-native:editor-chrome-ready",
           routePath: window.location.pathname + window.location.search,
-          documentId: runtimeDocumentId
+          documentId: runtimeDocumentId,
+          focusSafe: !readOnly && !interactionMode && isCanvasFocusTransferSafe()
         },
         "*"
       );
@@ -8440,7 +8473,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isEditorTypingTarget(target) {
       if (!target || !target.closest) return false;
       return !!target.closest(
-        'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
+        'input, textarea, select, [contenteditable], [role="textbox"], [role="combobox"], [role="searchbox"], [data-agent-native-text-editing]'
       );
     }
     var ALT_CODE_KEYS = {
@@ -17690,6 +17723,21 @@ export const editorChromeBridgeScript: string = `"use strict";
     ].forEach(function(type) {
       document.addEventListener(type, stopBlockedLayerInteraction, true);
     });
+    document.addEventListener("focusin", reportCanvasFocusState, true);
+    document.addEventListener(
+      "focusout",
+      function() {
+        window.setTimeout(reportCanvasFocusState, 0);
+      },
+      true
+    );
+    document.addEventListener(
+      "pointerup",
+      function() {
+        window.setTimeout(reportCanvasFocusState, 0);
+      },
+      true
+    );
     shieldOverlay.addEventListener("click", selectElementAtEvent, true);
     shieldOverlay.addEventListener("contextmenu", openContextMenuAtEvent, true);
     selectionOverlay.addEventListener(
@@ -18805,6 +18853,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         sendEditorChromeReady();
         return;
       }
+      if (e.data.type === "agent-native:canvas-focus-state-probe") {
+        reportCanvasFocusState();
+        return;
+      }
       if (e.data.type === "resume-text-edit") {
         var resumeScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
         var resumeSelector = typeof e.data.selector === "string" ? e.data.selector : "";
@@ -18910,6 +18962,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
           scheduleRuntimeLayerSnapshot();
+          window.setTimeout(reportCanvasFocusState, 0);
         }
         return;
       }

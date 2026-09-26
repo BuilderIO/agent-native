@@ -14,12 +14,14 @@ time from the command menu (Cmd+K → "What's new").
 - Home headers keep search and controls aligned at intermediate widths
 - Browse every presentation template from the home page, with a responsive header and sticky Templates and Recent tabs.
 - The Slides home header aligns with Design, and starter suggestions reflect the role selected during onboarding.
+- Create decks from the prompt without a separate New Deck button.
 
 ### Fixed
 
 - Slides home suggestions start new presentations when personalized suggestions are unavailable, and template thumbnails load their declared fonts.
 - The home search shortcut leaves commands for open menus and dialogs.
 - Double-clicking slide text selects the word under the pointer.
+- Empty decks no longer start exports or presentations or expose presentation links.
 - Invalid or expired upload references stop instead of retrying
 - Slides ask for a file when a prompt refers to an unattached document
 - Reference file imports now check storage availability before opening the file picker.

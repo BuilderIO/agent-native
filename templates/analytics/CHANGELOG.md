@@ -27,6 +27,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Analytics guides users to connect AI before continuing agent questions.
 - Archived dashboards no longer appear in public link previews
 - Human Review previews show same-organization dashboard charts for organization admins.
 - Show one recent prompt per chat turn.
