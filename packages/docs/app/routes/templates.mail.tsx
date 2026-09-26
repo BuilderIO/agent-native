@@ -7,6 +7,7 @@ import { applyFirstTouchAttributionToLink } from "../components/marketing-attrib
 import { TemplateHero } from "../components/template-landing";
 import { MailProductMock } from "../components/template-landing/MailProductMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { usePrefersReducedMotion } from "../components/use-prefers-reduced-motion";
 import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
@@ -124,6 +125,8 @@ const HERO_WRAPPER_CLASS =
 
 export default function MailTemplate() {
   const t = useT();
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const shouldAutoplay = prefersReducedMotion === false;
 
   return (
     <div className="builder-brand-tokens">
@@ -170,10 +173,10 @@ export default function MailTemplate() {
                   src="/videos/mail-jev-story.mp4"
                   poster="/videos/mail-jev-story-poster.jpg"
                   aria-label={t("templateLanding.mail.heroDescription")}
-                  autoPlay
-                  muted
+                  autoPlay={shouldAutoplay}
+                  muted={shouldAutoplay}
                   loop
-                  playsInline
+                  playsInline={shouldAutoplay}
                   controls
                   preload="metadata"
                   className="block h-full w-full object-cover"
