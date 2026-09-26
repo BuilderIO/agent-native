@@ -30,7 +30,6 @@ import type {
   Booking,
   CalendarEvent,
   AvailabilityConfig,
-  ConferencingConfig,
   CustomField,
   TimeSlot,
 } from "../../shared/api.js";
