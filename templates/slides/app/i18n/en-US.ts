@@ -943,6 +943,8 @@ const messages = {
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
+    referenceFileStorageUnavailable:
+      "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
     attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",
