@@ -812,6 +812,11 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Create a product pitch deck",
+      roadmap: "Create a product roadmap",
+      explainer: "Explain a topic in a presentation",
+    },
     suggestedPrompts: "Suggested prompts",
     importMenu: {
       import: "Import",

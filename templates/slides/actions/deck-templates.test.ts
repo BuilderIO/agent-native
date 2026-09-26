@@ -8,14 +8,19 @@ import {
 import getTemplate from "./get-deck-template.js";
 import listTemplates from "./list-deck-templates.js";
 
+const TEMPLATE_COUNT = 18;
+
 describe("built-in deck templates", () => {
-  it("contains six independent, complete multi-slide starters", () => {
+  it("contains independent, complete multi-slide starters for every category", () => {
     const templates = listBuiltInDeckTemplates();
-    expect(templates.map((item) => item.category)).toEqual([
-      ...DECK_TEMPLATE_CATEGORIES,
-    ]);
-    expect(new Set(templates.map((item) => item.id)).size).toBe(6);
-    expect(templates.flatMap((item) => item.slides)).toHaveLength(28);
+    expect(new Set(templates.map((item) => item.category))).toEqual(
+      new Set(DECK_TEMPLATE_CATEGORIES),
+    );
+    expect(new Set(templates.map((item) => item.id)).size).toBe(TEMPLATE_COUNT);
+    expect(
+      new Set(templates.flatMap((item) => item.slides.map((slide) => slide.id)))
+        .size,
+    ).toBe(templates.flatMap((item) => item.slides).length);
     for (const template of templates) {
       expect(template.slides.length).toBeGreaterThanOrEqual(4);
       expect(template).toMatchObject({
@@ -46,10 +51,10 @@ describe("built-in deck templates", () => {
   it("lists only bounded metadata by default", async () => {
     const result = await listTemplates.run(listTemplates.schema.parse({}));
     expect(result).toMatchObject({
-      total: 6,
+      total: TEMPLATE_COUNT,
       page: 1,
       pageSize: 6,
-      hasMore: false,
+      hasMore: true,
     });
     for (const item of result.templates) {
       expect(item).not.toHaveProperty("slides");
@@ -78,14 +83,23 @@ describe("built-in deck templates", () => {
     const run = (args: Record<string, unknown>) =>
       listTemplates.run(listTemplates.schema.parse(args));
     expect(
-      (await run({ search: "QUARTERLY", pageSize: 1 })).templates.map(
+      (await run({ search: "QUARTERLY", pageSize: 24 })).templates.map(
         (item) => item.id,
       ),
-    ).toEqual(["starter-quarterly"]);
-    expect((await run({ category: "pitch" })).total).toBe(1);
-    expect(await run({ page: 4, pageSize: 2 })).toMatchObject({
+    ).toContain("starter-quarterly");
+    expect(
+      (await run({ category: "pitch" })).templates.map((item) => item.id),
+    ).toContain("starter-pitch");
+    expect(
+      (await run({ category: "keynote" })).templates.every(
+        (item) => item.category === "keynote",
+      ),
+    ).toBe(true);
+    expect(
+      await run({ page: TEMPLATE_COUNT / 2 + 1, pageSize: 2 }),
+    ).toMatchObject({
       templates: [],
-      total: 6,
+      total: TEMPLATE_COUNT,
       hasMore: false,
     });
     expect(await run({ search: "%_ no match" })).toMatchObject({
@@ -98,7 +112,11 @@ describe("built-in deck templates", () => {
     });
     expect(
       (await run({ page: 2, pageSize: 2 })).templates.map((item) => item.id),
-    ).toEqual(["starter-company", "starter-quarterly"]);
+    ).toEqual(
+      listBuiltInDeckTemplates()
+        .slice(2, 4)
+        .map((item) => item.id),
+    );
   });
 
   it.each([
@@ -112,7 +130,10 @@ describe("built-in deck templates", () => {
 
   it("reads complete content without creating a deck", async () => {
     const result = await getTemplate.run({ id: "starter-pitch" });
-    expect(result).toMatchObject({ id: "starter-pitch", slideCount: 5 });
+    expect(result).toMatchObject({
+      id: "starter-pitch",
+      slideCount: getBuiltInDeckTemplate("starter-pitch")!.slides.length,
+    });
     expect(result.slides).toEqual(
       getBuiltInDeckTemplate("starter-pitch")?.slides,
     );

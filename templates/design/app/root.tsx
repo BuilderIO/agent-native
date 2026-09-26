@@ -231,7 +231,8 @@ function PrivateRootContent() {
   const isPublicVisualEdit = location.pathname === "/visual-edit";
   useCommandMenuShortcut(
     useCallback(() => {
-      if (hasSession && !isPublicVisualEdit) setCmdkOpen(true);
+      if (!hasSession || isPublicVisualEdit) return;
+      setCmdkOpen(true);
     }, [hasSession, isPublicVisualEdit]),
   );
 

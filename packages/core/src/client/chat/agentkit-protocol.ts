@@ -2386,6 +2386,13 @@ export function createAgentKitProtocolAdapter(
           "Core requires approval continuations to use resumeRun",
         );
       }
+      const latestUserMessage = [...input.messages]
+        .reverse()
+        .find((message) => message.role === "user");
+      const latestUserMetadata = asRecord(latestUserMessage?.metadata);
+      const recoveryMetadata = asRecord(latestUserMetadata?.custom);
+      const isRecoveryRetry =
+        recoveryMetadata?.agentNativeRecoveryAction === "retry";
       const turnMetadata = mergeTrustedProtocolMetadata(
         options.metadata,
         input.metadata,
@@ -2393,12 +2400,27 @@ export function createAgentKitProtocolAdapter(
         input.options?.agentId ? { agentId: input.options.agentId } : undefined,
         input.options?.locale ? { locale: input.options.locale } : undefined,
         input.options?.mode ? { mode: input.options.mode } : undefined,
+        isRecoveryRetry ? { agentNativeInternalContinuation: true } : undefined,
       );
       const session = await getSession(input.threadId, turnMetadata);
       const messages = input.messages.map(protocolMessageToRuntimeMessage);
+      const attachments =
+        latestUserMessage?.parts.flatMap((part) =>
+          part.type === "file"
+            ? [
+                {
+                  name: part.name,
+                  ...(part.fileId ? { id: part.fileId } : {}),
+                  ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+                  ...(part.url ? { url: part.url } : {}),
+                },
+              ]
+            : [],
+        ) ?? [];
       const turn = await session.startTurn({
         prompt: latestUserPrompt(input.messages),
         messages,
+        ...(attachments.length ? { attachments } : {}),
         model: input.options?.model,
         reasoningEffort: input.options?.reasoningEffort,
         temperature: input.options?.temperature,

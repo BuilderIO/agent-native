@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.22.1
+
+### Patch Changes
+
+- 7e8a10a: Expose setup guidance when chat and uploads require configured providers.
+- Release all public npm packages with a patch version bump.
+
 ## 0.22.0
 
 ### Minor Changes
@@ -898,11 +905,5 @@
 ### Patch Changes
 
 - f43d34c: Release the updated skill guidance and portable drawer component types.
-
-## 0.4.5
-
-### Patch Changes
-
-- a91535c: Keep alert dialogs centered above full-app overlays.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
