@@ -92,11 +92,13 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 - If the user asks not to create scheduled tasks, keep ship and babysitting in
   the foreground; do not create a separate recurring automation.
 - For a linked GitHub issue, a verified source fix in the merged shipping
-  snapshot is enough to close it. Thank the reporter, link the fix, and close
-  immediately; do not leave it open waiting for publication, beta, or live
-  proof, and never say "leaving open until published." Keep it open only while
-  accepted scope is still unfixed, the source fix is not merged, or reporter
-  information is required.
+  snapshot is enough to close it. Start an authorized issue comment by thanking
+  the reporter for opening it, then link the fix and close immediately; do not
+  leave it open waiting for publication, beta, or live proof, and never say
+  "leaving open until published." Keep it open only while accepted scope is
+  still unfixed, the source fix is not merged, or reporter information is
+  required. If more information is needed, thank the reporter for opening the
+  issue before asking one targeted question.
 - Use the current worktree. If it is detached, create a named task branch only
   when publishing this work requires one, as described in the preflight gate
   below. Do not create a branch just for tidiness or attach or move another
@@ -292,6 +294,9 @@ Follow review-latest-feedback for ownership, reactions, reporter replies, and
 the exact disposition vocabulary; follow babysit-pr for review comments and
 merge blocking. Do not send Slack replies or reactions as a routine ship step
 unless that workflow was explicitly requested or already owns the action.
+Start any such Slack feedback reply by thanking the person for sharing the
+issue, then give the status or ask the needed question. This does not widen the
+existing write authorization.
 
 Close linked GitHub issues as soon as their accepted fix is verified in the
 merged snapshot. The publication and runtime follow-ups belong in the ship

@@ -469,9 +469,11 @@ improvements state requested versus actual behavior and use **Shipped**.
 
 ## Phase 3: reply
 
-`address-feedback-with-replies` owns reply voice, wording, and the thank-first
-rule. Follow it; do not restate or re-derive it here. Every reply from this
-workflow ends with `this was sent from a bot.` after the plain-language status.
+Start GitHub issue comments by thanking the person for opening the issue, and
+start Slack feedback replies by thanking them for sharing the issue. Then give the
+status or ask the needed question. Follow `address-feedback-with-replies` for
+the remaining Slack reply voice and wording. Every reply from this workflow
+ends with `this was sent from a bot.` after the plain-language status.
 
 Reply only where the reply carries information the thread does not already
 have. Three kinds qualify:
