@@ -7,6 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
 - Shared clips remember your sidebar choice and help new viewers understand why to sign up.
 
 ### Fixed

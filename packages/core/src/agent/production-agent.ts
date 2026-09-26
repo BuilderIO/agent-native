@@ -3637,15 +3637,13 @@ const MAX_IDENTICAL_TOOL_ERRORS = 3;
  * and nothing stops it. That is how a delegated turn burned five minutes
  * against an app that answers the same question in twenty-seven seconds.
  *
- * Higher than the exact-repeat limit on purpose: a capable model reads a schema
- * error and fixes its arguments within a try or two, so this must not cut off
- * honest correction. It only fires once a tool has rejected six attempts the
- * same way, which no amount of further guessing is going to fix.
+ * Allow two corrected attempts after the first rejection. Once three calls to
+ * the same tool fail the same way, further argument guessing is not useful.
  *
  * This is the floor that has to hold on ANY model. A stronger model recovering
  * on its own is not a substitute for it — it just hides its absence.
  */
-export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 6;
+export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 /**
  * Identical (tool, arguments) invocations tolerated in one turn before the turn
  * is stopped, whether or not they errored.

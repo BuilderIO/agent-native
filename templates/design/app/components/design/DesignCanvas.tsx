@@ -1143,7 +1143,11 @@ interface DesignCanvasProps {
    * `draftPrimitiveToInsert` on the overview side).
    */
   onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
   /**
    * OS file drag-and-drop (Figma parity): fired when the user drops native
    * OS files (e.g. images dragged from Finder/Explorer) onto this single-
@@ -8645,7 +8649,11 @@ interface SingleScreenCreationOverlayProps {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   selectedPenPathNodeId?: string | null;
   onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
 }
 
 /**
@@ -8722,6 +8730,7 @@ function SingleScreenCreationOverlay({
     null,
   );
   const penGestureRef = useRef<SingleScreenPenGestureState | null>(null);
+  const penOverlayRef = useRef<HTMLDivElement>(null);
   const [penPointer, setPenPointer] = useState<PenPoint | null>(null);
   const [penCloseHover, setPenCloseHover] = useState(false);
 
@@ -8767,8 +8776,15 @@ function SingleScreenCreationOverlay({
   }, []);
 
   const clearPenPath = useCallback(() => {
-    updatePenPath(null);
+    const gesture = penGestureRef.current;
     penGestureRef.current = null;
+    if (
+      gesture &&
+      penOverlayRef.current?.hasPointerCapture(gesture.pointerId)
+    ) {
+      penOverlayRef.current.releasePointerCapture(gesture.pointerId);
+    }
+    updatePenPath(null);
     setPenGesturePreview(null);
     setPenPointer(null);
     setPenCloseHover(false);
@@ -8790,7 +8806,11 @@ function SingleScreenCreationOverlay({
 
       const continuation = continuationPenPathRef.current;
       if (continuation) {
-        const updated = onUpdatePenPath?.(continuation.nodeId, committed);
+        const updated = onUpdatePenPath?.(
+          continuation.nodeId,
+          committed,
+          options?.preserveActiveTool === false ? "move" : undefined,
+        );
         if (!updated) {
           continuationPenPathRef.current = null;
           updatePenPath(committed);
@@ -9177,9 +9197,13 @@ function SingleScreenCreationOverlay({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+      if (event.key === "Escape") {
+        clearPenPath();
+        return;
+      }
       finishPenPath(path, {
-        preserveActiveTool: true,
-        continueAfterCommit: event.key === "Enter",
+        preserveActiveTool: false,
+        continueAfterCommit: true,
       });
     };
 
@@ -9247,6 +9271,7 @@ function SingleScreenCreationOverlay({
 
   return (
     <div
+      ref={penOverlayRef}
       data-design-canvas-creation-overlay
       data-creation-tool={tool}
       className={cn("absolute inset-0 z-20 pointer-events-auto", cursorClass)}
