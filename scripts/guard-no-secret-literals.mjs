@@ -272,7 +272,7 @@ function scanFile(rel) {
   try {
     contents = readFileSync(abs, "utf8");
   } catch {
-    return [];
+    return []; // deleted/unreadable/symlink-to-nowhere — not this guard's job
   }
   if (contents.length > MAX_SCAN_BYTES) return [];
 

@@ -243,7 +243,7 @@ function isDirEntry(dir, entry) {
     return statSync(join(dir, entry.name)).isDirectory();
   } catch {
     // coercion-ok: broken symlink entries are intentionally excluded from generated skill copies.
-    return false;
+    return false; // broken symlink
   }
 }
 

@@ -152,6 +152,7 @@ function hasReader(template, key, declaringFile) {
       { encoding: "utf8" },
     );
   } catch {
+    // grep exits 1 when nothing matches at all.
     return false;
   }
 
