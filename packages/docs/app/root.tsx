@@ -769,7 +769,7 @@ function LocalizedError({ error }: { error: unknown }) {
           <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
             {t("errors.notFoundBody")}
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col items-center gap-3">
             <Link
               data-an-prefetch="viewport"
               to={localizedPath("/")}

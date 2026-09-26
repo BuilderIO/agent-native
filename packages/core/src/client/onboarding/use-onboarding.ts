@@ -23,6 +23,7 @@ import {
 } from "./first-run-status.js";
 
 const seenOnboardingEvents = new Set<string>();
+const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
 
 export function trackOnboardingEvent(
   name: string,
@@ -105,12 +106,14 @@ export function useOnboarding(
   >(null);
   const stepsRef = useRef<OnboardingStepStatus[]>([]);
   const mountedRef = useRef(true);
+  const fetchGenerationRef = useRef(0);
 
   useEffect(() => {
     setFirstRun(preview || initialFirstRun);
   }, [initialFirstRun, preview]);
 
   const fetchAll = useCallback(async () => {
+    const fetchGeneration = ++fetchGenerationRef.current;
     try {
       // One composed read replaces the three per-mount calls (steps,
       // dismissed, profile); first-run status keeps its own endpoint because
@@ -128,15 +131,38 @@ export function useOnboarding(
         : initialFirstRun
           ? Promise.resolve(true)
           : fetchFirstRunOnboardingStatus();
-      const [summaryRes, firstRunRes] = await Promise.all([
-        fetch(summaryUrl),
+      const summaryController =
+        typeof AbortController === "undefined" ? null : new AbortController();
+      let summaryTimeoutId: ReturnType<typeof setTimeout> | undefined;
+      const summaryTimeout = new Promise<never>((_resolve, reject) => {
+        summaryTimeoutId = setTimeout(() => {
+          summaryController?.abort();
+          reject(new Error("onboarding summary timed out"));
+        }, ONBOARDING_SUMMARY_TIMEOUT_MS);
+      });
+      // Keep the deadline armed through json(); a response body can stall after headers.
+      const summaryRequest = (async () => {
+        const response = await fetch(summaryUrl, {
+          ...(summaryController ? { signal: summaryController.signal } : {}),
+        });
+        if (!response.ok) {
+          throw new Error(`summary: ${response.status}`);
+        }
+        return (await response.json()) as OnboardingSummary;
+      })();
+      const [summary, firstRunRes] = await Promise.all([
+        Promise.race([summaryRequest, summaryTimeout]),
         firstRunPromise,
-      ]);
-      if (!mountedRef.current) return;
-      if (!summaryRes.ok) {
-        throw new Error(`summary: ${summaryRes.status}`);
+      ]).finally(() => {
+        if (summaryTimeoutId !== undefined) clearTimeout(summaryTimeoutId);
+        summaryController?.abort();
+      });
+      if (
+        !mountedRef.current ||
+        fetchGeneration !== fetchGenerationRef.current
+      ) {
+        return;
       }
-      const summary = (await summaryRes.json()) as OnboardingSummary;
       const previousSteps = stepsRef.current;
       if (previousSteps.length > 0) {
         for (const [stepIndex, step] of summary.steps.entries()) {
@@ -166,10 +192,20 @@ export function useOnboarding(
       setDismissed(!!summary.dismissed);
       setError(null);
     } catch (e) {
-      if (!mountedRef.current) return;
+      if (
+        !mountedRef.current ||
+        fetchGeneration !== fetchGenerationRef.current
+      ) {
+        return;
+      }
       setError(e instanceof Error ? e.message : "Failed to load onboarding");
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (
+        mountedRef.current &&
+        fetchGeneration === fetchGenerationRef.current
+      ) {
+        setLoading(false);
+      }
     }
   }, [preview]);
 
@@ -203,6 +239,7 @@ export function useOnboarding(
     window.addEventListener("focus", onFocus);
     return () => {
       mountedRef.current = false;
+      fetchGenerationRef.current += 1;
       cancelInitialFetch();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);

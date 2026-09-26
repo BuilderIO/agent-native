@@ -180,8 +180,9 @@ else
 fi
 ```
 
-The behind count is information, not a reason to merge or rebase. Check
-GitHub's live mergeability before updating from origin/main.
+The behind count is information, not a reason to update the branch. Merge
+freshly fetched `origin/main` only when GitHub reports the PR `CONFLICTING`.
+Pending checks, a behind count, or a timer never justify a main update.
 
 If `git branch --show-current` is empty, inspect `git worktree list
 --porcelain` and existing `changes-*` refs. In a dedicated task-owned worktree,
@@ -206,21 +207,26 @@ commit.
 ## 2. Validate and publish
 
 Run the smallest relevant formatter, tests, typecheck, and guards for the
-changed area. Push the first coherent snapshot before a long prep or broad
-validation so CI can work in parallel. A slow or contaminated local check is
-not permission to stall the handoff; record the exact result and let the PR
-checks carry the gate.
+changed area. Finish the current implementation and batch all currently known
+CI and review fixes into one coherent snapshot before publishing. Do not
+publish per file, delegated task, feedback item, checkpoint, timer, or queued
+check: every new head restarts affected CI and the merge soak. Only the
+foreground ship owner publishes; delegates return their changes to that owner.
+A slow or contaminated local check is not permission to publish an incomplete
+snapshot; record the exact result and let the current PR checks finish.
 
 After the ownership check, run:
 
 ```bash
-corepack pnpm ship:push
+corepack pnpm ship:push -m "fix: deduplicate chat start checkpoints"
 ```
 
-Confirm the push landed on the current branch and read the remote head back.
-Run ship:push again only for an actionable CI fix, review fix, conflict
-resolution, or explicit user request. A clean tree, a behind count, queued
-checks, or a babysit timer never creates a publish commit.
+Replace the example with a subject naming the actual behavior changed. The
+helper refuses an omitted or generic subject. Confirm the push landed on the
+current branch and read the remote head back. Publish again only after a new
+actionable CI/review fix or conflict has been resolved and all currently known
+fixes are batched. A clean tree, a behind count, queued checks, or a babysit
+timer never creates a publish commit.
 
 ## 3. Open or update the PR
 
@@ -265,9 +271,9 @@ If a live PR is CONFLICTING, let babysit-pr recover it only after:
 - the local HEAD exactly matches the live PR headRefOid;
 - origin/main was freshly fetched.
 
-Merge origin/main once with a normal merge, resolve and test it, push, and
-restart the soak. Never merge main merely because the PR is behind, checks are
-pending, or mergeability is UNKNOWN.
+Merge freshly fetched `origin/main` only to resolve the confirmed conflict.
+Resolve and test it, push, and restart the soak. Never update from main merely
+because the PR is behind, checks are pending, or mergeability is UNKNOWN.
 
 ### Feedback handoff
 
