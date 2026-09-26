@@ -8,15 +8,18 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  AgentDestinationActions,
+  JoinedShareControl,
+  ShareModeTabs,
+} from "@agent-native/toolkit/sharing";
+import {
   IconArrowLeft,
   IconBrandFacebook,
   IconBrandLinkedin,
   IconBrandX,
-  IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconExternalLink,
-  IconLink,
   IconMail,
   IconPhoto,
   IconShare3,
@@ -36,10 +39,6 @@ import {
   ClaudeLogo,
   CodexLogo,
 } from "@/components/agent-destination-logos";
-import {
-  PageHeaderActionGroup,
-  PageHeaderPrimaryAction,
-} from "@/components/library/page-header";
 import {
   CopyButton,
   GeneralAccessSelect,
@@ -67,12 +66,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 import { buildAgentApiUrls } from "../../../shared/agent-context";
@@ -162,8 +156,6 @@ export function ShareRecordingPopover({
 }: ShareRecordingPopoverProps) {
   const t = useT();
   const { session } = useSession();
-  const [copied, setCopied] = useState(false);
-  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ownerViaId =
     initialRole === "owner" ? (session?.userId ?? undefined) : undefined;
   const shareUrl =
@@ -173,13 +165,6 @@ export function ShareRecordingPopover({
           absoluteAppUrl(`/share/${recordingId}`),
           ownerViaId,
         );
-
-  useEffect(
-    () => () => {
-      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    },
-    [],
-  );
 
   const copyShareLink = async () => {
     // The copy button is the other half of the same control, and it hands the
@@ -192,10 +177,10 @@ export function ShareRecordingPopover({
           count: pendingRedactions,
         }),
       });
-      return;
+      return false;
     }
     const didCopy = await writeClipboardText(shareUrl);
-    if (!didCopy) return;
+    if (!didCopy) return false;
     trackEvent("share_link_copied", {
       app_name: "clips",
       template_name: "clips",
@@ -205,47 +190,20 @@ export function ShareRecordingPopover({
       link_type: "share",
       ...(initialVisibility ? { link_scope: initialVisibility } : {}),
     });
-    setCopied(true);
-    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    copyResetTimer.current = setTimeout(() => setCopied(false), 1_400);
+    return true;
   };
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
-        <PageHeaderActionGroup>
-          <PopoverTrigger asChild>{children}</PopoverTrigger>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PageHeaderPrimaryAction
-                type="button"
-                aria-label={
-                  copied
-                    ? t("recordRoute.linkCopied")
-                    : t("recordRoute.copyLinkAction")
-                }
-                disabled={!shareUrl}
-                data-blocked={pendingRedactions > 0 ? "" : undefined}
-                className={cn(
-                  "w-8 px-0 shadow-none",
-                  pendingRedactions > 0 && "opacity-50",
-                )}
-                onClick={() => void copyShareLink()}
-              >
-                {copied ? (
-                  <IconCheck className="size-4" />
-                ) : (
-                  <IconLink className="size-4" />
-                )}
-              </PageHeaderPrimaryAction>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {copied
-                ? t("recordRoute.linkCopied")
-                : t("recordRoute.copyLinkAction")}
-            </TooltipContent>
-          </Tooltip>
-        </PageHeaderActionGroup>
+        <JoinedShareControl
+          trigger={<PopoverTrigger asChild>{children}</PopoverTrigger>}
+          copyLabel={t("recordRoute.copyLinkAction")}
+          copiedLabel={t("recordRoute.linkCopied")}
+          disabled={!shareUrl}
+          blocked={pendingRedactions > 0}
+          onCopy={copyShareLink}
+        />
       </PopoverAnchor>
       {/* Keep the layer class in app source so Tailwind emits it for Clips. */}
       <PopoverContent
@@ -518,42 +476,23 @@ function ShareRecordingContent({
           viewerReshareOnly ? (
             peopleTab
           ) : (
-            <Tabs
+            <ShareModeTabs
               value={shareMode}
               onValueChange={(value) =>
                 setShareMode(value as "people" | "agents")
               }
-              className="gap-3"
-            >
-              <TabsList
-                variant="line"
-                className="h-8 w-full justify-start gap-1 rounded-none px-0 py-0"
-              >
-                <TabsTrigger
-                  value="people"
-                  className="h-8 min-w-0 flex-none rounded-none px-2 py-0 text-sm data-[state=active]:after:bottom-0 data-[state=active]:after:inset-x-2"
-                >
-                  {t("shareDialog.people")}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="agents"
-                  className="h-8 min-w-0 flex-none rounded-none px-2 py-0 text-sm data-[state=active]:after:bottom-0 data-[state=active]:after:inset-x-2"
-                >
-                  {t("shareDialog.agents")}
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="people" className="m-0">
-                {peopleTab}
-              </TabsContent>
-              <TabsContent value="agents" className="m-0">
+              peopleLabel={t("shareDialog.people")}
+              agentsLabel={t("shareDialog.agents")}
+              people={peopleTab}
+              agents={
                 <AgentTab
                   recordingId={recordingId}
                   visibility={visibility}
                   hasPassword={passwordProtected}
                   active={shareMode === "agents"}
                 />
-              </TabsContent>
-            </Tabs>
+              }
+            />
           )
         ) : view === "social" ? (
           <SocialTab
@@ -890,49 +829,22 @@ function AgentTab({
   }
 
   return (
-    <div className="-mx-1.5 flex flex-col gap-0.5">
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-9 w-full justify-start gap-2 px-1.5 text-sm font-normal"
-        disabled={agentShareDisabled}
-        onClick={() => void copyAgentPrompt()}
-      >
-        <IconLink className="size-4 text-muted-foreground" />
-        {t("shareDialog.copyAgentPrompt")}
-      </Button>
-      <div className="my-1 border-t border-border" />
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-9 w-full justify-start gap-2 px-1.5 text-sm font-normal"
-        disabled={agentShareDisabled}
-        onClick={() => openAgentDestination("claude")}
-      >
-        <ClaudeLogo className="size-4 text-muted-foreground" />
-        {t("shareDialog.openInClaude")}
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-9 w-full justify-start gap-2 px-1.5 text-sm font-normal"
-        disabled={agentShareDisabled}
-        onClick={() => openAgentDestination("claude-code")}
-      >
-        <ClaudeCodeLogo className="size-4 text-muted-foreground" />
-        {t("shareDialog.openInClaudeCode")}
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-9 w-full justify-start gap-2 px-1.5 text-sm font-normal"
-        disabled={agentShareDisabled}
-        onClick={() => openAgentDestination("codex")}
-      >
-        <CodexLogo className="size-4 text-muted-foreground" />
-        {t("shareDialog.openInCodex")}
-      </Button>
-    </div>
+    <AgentDestinationActions
+      labels={{
+        copy: t("shareDialog.copyAgentPrompt"),
+        claude: t("shareDialog.openInClaude"),
+        claudeCode: t("shareDialog.openInClaudeCode"),
+        codex: t("shareDialog.openInCodex"),
+      }}
+      icons={{
+        claude: <ClaudeLogo className="size-4" />,
+        "claude-code": <ClaudeCodeLogo className="size-4" />,
+        codex: <CodexLogo className="size-4" />,
+      }}
+      disabled={agentShareDisabled}
+      onCopy={copyAgentPrompt}
+      onOpen={openAgentDestination}
+    />
   );
 }
 

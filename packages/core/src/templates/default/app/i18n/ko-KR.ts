@@ -268,6 +268,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "닫기",
     shareOptions: "공유 옵션",
+    people: "사람",
+    agents: "에이전트",
     link: "링크",
     invite: "Invite",
     embed: "Embed",

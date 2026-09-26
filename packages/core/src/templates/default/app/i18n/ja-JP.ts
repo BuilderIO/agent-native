@@ -273,6 +273,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "閉じる",
     shareOptions: "共有オプション",
+    people: "人",
+    agents: "エージェント",
     link: "リンク",
     invite: "Invite",
     embed: "Embed",

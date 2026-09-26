@@ -584,6 +584,9 @@ const messages = {
     saveThumbnail: "Thumbnail speichern",
   },
   shareDialog: {
+    redactionsPendingTitle: "Schwärzungen vor dem Teilen abschließen",
+    redactionsPendingBody:
+      "Ausstehende Schwärzungen: {{count}}. Wende sie im Editor an, bevor du teilst; das Video enthält noch den ursprünglichen Inhalt.",
     publicDescription:
       "Jeder, der über den Link verfügt, kann es ansehen – melden Sie sich an, um zu kommentieren oder zu reagieren",
     shareRecording: "Aufzeichnung teilen",
@@ -639,9 +642,6 @@ const messages = {
     customizeEmbed: "Einbettung anpassen",
     more: "Mehr",
     sharePlainTitle: "Teilen {{title}}",
-    redactionsPendingBody:
-      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber nicht in das Video eingebrannt. Die Datei zeigt also weiterhin alles darunter. Öffnen Sie den Editor, brennen Sie sie ein, und das Teilen steht wieder zur Verfügung.",
-    redactionsPendingTitle: "Schließen Sie die Schwärzungen zuerst ab",
   },
   shareUi: {
     owner: "Besitzer: {{email}}",

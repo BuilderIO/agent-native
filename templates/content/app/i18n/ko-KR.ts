@@ -1056,6 +1056,25 @@ const exactEnglish = {
     },
     toolbar: {
       info: "정보",
+      copyLink: "링크 복사",
+      copyForPeople: "사람용으로 복사",
+      copyForAgents: "에이전트용으로 복사",
+      whoHasAccess: "접근 권한이 있는 사람",
+      sharePeople: "사람",
+      shareAgents: "에이전트",
+      copyAgentPrompt: "에이전트 지침 복사",
+      openInClaude: "Claude에서 열기",
+      openInClaudeCode: "Claude Code에서 열기",
+      openInCodex: "Codex에서 열기",
+      agentCopyAccessNote:
+        "에이전트는 기존 권한으로 Content MCP를 사용할 수 있습니다",
+      temporaryAgentLink: "임시 에이전트 링크",
+      privateLinkCanView: "접근 권한이 있는 사람만 볼 수 있습니다",
+      publicLinkCanView: "링크가 있는 누구나 볼 수 있습니다",
+      copiedAgentPrompt: "에이전트 지침을 복사했습니다",
+      couldNotCopyAgentPrompt: "에이전트 지침을 복사할 수 없습니다",
+      agentPrompt:
+        '이 Content 문서를 읽어 주세요: {{documentUrl}}\n\n{{mcpUrl}}에 사용할 수 있는 Content MCP 연결로 ID "{{documentId}}"를 지정해 get-document를 호출하세요. 공개적으로 읽을 수 있는 페이지는 직접 읽어도 됩니다.\n\n인증된 액세스가 필요한데 Content MCP를 사용할 수 없거나 로그아웃된 상태라면, 연결하고 인증하도록 저에게 요청하세요. 연결 설정: {{connectUrl}}. 공식 가이드: {{docsUrl}}\n\n연결이 준비되었다고 제가 확인하면 제 계정의 기존 권한으로 다시 읽어 보세요. 인증된 읽기가 거부되면 그 결과를 알려 주세요.',
       closeUtilityPanel: "패널 닫기",
       exportCsv: "CSV 내보내기",
       exportDatabase: "컬렉션 내보내기",
@@ -1079,6 +1098,7 @@ const exactEnglish = {
       exportedCsv: "CSV를 내보냈습니다",
       copiedPageLink: "페이지 링크를 복사했습니다",
       copyPageLink: "페이지 링크 복사",
+      createShareableCopy: "공유 가능한 사본 만들기",
       couldNotCopyLink: "링크를 복사하지 못했습니다",
       clipboardAccessUnavailable:
         "이 브라우저에서는 클립보드에 접근할 수 없습니다.",

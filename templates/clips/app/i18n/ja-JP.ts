@@ -571,6 +571,9 @@ const messages = {
     saveThumbnail: "サムネイルを保存",
   },
   shareDialog: {
+    redactionsPendingTitle: "共有前にマスキングを適用",
+    redactionsPendingBody:
+      "未適用のマスキング: {{count}} 件。共有前にエディターで適用してください。動画には元の内容が残っています。",
     publicDescription:
       "リンクを知っている人は誰でも閲覧できます。コメントしたり反応するにはサインインしてください",
     shareRecording: "録画を共有する",
@@ -626,9 +629,6 @@ const messages = {
     customizeEmbed: "埋め込みをカスタマイズ",
     more: "その他",
     sharePlainTitle: "{{title}}を共有する",
-    redactionsPendingBody:
-      "この録画には {{count}} 件のマスクが描かれていますが、動画には焼き込まれていません。そのためファイルにはその下がすべて残っています。エディタを開いて焼き込むと、共有が再び利用できます。",
-    redactionsPendingTitle: "先にマスクを完了してください",
   },
   shareUi: {
     owner: "所有者: {{email}}",

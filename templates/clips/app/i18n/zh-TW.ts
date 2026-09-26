@@ -535,6 +535,9 @@ const messages = {
     saveThumbnail: "儲存縮圖",
   },
   shareDialog: {
+    redactionsPendingTitle: "分享前完成遮蔽處理",
+    redactionsPendingBody:
+      "待套用的遮蔽：{{count}} 處。請先在編輯器中套用；影片仍保留原始內容。",
     publicDescription: "知道連結的任何人都可以檢視 - 登入後發表評論或做出反應",
     shareRecording: "分享錄音",
     shareTitle: "分享“{{title}}”",
@@ -588,9 +591,6 @@ const messages = {
     customizeEmbed: "自訂嵌入",
     more: "更多",
     sharePlainTitle: "分享 {{title}}",
-    redactionsPendingBody:
-      "這段錄影上畫了 {{count}} 處遮蔽，但尚未合成進影片，因此檔案裡遮蔽下方的內容依然看得到。開啟編輯器完成合成後，即可重新分享。",
-    redactionsPendingTitle: "請先完成遮蔽",
   },
   shareUi: {
     owner: "擁有者： {{email}}",

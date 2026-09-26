@@ -1,4 +1,9 @@
-import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
+import {
+  JoinedShareControl,
+  ShareCopyRow,
+  ShareModeTabs,
+  ShareTrigger,
+} from "@agent-native/toolkit/sharing";
 import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
@@ -10,6 +15,7 @@ import {
   IconSearch,
   IconSearchOff,
   IconUsersGroup,
+  IconUserPlus,
 } from "@tabler/icons-react";
 import {
   type ComponentPropsWithoutRef,
@@ -32,6 +38,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "../components/ui/sheet.js";
 import { useT } from "../i18n.js";
 import { useAvatarUrl } from "../use-avatar.js";
 import { cn } from "../utils.js";
@@ -78,6 +90,20 @@ export interface ShareButtonProps {
    *  This is treated as the primary "Copy link" target — same convention
    *  as Google Docs' Share dialog, which copies the editor URL. */
   shareUrl?: string;
+  /** Use a bottom sheet for the share surface below the small-screen breakpoint. */
+  mobileSheet?: boolean;
+  /** Override the optional temporary agent-context link label. */
+  agentShareLabel?: string;
+  /** Resource-specific agent actions shown in the Clips-style sharing tabs. */
+  agentTabContent?: ReactNode;
+  peopleTabLabel?: ReactNode;
+  agentsTabLabel?: ReactNode;
+  /** Immediate human-link copy action beside the Share trigger. */
+  quickCopy?: {
+    label: string;
+    copiedLabel: string;
+    onCopy: () => Promise<boolean | void> | boolean | void;
+  };
   /** Optional label for the primary copyable link section. */
   shareUrlLabel?: string;
   /** Optional helper text for the primary copyable link section. */
@@ -165,7 +191,7 @@ const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const BUTTON_PRIMARY_SM = cn(
   BUTTON_BASE,
-  "h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90",
+  "h-11 px-4 bg-primary text-primary-foreground hover:bg-primary/90 sm:h-9",
 );
 const BUTTON_GHOST_ICON = cn(
   BUTTON_BASE,
@@ -312,6 +338,16 @@ function handleSharePopoverInteractOutside(
  */
 export function ShareButton(props: ShareButtonProps) {
   const t = useT();
+  const hasShareModes = Boolean(props.agentTabContent);
+  const [isSmallScreen, setIsSmallScreen] = useState(false);
+  useEffect(() => {
+    if (!props.mobileSheet) return;
+    const media = window.matchMedia("(max-width: 639px)");
+    const update = () => setIsSmallScreen(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [props.mobileSheet]);
   const controller = useShareButtonController({
     resourceType: props.resourceType,
     resourceId: props.resourceId,
@@ -323,17 +359,83 @@ export function ShareButton(props: ShareButtonProps) {
     allowedRoles: props.allowedRoles,
     hideInSearchControl: props.hideInSearchControl,
   });
+  useEffect(() => {
+    if (!controller.open || !hasShareModes) return;
+    const timer = window.setTimeout(() => {
+      document
+        .querySelector<HTMLElement>(
+          '[data-agent-native-share-overlay] [role="tab"][aria-selected="true"]',
+        )
+        ?.focus();
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [controller.open, hasShareModes, isSmallScreen]);
   const triggerLabel = t("agentChat.share.share", { defaultValue: "Share" });
+  const trigger = (
+    <ShareTrigger
+      label={
+        props.quickCopy ? (
+          <span className="flex items-center gap-2">
+            <IconUserPlus aria-hidden="true" />
+            <span>{props.triggerContent ?? triggerLabel}</span>
+          </span>
+        ) : (
+          (props.triggerContent ?? triggerLabel)
+        )
+      }
+      className={props.triggerClassName}
+      aria-label={triggerLabel}
+      title={triggerLabel}
+      intent={props.quickCopy ? "primary" : undefined}
+      emphasis={props.quickCopy ? "solid" : undefined}
+    />
+  );
+  if (isSmallScreen) {
+    return (
+      <Sheet open={controller.open} onOpenChange={controller.handleOpenChange}>
+        {props.quickCopy ? (
+          <JoinedShareControl
+            trigger={<SheetTrigger asChild>{trigger}</SheetTrigger>}
+            copyLabel={props.quickCopy.label}
+            copiedLabel={props.quickCopy.copiedLabel}
+            onCopy={props.quickCopy.onCopy}
+          />
+        ) : (
+          <SheetTrigger asChild>{trigger}</SheetTrigger>
+        )}
+        <SheetContent
+          data-agent-native-share-overlay=""
+          side="bottom"
+          showClose={false}
+          overlayClassName="z-[1999]"
+          className="z-[2000] max-h-[90dvh] overflow-y-auto rounded-t-2xl p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onInteractOutside={handleSharePopoverInteractOutside}
+        >
+          <SheetTitle className="sr-only">{triggerLabel}</SheetTitle>
+          <div
+            aria-hidden="true"
+            className="mx-auto mb-4 h-1 w-9 rounded-full bg-muted-foreground/40"
+          />
+          <SharePanel {...props} controller={controller} />
+        </SheetContent>
+      </Sheet>
+    );
+  }
   return (
     <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
-      <PopoverTrigger asChild>
-        <ShareTrigger
-          label={props.triggerContent ?? triggerLabel}
-          className={props.triggerClassName}
-          aria-label={triggerLabel}
-          title={triggerLabel}
-        />
-      </PopoverTrigger>
+      {props.quickCopy ? (
+        <PopoverAnchor asChild>
+          <JoinedShareControl
+            trigger={<PopoverTrigger asChild>{trigger}</PopoverTrigger>}
+            copyLabel={props.quickCopy.label}
+            copiedLabel={props.quickCopy.copiedLabel}
+            onCopy={props.quickCopy.onCopy}
+          />
+        </PopoverAnchor>
+      ) : (
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      )}
       <PopoverContent
         align="end"
         sideOffset={6}
@@ -343,7 +445,7 @@ export function ShareButton(props: ShareButtonProps) {
           SHARE_POPOVER_SURFACE,
           props.popoverClassName,
         )}
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        onOpenAutoFocus={(event) => event.preventDefault()}
         onInteractOutside={handleSharePopoverInteractOutside}
       >
         <SharePanel {...props} controller={controller} />
@@ -496,11 +598,13 @@ function SharePanel(
       <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
     </div>
   ) : (
-    <div>
+    <div className={props.agentTabContent ? "flex flex-col" : undefined}>
       {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
 
-      <div className="mb-4">
-        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+      <div className={cn("mb-4", props.agentTabContent && "order-2")}>
+        {!props.agentTabContent ? (
+          <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+        ) : null}
         <div className="flex items-center gap-3">
           <span
             aria-hidden
@@ -513,11 +617,14 @@ function SharePanel(
               value={visibility}
               onChange={handleVisibility}
               disabled={!canManage}
+              sentenceTrigger={Boolean(props.agentTabContent)}
               visibilityCopy={props.visibilityCopy}
               allowPublic={policy.allowPublic}
             />
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span className="sr-only">{meta.description}</span>
+              {!props.agentTabContent ? (
+                <span className="sr-only">{meta.description}</span>
+              ) : null}
               {visibility === "org" && props.hideInSearchControl ? (
                 <AdvancedAccessPopover
                   control={props.hideInSearchControl}
@@ -530,54 +637,58 @@ function SharePanel(
         </div>
       </div>
 
-      <div className="mb-4 space-y-4">
-        <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+      <div className={cn("mb-4 space-y-4", props.agentTabContent && "order-1")}>
+        {!props.agentTabContent ? (
+          <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+        ) : null}
         {canManage ? (
           <div className="space-y-2">
-            <div className="flex items-stretch gap-2">
-              <MemberAutocomplete
-                value={inviteEmail}
-                open={suggestionsOpen}
-                onOpenChange={setSuggestionsOpen}
-                onValueChange={(next) => {
-                  onInviteEmailChange(next);
-                  if (shareError) setShareError(null);
-                }}
-                onSelectSuggestion={(suggestion) => {
-                  if (suggestion.principalType === "group") {
-                    selectGroup(suggestion);
-                  } else {
-                    onInviteEmailChange(suggestion.email);
+            <div className="flex flex-wrap items-stretch gap-2 sm:flex-nowrap">
+              <div className="w-full sm:min-w-0 sm:flex-1">
+                <MemberAutocomplete
+                  value={inviteEmail}
+                  open={suggestionsOpen}
+                  onOpenChange={setSuggestionsOpen}
+                  onValueChange={(next) => {
+                    onInviteEmailChange(next);
+                    if (shareError) setShareError(null);
+                  }}
+                  onSelectSuggestion={(suggestion) => {
+                    if (suggestion.principalType === "group") {
+                      selectGroup(suggestion);
+                    } else {
+                      onInviteEmailChange(suggestion.email);
+                    }
+                    setSuggestionsOpen(false);
+                    if (shareError) setShareError(null);
+                  }}
+                  onSubmit={handleAdd}
+                  placeholder={
+                    policy.requireOrgMemberForUserShares
+                      ? t("agentChat.share.addPeopleOrganization", {
+                          defaultValue: "Add people from your organization",
+                        })
+                      : t("agentChat.share.addPeopleEmail", {
+                          defaultValue: policy.supportsGroupShares
+                            ? "Add people or groups"
+                            : "Add people by email",
+                        })
                   }
-                  setSuggestionsOpen(false);
-                  if (shareError) setShareError(null);
-                }}
-                onSubmit={handleAdd}
-                placeholder={
-                  policy.requireOrgMemberForUserShares
-                    ? t("agentChat.share.addPeopleOrganization", {
-                        defaultValue: "Add people from your organization",
-                      })
-                    : t("agentChat.share.addPeopleEmail", {
-                        defaultValue: policy.supportsGroupShares
-                          ? "Add people or groups"
-                          : "Add people by email",
-                      })
-                }
-                suggestions={[
-                  ...memberSuggestions.map((member) => ({
-                    ...member,
-                    principalType: "user" as const,
-                  })),
-                  ...(policy.supportsGroupShares
-                    ? groupSuggestions.map((group) => ({
-                        ...group,
-                        principalType: "group" as const,
-                      }))
-                    : []),
-                ]}
-                search={memberSearch}
-              />
+                  suggestions={[
+                    ...memberSuggestions.map((member) => ({
+                      ...member,
+                      principalType: "user" as const,
+                    })),
+                    ...(policy.supportsGroupShares
+                      ? groupSuggestions.map((group) => ({
+                          ...group,
+                          principalType: "group" as const,
+                        }))
+                      : []),
+                  ]}
+                  search={memberSearch}
+                />
+              </div>
               <RoleSelect
                 value={role}
                 onChange={setRole}
@@ -652,6 +763,9 @@ function SharePanel(
           </div>
         ) : null}
 
+        {props.agentTabContent ? (
+          <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+        ) : null}
         <ul className="flex list-none flex-col gap-1 p-0 m-0">
           {data?.ownerEmail ? (
             <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
@@ -738,11 +852,14 @@ function SharePanel(
         </div>
       ) : null}
 
-      <AgentShareSection
-        enabled={data?.agentReadable === true}
-        resourceType={props.resourceType}
-        resourceId={props.resourceId}
-      />
+      {!props.agentTabContent ? (
+        <AgentShareSection
+          enabled={data?.agentReadable === true}
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          label={props.agentShareLabel}
+        />
+      ) : null}
 
       {props.accessNote ? (
         <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
@@ -761,6 +878,43 @@ function SharePanel(
       {props.panelTitle}
     </h2>
   ) : null;
+
+  if (props.agentTabContent) {
+    const agentPanel = (
+      <div className="space-y-4">
+        {props.agentTabContent}
+        {!loadFailed && !isLoading ? (
+          <AgentShareSection
+            enabled={data?.agentReadable === true}
+            resourceType={props.resourceType}
+            resourceId={props.resourceId}
+            label={props.agentShareLabel}
+          />
+        ) : null}
+      </div>
+    );
+    return (
+      <div className="flex flex-col gap-4">
+        {panelTitle}
+        <ShareModeTabs
+          value={activeShareTab === "share" ? "people" : activeShareTab}
+          onValueChange={(value) =>
+            handleShareTabChange(value === "people" ? "share" : value)
+          }
+          peopleLabel={props.peopleTabLabel ?? t("agentChat.share.people")}
+          agentsLabel={props.agentsTabLabel ?? t("agentChat.share.agents")}
+          people={sharePanel}
+          agents={agentPanel}
+          extraTabs={extraTabs.map(({ value, label, content, disabled }) => ({
+            value,
+            label,
+            content,
+            disabled,
+          }))}
+        />
+      </div>
+    );
+  }
 
   if (!hasTabs) {
     return props.panelTitle ? (
@@ -1347,7 +1501,7 @@ function RoleSelect(props: {
               )
             : cn(
                 BUTTON_BASE,
-                "h-9 px-3 border border-input bg-card hover:bg-accent hover:text-accent-foreground",
+                "h-11 px-3 border border-input bg-card hover:bg-accent hover:text-accent-foreground sm:h-9",
               )
         }
         aria-label={t("agentChat.share.role", { defaultValue: "Role" })}
@@ -1377,6 +1531,7 @@ function VisibilitySelect(props: {
   value: Visibility;
   onChange: (v: Visibility) => void;
   disabled?: boolean;
+  sentenceTrigger?: boolean;
   visibilityCopy?: ShareButtonProps["visibilityCopy"];
   /** When false, the "Private" option is omitted unless currently selected. */
   allowPrivate?: boolean;
@@ -1403,12 +1558,15 @@ function VisibilitySelect(props: {
         className={cn(
           BUTTON_BASE,
           "h-7 px-1 -ms-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
+          props.sentenceTrigger && "w-full justify-between text-sm font-normal",
         )}
         aria-label={t("agentChat.share.generalAccess", {
           defaultValue: "General access",
         })}
       >
-        <Select.Value>{current.label}</Select.Value>
+        <Select.Value>
+          {props.sentenceTrigger ? current.description : current.label}
+        </Select.Value>
         <Select.Icon>
           <IconChevronDown size={14} />
         </Select.Icon>

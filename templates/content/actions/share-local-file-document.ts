@@ -87,18 +87,47 @@ export default defineAction({
     }),
   },
   run: async ({ id }) => {
-    if (!isLocalFileDocumentId(id)) {
-      throw new Error("Only local file documents can be upgraded for sharing.");
-    }
-
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated");
 
-    const localDocument = await getLocalFileDocument(id);
-    const sourcePath = localDocumentPathFromId(id);
+    const db = getDb();
+    const localDocument = isLocalFileDocumentId(id)
+      ? await getLocalFileDocument(id)
+      : await db
+          .select()
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, userEmail),
+              eq(schema.documents.sourceMode, "local-files"),
+              eq(schema.documents.sourceKind, "file"),
+              isNull(schema.documents.trashedAt),
+            ),
+          )
+          .limit(1)
+          .then(
+            ([row]) =>
+              row && {
+                title: row.title,
+                content: row.content,
+                icon: row.icon,
+                isFavorite: parseDocumentFavorite(row.isFavorite),
+                hideFromSearch: parseDocumentHideFromSearch(row.hideFromSearch),
+                source: serializeDocumentSource(row),
+              },
+          );
+    if (!localDocument) {
+      throw new Error("Only local file documents can be upgraded for sharing.");
+    }
+    const sourcePath = isLocalFileDocumentId(id)
+      ? localDocumentPathFromId(id)
+      : localDocument.source?.path;
+    if (!sourcePath) {
+      throw new Error("The local file document has no source path.");
+    }
     const now = new Date().toISOString();
     const orgId = getRequestOrgId() ?? null;
-    const db = getDb();
     const provisioned = await provisionContentSpaces(db, userEmail);
     const targetSpaceId = orgId
       ? organizationContentSpaceId(orgId)
@@ -118,6 +147,9 @@ export default defineAction({
           eq(schema.documents.sourceMode, "database"),
           eq(schema.documents.sourceKind, "local-file-copy"),
           eq(schema.documents.sourcePath, sourcePath),
+          localDocument.source?.rootPath
+            ? eq(schema.documents.sourceRootPath, localDocument.source.rootPath)
+            : isNull(schema.documents.sourceRootPath),
           or(
             eq(schema.documents.spaceId, targetSpaceId),
             isNull(schema.documents.spaceId),

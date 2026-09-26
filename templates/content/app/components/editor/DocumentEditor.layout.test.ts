@@ -1593,14 +1593,18 @@ describe("document editor layout", () => {
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
-    expect(source).toContain("editor.toolbar.copyPageLink");
+    expect(source).toContain("editor.toolbar.createShareableCopy");
+    expect(source).toContain("editor.toolbar.sharePeople");
+    expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
     expect(source).toContain("showCommentsControl ?");
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
-    expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
+    expect(source).toContain("quickCopy={{");
+    expect(source).toContain("agentTabContent={");
+    expect(source).not.toContain("shareLinkContent=");
     expect(source).toContain('utilityPanel === "info" ? null : "info"');
     expect(source).toContain('commentsHistoryOpen ? null : "comments"');
     expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');

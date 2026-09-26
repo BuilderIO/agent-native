@@ -535,6 +535,9 @@ const messages = {
     saveThumbnail: "保存缩略图",
   },
   shareDialog: {
+    redactionsPendingTitle: "分享前完成遮挡处理",
+    redactionsPendingBody:
+      "待应用的遮挡：{{count}} 处。请先在编辑器中应用；视频中仍保留原始内容。",
     publicDescription: "知道链接的任何人都可以查看 - 登录后发表评论或做出反应",
     shareRecording: "分享录音",
     shareTitle: "分享“{{title}}”",
@@ -588,9 +591,6 @@ const messages = {
     customizeEmbed: "自定义嵌入",
     more: "更多",
     sharePlainTitle: "分享 {{title}}",
-    redactionsPendingBody:
-      "这段录制上画了 {{count}} 处遮挡，但尚未合成进视频，因此文件里遮挡下方的内容依然可见。打开编辑器完成合成后，即可重新分享。",
-    redactionsPendingTitle: "请先完成遮挡",
   },
   shareUi: {
     owner: "所有者： {{email}}",

@@ -498,6 +498,9 @@ const messages = {
     saveThumbnail: "Save thumbnail",
   },
   shareDialog: {
+    redactionsPendingTitle: "Finish redactions before sharing",
+    redactionsPendingBody:
+      "Pending redactions: {{count}}. Apply them in the editor before sharing; the video still contains the original content.",
     publicDescription:
       "Anyone with the link can view — sign in to comment or react",
     shareRecording: "Share recording",
@@ -553,9 +556,6 @@ const messages = {
     copyEmbedCode: "Copy embed code",
     customizeEmbed: "Customize embed",
     more: "More",
-    redactionsPendingBody:
-      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them. Open the editor, burn them in, and sharing comes back.",
-    redactionsPendingTitle: "Finish the redactions first",
   },
   shareUi: {
     owner: "Owner: {{email}}",

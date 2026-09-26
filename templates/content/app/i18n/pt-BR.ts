@@ -1081,6 +1081,26 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informações",
+      copyLink: "Copiar link",
+      copyForPeople: "Copiar para pessoas",
+      copyForAgents: "Copiar para agentes",
+      whoHasAccess: "Quem tem acesso",
+      sharePeople: "Pessoas",
+      shareAgents: "Agentes",
+      copyAgentPrompt: "Copiar instruções para o agente",
+      openInClaude: "Abrir no Claude",
+      openInClaudeCode: "Abrir no Claude Code",
+      openInCodex: "Abrir no Codex",
+      agentCopyAccessNote:
+        "Os agentes podem usar o Content MCP com suas permissões atuais",
+      temporaryAgentLink: "Link temporário para agentes",
+      privateLinkCanView: "Somente pessoas com acesso podem visualizar",
+      publicLinkCanView: "Qualquer pessoa com o link pode visualizar",
+      copiedAgentPrompt: "Instruções para o agente copiadas",
+      couldNotCopyAgentPrompt:
+        "Não foi possível copiar as instruções para o agente",
+      agentPrompt:
+        'Leia este documento do Content: {{documentUrl}}\n\nUse uma conexão disponível do Content MCP para {{mcpUrl}} e chame get-document com o ID "{{documentId}}". Uma página de acesso público também pode ser lida diretamente.\n\nSe for necessário acesso autenticado e o Content MCP estiver indisponível ou desconectado, peça que eu o conecte e faça a autenticação. Configuração da conexão: {{connectUrl}}. Guia oficial: {{docsUrl}}\n\nDepois que eu confirmar que a conexão está pronta, tente ler novamente usando as permissões existentes da minha conta. Se a leitura autenticada for negada, informe esse resultado.',
       closeUtilityPanel: "Fechar painel",
       exportCsv: "Exportar CSV",
       exportDatabase: "Exportar coleção",
@@ -1104,6 +1124,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportado",
       copiedPageLink: "Link da página copiado",
       copyPageLink: "Copiar link da página",
+      createShareableCopy: "Criar cópia compartilhável",
       couldNotCopyLink: "Não foi possível copiar o link",
       clipboardAccessUnavailable:
         "O acesso à área de transferência não está disponível neste navegador.",

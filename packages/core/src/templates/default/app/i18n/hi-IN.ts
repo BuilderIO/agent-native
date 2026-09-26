@@ -264,6 +264,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "बंद करें",
     shareOptions: "विकल्प साझा करें",
+    people: "लोग",
+    agents: "एजेंट",
     link: "लिंक",
     invite: "Invite",
     embed: "Embed",

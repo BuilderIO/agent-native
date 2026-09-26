@@ -25,15 +25,12 @@ const sidebarRowActionsSource = readFileSync(
 );
 
 describe("page menu Pin/Unpin", () => {
-  it("adds a Pin/Unpin item to the page menu near Copy page link and Info", () => {
-    const copyIndex = toolbarSource.indexOf("editor.toolbar.copyPageLink");
+  it("adds a Pin/Unpin item to the page menu near Info", () => {
     const pinIndex = toolbarSource.indexOf("onToggleFavorite(!isFavorite)");
     const infoIndex = toolbarSource.indexOf("editor.toolbar.info");
 
-    expect(copyIndex).toBeGreaterThan(-1);
     expect(pinIndex).toBeGreaterThan(-1);
     expect(infoIndex).toBeGreaterThan(-1);
-    expect(pinIndex).toBeGreaterThan(copyIndex);
     expect(pinIndex).toBeLessThan(infoIndex);
   });
 

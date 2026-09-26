@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "../components/ui/tooltip.js";
 import { AgentNativeI18nProvider } from "../i18n.js";
 import { ShareButton } from "./ShareButton.js";
 
@@ -11,6 +12,15 @@ const shareMutate = vi.hoisted(() => vi.fn());
 const otherMutate = vi.hoisted(() => vi.fn());
 const refetchShares = vi.hoisted(() => vi.fn(async () => undefined));
 const popoverInteractOutsideHandlers = vi.hoisted(
+  () =>
+    [] as Array<
+      (event: {
+        detail: { originalEvent: { target: EventTarget | null } };
+        preventDefault: () => void;
+      }) => void
+    >,
+);
+const sheetInteractOutsideHandlers = vi.hoisted(
   () =>
     [] as Array<
       (event: {
@@ -119,6 +129,27 @@ vi.mock("../components/ui/popover.js", () => {
   };
 });
 
+vi.mock("../components/ui/sheet.js", () => ({
+  Sheet: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SheetTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  SheetTitle: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SheetContent: ({
+    children,
+    onInteractOutside,
+  }: {
+    children: React.ReactNode;
+    onInteractOutside?: (event: {
+      detail: { originalEvent: { target: EventTarget | null } };
+      preventDefault: () => void;
+    }) => void;
+  }) => {
+    if (onInteractOutside) sheetInteractOutsideHandlers.push(onInteractOutside);
+    return <div>{children}</div>;
+  },
+}));
+
 function setInputValue(
   input: HTMLInputElement | HTMLTextAreaElement,
   value: string,
@@ -153,6 +184,7 @@ describe("ShareButton", () => {
     otherMutate.mockReset();
     refetchShares.mockClear();
     popoverInteractOutsideHandlers.length = 0;
+    sheetInteractOutsideHandlers.length = 0;
     popoverOpenChangeHandlers.length = 0;
     popoverTestState.simulateMounting = false;
     sharesError.current = false;
@@ -795,6 +827,50 @@ describe("ShareButton", () => {
     outside.remove();
   });
 
+  it("keeps the mobile share sheet open for nested portaled share menus", async () => {
+    vi.stubGlobal("matchMedia", () => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" mobileSheet />
+        </QueryClientProvider>,
+      );
+    });
+
+    const handler =
+      sheetInteractOutsideHandlers[sheetInteractOutsideHandlers.length - 1];
+    if (!handler) throw new Error("share sheet outside handler not found");
+
+    const nestedOverlay = document.createElement("div");
+    nestedOverlay.setAttribute("data-agent-native-share-overlay", "");
+    const nestedItem = document.createElement("button");
+    nestedOverlay.appendChild(nestedItem);
+    document.body.appendChild(nestedOverlay);
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+
+    const preventNestedDismiss = vi.fn();
+    handler({
+      detail: { originalEvent: { target: nestedItem } },
+      preventDefault: preventNestedDismiss,
+    });
+    expect(preventNestedDismiss).toHaveBeenCalledOnce();
+
+    const preventOutsideDismiss = vi.fn();
+    handler({
+      detail: { originalEvent: { target: outside } },
+      preventDefault: preventOutsideDismiss,
+    });
+    expect(preventOutsideDismiss).not.toHaveBeenCalled();
+
+    nestedOverlay.remove();
+    outside.remove();
+  });
+
   it("renders optional share tabs and switches to custom tab content", async () => {
     await act(async () => {
       root.render(
@@ -1076,6 +1152,59 @@ describe("ShareButton", () => {
     );
     expect(String(loadMoreCall?.[0])).toContain("offset=25");
     expect(container.textContent).toContain("second@builder.io");
+  });
+
+  it("keeps quick copy separate from People and Agents tabs", async () => {
+    const onCopy = vi.fn(async () => true);
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              quickCopy={{
+                label: "Copy page link",
+                copiedLabel: "Copied page link",
+                onCopy,
+              }}
+              peopleTabLabel="People"
+              agentsTabLabel="Agents"
+              agentTabContent={<button type="button">Copy agent prompt</button>}
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const copy = container.querySelector(
+      'button[aria-label="Copy page link"]',
+    ) as HTMLButtonElement;
+    expect(copy).not.toBeNull();
+    await act(async () => copy.click());
+    expect(onCopy).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("People");
+    expect(container.textContent).toContain("Only people with access can view");
+    expect(container.textContent).not.toContain("Copy agent prompt");
+
+    const agents = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "Agents");
+    expect(agents).toBeDefined();
+    await act(async () => {
+      agents!.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("Agents");
+    expect(container.textContent).toContain("Copy agent prompt");
+    expect(container.textContent).not.toContain("owner@example.com");
   });
 
   // Keep the non-source-locale provider test last: react-i18next's global

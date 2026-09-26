@@ -577,6 +577,9 @@ const messages = {
     saveThumbnail: "Guardar miniatura",
   },
   shareDialog: {
+    redactionsPendingTitle: "Termina las ocultaciones antes de compartir",
+    redactionsPendingBody:
+      "Ocultaciones pendientes: {{count}}. Aplícalas en el editor antes de compartir; el video aún contiene el contenido original.",
     publicDescription:
       "Cualquiera que tenga el enlace puede verlo: inicie sesión para comentar o reaccionar.",
     shareRecording: "Compartir grabación",
@@ -633,9 +636,6 @@ const messages = {
     customizeEmbed: "Personalizar inserción",
     more: "Más",
     sharePlainTitle: "Compartir {{title}}",
-    redactionsPendingBody:
-      "Hay {{count}} difuminación(es) dibujadas en esta grabación que no se han aplicado al vídeo, así que el archivo sigue mostrando todo lo que hay debajo. Abre el editor, aplícalas y podrás volver a compartir.",
-    redactionsPendingTitle: "Termina antes las difuminaciones",
   },
   shareUi: {
     owner: "Propietario: {{email}}",

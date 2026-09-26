@@ -278,6 +278,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Cerrar",
     shareOptions: "Opciones de acciones",
+    people: "Personas",
+    agents: "Agentes",
     link: "Enlace",
     invite: "Invite",
     embed: "Embed",
