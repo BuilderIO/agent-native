@@ -195,10 +195,15 @@ function InteractiveLayout({ children }: LayoutProps) {
   }, [location.pathname]);
   useEffect(() => {
     if (!isAskRoute) return;
-    const interval = window.setInterval(() => {
+    const refreshHandoff = () => {
       if (!hasTrackedAnalyticsChatRun(runningRuns.current)) return;
       markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
-    }, ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS / 2);
+    };
+    refreshHandoff();
+    const interval = window.setInterval(
+      refreshHandoff,
+      ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS / 2,
+    );
     return () => window.clearInterval(interval);
   }, [isAskRoute]);
   useEffect(() => {
