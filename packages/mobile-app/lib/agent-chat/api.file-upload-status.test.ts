@@ -8,7 +8,7 @@ vi.mock("@/lib/analytics", () => ({
   getMobileAnalyticsHeaders: vi.fn(async () => ({})),
 }));
 vi.mock("@/lib/session-token-store", () => ({
-  getSessionToken: vi.fn(async () => "mobile-session-token"),
+  getSessionToken: vi.fn(async () => "test-token"),
 }));
 
 import {
@@ -45,7 +45,7 @@ describe("getFileUploadStatus", () => {
         expect.objectContaining({
           method: "GET",
           headers: expect.objectContaining({
-            Authorization: "Bearer mobile-session-token",
+            Authorization: "Bearer test-token",
           }),
         }),
       );
