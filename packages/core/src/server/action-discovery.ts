@@ -806,6 +806,11 @@ export async function mergeCoreSharingActions(
       () => import("../usage/actions/get-usage-metrics.js"),
     ],
     [
+      "get-usage-insights",
+      () => import("../usage/actions/get-usage-insights.js"),
+    ],
+    ["get-usage-run", () => import("../usage/actions/get-usage-run.js")],
+    [
       "get-builder-credit-usage",
       () => import("../usage/actions/get-builder-credit-usage.js"),
     ],

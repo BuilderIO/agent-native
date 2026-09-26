@@ -178,6 +178,14 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/usage/actions/get-usage-metrics",
   },
   {
+    name: "get-usage-insights",
+    specifier: "@agent-native/core/usage/actions/get-usage-insights",
+  },
+  {
+    name: "get-usage-run",
+    specifier: "@agent-native/core/usage/actions/get-usage-run",
+  },
+  {
     name: "get-builder-credit-usage",
     specifier: "@agent-native/core/usage/actions/get-builder-credit-usage",
   },

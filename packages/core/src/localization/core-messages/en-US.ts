@@ -848,6 +848,184 @@ const messages = {
   "usage.providerSpendDetail":
     "Provider or older calls outside Builder billing",
   "usage.providerSpendToday": "Other or unclassified usage: {{amount}} today",
+  "usage.insights.verdictSmooth": "Running smoothly",
+  "usage.insights.verdictLook_one": "{{count}} thing worth a look",
+  "usage.insights.verdictLook_other": "{{count}} things worth a look",
+  "usage.insights.verdictProblems_one": "{{count}} problem",
+  "usage.insights.verdictProblems_other": "{{count}} problems",
+  "usage.insights.spentSummary_one":
+    "{{amount}} spent on {{count}} prompt in the last {{days}} days.",
+  "usage.insights.spentSummary_other":
+    "{{amount}} spent on {{count}} prompts in the last {{days}} days.",
+  "usage.insights.handledLabel": "Handled by Agent-Native:",
+  "usage.insights.handledHeading": "Handled by Agent-Native",
+  "usage.insights.handledParallel":
+    "Ran {{count}} tool calls at the same time, about {{duration}} faster than one by one.",
+  "usage.insights.handledRecovered_one":
+    "Recovered from {{count}} tool error without stopping.",
+  "usage.insights.handledRecovered_other":
+    "Recovered from {{count}} tool errors without stopping.",
+  "usage.insights.avgPerPrompt": "Average per prompt",
+  "usage.insights.completed": "Completed",
+  "usage.insights.completedDetail": "{{done}} of the last {{total}}",
+  "usage.insights.completedRecovered_one":
+    "{{done}} of the last {{total}}, after recovering from {{count}} tool error",
+  "usage.insights.completedRecovered_other":
+    "{{done}} of the last {{total}}, after recovering from {{count}} tool errors",
+  "usage.insights.typicalTime": "Typical time",
+  "usage.insights.median": "median",
+  "usage.insights.changeSame": "same as the period before",
+  "usage.insights.changeUp": "↑ {{percent}}% vs the period before",
+  "usage.insights.changeDown": "↓ {{percent}}% vs the period before",
+  "usage.insights.kindProblem": "Problem",
+  "usage.insights.kindSaving": "Could save",
+  "usage.insights.kindInfo": "Good to know",
+  "usage.insights.fixLabel": "Fix:",
+  "usage.insights.openPrompt": "Open the prompt",
+  "usage.insights.seePrompts_one": "See the {{count}} prompt",
+  "usage.insights.seePrompts_other": "See the {{count}} prompts",
+  "usage.insights.erroredTitle_one": "{{count}} prompt ended with an error",
+  "usage.insights.erroredTitle_other": "{{count}} prompts ended with an error",
+  "usage.insights.erroredBody": "The agent stopped before finishing.",
+  "usage.insights.erroredFix":
+    "Open a prompt to see the last thing it did before it stopped.",
+  "usage.insights.toolFailedTitle_one":
+    "The {{tool}} tool failed in {{count}} prompt",
+  "usage.insights.toolFailedTitle_other":
+    "The {{tool}} tool failed in {{count}} prompts",
+  "usage.insights.toolFailedSaid": "It said: “{{error}}”",
+  "usage.insights.toolFailedGeneric": "The tool reported an error.",
+  "usage.insights.toolRecoveredAll":
+    "The agent recovered and finished every time.",
+  "usage.insights.toolRecoveredSome":
+    "The agent recovered and finished in {{count}} of them.",
+  "usage.insights.restartTitle":
+    "Starting over cost about {{amount}} ({{percent}}% of spend)",
+  "usage.insights.restartBody":
+    "In {{count}} of {{total}} recent prompts the agent re-sent its whole conversation after {{reason}}, instead of re-using what it had already sent.",
+  "usage.insights.reasonToolLookup": "picking up new tools",
+  "usage.insights.reasonPrefixChanged":
+    "something at the start of its instructions changed",
+  "usage.insights.fixToolLookup":
+    "Preload the tools this app uses with initialToolNames so the tool list stays the same for the whole prompt.",
+  "usage.insights.fixPrefixChanged":
+    "Keep changing content, like timestamps or per-step state, out of the system prompt.",
+  "usage.insights.priciestTitle":
+    "One prompt used {{percent}}% of recent spend",
+  "usage.insights.priciestBody_one":
+    "“{{prompt}}” cost {{amount}} over {{count}} step.",
+  "usage.insights.priciestBody_other":
+    "“{{prompt}}” cost {{amount}} over {{count}} steps.",
+  "usage.insights.untitledPrompt": "Untitled prompt",
+  "usage.insights.promptsHeading": "Prompts",
+  "usage.insights.showing": "Showing {{count}}",
+  "usage.insights.sortNewest": "Newest",
+  "usage.insights.sortCost": "Most expensive",
+  "usage.insights.emptyPrompts":
+    "No prompts in this period yet. They show up here a few seconds after they finish.",
+  "usage.insights.promptNotSaved": "Prompt text wasn't saved",
+  "usage.insights.ratedHelpful": "Rated helpful",
+  "usage.insights.ratedUnhelpful": "Rated unhelpful",
+  "usage.insights.notRated": "Not rated",
+  "usage.insights.stoppedWithError": "Stopped with an error",
+  "usage.insights.detailsUnavailable": "Step details are no longer available",
+  "usage.insights.answered": "Answered",
+  "usage.insights.finished": "Finished",
+  "usage.insights.startedOverShort": "started over {{count}}×",
+  "usage.insights.recoveredShort_one": "recovered from {{count}} tool error",
+  "usage.insights.recoveredShort_other": "recovered from {{count}} tool errors",
+  "usage.insights.toolsFailedShort_one": "{{count}} tool failed",
+  "usage.insights.toolsFailedShort_other": "{{count}} tools failed",
+  "usage.insights.headerDuration": "in {{duration}}",
+  "usage.insights.stepsCount_one": "{{count}} step",
+  "usage.insights.stepsCount_other": "{{count}} steps",
+  "usage.insights.whatItDid": "What it did:",
+  "usage.insights.replyNotSaved":
+    "The reply text wasn't saved for this prompt.",
+  "usage.insights.showAll": "Show all",
+  "usage.insights.showLess": "Show less",
+  "usage.insights.moreTools": "+{{count}} more",
+  "usage.insights.failedSuffix": "failed",
+  "usage.insights.timesCount": "{{label}} ×{{count}}",
+  "usage.insights.startedOverNote_one":
+    "Started over {{count}} time after {{reason}}. That cost about {{amount}} of the {{total}}.",
+  "usage.insights.startedOverNote_other":
+    "Started over {{count}} times after {{reason}}. That cost about {{amount}} of the {{total}}.",
+  "usage.insights.toolFailedNote_one":
+    "The {{tool}} tool failed {{count}} time.",
+  "usage.insights.toolFailedNote_other":
+    "The {{tool}} tool failed {{count}} times.",
+  "usage.insights.toolFailedRecoveredNote_one":
+    "The {{tool}} tool failed {{count}} time, but the agent kept going and finished.",
+  "usage.insights.toolFailedRecoveredNote_other":
+    "The {{tool}} tool failed {{count}} times, but the agent kept going and finished.",
+  "usage.insights.showSteps_one": "Show the {{count}} step",
+  "usage.insights.showSteps_other": "Show the {{count}} steps",
+  "usage.insights.hideSteps": "Hide steps",
+  "usage.insights.costDetails": "Cost details and checks",
+  "usage.insights.turnReply": "Wrote the reply",
+  "usage.insights.turnThought": "Thought it through",
+  "usage.insights.startedOverTag": "started over",
+  "usage.insights.toolFailedTag": "tool failed",
+  "usage.insights.turnContext":
+    "Sent {{tokens}} tokens of context, {{percent}}% re-used from earlier.",
+  "usage.insights.turnExpired":
+    "The saved context had expired after a pause, which is expected.",
+  "usage.insights.turnOutput": "Wrote {{tokens}} tokens.",
+  "usage.insights.turnRestart":
+    "Started over after {{reason}}, about {{amount}} more than re-using it.",
+  "usage.insights.noCacheCompare":
+    "At list prices, re-using earlier context took this prompt from {{noCache}} down to {{estimated}}.",
+  "usage.insights.partReused": "Re-used context",
+  "usage.insights.partSaved": "Saved to cache",
+  "usage.insights.partNew": "New context",
+  "usage.insights.partOutput": "Written by the model",
+  "usage.insights.checksHeading": "Automatic checks",
+  "usage.insights.checksNone": "None were recorded.",
+  "usage.insights.checksGraded": "(graded by a model)",
+  "usage.insights.checksNote":
+    "Framework checks look at how the run went (errors, steps, speed), not at whether the result was good.",
+  "usage.insights.lookedForTools": "Looked for more tools",
+  "usage.insights.prevPrompt": "Previous prompt (K)",
+  "usage.insights.nextPrompt": "Next prompt (J)",
+  "usage.insights.toolVerb.add": "Added {{object}}",
+  "usage.insights.toolVerb.analyze": "Analyzed {{object}}",
+  "usage.insights.toolVerb.apply": "Applied {{object}}",
+  "usage.insights.toolVerb.capture": "Captured {{object}}",
+  "usage.insights.toolVerb.check": "Checked {{object}}",
+  "usage.insights.toolVerb.connect": "Connected {{object}}",
+  "usage.insights.toolVerb.create": "Created {{object}}",
+  "usage.insights.toolVerb.delete": "Deleted {{object}}",
+  "usage.insights.toolVerb.duplicate": "Duplicated {{object}}",
+  "usage.insights.toolVerb.edit": "Edited {{object}}",
+  "usage.insights.toolVerb.export": "Exported {{object}}",
+  "usage.insights.toolVerb.fetch": "Fetched {{object}}",
+  "usage.insights.toolVerb.find": "Found {{object}}",
+  "usage.insights.toolVerb.generate": "Generated {{object}}",
+  "usage.insights.toolVerb.index": "Indexed {{object}}",
+  "usage.insights.toolVerb.insert": "Inserted {{object}}",
+  "usage.insights.toolVerb.list": "Listed {{object}}",
+  "usage.insights.toolVerb.move": "Moved {{object}}",
+  "usage.insights.toolVerb.navigate": "Navigated {{object}}",
+  "usage.insights.toolVerb.open": "Opened {{object}}",
+  "usage.insights.toolVerb.present": "Presented {{object}}",
+  "usage.insights.toolVerb.propose": "Proposed {{object}}",
+  "usage.insights.toolVerb.query": "Queried {{object}}",
+  "usage.insights.toolVerb.read": "Read {{object}}",
+  "usage.insights.toolVerb.remove": "Removed {{object}}",
+  "usage.insights.toolVerb.rename": "Renamed {{object}}",
+  "usage.insights.toolVerb.reply": "Replied to {{object}}",
+  "usage.insights.toolVerb.resolve": "Resolved {{object}}",
+  "usage.insights.toolVerb.run": "Ran {{object}}",
+  "usage.insights.toolVerb.save": "Saved {{object}}",
+  "usage.insights.toolVerb.search": "Searched {{object}}",
+  "usage.insights.toolVerb.send": "Sent {{object}}",
+  "usage.insights.toolVerb.set": "Set {{object}}",
+  "usage.insights.toolVerb.take": "Took {{object}}",
+  "usage.insights.toolVerb.update": "Updated {{object}}",
+  "usage.insights.toolVerb.upload": "Uploaded {{object}}",
+  "usage.insights.toolVerb.view": "Viewed {{object}}",
+  "usage.insights.toolVerb.write": "Wrote {{object}}",
   "usage.driverCreditsAndUsd": "Builder credits / USD",
 } as const;
 

@@ -871,6 +871,271 @@ const messages: AgentChatTranslation = {
     "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
   "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
   "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
+  "usage.insights.verdictSmooth": "يعمل بسلاسة",
+  "usage.insights.handledLabel": "تمت معالجته بواسطة Agent-Native:",
+  "usage.insights.handledHeading": "تمت معالجته بواسطة Agent-Native",
+  "usage.insights.handledParallel":
+    "شغّل {{count}} استدعاء أداة في الوقت نفسه، أسرع بحوالي {{duration}} من تنفيذها واحدًا تلو الآخر.",
+  "usage.insights.avgPerPrompt": "المتوسط لكل برومبت",
+  "usage.insights.completed": "مكتمل",
+  "usage.insights.completedDetail": "{{done}} من آخر {{total}}",
+  "usage.insights.typicalTime": "الوقت المعتاد",
+  "usage.insights.median": "الوسيط",
+  "usage.insights.changeSame": "نفس الفترة السابقة",
+  "usage.insights.changeUp": "↑ {{percent}}% مقارنة بالفترة السابقة",
+  "usage.insights.changeDown": "↓ {{percent}}% مقارنة بالفترة السابقة",
+  "usage.insights.kindProblem": "مشكلة",
+  "usage.insights.kindSaving": "توفير محتمل",
+  "usage.insights.kindInfo": "معلومة مفيدة",
+  "usage.insights.fixLabel": "الحل:",
+  "usage.insights.openPrompt": "فتح البرومبت",
+  "usage.insights.erroredBody": "توقف الوكيل قبل إنهاء المهمة.",
+  "usage.insights.erroredFix":
+    "افتح البرومبت لمعرفة آخر ما فعله الوكيل قبل أن يتوقف.",
+  "usage.insights.toolFailedSaid": "قال: «{{error}}»",
+  "usage.insights.toolFailedGeneric": "أبلغت الأداة عن خطأ.",
+  "usage.insights.toolRecoveredAll": "تعافى الوكيل وأنهى المهمة في كل مرة.",
+  "usage.insights.toolRecoveredSome":
+    "تعافى الوكيل وأنهى المهمة في {{count}} منها.",
+  "usage.insights.restartTitle":
+    "كلّف البدء من جديد حوالي {{amount}} ({{percent}}% من الإنفاق)",
+  "usage.insights.restartBody":
+    "في {{count}} من آخر {{total}} برومبت، أعاد الوكيل إرسال المحادثة كاملة بعد {{reason}}، بدلًا من إعادة استخدام ما سبق إرساله.",
+  "usage.insights.reasonToolLookup": "اكتشاف أدوات جديدة",
+  "usage.insights.reasonPrefixChanged": "تغيّر شيء في بداية تعليماته",
+  "usage.insights.fixToolLookup":
+    "حمّل الأدوات التي يستخدمها هذا التطبيق مسبقًا باستخدام initialToolNames لتبقى قائمة الأدوات ثابتة طوال البرومبت.",
+  "usage.insights.fixPrefixChanged":
+    "احتفظ بالمحتوى المتغيّر، مثل الطوابع الزمنية أو حالة كل خطوة، خارج برومبت النظام.",
+  "usage.insights.priciestTitle":
+    "استهلك برومبت واحد {{percent}}% من الإنفاق الأخير",
+  "usage.insights.untitledPrompt": "برومبت بلا عنوان",
+  "usage.insights.promptsHeading": "البرومبتات",
+  "usage.insights.showing": "عرض {{count}}",
+  "usage.insights.sortNewest": "الأحدث",
+  "usage.insights.sortCost": "الأعلى تكلفة",
+  "usage.insights.emptyPrompts":
+    "لا توجد برومبتات في هذه الفترة بعد. تظهر هنا بعد ثوانٍ قليلة من انتهائها.",
+  "usage.insights.promptNotSaved": "لم يتم حفظ نص البرومبت",
+  "usage.insights.ratedHelpful": "تم تقييمه بأنه مفيد",
+  "usage.insights.ratedUnhelpful": "تم تقييمه بأنه غير مفيد",
+  "usage.insights.notRated": "بلا تقييم",
+  "usage.insights.stoppedWithError": "توقف بخطأ",
+  "usage.insights.detailsUnavailable": "تفاصيل الخطوات لم تعد متاحة",
+  "usage.insights.answered": "تمت الإجابة",
+  "usage.insights.finished": "انتهى",
+  "usage.insights.startedOverShort": "بدأ من جديد {{count}}×",
+  "usage.insights.headerDuration": "في {{duration}}",
+  "usage.insights.whatItDid": "ما الذي قام به:",
+  "usage.insights.replyNotSaved": "لم يتم حفظ نص الرد لهذا البرومبت.",
+  "usage.insights.showAll": "عرض الكل",
+  "usage.insights.showLess": "عرض أقل",
+  "usage.insights.moreTools": "+{{count}} أخرى",
+  "usage.insights.failedSuffix": "فشل",
+  "usage.insights.timesCount": "{{label}} ×{{count}}",
+  "usage.insights.hideSteps": "إخفاء الخطوات",
+  "usage.insights.costDetails": "تفاصيل التكلفة والفحوصات",
+  "usage.insights.turnReply": "كتب الرد",
+  "usage.insights.turnThought": "فكّر في الأمر",
+  "usage.insights.startedOverTag": "بدأ من جديد",
+  "usage.insights.toolFailedTag": "فشل الأداة",
+  "usage.insights.turnContext":
+    "أرسل {{tokens}} توكن من السياق، {{percent}}% منها معاد استخدامها من سياق سابق.",
+  "usage.insights.turnExpired":
+    "انتهت صلاحية السياق المحفوظ بعد فترة توقف، وهذا أمر متوقع.",
+  "usage.insights.turnOutput": "كتب {{tokens}} توكن.",
+  "usage.insights.turnRestart":
+    "بدأ من جديد بعد {{reason}}، بتكلفة أعلى بحوالي {{amount}} من إعادة استخدامه.",
+  "usage.insights.noCacheCompare":
+    "بالأسعار المعتادة، أدت إعادة استخدام السياق السابق إلى خفض تكلفة هذا البرومبت من {{noCache}} إلى {{estimated}}.",
+  "usage.insights.partReused": "سياق معاد استخدامه",
+  "usage.insights.partSaved": "محفوظ في الكاش",
+  "usage.insights.partNew": "سياق جديد",
+  "usage.insights.partOutput": "كتبه النموذج",
+  "usage.insights.checksHeading": "الفحوصات التلقائية",
+  "usage.insights.checksNone": "لم يتم تسجيل أي فحوصات.",
+  "usage.insights.checksGraded": "(تم تقييمه من نموذج)",
+  "usage.insights.checksNote":
+    "تفحص هذه الفحوصات كيف سار التشغيل (الأخطاء، الخطوات، السرعة)، وليس ما إذا كانت النتيجة جيدة.",
+  "usage.insights.lookedForTools": "بحث عن أدوات إضافية",
+  "usage.insights.prevPrompt": "البرومبت السابق (K)",
+  "usage.insights.nextPrompt": "البرومبت التالي (J)",
+  "usage.insights.toolVerb.add": "أضاف {{object}}",
+  "usage.insights.toolVerb.analyze": "حلّل {{object}}",
+  "usage.insights.toolVerb.apply": "طبّق {{object}}",
+  "usage.insights.toolVerb.capture": "التقط {{object}}",
+  "usage.insights.toolVerb.check": "فحص {{object}}",
+  "usage.insights.toolVerb.connect": "وصّل {{object}}",
+  "usage.insights.toolVerb.create": "أنشأ {{object}}",
+  "usage.insights.toolVerb.delete": "حذف {{object}}",
+  "usage.insights.toolVerb.duplicate": "كرر {{object}}",
+  "usage.insights.toolVerb.edit": "عدّل {{object}}",
+  "usage.insights.toolVerb.export": "صدّر {{object}}",
+  "usage.insights.toolVerb.fetch": "جلب {{object}}",
+  "usage.insights.toolVerb.find": "وجد {{object}}",
+  "usage.insights.toolVerb.generate": "ولّد {{object}}",
+  "usage.insights.toolVerb.index": "فهرس {{object}}",
+  "usage.insights.toolVerb.insert": "أدرج {{object}}",
+  "usage.insights.toolVerb.list": "سرد {{object}}",
+  "usage.insights.toolVerb.move": "نقل {{object}}",
+  "usage.insights.toolVerb.navigate": "تصفّح {{object}}",
+  "usage.insights.toolVerb.open": "فتح {{object}}",
+  "usage.insights.toolVerb.present": "قدّم {{object}}",
+  "usage.insights.toolVerb.propose": "اقترح {{object}}",
+  "usage.insights.toolVerb.query": "استعلم عن {{object}}",
+  "usage.insights.toolVerb.read": "قرأ {{object}}",
+  "usage.insights.toolVerb.remove": "أزال {{object}}",
+  "usage.insights.toolVerb.rename": "أعاد تسمية {{object}}",
+  "usage.insights.toolVerb.reply": "ردّ على {{object}}",
+  "usage.insights.toolVerb.resolve": "حلّ {{object}}",
+  "usage.insights.toolVerb.run": "شغّل {{object}}",
+  "usage.insights.toolVerb.save": "حفظ {{object}}",
+  "usage.insights.toolVerb.search": "بحث عن {{object}}",
+  "usage.insights.toolVerb.send": "أرسل {{object}}",
+  "usage.insights.toolVerb.set": "ضبط {{object}}",
+  "usage.insights.toolVerb.take": "أخذ {{object}}",
+  "usage.insights.toolVerb.update": "حدّث {{object}}",
+  "usage.insights.toolVerb.upload": "رفع {{object}}",
+  "usage.insights.toolVerb.view": "عرض {{object}}",
+  "usage.insights.toolVerb.write": "كتب {{object}}",
+  "usage.insights.verdictLook_zero": "{{count}} أشياء تستحق نظرة",
+  "usage.insights.verdictLook_one": "{{count}} شيء يستحق نظرة",
+  "usage.insights.verdictLook_two": "{{count}} شيئان يستحقان نظرة",
+  "usage.insights.verdictLook_few": "{{count}} أشياء تستحق نظرة",
+  "usage.insights.verdictLook_many": "{{count}} شيئًا يستحق نظرة",
+  "usage.insights.verdictLook_other": "{{count}} شيء يستحق نظرة",
+  "usage.insights.verdictProblems_zero": "{{count}} مشكلات",
+  "usage.insights.verdictProblems_one": "{{count}} مشكلة",
+  "usage.insights.verdictProblems_two": "{{count}} مشكلتان",
+  "usage.insights.verdictProblems_few": "{{count}} مشكلات",
+  "usage.insights.verdictProblems_many": "{{count}} مشكلة",
+  "usage.insights.verdictProblems_other": "{{count}} مشكلة",
+  "usage.insights.spentSummary_zero":
+    "تم إنفاق {{amount}} على {{count}} برومبتات في آخر {{days}} يوم.",
+  "usage.insights.spentSummary_one":
+    "تم إنفاق {{amount}} على {{count}} برومبت في آخر {{days}} يوم.",
+  "usage.insights.spentSummary_two":
+    "تم إنفاق {{amount}} على {{count}} برومبتين في آخر {{days}} يوم.",
+  "usage.insights.spentSummary_few":
+    "تم إنفاق {{amount}} على {{count}} برومبتات في آخر {{days}} يوم.",
+  "usage.insights.spentSummary_many":
+    "تم إنفاق {{amount}} على {{count}} برومبت في آخر {{days}} يوم.",
+  "usage.insights.spentSummary_other":
+    "تم إنفاق {{amount}} على {{count}} برومبت في آخر {{days}} يوم.",
+  "usage.insights.handledRecovered_zero":
+    "تعافى الوكيل من {{count}} أخطاء في الأداة دون توقف.",
+  "usage.insights.handledRecovered_one":
+    "تعافى الوكيل من {{count}} خطأ في الأداة دون توقف.",
+  "usage.insights.handledRecovered_two":
+    "تعافى الوكيل من {{count}} خطأين في الأداة دون توقف.",
+  "usage.insights.handledRecovered_few":
+    "تعافى الوكيل من {{count}} أخطاء في الأداة دون توقف.",
+  "usage.insights.handledRecovered_many":
+    "تعافى الوكيل من {{count}} خطأ في الأداة دون توقف.",
+  "usage.insights.handledRecovered_other":
+    "تعافى الوكيل من {{count}} خطأ في الأداة دون توقف.",
+  "usage.insights.completedRecovered_zero":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} أخطاء في الأداة",
+  "usage.insights.completedRecovered_one":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأ في الأداة",
+  "usage.insights.completedRecovered_two":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأين في الأداة",
+  "usage.insights.completedRecovered_few":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} أخطاء في الأداة",
+  "usage.insights.completedRecovered_many":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأ في الأداة",
+  "usage.insights.completedRecovered_other":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأ في الأداة",
+  "usage.insights.seePrompts_zero": "عرض {{count}} برومبتات",
+  "usage.insights.seePrompts_one": "عرض {{count}} برومبت",
+  "usage.insights.seePrompts_two": "عرض {{count}} برومبتين",
+  "usage.insights.seePrompts_few": "عرض {{count}} برومبتات",
+  "usage.insights.seePrompts_many": "عرض {{count}} برومبت",
+  "usage.insights.seePrompts_other": "عرض {{count}} برومبت",
+  "usage.insights.erroredTitle_zero": "{{count}} برومبتات انتهت بخطأ",
+  "usage.insights.erroredTitle_one": "{{count}} برومبت انتهى بخطأ",
+  "usage.insights.erroredTitle_two": "{{count}} برومبتان انتهيا بخطأ",
+  "usage.insights.erroredTitle_few": "{{count}} برومبتات انتهت بخطأ",
+  "usage.insights.erroredTitle_many": "{{count}} برومبت انتهى بخطأ",
+  "usage.insights.erroredTitle_other": "{{count}} برومبت انتهى بخطأ",
+  "usage.insights.toolFailedTitle_zero":
+    "فشلت أداة {{tool}} في {{count}} برومبتات",
+  "usage.insights.toolFailedTitle_one":
+    "فشلت أداة {{tool}} في {{count}} برومبت",
+  "usage.insights.toolFailedTitle_two":
+    "فشلت أداة {{tool}} في {{count}} برومبتين",
+  "usage.insights.toolFailedTitle_few":
+    "فشلت أداة {{tool}} في {{count}} برومبتات",
+  "usage.insights.toolFailedTitle_many":
+    "فشلت أداة {{tool}} في {{count}} برومبت",
+  "usage.insights.toolFailedTitle_other":
+    "فشلت أداة {{tool}} في {{count}} برومبت",
+  "usage.insights.priciestBody_zero":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوات.",
+  "usage.insights.priciestBody_one":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوة.",
+  "usage.insights.priciestBody_two":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوتين.",
+  "usage.insights.priciestBody_few":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوات.",
+  "usage.insights.priciestBody_many":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوة.",
+  "usage.insights.priciestBody_other":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوة.",
+  "usage.insights.recoveredShort_zero": "تعافى من {{count}} أخطاء في الأداة",
+  "usage.insights.recoveredShort_one": "تعافى من {{count}} خطأ في الأداة",
+  "usage.insights.recoveredShort_two": "تعافى من {{count}} خطأين في الأداة",
+  "usage.insights.recoveredShort_few": "تعافى من {{count}} أخطاء في الأداة",
+  "usage.insights.recoveredShort_many": "تعافى من {{count}} خطأ في الأداة",
+  "usage.insights.recoveredShort_other": "تعافى من {{count}} خطأ في الأداة",
+  "usage.insights.toolsFailedShort_zero": "{{count}} أدوات فشلت",
+  "usage.insights.toolsFailedShort_one": "{{count}} أداة فشلت",
+  "usage.insights.toolsFailedShort_two": "{{count}} أداتان فشلتا",
+  "usage.insights.toolsFailedShort_few": "{{count}} أدوات فشلت",
+  "usage.insights.toolsFailedShort_many": "{{count}} أداة فشلت",
+  "usage.insights.toolsFailedShort_other": "{{count}} أداة فشلت",
+  "usage.insights.stepsCount_zero": "{{count}} خطوات",
+  "usage.insights.stepsCount_one": "{{count}} خطوة",
+  "usage.insights.stepsCount_two": "{{count}} خطوتان",
+  "usage.insights.stepsCount_few": "{{count}} خطوات",
+  "usage.insights.stepsCount_many": "{{count}} خطوة",
+  "usage.insights.stepsCount_other": "{{count}} خطوة",
+  "usage.insights.startedOverNote_zero":
+    "بدأ من جديد {{count}} مرات بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "usage.insights.startedOverNote_one":
+    "بدأ من جديد {{count}} مرة بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "usage.insights.startedOverNote_two":
+    "بدأ من جديد {{count}} مرتين بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "usage.insights.startedOverNote_few":
+    "بدأ من جديد {{count}} مرات بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "usage.insights.startedOverNote_many":
+    "بدأ من جديد {{count}} مرة بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "usage.insights.startedOverNote_other":
+    "بدأ من جديد {{count}} مرة بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "usage.insights.toolFailedNote_zero": "فشلت أداة {{tool}} {{count}} مرات.",
+  "usage.insights.toolFailedNote_one": "فشلت أداة {{tool}} {{count}} مرة.",
+  "usage.insights.toolFailedNote_two": "فشلت أداة {{tool}} {{count}} مرتين.",
+  "usage.insights.toolFailedNote_few": "فشلت أداة {{tool}} {{count}} مرات.",
+  "usage.insights.toolFailedNote_many": "فشلت أداة {{tool}} {{count}} مرة.",
+  "usage.insights.toolFailedNote_other": "فشلت أداة {{tool}} {{count}} مرة.",
+  "usage.insights.toolFailedRecoveredNote_zero":
+    "فشلت أداة {{tool}} {{count}} مرات، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "usage.insights.toolFailedRecoveredNote_one":
+    "فشلت أداة {{tool}} {{count}} مرة، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "usage.insights.toolFailedRecoveredNote_two":
+    "فشلت أداة {{tool}} {{count}} مرتين، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "usage.insights.toolFailedRecoveredNote_few":
+    "فشلت أداة {{tool}} {{count}} مرات، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "usage.insights.toolFailedRecoveredNote_many":
+    "فشلت أداة {{tool}} {{count}} مرة، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "usage.insights.toolFailedRecoveredNote_other":
+    "فشلت أداة {{tool}} {{count}} مرة، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "usage.insights.showSteps_zero": "إظهار {{count}} خطوات",
+  "usage.insights.showSteps_one": "إظهار {{count}} خطوة",
+  "usage.insights.showSteps_two": "إظهار {{count}} خطوتين",
+  "usage.insights.showSteps_few": "إظهار {{count}} خطوات",
+  "usage.insights.showSteps_many": "إظهار {{count}} خطوة",
+  "usage.insights.showSteps_other": "إظهار {{count}} خطوة",
 };
 
 export default messages;

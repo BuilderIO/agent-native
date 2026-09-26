@@ -314,6 +314,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-usage-alerts": "automation",
   "manage-usage-alert": "automation",
   "get-usage-metrics": "automation",
+  "get-usage-insights": "automation",
+  "get-usage-run": "automation",
   "get-builder-credit-usage": "automation",
 
   "context-manifest-get": "contextXray",

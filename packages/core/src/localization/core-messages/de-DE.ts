@@ -898,6 +898,189 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Sonstige oder nicht zugeordnete Nutzung heute: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder-Credits / USD",
+  "usage.insights.verdictSmooth": "Läuft reibungslos",
+  "usage.insights.verdictLook_one": "{{count}} Punkt, der einen Blick wert ist",
+  "usage.insights.verdictLook_other":
+    "{{count}} Punkte, die einen Blick wert sind",
+  "usage.insights.verdictProblems_one": "{{count}} Problem",
+  "usage.insights.verdictProblems_other": "{{count}} Probleme",
+  "usage.insights.spentSummary_one":
+    "{{amount}} ausgegeben für {{count}} Prompt in den letzten {{days}} Tagen.",
+  "usage.insights.spentSummary_other":
+    "{{amount}} ausgegeben für {{count}} Prompts in den letzten {{days}} Tagen.",
+  "usage.insights.handledLabel": "Erledigt von Agent-Native:",
+  "usage.insights.handledHeading": "Erledigt von Agent-Native",
+  "usage.insights.handledParallel":
+    "Hat {{count}} Tool-Aufrufe gleichzeitig ausgeführt, etwa {{duration}} schneller als einzeln nacheinander.",
+  "usage.insights.handledRecovered_one":
+    "Hat sich von {{count}} Tool-Fehler erholt, ohne anzuhalten.",
+  "usage.insights.handledRecovered_other":
+    "Hat sich von {{count}} Tool-Fehlern erholt, ohne anzuhalten.",
+  "usage.insights.avgPerPrompt": "Durchschnitt pro Prompt",
+  "usage.insights.completed": "Abgeschlossen",
+  "usage.insights.completedDetail": "{{done}} von den letzten {{total}}",
+  "usage.insights.completedRecovered_one":
+    "{{done}} von den letzten {{total}}, nach Erholung von {{count}} Tool-Fehler",
+  "usage.insights.completedRecovered_other":
+    "{{done}} von den letzten {{total}}, nach Erholung von {{count}} Tool-Fehlern",
+  "usage.insights.typicalTime": "Typische Dauer",
+  "usage.insights.median": "Median",
+  "usage.insights.changeSame": "unverändert gegenüber dem vorherigen Zeitraum",
+  "usage.insights.changeUp":
+    "↑ {{percent}} % gegenüber dem vorherigen Zeitraum",
+  "usage.insights.changeDown":
+    "↓ {{percent}} % gegenüber dem vorherigen Zeitraum",
+  "usage.insights.kindProblem": "Problem",
+  "usage.insights.kindSaving": "Einsparpotenzial",
+  "usage.insights.kindInfo": "Gut zu wissen",
+  "usage.insights.fixLabel": "Lösung:",
+  "usage.insights.openPrompt": "Prompt öffnen",
+  "usage.insights.seePrompts_one": "{{count}} Prompt ansehen",
+  "usage.insights.seePrompts_other": "{{count}} Prompts ansehen",
+  "usage.insights.erroredTitle_one": "{{count}} Prompt endete mit einem Fehler",
+  "usage.insights.erroredTitle_other":
+    "{{count}} Prompts endeten mit einem Fehler",
+  "usage.insights.erroredBody": "Der Agent hat gestoppt, bevor er fertig war.",
+  "usage.insights.erroredFix":
+    "Öffne einen Prompt, um zu sehen, was er zuletzt getan hat, bevor er gestoppt hat.",
+  "usage.insights.toolFailedTitle_one":
+    "Das Tool {{tool}} ist in {{count}} Prompt fehlgeschlagen",
+  "usage.insights.toolFailedTitle_other":
+    "Das Tool {{tool}} ist in {{count}} Prompts fehlgeschlagen",
+  "usage.insights.toolFailedSaid": "Es meldete: „{{error}}“",
+  "usage.insights.toolFailedGeneric": "Das Tool hat einen Fehler gemeldet.",
+  "usage.insights.toolRecoveredAll":
+    "Der Agent hat sich jedes Mal erholt und die Aufgabe abgeschlossen.",
+  "usage.insights.toolRecoveredSome":
+    "Der Agent hat sich in {{count}} davon erholt und abgeschlossen.",
+  "usage.insights.restartTitle":
+    "Der Neustart hat etwa {{amount}} gekostet ({{percent}} % der Ausgaben)",
+  "usage.insights.restartBody":
+    "Bei {{count}} von {{total}} aktuellen Prompts hat der Agent nach {{reason}} die gesamte Konversation erneut gesendet, statt das bereits Gesendete wiederzuverwenden.",
+  "usage.insights.reasonToolLookup": "dem Abrufen neuer Tools",
+  "usage.insights.reasonPrefixChanged":
+    "einer Änderung am Anfang seiner Anweisungen",
+  "usage.insights.fixToolLookup":
+    "Lade die von dieser App verwendeten Tools vorab mit initialToolNames, damit die Tool-Liste während des gesamten Prompts gleich bleibt.",
+  "usage.insights.fixPrefixChanged":
+    "Halte sich ändernde Inhalte wie Zeitstempel oder Status pro Schritt aus dem System-Prompt heraus.",
+  "usage.insights.priciestTitle":
+    "Ein Prompt hat {{percent}} % der letzten Ausgaben verursacht",
+  "usage.insights.priciestBody_one":
+    "„{{prompt}}“ hat {{amount}} über {{count}} Schritt gekostet.",
+  "usage.insights.priciestBody_other":
+    "„{{prompt}}“ hat {{amount}} über {{count}} Schritte gekostet.",
+  "usage.insights.untitledPrompt": "Unbenannter Prompt",
+  "usage.insights.promptsHeading": "Prompts",
+  "usage.insights.showing": "Zeigt {{count}}",
+  "usage.insights.sortNewest": "Neueste",
+  "usage.insights.sortCost": "Teuerste",
+  "usage.insights.emptyPrompts":
+    "Noch keine Prompts in diesem Zeitraum. Sie erscheinen hier ein paar Sekunden nach Abschluss.",
+  "usage.insights.promptNotSaved": "Prompt-Text wurde nicht gespeichert",
+  "usage.insights.ratedHelpful": "Als hilfreich bewertet",
+  "usage.insights.ratedUnhelpful": "Als nicht hilfreich bewertet",
+  "usage.insights.notRated": "Nicht bewertet",
+  "usage.insights.stoppedWithError": "Mit einem Fehler gestoppt",
+  "usage.insights.detailsUnavailable":
+    "Schrittdetails sind nicht mehr verfügbar",
+  "usage.insights.answered": "Beantwortet",
+  "usage.insights.finished": "Abgeschlossen",
+  "usage.insights.startedOverShort": "{{count}}× neu gestartet",
+  "usage.insights.recoveredShort_one": "von {{count}} Tool-Fehler erholt",
+  "usage.insights.recoveredShort_other": "von {{count}} Tool-Fehlern erholt",
+  "usage.insights.toolsFailedShort_one": "{{count}} Tool fehlgeschlagen",
+  "usage.insights.toolsFailedShort_other": "{{count}} Tools fehlgeschlagen",
+  "usage.insights.headerDuration": "in {{duration}}",
+  "usage.insights.stepsCount_one": "{{count}} Schritt",
+  "usage.insights.stepsCount_other": "{{count}} Schritte",
+  "usage.insights.whatItDid": "Was er getan hat:",
+  "usage.insights.replyNotSaved":
+    "Der Antworttext wurde für diesen Prompt nicht gespeichert.",
+  "usage.insights.showAll": "Alle anzeigen",
+  "usage.insights.showLess": "Weniger anzeigen",
+  "usage.insights.moreTools": "+{{count}} weitere",
+  "usage.insights.failedSuffix": "fehlgeschlagen",
+  "usage.insights.timesCount": "{{label}} ×{{count}}",
+  "usage.insights.startedOverNote_one":
+    "{{count}} Mal neu gestartet nach {{reason}}. Das hat etwa {{amount}} von {{total}} gekostet.",
+  "usage.insights.startedOverNote_other":
+    "{{count}} Mal neu gestartet nach {{reason}}. Das hat etwa {{amount}} von {{total}} gekostet.",
+  "usage.insights.toolFailedNote_one":
+    "Das Tool {{tool}} ist {{count}} Mal fehlgeschlagen.",
+  "usage.insights.toolFailedNote_other":
+    "Das Tool {{tool}} ist {{count}} Mal fehlgeschlagen.",
+  "usage.insights.toolFailedRecoveredNote_one":
+    "Das Tool {{tool}} ist {{count}} Mal fehlgeschlagen, aber der Agent hat weitergemacht und abgeschlossen.",
+  "usage.insights.toolFailedRecoveredNote_other":
+    "Das Tool {{tool}} ist {{count}} Mal fehlgeschlagen, aber der Agent hat weitergemacht und abgeschlossen.",
+  "usage.insights.showSteps_one": "{{count}} Schritt anzeigen",
+  "usage.insights.showSteps_other": "{{count}} Schritte anzeigen",
+  "usage.insights.hideSteps": "Schritte ausblenden",
+  "usage.insights.costDetails": "Kostendetails und Prüfungen",
+  "usage.insights.turnReply": "Antwort geschrieben",
+  "usage.insights.turnThought": "Durchdacht",
+  "usage.insights.startedOverTag": "neu gestartet",
+  "usage.insights.toolFailedTag": "Tool fehlgeschlagen",
+  "usage.insights.turnContext":
+    "Hat {{tokens}} Tokens Kontext gesendet, {{percent}} % davon aus früheren Anfragen wiederverwendet.",
+  "usage.insights.turnExpired":
+    "Der gespeicherte Kontext war nach einer Pause abgelaufen – das ist normal.",
+  "usage.insights.turnOutput": "Hat {{tokens}} Tokens geschrieben.",
+  "usage.insights.turnRestart":
+    "Neu gestartet nach {{reason}} – etwa {{amount}} mehr, als die Wiederverwendung gekostet hätte.",
+  "usage.insights.noCacheCompare":
+    "Zu Listenpreisen hat die Wiederverwendung früheren Kontexts diesen Prompt von {{noCache}} auf {{estimated}} gesenkt.",
+  "usage.insights.partReused": "Wiederverwendeter Kontext",
+  "usage.insights.partSaved": "Im Cache gespeichert",
+  "usage.insights.partNew": "Neuer Kontext",
+  "usage.insights.partOutput": "Vom Modell geschrieben",
+  "usage.insights.checksHeading": "Automatische Prüfungen",
+  "usage.insights.checksNone": "Es wurden keine erfasst.",
+  "usage.insights.checksGraded": "(von einem Modell bewertet)",
+  "usage.insights.checksNote":
+    "Framework-Prüfungen betrachten, wie der Lauf verlaufen ist (Fehler, Schritte, Geschwindigkeit), nicht, ob das Ergebnis gut war.",
+  "usage.insights.lookedForTools": "Hat nach weiteren Tools gesucht",
+  "usage.insights.prevPrompt": "Vorheriger Prompt (K)",
+  "usage.insights.nextPrompt": "Nächster Prompt (J)",
+  "usage.insights.toolVerb.add": "{{object}} hinzugefügt",
+  "usage.insights.toolVerb.analyze": "{{object}} analysiert",
+  "usage.insights.toolVerb.apply": "{{object}} angewendet",
+  "usage.insights.toolVerb.capture": "{{object}} erfasst",
+  "usage.insights.toolVerb.check": "{{object}} geprüft",
+  "usage.insights.toolVerb.connect": "{{object}} verbunden",
+  "usage.insights.toolVerb.create": "{{object}} erstellt",
+  "usage.insights.toolVerb.delete": "{{object}} gelöscht",
+  "usage.insights.toolVerb.duplicate": "{{object}} dupliziert",
+  "usage.insights.toolVerb.edit": "{{object}} bearbeitet",
+  "usage.insights.toolVerb.export": "{{object}} exportiert",
+  "usage.insights.toolVerb.fetch": "{{object}} abgerufen",
+  "usage.insights.toolVerb.find": "{{object}} gefunden",
+  "usage.insights.toolVerb.generate": "{{object}} generiert",
+  "usage.insights.toolVerb.index": "{{object}} indiziert",
+  "usage.insights.toolVerb.insert": "{{object}} eingefügt",
+  "usage.insights.toolVerb.list": "{{object}} aufgelistet",
+  "usage.insights.toolVerb.move": "{{object}} verschoben",
+  "usage.insights.toolVerb.navigate": "{{object}} navigiert",
+  "usage.insights.toolVerb.open": "{{object}} geöffnet",
+  "usage.insights.toolVerb.present": "{{object}} präsentiert",
+  "usage.insights.toolVerb.propose": "{{object}} vorgeschlagen",
+  "usage.insights.toolVerb.query": "{{object}} abgefragt",
+  "usage.insights.toolVerb.read": "{{object}} gelesen",
+  "usage.insights.toolVerb.remove": "{{object}} entfernt",
+  "usage.insights.toolVerb.rename": "{{object}} umbenannt",
+  "usage.insights.toolVerb.reply": "{{object}} beantwortet",
+  "usage.insights.toolVerb.resolve": "{{object}} gelöst",
+  "usage.insights.toolVerb.run": "{{object}} ausgeführt",
+  "usage.insights.toolVerb.save": "{{object}} gespeichert",
+  "usage.insights.toolVerb.search": "{{object}} durchsucht",
+  "usage.insights.toolVerb.send": "{{object}} gesendet",
+  "usage.insights.toolVerb.set": "{{object}} gesetzt",
+  "usage.insights.toolVerb.take": "{{object}} aufgenommen",
+  "usage.insights.toolVerb.update": "{{object}} aktualisiert",
+  "usage.insights.toolVerb.upload": "{{object}} hochgeladen",
+  "usage.insights.toolVerb.view": "{{object}} angesehen",
+  "usage.insights.toolVerb.write": "{{object}} geschrieben",
 };
 
 export default messages;

@@ -905,6 +905,213 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Autre utilisation ou non classée aujourd’hui : {{amount}}",
   "usage.driverCreditsAndUsd": "Crédits Builder / USD",
+  "usage.insights.verdictSmooth": "Tout fonctionne bien",
+  "usage.insights.verdictLook_one": "{{count}} point à vérifier",
+  "usage.insights.verdictLook_other": "{{count}} points à vérifier",
+  "usage.insights.verdictProblems_one": "{{count}} problème",
+  "usage.insights.verdictProblems_other": "{{count}} problèmes",
+  "usage.insights.spentSummary_one":
+    "{{amount}} dépensé pour {{count}} prompt au cours des {{days}} derniers jours.",
+  "usage.insights.spentSummary_other":
+    "{{amount}} dépensé pour {{count}} prompts au cours des {{days}} derniers jours.",
+  "usage.insights.handledLabel": "Pris en charge par Agent-Native :",
+  "usage.insights.handledHeading": "Pris en charge par Agent-Native",
+  "usage.insights.handledParallel":
+    "A exécuté {{count}} appels d'outils en même temps, environ {{duration}} plus vite qu'un par un.",
+  "usage.insights.handledRecovered_one":
+    "S'est remis de {{count}} erreur d'outil sans s'arrêter.",
+  "usage.insights.handledRecovered_other":
+    "S'est remis de {{count}} erreurs d'outils sans s'arrêter.",
+  "usage.insights.avgPerPrompt": "Moyenne par prompt",
+  "usage.insights.completed": "Terminé",
+  "usage.insights.completedDetail": "{{done}} sur les {{total}} derniers",
+  "usage.insights.completedRecovered_one":
+    "{{done}} sur les {{total}} derniers, après s'être remis de {{count}} erreur d'outil",
+  "usage.insights.completedRecovered_other":
+    "{{done}} sur les {{total}} derniers, après s'être remis de {{count}} erreurs d'outils",
+  "usage.insights.typicalTime": "Durée type",
+  "usage.insights.median": "médiane",
+  "usage.insights.changeSame": "identique à la période précédente",
+  "usage.insights.changeUp":
+    "↑ {{percent}} % par rapport à la période précédente",
+  "usage.insights.changeDown":
+    "↓ {{percent}} % par rapport à la période précédente",
+  "usage.insights.kindProblem": "Problème",
+  "usage.insights.kindSaving": "Économie possible",
+  "usage.insights.kindInfo": "Bon à savoir",
+  "usage.insights.fixLabel": "Solution :",
+  "usage.insights.openPrompt": "Ouvrir le prompt",
+  "usage.insights.seePrompts_one": "Voir {{count}} prompt",
+  "usage.insights.seePrompts_other": "Voir {{count}} prompts",
+  "usage.insights.erroredTitle_one":
+    "{{count}} prompt s'est terminé par une erreur",
+  "usage.insights.erroredTitle_other":
+    "{{count}} prompts se sont terminés par une erreur",
+  "usage.insights.erroredBody": "L'agent s'est arrêté avant d'avoir terminé.",
+  "usage.insights.erroredFix":
+    "Ouvrez un prompt pour voir la dernière action effectuée avant l'arrêt.",
+  "usage.insights.toolFailedTitle_one":
+    "L'outil {{tool}} a échoué dans {{count}} prompt",
+  "usage.insights.toolFailedTitle_other":
+    "L'outil {{tool}} a échoué dans {{count}} prompts",
+  "usage.insights.toolFailedSaid": "Message : « {{error}} »",
+  "usage.insights.toolFailedGeneric": "L'outil a signalé une erreur.",
+  "usage.insights.toolRecoveredAll":
+    "L'agent s'est remis et a terminé chaque fois.",
+  "usage.insights.toolRecoveredSome":
+    "L'agent s'est remis et a terminé dans {{count}} d'entre eux.",
+  "usage.insights.restartTitle":
+    "Repartir de zéro a coûté environ {{amount}} ({{percent}} % des dépenses)",
+  "usage.insights.restartBody":
+    "Sur {{count}} des {{total}} derniers prompts, l'agent a renvoyé toute la conversation après {{reason}}, au lieu de réutiliser ce qu'il avait déjà envoyé.",
+  "usage.insights.reasonToolLookup": "la récupération de nouveaux outils",
+  "usage.insights.reasonPrefixChanged": "un changement en début d'instructions",
+  "usage.insights.fixToolLookup":
+    "Préchargez les outils utilisés par cette application avec initialToolNames pour que la liste d'outils reste identique pendant tout le prompt.",
+  "usage.insights.fixPrefixChanged":
+    "Gardez le contenu changeant, comme les horodatages ou l'état par étape, hors du prompt système.",
+  "usage.insights.priciestTitle":
+    "Un prompt a représenté {{percent}} % des dépenses récentes",
+  "usage.insights.priciestBody_one":
+    "« {{prompt}} » a coûté {{amount}} sur {{count}} étape.",
+  "usage.insights.priciestBody_other":
+    "« {{prompt}} » a coûté {{amount}} sur {{count}} étapes.",
+  "usage.insights.untitledPrompt": "Prompt sans titre",
+  "usage.insights.promptsHeading": "Prompts",
+  "usage.insights.showing": "Affichage de {{count}}",
+  "usage.insights.sortNewest": "Plus récents",
+  "usage.insights.sortCost": "Plus coûteux",
+  "usage.insights.emptyPrompts":
+    "Aucun prompt pour cette période pour le moment. Ils apparaissent ici quelques secondes après leur fin.",
+  "usage.insights.promptNotSaved": "Le texte du prompt n'a pas été enregistré",
+  "usage.insights.ratedHelpful": "Jugé utile",
+  "usage.insights.ratedUnhelpful": "Jugé inutile",
+  "usage.insights.notRated": "Non noté",
+  "usage.insights.stoppedWithError": "Arrêté avec une erreur",
+  "usage.insights.detailsUnavailable":
+    "Les détails des étapes ne sont plus disponibles",
+  "usage.insights.answered": "Répondu",
+  "usage.insights.finished": "Terminé",
+  "usage.insights.startedOverShort": "reparti de zéro {{count}}×",
+  "usage.insights.recoveredShort_one": "remis de {{count}} erreur d'outil",
+  "usage.insights.recoveredShort_other": "remis de {{count}} erreurs d'outils",
+  "usage.insights.toolsFailedShort_one": "{{count}} outil en échec",
+  "usage.insights.toolsFailedShort_other": "{{count}} outils en échec",
+  "usage.insights.headerDuration": "en {{duration}}",
+  "usage.insights.stepsCount_one": "{{count}} étape",
+  "usage.insights.stepsCount_other": "{{count}} étapes",
+  "usage.insights.whatItDid": "Ce qu'il a fait :",
+  "usage.insights.replyNotSaved":
+    "Le texte de la réponse n'a pas été enregistré pour ce prompt.",
+  "usage.insights.showAll": "Tout afficher",
+  "usage.insights.showLess": "Afficher moins",
+  "usage.insights.moreTools": "+{{count}} de plus",
+  "usage.insights.failedSuffix": "échoué",
+  "usage.insights.timesCount": "{{label}} ×{{count}}",
+  "usage.insights.startedOverNote_one":
+    "Reparti de zéro {{count}} fois après {{reason}}. Cela a coûté environ {{amount}} sur {{total}}.",
+  "usage.insights.startedOverNote_other":
+    "Reparti de zéro {{count}} fois après {{reason}}. Cela a coûté environ {{amount}} sur {{total}}.",
+  "usage.insights.toolFailedNote_one":
+    "L'outil {{tool}} a échoué {{count}} fois.",
+  "usage.insights.toolFailedNote_other":
+    "L'outil {{tool}} a échoué {{count}} fois.",
+  "usage.insights.toolFailedRecoveredNote_one":
+    "L'outil {{tool}} a échoué {{count}} fois, mais l'agent a continué et terminé.",
+  "usage.insights.toolFailedRecoveredNote_other":
+    "L'outil {{tool}} a échoué {{count}} fois, mais l'agent a continué et terminé.",
+  "usage.insights.showSteps_one": "Afficher {{count}} étape",
+  "usage.insights.showSteps_other": "Afficher {{count}} étapes",
+  "usage.insights.hideSteps": "Masquer les étapes",
+  "usage.insights.costDetails": "Détails des coûts et vérifications",
+  "usage.insights.turnReply": "A écrit la réponse",
+  "usage.insights.turnThought": "A réfléchi",
+  "usage.insights.startedOverTag": "reparti de zéro",
+  "usage.insights.toolFailedTag": "outil en échec",
+  "usage.insights.turnContext":
+    "A envoyé {{tokens}} tokens de contexte, dont {{percent}} % réutilisés d'avant.",
+  "usage.insights.turnExpired":
+    "Le contexte enregistré avait expiré après une pause, ce qui est normal.",
+  "usage.insights.turnOutput": "A écrit {{tokens}} tokens.",
+  "usage.insights.turnRestart":
+    "Reparti de zéro après {{reason}}, soit environ {{amount}} de plus que la réutilisation.",
+  "usage.insights.noCacheCompare":
+    "Aux prix catalogue, la réutilisation du contexte précédent a fait passer ce prompt de {{noCache}} à {{estimated}}.",
+  "usage.insights.partReused": "Contexte réutilisé",
+  "usage.insights.partSaved": "Enregistré dans le cache",
+  "usage.insights.partNew": "Nouveau contexte",
+  "usage.insights.partOutput": "Écrit par le modèle",
+  "usage.insights.checksHeading": "Vérifications automatiques",
+  "usage.insights.checksNone": "Aucune n'a été enregistrée.",
+  "usage.insights.checksGraded": "(évalué par un modèle)",
+  "usage.insights.checksNote":
+    "Les vérifications du framework portent sur le déroulement de l'exécution (erreurs, étapes, vitesse), pas sur la qualité du résultat.",
+  "usage.insights.lookedForTools": "A recherché d'autres outils",
+  "usage.insights.prevPrompt": "Prompt précédent (K)",
+  "usage.insights.nextPrompt": "Prompt suivant (J)",
+  "usage.insights.toolVerb.add": "{{object}} ajouté",
+  "usage.insights.toolVerb.analyze": "{{object}} analysé",
+  "usage.insights.toolVerb.apply": "{{object}} appliqué",
+  "usage.insights.toolVerb.capture": "{{object}} capturé",
+  "usage.insights.toolVerb.check": "{{object}} vérifié",
+  "usage.insights.toolVerb.connect": "{{object}} connecté",
+  "usage.insights.toolVerb.create": "{{object}} créé",
+  "usage.insights.toolVerb.delete": "{{object}} supprimé",
+  "usage.insights.toolVerb.duplicate": "{{object}} dupliqué",
+  "usage.insights.toolVerb.edit": "{{object}} modifié",
+  "usage.insights.toolVerb.export": "{{object}} exporté",
+  "usage.insights.toolVerb.fetch": "{{object}} récupéré",
+  "usage.insights.toolVerb.find": "{{object}} trouvé",
+  "usage.insights.toolVerb.generate": "{{object}} généré",
+  "usage.insights.toolVerb.index": "{{object}} indexé",
+  "usage.insights.toolVerb.insert": "{{object}} inséré",
+  "usage.insights.toolVerb.list": "{{object}} listé",
+  "usage.insights.toolVerb.move": "{{object}} déplacé",
+  "usage.insights.toolVerb.navigate": "{{object}} parcouru",
+  "usage.insights.toolVerb.open": "{{object}} ouvert",
+  "usage.insights.toolVerb.present": "{{object}} présenté",
+  "usage.insights.toolVerb.propose": "{{object}} proposé",
+  "usage.insights.toolVerb.query": "{{object}} interrogé",
+  "usage.insights.toolVerb.read": "{{object}} lu",
+  "usage.insights.toolVerb.remove": "{{object}} retiré",
+  "usage.insights.toolVerb.rename": "{{object}} renommé",
+  "usage.insights.toolVerb.reply": "{{object}} répondu",
+  "usage.insights.toolVerb.resolve": "{{object}} résolu",
+  "usage.insights.toolVerb.run": "{{object}} exécuté",
+  "usage.insights.toolVerb.save": "{{object}} enregistré",
+  "usage.insights.toolVerb.search": "{{object}} recherché",
+  "usage.insights.toolVerb.send": "{{object}} envoyé",
+  "usage.insights.toolVerb.set": "{{object}} défini",
+  "usage.insights.toolVerb.take": "{{object}} pris",
+  "usage.insights.toolVerb.update": "{{object}} mis à jour",
+  "usage.insights.toolVerb.upload": "{{object}} téléversé",
+  "usage.insights.toolVerb.view": "{{object}} consulté",
+  "usage.insights.toolVerb.write": "{{object}} écrit",
+  "usage.insights.verdictLook_many": "{{count}} points à vérifier",
+  "usage.insights.verdictProblems_many": "{{count}} problèmes",
+  "usage.insights.spentSummary_many":
+    "{{amount}} dépensé pour {{count}} prompts au cours des {{days}} derniers jours.",
+  "usage.insights.handledRecovered_many":
+    "S'est remis de {{count}} erreurs d'outils sans s'arrêter.",
+  "usage.insights.completedRecovered_many":
+    "{{done}} sur les {{total}} derniers, après s'être remis de {{count}} erreurs d'outils",
+  "usage.insights.seePrompts_many": "Voir {{count}} prompts",
+  "usage.insights.erroredTitle_many":
+    "{{count}} prompts se sont terminés par une erreur",
+  "usage.insights.toolFailedTitle_many":
+    "L'outil {{tool}} a échoué dans {{count}} prompts",
+  "usage.insights.priciestBody_many":
+    "« {{prompt}} » a coûté {{amount}} sur {{count}} étapes.",
+  "usage.insights.recoveredShort_many": "remis de {{count}} erreurs d'outils",
+  "usage.insights.toolsFailedShort_many": "{{count}} outils en échec",
+  "usage.insights.stepsCount_many": "{{count}} étapes",
+  "usage.insights.startedOverNote_many":
+    "Reparti de zéro {{count}} fois après {{reason}}. Cela a coûté environ {{amount}} sur {{total}}.",
+  "usage.insights.toolFailedNote_many":
+    "L'outil {{tool}} a échoué {{count}} fois.",
+  "usage.insights.toolFailedRecoveredNote_many":
+    "L'outil {{tool}} a échoué {{count}} fois, mais l'agent a continué et terminé.",
+  "usage.insights.showSteps_many": "Afficher {{count}} étapes",
 };
 
 export default messages;

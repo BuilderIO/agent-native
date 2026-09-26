@@ -29,6 +29,7 @@ import { Link } from "react-router";
 import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
+import { UsageInsightsSection } from "./UsageInsights.js";
 
 const builderAddCreditsUrl = withBuilderUtmTrackingParams(
   "https://builder.io/account/subscription?signupSource=agent-native",
@@ -72,18 +73,6 @@ interface UsageDailyMetric {
   otherCalls?: number;
 }
 
-interface UsageRecentMetric {
-  id: number;
-  createdAt: number;
-  ownerEmail: string;
-  app: string;
-  label: string;
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  prompt: string | null;
-}
-
 interface UsageMetricsData {
   builderCreditUsageEnabled: boolean;
   billing: UsageBilling;
@@ -120,7 +109,6 @@ interface UsageMetricsData {
   byLabel: UsageMetricBucket[];
   byModel: UsageMetricBucket[];
   daily: UsageDailyMetric[];
-  recent: UsageRecentMetric[];
 }
 
 interface BuilderCreditUsageData {
@@ -1284,46 +1272,16 @@ export function UsageSection({
             </div>
           </details>
 
-          <details className="group rounded-lg border border-border/70 bg-card">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&::-webkit-details-marker]:hidden">
-              <span>
-                <span className="block text-sm font-semibold text-foreground">
-                  Recent prompts
-                </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  Latest recorded prompts for the selected app and user scope.
-                </span>
-              </span>
-              <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                {data.recent.length}
-                <IconChevronDown className="size-4 transition-transform group-open:rotate-180" />
-              </span>
-            </summary>
-            <div className="border-t border-border/70">
-              {data.recent.length === 0 ? (
-                <p className="px-4 py-5 text-sm text-muted-foreground">
-                  No recent prompts recorded.
-                </p>
-              ) : (
-                <div className="divide-y divide-border/60">
-                  {data.recent.map((entry) => (
-                    <div key={entry.id} className="px-4 py-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                        <span>
-                          {entry.label} · {entry.model}
-                        </span>
-                        <span>{entry.ownerEmail}</span>
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-sm text-foreground">
-                        {entry.prompt ??
-                          "Prompt text was not captured for this call."}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </details>
+          <UsageInsightsSection
+            sinceDays={sinceDays}
+            scope={scope}
+            userEmail={
+              scope === "workspace"
+                ? (selectedUserEmail ?? undefined)
+                : undefined
+            }
+            appId={appId ?? undefined}
+          />
 
           <UsageAlertsSection appId={appId} />
 

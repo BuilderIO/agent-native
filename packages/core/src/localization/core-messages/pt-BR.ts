@@ -890,6 +890,211 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Uso adicional ou não classificado hoje: {{amount}}",
   "usage.driverCreditsAndUsd": "Créditos do Builder / USD",
+  "usage.insights.verdictSmooth": "Funcionando sem problemas",
+  "usage.insights.verdictLook_one": "{{count}} coisa que vale a pena olhar",
+  "usage.insights.verdictLook_other": "{{count}} coisas que valem a pena olhar",
+  "usage.insights.verdictProblems_one": "{{count}} problema",
+  "usage.insights.verdictProblems_other": "{{count}} problemas",
+  "usage.insights.spentSummary_one":
+    "{{amount}} gasto em {{count}} prompt nos últimos {{days}} dias.",
+  "usage.insights.spentSummary_other":
+    "{{amount}} gasto em {{count}} prompts nos últimos {{days}} dias.",
+  "usage.insights.handledLabel": "Resolvido pelo Agent-Native:",
+  "usage.insights.handledHeading": "Resolvido pelo Agent-Native",
+  "usage.insights.handledParallel":
+    "Executou {{count}} chamadas de ferramentas ao mesmo tempo, cerca de {{duration}} mais rápido do que uma por uma.",
+  "usage.insights.handledRecovered_one":
+    "Recuperou de {{count}} erro de ferramenta sem parar.",
+  "usage.insights.handledRecovered_other":
+    "Recuperou de {{count}} erros de ferramenta sem parar.",
+  "usage.insights.avgPerPrompt": "Média por prompt",
+  "usage.insights.completed": "Concluído",
+  "usage.insights.completedDetail": "{{done}} dos últimos {{total}}",
+  "usage.insights.completedRecovered_one":
+    "{{done}} dos últimos {{total}}, após se recuperar de {{count}} erro de ferramenta",
+  "usage.insights.completedRecovered_other":
+    "{{done}} dos últimos {{total}}, após se recuperar de {{count}} erros de ferramenta",
+  "usage.insights.typicalTime": "Tempo típico",
+  "usage.insights.median": "mediana",
+  "usage.insights.changeSame": "igual ao período anterior",
+  "usage.insights.changeUp": "↑ {{percent}}% em relação ao período anterior",
+  "usage.insights.changeDown": "↓ {{percent}}% em relação ao período anterior",
+  "usage.insights.kindProblem": "Problema",
+  "usage.insights.kindSaving": "Pode economizar",
+  "usage.insights.kindInfo": "Bom saber",
+  "usage.insights.fixLabel": "Correção:",
+  "usage.insights.openPrompt": "Abrir o prompt",
+  "usage.insights.seePrompts_one": "Ver o {{count}} prompt",
+  "usage.insights.seePrompts_other": "Ver os {{count}} prompts",
+  "usage.insights.erroredTitle_one": "{{count}} prompt terminou com erro",
+  "usage.insights.erroredTitle_other": "{{count}} prompts terminaram com erro",
+  "usage.insights.erroredBody": "O agente parou antes de terminar.",
+  "usage.insights.erroredFix":
+    "Abra um prompt para ver a última coisa que ele fez antes de parar.",
+  "usage.insights.toolFailedTitle_one":
+    "A ferramenta {{tool}} falhou em {{count}} prompt",
+  "usage.insights.toolFailedTitle_other":
+    "A ferramenta {{tool}} falhou em {{count}} prompts",
+  "usage.insights.toolFailedSaid": "Disse: “{{error}}”",
+  "usage.insights.toolFailedGeneric": "A ferramenta retornou um erro.",
+  "usage.insights.toolRecoveredAll":
+    "O agente se recuperou e terminou todas as vezes.",
+  "usage.insights.toolRecoveredSome":
+    "O agente se recuperou e terminou em {{count}} delas.",
+  "usage.insights.restartTitle":
+    "Recomeçar custou cerca de {{amount}} ({{percent}}% do gasto)",
+  "usage.insights.restartBody":
+    "Em {{count}} dos últimos {{total}} prompts, o agente reenviou toda a conversa depois de {{reason}}, em vez de reaproveitar o que já tinha enviado.",
+  "usage.insights.reasonToolLookup": "buscar novas ferramentas",
+  "usage.insights.reasonPrefixChanged": "algo no início das instruções mudou",
+  "usage.insights.fixToolLookup":
+    "Pré-carregue as ferramentas que este app usa com initialToolNames para que a lista de ferramentas não mude durante todo o prompt.",
+  "usage.insights.fixPrefixChanged":
+    "Mantenha conteúdo que muda, como horários ou estado de cada etapa, fora do prompt do sistema.",
+  "usage.insights.priciestTitle":
+    "Um prompt usou {{percent}}% do gasto recente",
+  "usage.insights.priciestBody_one":
+    "“{{prompt}}” custou {{amount}} em {{count}} etapa.",
+  "usage.insights.priciestBody_other":
+    "“{{prompt}}” custou {{amount}} em {{count}} etapas.",
+  "usage.insights.untitledPrompt": "Prompt sem título",
+  "usage.insights.promptsHeading": "Prompts",
+  "usage.insights.showing": "Mostrando {{count}}",
+  "usage.insights.sortNewest": "Mais recentes",
+  "usage.insights.sortCost": "Mais caros",
+  "usage.insights.emptyPrompts":
+    "Ainda não há prompts neste período. Eles aparecem aqui poucos segundos depois de terminar.",
+  "usage.insights.promptNotSaved": "O texto do prompt não foi salvo",
+  "usage.insights.ratedHelpful": "Avaliado como útil",
+  "usage.insights.ratedUnhelpful": "Avaliado como não útil",
+  "usage.insights.notRated": "Sem avaliação",
+  "usage.insights.stoppedWithError": "Parou com erro",
+  "usage.insights.detailsUnavailable":
+    "Os detalhes das etapas não estão mais disponíveis",
+  "usage.insights.answered": "Respondido",
+  "usage.insights.finished": "Terminado",
+  "usage.insights.startedOverShort": "recomeçou {{count}}×",
+  "usage.insights.recoveredShort_one":
+    "recuperou de {{count}} erro de ferramenta",
+  "usage.insights.recoveredShort_other":
+    "recuperou de {{count}} erros de ferramenta",
+  "usage.insights.toolsFailedShort_one": "{{count}} ferramenta falhou",
+  "usage.insights.toolsFailedShort_other": "{{count}} ferramentas falharam",
+  "usage.insights.headerDuration": "em {{duration}}",
+  "usage.insights.stepsCount_one": "{{count}} etapa",
+  "usage.insights.stepsCount_other": "{{count}} etapas",
+  "usage.insights.whatItDid": "O que ele fez:",
+  "usage.insights.replyNotSaved":
+    "O texto da resposta não foi salvo para este prompt.",
+  "usage.insights.showAll": "Mostrar tudo",
+  "usage.insights.showLess": "Mostrar menos",
+  "usage.insights.moreTools": "+{{count}} mais",
+  "usage.insights.failedSuffix": "falhou",
+  "usage.insights.timesCount": "{{label}} ×{{count}}",
+  "usage.insights.startedOverNote_one":
+    "Recomeçou {{count}} vez depois de {{reason}}. Isso custou cerca de {{amount}} de {{total}}.",
+  "usage.insights.startedOverNote_other":
+    "Recomeçou {{count}} vezes depois de {{reason}}. Isso custou cerca de {{amount}} de {{total}}.",
+  "usage.insights.toolFailedNote_one":
+    "A ferramenta {{tool}} falhou {{count}} vez.",
+  "usage.insights.toolFailedNote_other":
+    "A ferramenta {{tool}} falhou {{count}} vezes.",
+  "usage.insights.toolFailedRecoveredNote_one":
+    "A ferramenta {{tool}} falhou {{count}} vez, mas o agente continuou e terminou.",
+  "usage.insights.toolFailedRecoveredNote_other":
+    "A ferramenta {{tool}} falhou {{count}} vezes, mas o agente continuou e terminou.",
+  "usage.insights.showSteps_one": "Mostrar a {{count}} etapa",
+  "usage.insights.showSteps_other": "Mostrar as {{count}} etapas",
+  "usage.insights.hideSteps": "Ocultar etapas",
+  "usage.insights.costDetails": "Detalhes de custo e verificações",
+  "usage.insights.turnReply": "Escreveu a resposta",
+  "usage.insights.turnThought": "Raciocinou",
+  "usage.insights.startedOverTag": "recomeçou",
+  "usage.insights.toolFailedTag": "ferramenta falhou",
+  "usage.insights.turnContext":
+    "Enviou {{tokens}} tokens de contexto, {{percent}}% reaproveitado de antes.",
+  "usage.insights.turnExpired":
+    "O contexto salvo tinha expirado após uma pausa, o que é esperado.",
+  "usage.insights.turnOutput": "Escreveu {{tokens}} tokens.",
+  "usage.insights.turnRestart":
+    "Recomeçou depois de {{reason}}, cerca de {{amount}} mais do que reaproveitar.",
+  "usage.insights.noCacheCompare":
+    "A preços de tabela, reaproveitar o contexto anterior reduziu este prompt de {{noCache}} para {{estimated}}.",
+  "usage.insights.partReused": "Contexto reaproveitado",
+  "usage.insights.partSaved": "Salvo em cache",
+  "usage.insights.partNew": "Contexto novo",
+  "usage.insights.partOutput": "Escrito pelo modelo",
+  "usage.insights.checksHeading": "Verificações automáticas",
+  "usage.insights.checksNone": "Nenhuma foi registrada.",
+  "usage.insights.checksGraded": "(avaliado por um modelo)",
+  "usage.insights.checksNote":
+    "As verificações do framework observam como a execução foi (erros, etapas, velocidade), não se o resultado foi bom.",
+  "usage.insights.lookedForTools": "Buscou mais ferramentas",
+  "usage.insights.prevPrompt": "Prompt anterior (K)",
+  "usage.insights.nextPrompt": "Próximo prompt (J)",
+  "usage.insights.toolVerb.add": "Adicionou {{object}}",
+  "usage.insights.toolVerb.analyze": "Analisou {{object}}",
+  "usage.insights.toolVerb.apply": "Aplicou {{object}}",
+  "usage.insights.toolVerb.capture": "Capturou {{object}}",
+  "usage.insights.toolVerb.check": "Verificou {{object}}",
+  "usage.insights.toolVerb.connect": "Conectou {{object}}",
+  "usage.insights.toolVerb.create": "Criou {{object}}",
+  "usage.insights.toolVerb.delete": "Excluiu {{object}}",
+  "usage.insights.toolVerb.duplicate": "Duplicou {{object}}",
+  "usage.insights.toolVerb.edit": "Editou {{object}}",
+  "usage.insights.toolVerb.export": "Exportou {{object}}",
+  "usage.insights.toolVerb.fetch": "Obteve {{object}}",
+  "usage.insights.toolVerb.find": "Encontrou {{object}}",
+  "usage.insights.toolVerb.generate": "Gerou {{object}}",
+  "usage.insights.toolVerb.index": "Indexou {{object}}",
+  "usage.insights.toolVerb.insert": "Inseriu {{object}}",
+  "usage.insights.toolVerb.list": "Listou {{object}}",
+  "usage.insights.toolVerb.move": "Moveu {{object}}",
+  "usage.insights.toolVerb.navigate": "Navegou {{object}}",
+  "usage.insights.toolVerb.open": "Abriu {{object}}",
+  "usage.insights.toolVerb.present": "Apresentou {{object}}",
+  "usage.insights.toolVerb.propose": "Propôs {{object}}",
+  "usage.insights.toolVerb.query": "Consultou {{object}}",
+  "usage.insights.toolVerb.read": "Leu {{object}}",
+  "usage.insights.toolVerb.remove": "Removeu {{object}}",
+  "usage.insights.toolVerb.rename": "Renomeou {{object}}",
+  "usage.insights.toolVerb.reply": "Respondeu a {{object}}",
+  "usage.insights.toolVerb.resolve": "Resolveu {{object}}",
+  "usage.insights.toolVerb.run": "Executou {{object}}",
+  "usage.insights.toolVerb.save": "Salvou {{object}}",
+  "usage.insights.toolVerb.search": "Pesquisou {{object}}",
+  "usage.insights.toolVerb.send": "Enviou {{object}}",
+  "usage.insights.toolVerb.set": "Definiu {{object}}",
+  "usage.insights.toolVerb.take": "Tirou {{object}}",
+  "usage.insights.toolVerb.update": "Atualizou {{object}}",
+  "usage.insights.toolVerb.upload": "Carregou {{object}}",
+  "usage.insights.toolVerb.view": "Visualizou {{object}}",
+  "usage.insights.toolVerb.write": "Escreveu {{object}}",
+  "usage.insights.verdictLook_many": "{{count}} coisas que valem a pena olhar",
+  "usage.insights.verdictProblems_many": "{{count}} problemas",
+  "usage.insights.spentSummary_many":
+    "{{amount}} gasto em {{count}} prompts nos últimos {{days}} dias.",
+  "usage.insights.handledRecovered_many":
+    "Recuperou de {{count}} erros de ferramenta sem parar.",
+  "usage.insights.completedRecovered_many":
+    "{{done}} dos últimos {{total}}, após se recuperar de {{count}} erros de ferramenta",
+  "usage.insights.seePrompts_many": "Ver os {{count}} prompts",
+  "usage.insights.erroredTitle_many": "{{count}} prompts terminaram com erro",
+  "usage.insights.toolFailedTitle_many":
+    "A ferramenta {{tool}} falhou em {{count}} prompts",
+  "usage.insights.priciestBody_many":
+    "“{{prompt}}” custou {{amount}} em {{count}} etapas.",
+  "usage.insights.recoveredShort_many":
+    "recuperou de {{count}} erros de ferramenta",
+  "usage.insights.toolsFailedShort_many": "{{count}} ferramentas falharam",
+  "usage.insights.stepsCount_many": "{{count}} etapas",
+  "usage.insights.startedOverNote_many":
+    "Recomeçou {{count}} vezes depois de {{reason}}. Isso custou cerca de {{amount}} de {{total}}.",
+  "usage.insights.toolFailedNote_many":
+    "A ferramenta {{tool}} falhou {{count}} vezes.",
+  "usage.insights.toolFailedRecoveredNote_many":
+    "A ferramenta {{tool}} falhou {{count}} vezes, mas o agente continuou e terminou.",
+  "usage.insights.showSteps_many": "Mostrar as {{count}} etapas",
 };
 
 export default messages;

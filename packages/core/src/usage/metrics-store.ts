@@ -1,5 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
+import { splitAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import { ForbiddenError } from "../sharing/access.js";
 import { isSelfScopedUsageRead, usageOrgScope } from "./org-scope.js";
 import {
@@ -136,11 +137,11 @@ interface ThreadPromptRow {
   thread_data?: unknown;
 }
 
-function numberField(row: Record<string, unknown>, key: string): number {
+export function numberField(row: Record<string, unknown>, key: string): number {
   return Number(row[key] ?? 0) || 0;
 }
 
-function stringField(row: Record<string, unknown>, key: string): string {
+export function stringField(row: Record<string, unknown>, key: string): string {
   return String(row[key] ?? "");
 }
 
@@ -235,7 +236,7 @@ export async function canViewWorkspaceUsage(
   return role === "owner" || role === "admin";
 }
 
-async function resolveScope(
+export async function resolveScope(
   input: UsageMetricsAccessInput,
   scope: UsageMetricsScope,
   requestedUserEmail?: string | null,
@@ -408,30 +409,66 @@ function promptText(value: unknown): string {
     .trim();
 }
 
-function firstUserPrompt(threadData: unknown): string | null {
-  const parsed = parseJson(threadData);
-  const messages = parsed?.messages;
-  if (!Array.isArray(messages)) return null;
-  for (const entry of messages) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as Record<string, unknown>;
-    const message =
+function threadMessages(threadData: unknown): Array<Record<string, unknown>> {
+  const messages = parseJson(threadData)?.messages;
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .filter((entry): entry is Record<string, unknown> =>
+      Boolean(entry && typeof entry === "object"),
+    )
+    .map((record) =>
       record.message && typeof record.message === "object"
         ? (record.message as Record<string, unknown>)
-        : record;
-    const role = typeof message.role === "string" ? message.role : "";
-    if (role !== "user" && role !== "human") continue;
-    const text = promptText(message.content);
-    if (text)
-      return text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text;
+        : record,
+    );
+}
+
+function messageRunIds(message: Record<string, unknown>): unknown[] {
+  const meta = message.metadata as Record<string, any> | undefined;
+  return [
+    meta?.runId,
+    meta?.custom?.runId,
+    meta?.custom?.runError?.runId,
+    meta?.runError?.runId,
+    ...(Array.isArray(meta?.custom?.foldedRunIds)
+      ? meta.custom.foldedRunIds
+      : []),
+  ];
+}
+
+function userPromptText(message: Record<string, unknown>): string | null {
+  const role = typeof message.role === "string" ? message.role : "";
+  if (role !== "user" && role !== "human") return null;
+  const text = splitAgentChatContextFromMessage(
+    promptText(message.content),
+  ).message;
+  if (!text) return null;
+  return text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text;
+}
+
+/** The prompt that started `runId`, falling back to the thread's first prompt. */
+function promptForRun(
+  threadData: unknown,
+  runId: string | null,
+): string | null {
+  const messages = threadMessages(threadData);
+  const runIndex = runId
+    ? messages.findIndex((message) => messageRunIds(message).includes(runId))
+    : -1;
+  for (let i = runIndex - 1; i >= 0; i -= 1) {
+    const text = userPromptText(messages[i]!);
+    if (text) return text;
+  }
+  for (const message of messages) {
+    const text = userPromptText(message);
+    if (text) return text;
   }
   return null;
 }
 
-async function hydrateRecentPrompts(
+async function loadThreads(
   rows: Array<Record<string, unknown>>,
-  builderCreditsEnabled: boolean,
-): Promise<UsageRecentMetric[]> {
+): Promise<{ threads: Map<string, ThreadPromptRow>; unavailable: boolean }> {
   const threadIds = [
     ...new Set(
       rows
@@ -440,26 +477,66 @@ async function hydrateRecentPrompts(
     ),
   ];
   const threads = new Map<string, ThreadPromptRow>();
-  let threadQueryUnavailable = false;
-  if (threadIds.length > 0) {
-    try {
-      const result = await getDbExec().execute({
-        sql: `SELECT id, preview, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
-        args: threadIds,
-      });
-      for (const row of result.rows as ThreadPromptRow[]) {
-        const id = typeof row.id === "string" ? row.id : "";
-        if (id) threads.set(id, row);
-      }
-    } catch {
-      threadQueryUnavailable = true;
+  if (threadIds.length === 0) return { threads, unavailable: false };
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT id, preview, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
+      args: threadIds,
+    });
+    for (const row of result.rows as ThreadPromptRow[]) {
+      const id = typeof row.id === "string" ? row.id : "";
+      if (id) threads.set(id, row);
     }
+    return { threads, unavailable: false };
+  } catch {
+    return { threads, unavailable: true };
   }
+}
+
+/** Each run's own prompt and the agent's final reply, keyed by run id. */
+export async function loadRunExchanges(
+  rows: Array<Record<string, unknown>>,
+): Promise<Map<string, { prompt: string | null; reply: string | null }>> {
+  const { threads } = await loadThreads(rows);
+  const exchanges = new Map<
+    string,
+    { prompt: string | null; reply: string | null }
+  >();
+  for (const row of rows) {
+    const runId = nullableStringField(row, "run_id");
+    const threadId = nullableStringField(row, "thread_id");
+    const thread = threadId ? threads.get(threadId) : undefined;
+    if (!runId || !thread) continue;
+    const messages = threadMessages(thread.thread_data);
+    const reply = messages.find((message) =>
+      messageRunIds(message).includes(runId),
+    );
+    const replyText = reply ? promptText(reply.content) : "";
+    exchanges.set(runId, {
+      prompt: promptForRun(thread.thread_data, runId),
+      reply: replyText
+        ? replyText.length > 1200
+          ? `${replyText.slice(0, 1199).trimEnd()}…`
+          : replyText
+        : null,
+    });
+  }
+  return exchanges;
+}
+
+async function hydrateRecentPrompts(
+  rows: Array<Record<string, unknown>>,
+  builderCreditsEnabled: boolean,
+): Promise<UsageRecentMetric[]> {
+  const { threads, unavailable: threadQueryUnavailable } =
+    await loadThreads(rows);
 
   return rows.map((row) => {
     const threadId = nullableStringField(row, "thread_id");
     const thread = threadId ? threads.get(threadId) : undefined;
-    const prompt = thread ? firstUserPrompt(thread.thread_data) : null;
+    const prompt = thread
+      ? promptForRun(thread.thread_data, nullableStringField(row, "run_id"))
+      : null;
     const preview =
       typeof thread?.preview === "string" ? thread.preview.trim() : "";
     return {
