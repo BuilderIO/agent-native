@@ -111,7 +111,39 @@ vi.mock("../db/index.js", () => {
   };
 });
 
-const { searchDashboardReferences } = await import("./dashboards-store.js");
+const { getPublicDashboardMetadata, searchDashboardReferences } =
+  await import("./dashboards-store.js");
+
+describe("getPublicDashboardMetadata", () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.rowsByCall = [];
+    state.legacySettings = {};
+    state.projection = null;
+    state.where = null;
+    state.limit = null;
+  });
+
+  it("guards metadata extraction when dashboard config is malformed", async () => {
+    state.rows = [
+      {
+        title: "Public dashboard",
+        description: null,
+        panelTitlesJson: "[]",
+      },
+    ];
+
+    await expect(getPublicDashboardMetadata("dashboard-1")).resolves.toEqual({
+      title: "Public dashboard",
+      description: null,
+      panelTitles: [],
+    });
+
+    const projection = JSON.stringify(state.projection);
+    expect(projection.match(/is json/g)).toHaveLength(2);
+    expect(projection).toContain("else '{}'::jsonb");
+  });
+});
 
 describe("searchDashboardReferences", () => {
   beforeEach(() => {

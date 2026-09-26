@@ -264,6 +264,45 @@ describe("listCalendarEvents booking merge", () => {
       googleEventId: "google-event-1",
     });
   });
+
+  it("preserves pending meeting state on the authoritative Google event", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ meetingLink: null, meetingLinkPending: true })],
+      }),
+    );
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-google-event-1",
+          title: "Steve + Nikoline",
+          description: "",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          googleEventId: "google-event-1",
+          calendarPrimary: true,
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      id: "google-google-event-1",
+      source: "google",
+      meetingLinkPending: true,
+    });
+  });
 });
 
 describe("list-events inventory contract", () => {

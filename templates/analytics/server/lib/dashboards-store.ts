@@ -863,13 +863,16 @@ export async function getDashboard(
 }
 
 export async function getPublicDashboardMetadata(id: string) {
+  const config = sql`case
+    when ${schema.dashboards.config} is json
+      then ${schema.dashboards.config}::jsonb
+    else '{}'::jsonb
+  end`;
   const [row] = await (getDb() as any)
     .select({
       title: schema.dashboards.title,
-      description: sql<
-        string | null
-      >`(${schema.dashboards.config}::jsonb ->> 'description')`,
-      panelTitlesJson: sql<string>`jsonb_path_query_array(${schema.dashboards.config}::jsonb, '$.panels[0 to 2].title')::text`,
+      description: sql<string | null>`(${config} ->> 'description')`,
+      panelTitlesJson: sql<string>`jsonb_path_query_array(${config}, '$.panels[0 to 2].title')::text`,
     })
     .from(schema.dashboards)
     .where(
