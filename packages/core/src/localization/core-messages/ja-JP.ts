@@ -1043,10 +1043,6 @@ const messages: AgentChatTranslation = {
   "settings.storage.clearExisting": "既存のファイルは {{bucket}} に残ります。",
   "settings.storage.clearExistingGeneric":
     "既存のファイルはバケットに残ります。",
-  "settings.storage.missing":
-    "先にエンドポイント、バケット、キーを入力してください。",
-  "settings.storage.missingPublicUrl":
-    "先にエンドポイント、バケット、キー、公開 URL を入力してください。",
   "settings.storage.invalidUrl":
     "https:// または http:// で始まる URL を使用してください。",
   "settings.storage.invalidBucket":
@@ -1202,7 +1198,6 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "追加",
   "settingsOrg.invite.send": "招待を送信",
   "settingsOrg.invite.sending": "送信中…",
-  "settingsOrg.invite.close": "閉じる",
   "settingsOrg.invite.csvNoEmails":
     "この CSV に有効なメールアドレスが見つかりませんでした。",
   "settingsOrg.auth.synced_other": "{{count}} 個のアプリと同期しました。",
@@ -1235,7 +1230,6 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.nameSaveError": "名前を更新できませんでした。",
   "settingsShell.account.nameSaved": "名前を更新しました",
   "settingsShell.account.newEmail": "新しいメールアドレス",
-  "settingsShell.account.newEmailPlaceholder": "新しいメールアドレスを入力",
   "settingsShell.account.newPassword": "新しいパスワード",
   "settingsShell.account.password": "パスワード",
   "settingsShell.account.passwordDescription":
@@ -1496,6 +1490,278 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.webhookRegistered": "登録済み",
   "settingsShell.channels.webhookRegistration": "Webhook",
   "settingsShell.channels.webhookUrl": "Webhook URL",
+  "settingsShell.channels.category": "カテゴリ",
+  "settingsShell.channels.developer": "開発元",
+  "settingsShell.channels.mentionAgent": "エージェントにメンション",
+  "settingsShell.channels.rowDescription": "{{about}}{{state}}。",
+  "settingsShell.channels.separately":
+    "エージェントはアプリごとに個別に設定します。",
+  "settingsShell.channels.setUpLocked":
+    "設定できるのはオーナーと管理者のみです",
+  "settingsShell.integrationDetail.access.none":
+    "公開サーバーなので、サインインは不要です。",
+  "settingsShell.integrationDetail.access.oauth":
+    "エージェントはあなたの {{name}} の権限で動作するため、あなたが見られるものだけを参照します。",
+  "settingsShell.integrationDetail.access.token":
+    "エージェントは追加されたアクセストークンを使うため、そのトークンで参照できるものを参照します。",
+  "settingsShell.integrationDetail.accessToken": "アクセストークン",
+  "settingsShell.integrationDetail.addAccessToken": "アクセストークンを追加",
+  "settingsShell.integrationDetail.callout.adminNeeded":
+    "管理者による設定が必要です",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "{{org}} のオーナーまたは管理者に、{{name}} のクライアント ID とシークレットの追加を依頼してください。その後、自分のアカウントを接続できます。",
+  "settingsShell.integrationDetail.callout.beforeAnyone": "接続を始める前に",
+  "settingsShell.integrationDetail.callout.beforeYouConnect": "接続する前に",
+  "settingsShell.integrationDetail.callout.token":
+    "アクセストークンで接続します",
+  "settingsShell.integrationDetail.callout.unavailable": "まだ利用できません",
+  "settingsShell.integrationDetail.category": "カテゴリ",
+  "settingsShell.integrationDetail.connected": "{{name}} を接続しました",
+  "settingsShell.integrationDetail.copyServerUrl": "サーバー URL をコピー",
+  "settingsShell.integrationDetail.developer": "開発元",
+  "settingsShell.integrationDetail.howToCreateToken": "トークンの作成方法",
+  "settingsShell.integrationDetail.justMe": "自分のみ",
+  "settingsShell.integrationDetail.notFound":
+    "この連携はカタログにありません。",
+  "settingsShell.integrationDetail.notFoundTitle": "見つかりません",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "今月の週間アクティブユーザーの推移は？",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "サインアップから最初の録画までのファネルを作って",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "定着率がいちばん高いコホートは？",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "シリーズ B のスタートアップのデザイン責任者を探して",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "このメールアドレスのリストをエンリッチして",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "これらのコンタクトを Q4 のシーケンスに追加して",
+  "settingsShell.integrationDetail.prompt.asana.1":
+    "今週自分が期限のタスクは？",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "この録画のアクションアイテムからタスクを作成して",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "予定より遅れているプロジェクトは？",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "この録画のアクションアイテムから Jira チケットを作成して",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "Q4 リリースを妨げているものは？",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "オンボーディングについての Confluence ページを探して",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "Acme の署名済み契約書を探して",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "Q3 レポートのフォルダを経理と共有して",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "今週法務フォルダで何が変わった？",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "この録画のハイライトから SNS 投稿を作成して",
+  "settingsShell.integrationDetail.prompt.canva.2":
+    "ブランドキットの色を探して",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "最新のプレゼンを PDF で書き出して",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "{{host}} を指している DNS レコードは？",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "直近 1 時間の Worker のエラーを見せて",
+  "settingsShell.integrationDetail.prompt.cloudflare.3":
+    "この URL のキャッシュを削除して",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "購買シグナルを示している企業は？",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "Acme でコミュニティ活動が活発なのは誰？",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "主要アカウントのアクティビティを要約して",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "ローダーに関する最新の React Router ドキュメントを見せて",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "Drizzle のマイグレーションはどう設定する？",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "最新の Tailwind リリースの新機能は？",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "agent-native アプリに関する最近の記事を探して",
+  "settingsShell.integrationDetail.prompt.exa.2": "{{app}} の競合を調べて",
+  "settingsShell.integrationDetail.prompt.exa.3":
+    "このページを取得して要約して",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "この Figma ファイルのコンポーネントを要約して",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "デザインシステムのカラー変数を一覧にして",
+  "settingsShell.integrationDetail.prompt.figma.3":
+    "このフレームのレイアウトを説明して",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "共有ボタンがレイジクリックされたセッションを見せて",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "料金ページでのつまずきを要約して",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "オンボーディングのどこで離脱している？",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "レビュー待ちのプルリクエストを要約して",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "agent-native で Slack のリンクプレビューに関する Issue を探して",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "今週 packages/core で何が変わった？",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "今日 CI で失敗したマージリクエストは？",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "bug ラベルの付いたオープンな Issue を要約して",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "今週いちばん遅かったパイプラインは？",
+  "settingsShell.integrationDetail.prompt.gong.1":
+    "Acme との直近の通話を要約して",
+  "settingsShell.integrationDetail.prompt.gong.2": "今月出た反論は？",
+  "settingsShell.integrationDetail.prompt.gong.3":
+    "価格への懸念に触れている取引は？",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent このドキュメントのコメントを要約して",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent このコメントへの返信を下書きして",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent このメモをチェックリストにして",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "過去 1 日の API の p95 レイテンシをグラフにして",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "14 時ごろのエラーログを探して",
+  "settingsShell.integrationDetail.prompt.grafana.3":
+    "今週発生したアラートは？",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "昨日のデザインレビューで何を決めた？",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "会議で出た未完了のアクションアイテムを一覧にして",
+  "settingsShell.integrationDetail.prompt.granola.3": "Acme との通話を要約して",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "Acme の取引を Closed won に移動して",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "交渉段階で止まっている取引は？",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "この通話をコンタクトのメモとして記録して",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "今日のオープンな会話を要約して",
+  "settingsShell.integrationDetail.prompt.intercom.2":
+    "SSO に関するヘルプ記事を探して",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "今週いちばん多い顧客からの質問は？",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "壊れた Slack プレビューの Issue を作成して自分に割り当てて",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "現在のサイクルで残っているものは？",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "今週報告されたバグを要約して",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "今回のスプリントのデザインボードには何がある？",
+  "settingsShell.integrationDetail.prompt.monday.2":
+    "このアイテムを Done に移動して",
+  "settingsShell.integrationDetail.prompt.monday.3": "期限切れのアイテムは？",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "テスト用に本番のブランチを作成して",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "今週いちばん遅かったクエリを見せて",
+  "settingsShell.integrationDetail.prompt.neon.3":
+    "メインのデータベースのサイズは？",
+  "settingsShell.integrationDetail.prompt.netlify.1":
+    "直近のデプロイが失敗したのはなぜ？",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "今週ビルドが失敗したサイトは？",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "1 つ前の本番デプロイにロールバックして",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "オンボーディングのチェックリストを探して",
+  "settingsShell.integrationDetail.prompt.notion.2": "今週の会議メモを要約して",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "これらのアクションアイテムをチームの Wiki に追加して",
+  "settingsShell.integrationDetail.prompt.paypal.1":
+    "支払期限を過ぎた請求書を一覧にして",
+  "settingsShell.integrationDetail.prompt.paypal.2": "今月の取引を要約して",
+  "settingsShell.integrationDetail.prompt.paypal.3":
+    "Acme 宛ての請求書を作成して",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "緊急のオープン Issue があるアカウントは？",
+  "settingsShell.integrationDetail.prompt.pylon.2":
+    "Acme の最新チケットを要約して",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "この Issue への返信を下書きして",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "packages/core のセキュリティ上の問題をスキャンして",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "この検出結果と修正方法を説明して",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "このリポジトリにハードコードされたシークレットはある？",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "昨日のデプロイ以降に増えた主な新しいエラーは？",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "最も多いクラッシュのスタックトレースを見せて",
+  "settingsShell.integrationDetail.prompt.sentry.3":
+    "このエラーはどのリリースで発生した？",
+  "settingsShell.integrationDetail.prompt.sigma.1":
+    "売上のダッシュボードを探して",
+  "settingsShell.integrationDetail.prompt.sigma.2":
+    "先月の MRR の変化の要因は？",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "このワークブックの主な指標を説明して",
+  "settingsShell.integrationDetail.prompt.slack.1": "今週の #design を要約して",
+  "settingsShell.integrationDetail.prompt.slack.2":
+    "価格変更についてのスレッドを探して",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "ローンチについて Camila は何と言っていた？",
+  "settingsShell.integrationDetail.prompt.stripe.1": "先月の売上はいくら？",
+  "settingsShell.integrationDetail.prompt.stripe.2": "この請求書の顧客を探して",
+  "settingsShell.integrationDetail.prompt.stripe.3":
+    "更新に失敗したサブスクリプションは？",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "今週何人がサインアップした？",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "recordings テーブルのスキーマを見せて",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "今日エラーになった Edge Functions は？",
+  "settingsShell.integrationDetail.prompt.telegram.1": "今日の録画を要約して",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "15 時のレビューをリマインドして",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "昨日のデモのリンクを共有して",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "直近のプレビューデプロイが失敗したのはなぜ？",
+  "settingsShell.integrationDetail.prompt.vercel.2":
+    "本番デプロイのログを見せて",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "このプロジェクトを指しているドメインは？",
+  "settingsShell.integrationDetail.prompt.webflow.1":
+    "料金ページの見出しを更新して",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "今週公開された CMS アイテムを一覧にして",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "メタディスクリプションがないページは？",
+  "settingsShell.integrationDetail.prompt.whatsapp.1": "今日の予定は？",
+  "settingsShell.integrationDetail.prompt.whatsapp.2": "最新の録画を要約して",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "デザインレビューのメモを送って",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "新しい録画を Slack の #design に投稿して",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "新しいサインアップを CRM に追加して",
+  "settingsShell.integrationDetail.prompt.zapier.3": "実行できる Zap は？",
+  "settingsShell.integrationDetail.serverUrl": "サーバー URL",
+  "settingsShell.integrationDetail.setUp": "設定",
+  "settingsShell.integrationDetail.signIn": "サインイン",
+  "settingsShell.integrationDetail.signInNone": "なし",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "Figma で個人アクセストークンを作成し、ここに貼り付けてください。",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "GitHub で個人アクセストークンを作成し、ここに貼り付けてください。",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "Sentry でユーザー認証トークンを作成し、ここに貼り付けてください。",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "Zapier で接続を作成し、その Bearer トークンをここに貼り付けてください。",
+  "settingsShell.integrationDetail.tokenPlaceholder":
+    "{{name}} のトークンを貼り付け",
+  "settingsShell.integrationDetail.who": "使える人",
+  "settingsShell.integrationDetail.whoMember":
+    "{{org}} と共有できるのはオーナーと管理者のみです。",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "{{org}} の全員のために一度だけ接続します。",
+  "settingsShell.integrationDetail.whoPersonal":
+    "各自が自分のアカウントを接続します。",
+  "settingsShell.integrationDetail.whoShared":
+    "共有接続にすると、{{org}} の全員があなたのアクセス権を使えます。",
   "settingsShell.clearSearch": "検索をクリア",
   "settingsShell.group.account": "アカウント",
   "settingsShell.group.agent": "エージェント",
@@ -1671,10 +1937,12 @@ const messages: AgentChatTranslation = {
   "settingsInfra.required": "必須",
   "settingsInfra.recommended": "推奨",
   "settingsInfra.optional": "任意",
-  "settingsInfra.needsBuilder": "Builder.io が必要",
+  "settingsInfra.builderRecommended":
+    "下のすべてのサービスを Builder.io アカウントのクレジットで利用できます。無料プランがあります。",
+  "settingsInfra.builderOnly": "Builder.io のみ",
   "settingsInfra.rowDescription": "{{source}} · {{use}}",
   "settingsInfra.notSetUp": "未設定",
-  "settingsInfra.notAvailable": "利用できません",
+  "settingsInfra.availableWithBuilder": "Builder.io で利用可能",
   "settingsInfra.loadFailed": "読み込めませんでした。",
   "settingsInfra.aiModel": "AI モデル",
   "settingsInfra.useEveryApp": "すべてのアプリ",
@@ -1874,6 +2142,8 @@ const messages: AgentChatTranslation = {
     "オーナーまたは管理者に追加を依頼してください。",
   "settingsModel.emptyDescription":
     "エージェントが応答するにはプロバイダーが必要です。",
+  "settingsModel.emptyDescriptionBuilder":
+    "エージェントが応答するにはプロバイダーが必要です。モデルへのアクセス、ブラウザ自動化、ファイルストレージ、ワークスペース ID には Builder.io をおすすめします。無料プランがあります。",
   "settingsModel.emptyTitle": "モデルプロバイダーを追加",
   "settingsModel.endpointFirst": "先にエンドポイント URL を入力してください。",
   "settingsModel.endpointHint":
@@ -1986,7 +2256,6 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.externalEmpty":
     "Foundry、Gemini Enterprise、Anthropic、または任意の A2A エージェントを接続します。",
   "settingsSubAgents.externalEmptyTitle": "外部エージェントはまだありません",
-  "settingsSubAgents.browseDirectory": "ディレクトリを見る",
   "settingsSubAgents.customEmpty":
     "メインエージェントが作業を任せられる専用エージェントを定義します。",
   "settingsSubAgents.customEmptyTitle": "カスタムエージェントはまだありません",

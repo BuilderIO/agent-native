@@ -396,22 +396,58 @@ describe("InfrastructureSettingsPage", () => {
     expect(container.textContent).not.toContain("Email");
   });
 
-  it("marks Builder-only services unavailable without Builder.io", async () => {
+  it("recommends Builder.io first, with the page's one primary action", async () => {
     await render();
-    expect(row("builder").textContent).toContain("Not connected.");
-    for (const id of [
-      "design-system-intelligence",
-      "background",
-      "browser-automation",
-    ]) {
-      expect(row(id).textContent).toContain("Needs Builder.io");
-      expect(row(id).textContent).toContain("Not available");
-    }
+    const setup = row("setup");
+    expect(setup.querySelector("h2")?.textContent).toBe("Recommended");
+    expect(row("builder").textContent).toContain(
+      "Power every service below with your Builder.io account credits. Free tier available.",
+    );
+    const primaries = [...container.querySelectorAll("button")].filter(
+      (candidate) => candidate.classList.contains("bg-primary"),
+    );
+    expect(primaries).toEqual([button(row("builder"), "Connect")]);
     act(() => button(row("builder"), "Connect").click());
     expect(state.builder.start).toHaveBeenCalledWith({
       provisionAccount: false,
       scope: "org",
     });
+  });
+
+  it("says Builder-only services come with Builder.io and connects it in place", async () => {
+    await render();
+    for (const id of [
+      "design-system-intelligence",
+      "background",
+      "browser-automation",
+    ]) {
+      expect(row(id).querySelector("[data-builder-only]")?.textContent).toBe(
+        "Builder.io only",
+      );
+      expect(row(id).textContent).toContain("Available with Builder.io · ");
+      expect(row(id).textContent).not.toContain("Not available");
+      const connect = button(row(id), "Connect Builder.io");
+      expect(connect.classList.contains("bg-secondary")).toBe(true);
+    }
+    act(() => button(row("browser-automation"), "Connect Builder.io").click());
+    expect(state.builder.start).toHaveBeenCalledWith({
+      provisionAccount: false,
+      scope: "org",
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Setup heading and no connect when Builder.io can't be connected", async () => {
+    state.builder = {
+      ...builderFlow(false),
+      canConnect: { org: false, personal: false },
+    };
+    await render();
+    expect(row("setup").querySelector("h2")?.textContent).toBe("Setup");
+    expect(row("builder").textContent).toContain("Not connected.");
+    expect(row("builder").querySelector("button")).toBeNull();
+    expect(row("background").textContent).toContain("Builder.io only");
+    expect(row("background").querySelector("button")).toBeNull();
   });
 
   it("shows Builder.io as the source once it's connected", async () => {
@@ -426,6 +462,9 @@ describe("InfrastructureSettingsPage", () => {
     expect(row("background").textContent).toContain(
       "Builder.io · Makes code changes from production.",
     );
+    expect(row("setup").querySelector("h2")?.textContent).toBe("Setup");
+    expect(row("background").querySelector("[data-builder-only]")).toBeNull();
+    expect(row("background").querySelector("button")).toBeNull();
     act(() => button(row("builder"), "Manage").click());
     expect(navigateMock).toHaveBeenCalledWith("integrations", "builder");
   });

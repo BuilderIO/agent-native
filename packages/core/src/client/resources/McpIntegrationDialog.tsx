@@ -1297,7 +1297,9 @@ export function McpIntegrationDialog({
                     className="sm:me-auto"
                   >
                     {testing ? <Spinner aria-hidden="true" /> : null}
-                    {t("mcpIntegrations.test")}
+                    {testing
+                      ? t("mcpIntegrations.testing")
+                      : t("mcpIntegrations.test")}
                   </Button>
                 )}
                 <Button
@@ -1314,7 +1316,9 @@ export function McpIntegrationDialog({
                     aria-busy={(busy && !testing) || undefined}
                   >
                     {busy && !testing ? <Spinner aria-hidden="true" /> : null}
-                    {primaryAction.label}
+                    {busy && !testing
+                      ? t("mcpIntegrations.connecting")
+                      : primaryAction.label}
                   </Button>
                 ) : null}
               </DialogFooter>

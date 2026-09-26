@@ -20,14 +20,13 @@ import { useLocation } from "react-router";
 import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import {
   buildSettingsRoute,
+  SETTINGS_PAGE_IDS,
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
 import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "../../onboarding/types.js";
-import { canManageOrg } from "../../org/permissions.js";
-import type { OrgInfo } from "../../org/types.js";
 import { appMountedPath } from "../api-path.js";
 import {
   Tooltip,
@@ -36,7 +35,6 @@ import {
 } from "../components/ui/tooltip.js";
 import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useT } from "../i18n.js";
-import { useOrg } from "../org/hooks.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
@@ -123,22 +121,16 @@ const FIRST_RUN_ROLE_OPTIONS = [
 ] as const;
 
 /**
- * Where "Skip and configure manually" lands: Organization › Infrastructure,
- * the Settings side of this screen, for the people who can open it once the
- * redesign is on; otherwise the AI model settings, or API keys with the
- * redesign off.
+ * Where "Skip and configure manually" lands: Agent › Model, whose empty state
+ * adds a provider key in one click, since the agent can't answer until a model
+ * provider is set up. API keys with the redesign off.
  */
 export function manualSetupSettingsRoute({
   redesign,
-  org,
 }: {
   redesign: boolean;
-  org: Pick<OrgInfo, "orgId" | "role"> | undefined;
 }): string {
-  if (redesign && org && (!org.orgId || canManageOrg(org.role))) {
-    return buildSettingsRoute("infra");
-  }
-  return buildSettingsRoute(redesign ? "agent:llm" : "keys");
+  return buildSettingsRoute(redesign ? SETTINGS_PAGE_IDS.model : "keys");
 }
 
 export interface FirstRunOnboardingProps {
@@ -174,7 +166,6 @@ export function FirstRunOnboarding({
   >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
-  const { data: org } = useOrg({ enabled: firstRun });
   useEffect(() => {
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
@@ -457,7 +448,7 @@ export function FirstRunOnboarding({
       null,
       "",
       `${appMountedPath(
-        manualSetupSettingsRoute({ redesign: redesign.enabled, org }),
+        manualSetupSettingsRoute({ redesign: redesign.enabled }),
         pathname || STANDARD_APP_ROUTES.home,
       )}${query ? `?${query}` : ""}`,
     );

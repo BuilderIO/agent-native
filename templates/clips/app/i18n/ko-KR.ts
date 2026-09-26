@@ -933,6 +933,8 @@ const messages = {
     slackConnected: "Slack 연결됨",
   },
   clipsSettings: {
+    popupBlocked:
+      "브라우저가 팝업을 차단했습니다. 이 사이트의 팝업을 허용한 후 다시 시도하세요.",
     recordingsTab: "녹화",
     meetingsTab: "회의",
     yourDefaults: "내 기본값",

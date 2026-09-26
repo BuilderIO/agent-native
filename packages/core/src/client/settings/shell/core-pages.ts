@@ -216,8 +216,12 @@ const fromDispatchSearchEntry: SettingsPageSearchEntry = {
   anchor: "from-dispatch",
 };
 
-// One result per catalog tool, opening its connect dialog, plus the Builder.io
-// page. Builder Publish is the content grant, which the page leaves out.
+const CATALOG_INTEGRATIONS = DEFAULT_MCP_INTEGRATIONS.filter(
+  (integration) => integration.id !== "builder-cms",
+);
+
+// One result per catalog tool, opening its page, plus the Builder.io page.
+// Builder Publish is the content grant, which the page leaves out.
 const INTEGRATION_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
   {
     id: "builder",
@@ -226,9 +230,7 @@ const INTEGRATION_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
       "builder builder.io connect account credits model storage organization personal",
     sub: "builder",
   },
-  ...DEFAULT_MCP_INTEGRATIONS.filter(
-    (integration) => integration.id !== "builder-cms",
-  ).map((integration) => ({
+  ...CATALOG_INTEGRATIONS.map((integration) => ({
     id: `integration:${integration.id}`,
     label: integration.name,
     keywords: [integration.provider, ...integration.keywords].join(" "),
@@ -303,7 +305,13 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     legacyTabIds: ["integrations", "connections", "browser"],
     keywords: "integrations connections mcp tools builder slack",
     // Brand names aren't translated.
-    subpages: [{ id: "builder", label: "Builder.io" }],
+    subpages: [
+      { id: "builder", label: "Builder.io" },
+      ...CATALOG_INTEGRATIONS.map((integration) => ({
+        id: integration.id,
+        label: integration.name,
+      })),
+    ],
     searchEntries: INTEGRATION_SEARCH_ENTRIES,
   }),
   defineSettingsPage({

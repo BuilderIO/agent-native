@@ -55,16 +55,16 @@ describe("IntegrationsPage", () => {
   let navigate: ReturnType<typeof vi.fn>;
   let setHeader: ReturnType<typeof vi.fn>;
 
-  function render(sub: string | null = null) {
+  function render() {
     const shell: SettingsShellContextValue = {
-      route: { page: "integrations", sub },
+      route: { page: "integrations", sub: null },
       navigate: navigate as SettingsShellContextValue["navigate"],
       setHeader: setHeader as SettingsShellContextValue["setHeader"],
     };
     return act(async () => {
       root.render(
         <SettingsShellProvider value={shell}>
-          <IntegrationsPage sub={sub} appName="Clips" />
+          <IntegrationsPage appName="Clips" />
         </SettingsShellProvider>,
       );
     });
@@ -126,11 +126,14 @@ describe("IntegrationsPage", () => {
     await render();
 
     expect(headings()[0]).toBe("Recommended");
-    const builder = container.querySelector(
-      'button[aria-label="Connect Builder.io"]',
+    const builder = container.querySelector<HTMLAnchorElement>(
+      'a[data-integration-tile="Builder.io"]',
     );
-    expect(builder).not.toBeNull();
-    await act(async () => (builder as HTMLButtonElement).click());
+    expect(builder?.getAttribute("href")).toBe(
+      "/settings/integrations/builder",
+    );
+    expect(builder?.querySelector("svg.tabler-icon-plus")).not.toBeNull();
+    await act(async () => builder!.click());
     expect(navigate).toHaveBeenCalledWith("integrations", "builder");
   });
 
@@ -146,12 +149,11 @@ describe("IntegrationsPage", () => {
 
     expect(headings()).not.toContain("Recommended");
     expect(headings()[0]).toBe("Connected");
-    expect(
-      container.querySelector('[data-integration-tile="Builder.io"]'),
-    ).not.toBeNull();
-    expect(
-      container.querySelector('button[aria-label="Connect Builder.io"]'),
-    ).toBeNull();
+    const builder = container.querySelector(
+      '[data-integration-tile="Builder.io"]',
+    );
+    expect(builder).not.toBeNull();
+    expect(builder?.querySelector("svg.tabler-icon-plus")).toBeNull();
   });
 
   it("shows a skeleton, not a guess, while the Builder.io status loads", async () => {
@@ -357,14 +359,36 @@ describe("IntegrationsPage", () => {
     );
   });
 
-  it("opens the integration a search result links to", async () => {
-    await render("linear");
+  it("opens an integration's own page from its tile, never a full-screen dialog", async () => {
+    await render();
 
-    const lastProps = dialogMocks.McpIntegrationDialog.mock.calls
-      .map((call) => (call as unknown[])[0] as Record<string, unknown>)
-      .filter((props) => props.presentation !== "modal")
-      .at(-1);
-    expect(lastProps?.open).toBe(true);
-    expect(lastProps?.initialIntegrationId).toBe("linear");
+    const figma = container.querySelector<HTMLAnchorElement>(
+      'a[data-integration-tile="Figma"]',
+    );
+    expect(figma?.getAttribute("href")).toBe("/settings/integrations/figma");
+    await act(async () => figma!.click());
+    expect(navigate).toHaveBeenCalledWith("integrations", "figma");
+    // Only the Add custom integration dialog is mounted, and it's a modal.
+    for (const call of dialogMocks.McpIntegrationDialog.mock.calls) {
+      const props = (call as unknown[])[0] as Record<string, unknown>;
+      expect(props.presentation).toBe("modal");
+      expect(props.open).toBe(false);
+    }
+  });
+
+  it("lets a modified click open the page in a new tab", async () => {
+    await render();
+
+    const linear = container.querySelector<HTMLAnchorElement>(
+      'a[data-integration-tile="Linear"]',
+    );
+    const event = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      metaKey: true,
+    });
+    await act(async () => linear!.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

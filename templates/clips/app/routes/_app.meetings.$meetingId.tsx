@@ -1180,9 +1180,9 @@ export default function MeetingDetailRoute() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
-                    size="icon"
+                    size="icon-sm"
                     variant="ghost"
-                    className="h-8 w-8 cursor-pointer"
+                    className="cursor-pointer"
                     aria-label={t("meetingDetail.meetingOptions")}
                   >
                     <IconDotsVertical className="h-4 w-4" />

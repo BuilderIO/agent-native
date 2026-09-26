@@ -37,6 +37,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { startCalendarOAuth } from "@/lib/calendar-oauth";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
+import { PopupBlockedError } from "@/lib/popup-blocked";
 
 import { FeatureKeysGroup } from "./feature-keys-group";
 import { LoadFailedRow } from "./load-failed-row";
@@ -95,7 +96,13 @@ function CalendarGroup() {
         invalidate();
         toast.success(t("meetingsRoute.calendarConnected"));
       })
-      .catch((err: Error) => toast.error(err.message))
+      .catch((err: Error) =>
+        toast.error(
+          err instanceof PopupBlockedError
+            ? t("clipsSettings.popupBlocked")
+            : err.message,
+        ),
+      )
       .finally(() => {
         connectingRef.current = false;
         setConnecting(false);

@@ -1088,10 +1088,6 @@ const messages: AgentChatTranslation = {
     "Los archivos existentes se quedan en {{bucket}}.",
   "settings.storage.clearExistingGeneric":
     "Los archivos existentes se quedan en tu bucket.",
-  "settings.storage.missing":
-    "Primero completa el endpoint, el bucket y las claves.",
-  "settings.storage.missingPublicUrl":
-    "Primero completa el endpoint, el bucket, las claves y la URL pública.",
   "settings.storage.invalidUrl":
     "Usa una URL que empiece por https:// o http://.",
   "settings.storage.invalidBucket":
@@ -1250,7 +1246,6 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "Añadir",
   "settingsOrg.invite.send": "Enviar invitaciones",
   "settingsOrg.invite.sending": "Enviando…",
-  "settingsOrg.invite.close": "Cerrar",
   "settingsOrg.invite.csvNoEmails":
     "No se encontraron correos válidos en este CSV.",
   "settingsOrg.auth.synced_one": "Sincronizado con {{count}} app.",
@@ -1291,8 +1286,6 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.nameSaveError": "No se pudo actualizar tu nombre.",
   "settingsShell.account.nameSaved": "Nombre actualizado",
   "settingsShell.account.newEmail": "Nuevo correo electrónico",
-  "settingsShell.account.newEmailPlaceholder":
-    "Introduce el nuevo correo electrónico",
   "settingsShell.account.newPassword": "Nueva contraseña",
   "settingsShell.account.password": "Contraseña",
   "settingsShell.account.passwordDescription":
@@ -1560,6 +1553,293 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.webhookRegistered": "Registrado",
   "settingsShell.channels.webhookRegistration": "Webhook",
   "settingsShell.channels.webhookUrl": "URL del webhook",
+  "settingsShell.channels.category": "Categoría",
+  "settingsShell.channels.developer": "Desarrollador",
+  "settingsShell.channels.mentionAgent": "Mencionar al agente",
+  "settingsShell.channels.rowDescription": "{{about}} {{state}}.",
+  "settingsShell.channels.separately":
+    "El agente de cada app se configura por separado.",
+  "settingsShell.channels.setUpLocked":
+    "Solo los propietarios y administradores pueden configurarlo",
+  "settingsShell.integrationDetail.access.none":
+    "Es un servidor público, así que no hay que iniciar sesión en nada.",
+  "settingsShell.integrationDetail.access.oauth":
+    "El agente actúa con tus permisos de {{name}}, así que solo ve lo que tú puedes ver.",
+  "settingsShell.integrationDetail.access.token":
+    "El agente usa el token de acceso que añadas, así que ve lo que ese token puede ver.",
+  "settingsShell.integrationDetail.accessToken": "Token de acceso",
+  "settingsShell.integrationDetail.addAccessToken": "Añadir token de acceso",
+  "settingsShell.integrationDetail.callout.adminNeeded":
+    "Un administrador tiene que configurarlo",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "Pide a un propietario o administrador de {{org}} que añada el ID de cliente y el secreto de {{name}}. Después podrás conectar tu propia cuenta.",
+  "settingsShell.integrationDetail.callout.beforeAnyone":
+    "Antes de que nadie pueda conectarse",
+  "settingsShell.integrationDetail.callout.beforeYouConnect":
+    "Antes de conectarte",
+  "settingsShell.integrationDetail.callout.token":
+    "Se conecta con un token de acceso",
+  "settingsShell.integrationDetail.callout.unavailable":
+    "Aún no está disponible",
+  "settingsShell.integrationDetail.category": "Categoría",
+  "settingsShell.integrationDetail.connected": "{{name}} conectado",
+  "settingsShell.integrationDetail.copyServerUrl": "Copiar URL del servidor",
+  "settingsShell.integrationDetail.developer": "Desarrollador",
+  "settingsShell.integrationDetail.howToCreateToken": "Cómo crear un token",
+  "settingsShell.integrationDetail.justMe": "Solo yo",
+  "settingsShell.integrationDetail.notFound":
+    "Esta integración no está en el catálogo.",
+  "settingsShell.integrationDetail.notFoundTitle": "No encontrado",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "¿Cómo evolucionaron los usuarios activos semanales este mes?",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "Crea un embudo desde el registro hasta la primera grabación",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "¿Qué cohortes tienen mejor retención?",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "Busca responsables de diseño en startups de serie B",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "Enriquece esta lista de correos",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "Añade estos contactos a la secuencia del cuarto trimestre",
+  "settingsShell.integrationDetail.prompt.asana.1":
+    "¿Qué tengo pendiente esta semana?",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "Crea tareas a partir de las acciones de esta grabación",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "¿Qué proyectos van con retraso?",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "Crea un ticket de Jira con las tareas de esta grabación",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "¿Qué está bloqueando el lanzamiento del cuarto trimestre?",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "Busca la página de Confluence sobre el onboarding",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "Busca el contrato firmado de Acme",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "Comparte la carpeta del informe del tercer trimestre con finanzas",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "¿Qué cambió en la carpeta legal esta semana?",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "Crea una publicación para redes sociales con lo más destacado de esta grabación",
+  "settingsShell.integrationDetail.prompt.canva.2":
+    "Busca los colores de nuestro kit de marca",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "Exporta la última presentación como PDF",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "¿Qué registros DNS apuntan a {{host}}?",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "Muestra los errores de Worker de la última hora",
+  "settingsShell.integrationDetail.prompt.cloudflare.3":
+    "Purga la caché de esta URL",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "¿Qué empresas muestran señales de compra?",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "¿Quién de Acme está activo en nuestra comunidad?",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "Resume la actividad de nuestras cuentas principales",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "Muestra la documentación actual de React Router sobre loaders",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "¿Cómo configuro las migraciones de Drizzle?",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "¿Qué hay de nuevo en la última versión de Tailwind?",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "Busca artículos recientes sobre apps agent-native",
+  "settingsShell.integrationDetail.prompt.exa.2":
+    "Investiga a los competidores de {{app}}",
+  "settingsShell.integrationDetail.prompt.exa.3": "Obtén y resume esta página",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "Resume los componentes de este archivo de Figma",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "Enumera las variables de color de nuestro sistema de diseño",
+  "settingsShell.integrationDetail.prompt.figma.3":
+    "Describe el diseño de este frame",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "Muestra sesiones en las que la gente hizo clics de frustración en Compartir",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "Resume las fricciones en la página de precios",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "¿Dónde abandona la gente durante el onboarding?",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "Resume las pull requests que esperan mi revisión",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "Busca issues sobre las vistas previas de enlaces de Slack en agent-native",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "¿Qué cambió en packages/core esta semana?",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "¿Qué merge requests fallaron en CI hoy?",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "Resume las issues abiertas con la etiqueta bug",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "¿Qué pipelines fueron los más lentos esta semana?",
+  "settingsShell.integrationDetail.prompt.gong.1":
+    "Resume mi última llamada con Acme",
+  "settingsShell.integrationDetail.prompt.gong.2":
+    "¿Qué objeciones surgieron este mes?",
+  "settingsShell.integrationDetail.prompt.gong.3":
+    "¿Qué deals mencionan dudas sobre el precio?",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent resume los comentarios de este documento",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent redacta una respuesta a este comentario",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent convierte estas notas en una lista de verificación",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "Grafica la latencia p95 de la API del último día",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "Busca logs de errores de alrededor de las 14:00",
+  "settingsShell.integrationDetail.prompt.grafana.3":
+    "¿Qué alertas se dispararon esta semana?",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "¿Qué decidimos en la revisión de diseño de ayer?",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "Enumera mis tareas pendientes de las reuniones",
+  "settingsShell.integrationDetail.prompt.granola.3":
+    "Resume mis llamadas con Acme",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "Mueve el deal de Acme a Closed won",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "¿Qué deals están estancados en negociación?",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "Registra esta llamada como nota en el contacto",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "Resume las conversaciones abiertas de hoy",
+  "settingsShell.integrationDetail.prompt.intercom.2":
+    "Busca artículos de ayuda sobre SSO",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "¿Qué es lo que más preguntan los clientes esta semana?",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "Crea una issue para la vista previa de Slack rota y asígnamela",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "¿Qué queda en el ciclo actual?",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "Resume los bugs reportados esta semana",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "¿Qué hay en el tablero de diseño este sprint?",
+  "settingsShell.integrationDetail.prompt.monday.2":
+    "Mueve este elemento a Done",
+  "settingsShell.integrationDetail.prompt.monday.3":
+    "¿Qué elementos están vencidos?",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "Crea una rama de producción para pruebas",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "Muestra las consultas más lentas de esta semana",
+  "settingsShell.integrationDetail.prompt.neon.3":
+    "¿Qué tamaño tiene la base de datos principal?",
+  "settingsShell.integrationDetail.prompt.netlify.1":
+    "¿Por qué falló el último despliegue?",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "¿Qué sitios tuvieron builds fallidos esta semana?",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "Vuelve al despliegue de producción anterior",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "Busca nuestra lista de verificación de onboarding",
+  "settingsShell.integrationDetail.prompt.notion.2":
+    "Resume las notas de las reuniones de esta semana",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "Añade estas tareas a la wiki del equipo",
+  "settingsShell.integrationDetail.prompt.paypal.1":
+    "Enumera las facturas vencidas",
+  "settingsShell.integrationDetail.prompt.paypal.2":
+    "Resume las transacciones de este mes",
+  "settingsShell.integrationDetail.prompt.paypal.3":
+    "Crea una factura para Acme",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "¿Qué cuentas tienen issues urgentes abiertas?",
+  "settingsShell.integrationDetail.prompt.pylon.2":
+    "Resume el último ticket de Acme",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "Redacta una respuesta a esta issue",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "Analiza packages/core en busca de problemas de seguridad",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "Explica este hallazgo y cómo solucionarlo",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "¿Hay secretos codificados en este repositorio?",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "¿Cuáles son los principales errores nuevos desde el despliegue de ayer?",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "Muestra la traza del fallo más frecuente",
+  "settingsShell.integrationDetail.prompt.sentry.3":
+    "¿Qué versión introdujo este error?",
+  "settingsShell.integrationDetail.prompt.sigma.1":
+    "Busca el panel de ingresos",
+  "settingsShell.integrationDetail.prompt.sigma.2":
+    "¿Qué provocó el cambio del MRR el mes pasado?",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "Explica las métricas principales de este workbook",
+  "settingsShell.integrationDetail.prompt.slack.1":
+    "Resume #design de esta semana",
+  "settingsShell.integrationDetail.prompt.slack.2":
+    "Busca el hilo sobre el cambio de precios",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "¿Qué dijo Camila sobre el lanzamiento?",
+  "settingsShell.integrationDetail.prompt.stripe.1":
+    "¿Cuántos ingresos tuvimos el mes pasado?",
+  "settingsShell.integrationDetail.prompt.stripe.2":
+    "Busca el cliente de esta factura",
+  "settingsShell.integrationDetail.prompt.stripe.3":
+    "¿Qué suscripciones no se pudieron renovar?",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "¿Cuántas personas se registraron esta semana?",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "Muestra el esquema de la tabla recordings",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "¿Qué edge functions fallaron hoy?",
+  "settingsShell.integrationDetail.prompt.telegram.1":
+    "Resume las grabaciones de hoy",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "Recuérdame la revisión de las 15:00",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "Comparte el enlace de la demo de ayer",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "¿Por qué falló el último despliegue de vista previa?",
+  "settingsShell.integrationDetail.prompt.vercel.2":
+    "Muestra los logs del despliegue de producción",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "¿Qué dominios apuntan a este proyecto?",
+  "settingsShell.integrationDetail.prompt.webflow.1":
+    "Actualiza el titular de la página de precios",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "Enumera los elementos del CMS publicados esta semana",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "¿Qué páginas no tienen meta descripción?",
+  "settingsShell.integrationDetail.prompt.whatsapp.1":
+    "¿Qué tengo hoy en el calendario?",
+  "settingsShell.integrationDetail.prompt.whatsapp.2":
+    "Resume la última grabación",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "Envíame las notas de la revisión de diseño",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "Publica las grabaciones nuevas en #design en Slack",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "Añade los nuevos registros a nuestro CRM",
+  "settingsShell.integrationDetail.prompt.zapier.3":
+    "¿Qué Zaps puedes ejecutar?",
+  "settingsShell.integrationDetail.serverUrl": "URL del servidor",
+  "settingsShell.integrationDetail.setUp": "Configurar",
+  "settingsShell.integrationDetail.signIn": "Inicio de sesión",
+  "settingsShell.integrationDetail.signInNone": "Ninguno",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "Crea un token de acceso personal en Figma y pégalo aquí.",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "Crea un token de acceso personal en GitHub y pégalo aquí.",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "Crea un token de autenticación de usuario en Sentry y pégalo aquí.",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "Crea una conexión en Zapier y pega aquí su token bearer.",
+  "settingsShell.integrationDetail.tokenPlaceholder":
+    "Pega tu token de {{name}}",
+  "settingsShell.integrationDetail.who": "Quién puede usarlo",
+  "settingsShell.integrationDetail.whoMember":
+    "Solo los propietarios y administradores pueden compartirlo con {{org}}.",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "Se conecta una sola vez para todos en {{org}}.",
+  "settingsShell.integrationDetail.whoPersonal":
+    "Cada persona conecta su propia cuenta.",
+  "settingsShell.integrationDetail.whoShared":
+    "Una conexión compartida permite que todos en {{org}} usen tu acceso.",
   "settingsShell.clearSearch": "Borrar búsqueda",
   "settingsShell.group.account": "Cuenta",
   "settingsShell.group.agent": "Agente",
@@ -1735,10 +2015,12 @@ const messages: AgentChatTranslation = {
   "settingsInfra.required": "Obligatorio",
   "settingsInfra.recommended": "Recomendado",
   "settingsInfra.optional": "Opcional",
-  "settingsInfra.needsBuilder": "Requiere Builder.io",
+  "settingsInfra.builderRecommended":
+    "Usa los créditos de tu cuenta de Builder.io para todos los servicios de abajo. Hay un plan gratuito.",
+  "settingsInfra.builderOnly": "Solo con Builder.io",
   "settingsInfra.rowDescription": "{{source}} · {{use}}",
   "settingsInfra.notSetUp": "Sin configurar",
-  "settingsInfra.notAvailable": "No disponible",
+  "settingsInfra.availableWithBuilder": "Disponible con Builder.io",
   "settingsInfra.loadFailed": "No se pudo cargar.",
   "settingsInfra.aiModel": "Modelo de IA",
   "settingsInfra.useEveryApp": "Todas las apps",
@@ -1943,6 +2225,8 @@ const messages: AgentChatTranslation = {
     "Pide a un propietario o administrador que añada uno.",
   "settingsModel.emptyDescription":
     "El agente necesita un proveedor para responder.",
+  "settingsModel.emptyDescriptionBuilder":
+    "El agente necesita un proveedor para responder. Te recomendamos Builder.io para el acceso a modelos, la automatización del navegador, el almacenamiento de archivos y la identidad del espacio de trabajo. Hay un plan gratuito.",
   "settingsModel.emptyTitle": "Añade un proveedor de modelos",
   "settingsModel.endpointFirst": "Primero introduce la URL del endpoint.",
   "settingsModel.endpointHint":
@@ -2064,7 +2348,6 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.externalEmpty":
     "Conecta Foundry, Gemini Enterprise, Anthropic o cualquier agente A2A.",
   "settingsSubAgents.externalEmptyTitle": "Aún no hay agentes externos",
-  "settingsSubAgents.browseDirectory": "Explorar directorio",
   "settingsSubAgents.customEmpty":
     "Define un agente especializado en el que el agente principal pueda delegar.",
   "settingsSubAgents.customEmptyTitle": "Aún no hay agentes personalizados",

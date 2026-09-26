@@ -981,8 +981,6 @@ const messages: AgentChatTranslation = {
   "settings.storage.clearNoFallback": "在重新设置存储之前，上传会失败。",
   "settings.storage.clearExisting": "现有文件保留在 {{bucket}} 中。",
   "settings.storage.clearExistingGeneric": "现有文件保留在你的存储桶中。",
-  "settings.storage.missing": "请先填写端点、存储桶和密钥。",
-  "settings.storage.missingPublicUrl": "请先填写端点、存储桶、密钥和公开 URL。",
   "settings.storage.invalidUrl": "请使用以 https:// 或 http:// 开头的 URL。",
   "settings.storage.invalidBucket":
     "存储桶名称只能包含字母、数字、点、连字符和下划线。",
@@ -1124,7 +1122,6 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "添加",
   "settingsOrg.invite.send": "发送邀请",
   "settingsOrg.invite.sending": "正在发送…",
-  "settingsOrg.invite.close": "关闭",
   "settingsOrg.invite.csvNoEmails": "此 CSV 中未找到有效邮箱。",
   "settingsOrg.auth.synced_other": "已同步到 {{count}} 个应用。",
   "settingsOrg.auth.syncedPartial_other":
@@ -1153,7 +1150,6 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.nameSaveError": "无法更新您的姓名。",
   "settingsShell.account.nameSaved": "姓名已更新",
   "settingsShell.account.newEmail": "新邮箱",
-  "settingsShell.account.newEmailPlaceholder": "输入新邮箱",
   "settingsShell.account.newPassword": "新密码",
   "settingsShell.account.password": "密码",
   "settingsShell.account.passwordDescription":
@@ -1379,6 +1375,228 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.webhookRegistered": "已注册",
   "settingsShell.channels.webhookRegistration": "Webhook",
   "settingsShell.channels.webhookUrl": "Webhook URL",
+  "settingsShell.channels.category": "类别",
+  "settingsShell.channels.developer": "开发者",
+  "settingsShell.channels.mentionAgent": "提及智能体",
+  "settingsShell.channels.rowDescription": "{{about}}{{state}}。",
+  "settingsShell.channels.separately": "每个应用的智能体需要分别设置。",
+  "settingsShell.channels.setUpLocked": "只有所有者和管理员可以设置",
+  "settingsShell.integrationDetail.access.none": "这是公开服务器，无需登录。",
+  "settingsShell.integrationDetail.access.oauth":
+    "智能体使用你的 {{name}} 权限操作，因此只能看到你能看到的内容。",
+  "settingsShell.integrationDetail.access.token":
+    "智能体使用你添加的访问令牌，因此能看到该令牌可访问的内容。",
+  "settingsShell.integrationDetail.accessToken": "访问令牌",
+  "settingsShell.integrationDetail.addAccessToken": "添加访问令牌",
+  "settingsShell.integrationDetail.callout.adminNeeded": "需要管理员进行设置",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "请 {{org}} 的所有者或管理员添加 {{name}} 的客户端 ID 和密钥。之后你就可以连接自己的账号。",
+  "settingsShell.integrationDetail.callout.beforeAnyone": "在任何人连接之前",
+  "settingsShell.integrationDetail.callout.beforeYouConnect": "连接之前",
+  "settingsShell.integrationDetail.callout.token": "使用访问令牌连接",
+  "settingsShell.integrationDetail.callout.unavailable": "暂不可用",
+  "settingsShell.integrationDetail.category": "类别",
+  "settingsShell.integrationDetail.connected": "已连接 {{name}}",
+  "settingsShell.integrationDetail.copyServerUrl": "复制服务器 URL",
+  "settingsShell.integrationDetail.developer": "开发者",
+  "settingsShell.integrationDetail.howToCreateToken": "如何创建令牌",
+  "settingsShell.integrationDetail.justMe": "仅我自己",
+  "settingsShell.integrationDetail.notFound": "目录中没有此集成。",
+  "settingsShell.integrationDetail.notFoundTitle": "未找到",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "本月每周活跃用户的趋势如何？",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "建立从注册到首次录制的漏斗",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "哪些用户群的留存最好？",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "查找 B 轮初创公司的设计负责人",
+  "settingsShell.integrationDetail.prompt.apollo.2": "补全这份邮箱列表的信息",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "将这些联系人添加到第四季度的序列",
+  "settingsShell.integrationDetail.prompt.asana.1": "本周我有哪些到期任务？",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "根据这段录制的待办事项创建任务",
+  "settingsShell.integrationDetail.prompt.asana.3": "哪些项目进度落后？",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "根据这段录制的待办事项创建 Jira 工单",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "是什么阻碍了第四季度的发布？",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "查找关于入职的 Confluence 页面",
+  "settingsShell.integrationDetail.prompt.box.1": "查找 Acme 已签署的合同",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "与财务共享第三季度报告文件夹",
+  "settingsShell.integrationDetail.prompt.box.3": "本周法务文件夹有哪些变化？",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "用这段录制的精彩片段制作一条社交媒体帖子",
+  "settingsShell.integrationDetail.prompt.canva.2": "查找我们品牌套件的颜色",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "将最新的演示文稿导出为 PDF",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "哪些 DNS 记录指向 {{host}}？",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "显示过去一小时的 Worker 错误",
+  "settingsShell.integrationDetail.prompt.cloudflare.3": "清除此 URL 的缓存",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "哪些公司显示出购买信号？",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "Acme 的哪些人在我们的社区中很活跃？",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "总结我们主要客户的活动",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "显示当前 React Router 关于 loader 的文档",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "如何配置 Drizzle 迁移？",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "最新的 Tailwind 版本有什么新内容？",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "查找关于 agent-native 应用的最新文章",
+  "settingsShell.integrationDetail.prompt.exa.2": "调研 {{app}} 的竞争对手",
+  "settingsShell.integrationDetail.prompt.exa.3": "获取并总结这个页面",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "总结这个 Figma 文件中的组件",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "列出我们设计系统中的颜色变量",
+  "settingsShell.integrationDetail.prompt.figma.3": "描述这个画框的布局",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "显示有人狂点“分享”的会话",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "总结定价页面上的使用障碍",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "用户在入职流程的哪里流失？",
+  "settingsShell.integrationDetail.prompt.github.1": "总结等待我审查的拉取请求",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "在 agent-native 中查找有关 Slack 链接预览的 issue",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "本周 packages/core 有哪些变化？",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "今天哪些合并请求的 CI 失败了？",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "总结带有 bug 标签的未关闭 issue",
+  "settingsShell.integrationDetail.prompt.gitlab.3": "本周哪些流水线最慢？",
+  "settingsShell.integrationDetail.prompt.gong.1": "总结我与 Acme 的上一次通话",
+  "settingsShell.integrationDetail.prompt.gong.2": "本月出现了哪些异议？",
+  "settingsShell.integrationDetail.prompt.gong.3":
+    "哪些交易提到了价格方面的顾虑？",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent 总结这个文档中的评论",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent 起草对这条评论的回复",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent 把这些笔记整理成清单",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "绘制过去一天 API 的 p95 延迟图表",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "查找下午 2 点左右的错误日志",
+  "settingsShell.integrationDetail.prompt.grafana.3": "本周触发了哪些告警？",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "昨天的设计评审我们决定了什么？",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "列出会议中我未完成的待办事项",
+  "settingsShell.integrationDetail.prompt.granola.3": "总结我与 Acme 的通话",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "将 Acme 交易移到 Closed won",
+  "settingsShell.integrationDetail.prompt.hubspot.2": "哪些交易卡在谈判阶段？",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "将这次通话记录为联系人的备注",
+  "settingsShell.integrationDetail.prompt.intercom.1": "总结今天未关闭的对话",
+  "settingsShell.integrationDetail.prompt.intercom.2":
+    "查找关于 SSO 的帮助文章",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "本周客户问得最多的是什么？",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "为损坏的 Slack 预览创建一个 issue 并分配给我",
+  "settingsShell.integrationDetail.prompt.linear.2": "当前周期还剩下什么？",
+  "settingsShell.integrationDetail.prompt.linear.3": "总结本周报告的 bug",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "本次冲刺的设计看板上有什么？",
+  "settingsShell.integrationDetail.prompt.monday.2": "将此项移动到 Done",
+  "settingsShell.integrationDetail.prompt.monday.3": "哪些条目已逾期？",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "从生产环境创建一个用于测试的分支",
+  "settingsShell.integrationDetail.prompt.neon.2": "显示本周最慢的查询",
+  "settingsShell.integrationDetail.prompt.neon.3": "主数据库有多大？",
+  "settingsShell.integrationDetail.prompt.netlify.1": "上一次部署为什么失败？",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "本周哪些站点构建失败了？",
+  "settingsShell.integrationDetail.prompt.netlify.3": "回滚到上一个生产部署",
+  "settingsShell.integrationDetail.prompt.notion.1": "查找我们的入职清单",
+  "settingsShell.integrationDetail.prompt.notion.2": "总结本周的会议记录",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "将这些待办事项添加到团队 wiki",
+  "settingsShell.integrationDetail.prompt.paypal.1": "列出逾期的发票",
+  "settingsShell.integrationDetail.prompt.paypal.2": "总结本月的交易",
+  "settingsShell.integrationDetail.prompt.paypal.3": "为 Acme 创建一张发票",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "哪些客户有紧急的未关闭 issue？",
+  "settingsShell.integrationDetail.prompt.pylon.2": "总结最新的 Acme 工单",
+  "settingsShell.integrationDetail.prompt.pylon.3": "为这个 issue 起草回复",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "扫描 packages/core 中的安全问题",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "解释这个发现以及如何修复",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "这个仓库里有硬编码的密钥吗？",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "自昨天部署以来最主要的新错误有哪些？",
+  "settingsShell.integrationDetail.prompt.sentry.2": "显示最常见崩溃的堆栈跟踪",
+  "settingsShell.integrationDetail.prompt.sentry.3":
+    "这个错误是哪个版本引入的？",
+  "settingsShell.integrationDetail.prompt.sigma.1": "查找收入仪表板",
+  "settingsShell.integrationDetail.prompt.sigma.2":
+    "上个月 MRR 变化的原因是什么？",
+  "settingsShell.integrationDetail.prompt.sigma.3": "解释这个工作簿的主要指标",
+  "settingsShell.integrationDetail.prompt.slack.1": "总结本周的 #design",
+  "settingsShell.integrationDetail.prompt.slack.2": "查找关于价格调整的讨论串",
+  "settingsShell.integrationDetail.prompt.slack.3": "Camila 对发布说了什么？",
+  "settingsShell.integrationDetail.prompt.stripe.1": "我们上个月的收入是多少？",
+  "settingsShell.integrationDetail.prompt.stripe.2": "查找这张发票对应的客户",
+  "settingsShell.integrationDetail.prompt.stripe.3": "哪些订阅续订失败了？",
+  "settingsShell.integrationDetail.prompt.supabase.1": "本周有多少人注册？",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "显示 recordings 表的结构",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "今天哪些 Edge Functions 出错了？",
+  "settingsShell.integrationDetail.prompt.telegram.1": "总结今天的录制",
+  "settingsShell.integrationDetail.prompt.telegram.2": "提醒我下午 3 点的评审",
+  "settingsShell.integrationDetail.prompt.telegram.3": "分享昨天演示的链接",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "上一次预览部署为什么失败？",
+  "settingsShell.integrationDetail.prompt.vercel.2": "显示生产部署的日志",
+  "settingsShell.integrationDetail.prompt.vercel.3": "哪些域名指向这个项目？",
+  "settingsShell.integrationDetail.prompt.webflow.1": "更新定价页面的标题",
+  "settingsShell.integrationDetail.prompt.webflow.2": "列出本周发布的 CMS 条目",
+  "settingsShell.integrationDetail.prompt.webflow.3": "哪些页面缺少元描述？",
+  "settingsShell.integrationDetail.prompt.whatsapp.1": "我今天的日程有什么？",
+  "settingsShell.integrationDetail.prompt.whatsapp.2": "总结最新的录制",
+  "settingsShell.integrationDetail.prompt.whatsapp.3": "把设计评审的笔记发给我",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "将新录制发布到 Slack 的 #design",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "将新注册用户添加到我们的 CRM",
+  "settingsShell.integrationDetail.prompt.zapier.3": "你可以运行哪些 Zap？",
+  "settingsShell.integrationDetail.serverUrl": "服务器 URL",
+  "settingsShell.integrationDetail.setUp": "设置",
+  "settingsShell.integrationDetail.signIn": "登录方式",
+  "settingsShell.integrationDetail.signInNone": "无",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "在 Figma 中创建个人访问令牌，然后粘贴到这里。",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "在 GitHub 中创建个人访问令牌，然后粘贴到这里。",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "在 Sentry 中创建用户认证令牌，然后粘贴到这里。",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "在 Zapier 中创建连接，然后将其 Bearer 令牌粘贴到这里。",
+  "settingsShell.integrationDetail.tokenPlaceholder": "粘贴你的 {{name}} 令牌",
+  "settingsShell.integrationDetail.who": "谁可以使用",
+  "settingsShell.integrationDetail.whoMember":
+    "只有所有者和管理员可以将其共享给 {{org}}。",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "为 {{org}} 中的所有人连接一次。",
+  "settingsShell.integrationDetail.whoPersonal": "每个人连接自己的账号。",
+  "settingsShell.integrationDetail.whoShared":
+    "共享连接可让 {{org}} 中的所有人使用你的访问权限。",
   "settingsShell.clearSearch": "清除搜索",
   "settingsShell.group.account": "账户",
   "settingsShell.group.agent": "智能体",
@@ -1541,10 +1759,12 @@ const messages: AgentChatTranslation = {
   "settingsInfra.required": "必需",
   "settingsInfra.recommended": "推荐",
   "settingsInfra.optional": "可选",
-  "settingsInfra.needsBuilder": "需要 Builder.io",
+  "settingsInfra.builderRecommended":
+    "用你的 Builder.io 账户额度为下方所有服务提供支持。提供免费套餐。",
+  "settingsInfra.builderOnly": "仅限 Builder.io",
   "settingsInfra.rowDescription": "{{source}} · {{use}}",
   "settingsInfra.notSetUp": "未设置",
-  "settingsInfra.notAvailable": "不可用",
+  "settingsInfra.availableWithBuilder": "通过 Builder.io 可用",
   "settingsInfra.loadFailed": "无法加载。",
   "settingsInfra.aiModel": "AI 模型",
   "settingsInfra.useEveryApp": "所有应用",
@@ -1721,6 +1941,8 @@ const messages: AgentChatTranslation = {
   "settingsModel.effectModelsLeave": "{{provider}} 模型将从模型选择器中移除。",
   "settingsModel.emptyAskAdmin": "请所有者或管理员添加一个。",
   "settingsModel.emptyDescription": "智能体需要提供商才能回复。",
+  "settingsModel.emptyDescriptionBuilder":
+    "智能体需要提供商才能回复。我们推荐使用 Builder.io，获得模型访问、浏览器自动化、文件存储和工作区身份。提供免费套餐。",
   "settingsModel.emptyTitle": "添加模型提供商",
   "settingsModel.endpointFirst": "请先输入端点 URL。",
   "settingsModel.endpointHint": "可选。用于 LiteLLM 或其他兼容 OpenAI 的网关。",
@@ -1817,7 +2039,6 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.externalEmpty":
     "连接 Foundry、Gemini Enterprise、Anthropic 或任意 A2A 智能体。",
   "settingsSubAgents.externalEmptyTitle": "还没有外部智能体",
-  "settingsSubAgents.browseDirectory": "浏览目录",
   "settingsSubAgents.customEmpty": "定义一个专注的智能体，供主智能体委派任务。",
   "settingsSubAgents.customEmptyTitle": "还没有自定义智能体",
   "settingsSubAgents.addAgent": "添加智能体",

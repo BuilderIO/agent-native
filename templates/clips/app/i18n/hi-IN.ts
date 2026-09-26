@@ -923,6 +923,8 @@ const messages = {
     slackConnected: "Slack कनेक्टेड",
   },
   clipsSettings: {
+    popupBlocked:
+      "ब्राउज़र ने पॉप-अप ब्लॉक कर दिया। इस साइट के लिए पॉप-अप की अनुमति दें और फिर से कोशिश करें।",
     recordingsTab: "रिकॉर्डिंग",
     meetingsTab: "मीटिंग",
     yourDefaults: "आपके डिफ़ॉल्ट",

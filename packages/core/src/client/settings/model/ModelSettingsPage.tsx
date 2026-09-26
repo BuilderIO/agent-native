@@ -1,3 +1,4 @@
+import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
@@ -119,13 +120,23 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
   const canAdd = listing.data
     ? addableProviders(listing.data).length > 0
     : false;
+  const needsProvider = listing.data
+    ? !hasAnyProvider(
+        listing.data,
+        providerRows(listing.data, models.data),
+        builder,
+      )
+    : false;
+  // The empty state carries the page's actions, so the header stays empty
+  // while it shows: one primary on screen.
   const header = useMemo(
     () => ({
-      action: canAdd ? (
-        <AddProviderButton onClick={() => setDialog({ mode: "add" })} />
-      ) : undefined,
+      action:
+        canAdd && !needsProvider ? (
+          <AddProviderButton onClick={() => setDialog({ mode: "add" })} />
+        ) : undefined,
     }),
-    [canAdd],
+    [canAdd, needsProvider],
   );
   useSettingsPageHeader(header);
 
@@ -151,7 +162,6 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
   const orgName = org.data?.orgName ?? "";
   const openManage = (row: ProviderKeyRow) =>
     setDialog({ mode: "manage", provider: row.provider, scope: row.key.scope });
-  const needsProvider = !hasAnyProvider(data, rows, builder);
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -227,11 +237,17 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
   );
 }
 
-/** The page's one action, also the no-provider empty state's. */
-function AddProviderButton({ onClick }: { onClick: () => void }) {
+/** The page's one action, and the empty state's when Builder.io isn't offered. */
+function AddProviderButton({
+  variant = "default",
+  onClick,
+}: {
+  variant?: "default" | "secondary";
+  onClick: () => void;
+}) {
   const t = useT();
   return (
-    <Button type="button" size="sm" onClick={onClick}>
+    <Button type="button" variant={variant} size="sm" onClick={onClick}>
       <IconPlus />
       {t(`${K}addProvider`)}
     </Button>
@@ -263,7 +279,11 @@ function hasAnyProvider(
   return connected(builder.grants.personal) || rows.personal.length > 0;
 }
 
-/** No provider yet: why the agent needs one, and the ways to add it. */
+/**
+ * No provider yet: why the agent needs one, and the ways to add it. Builder.io
+ * is the recommended path, so it is the primary action whenever the viewer may
+ * connect it, and adding a provider key is the secondary one.
+ */
 function NoProviderEmpty({
   listing,
   canAdd,
@@ -293,12 +313,7 @@ function NoProviderEmpty({
         })
       }
     >
-      <Button
-        type="button"
-        variant={canAdd ? "secondary" : "default"}
-        size="sm"
-        disabled={builder.connecting}
-      >
+      <Button type="button" size="sm" disabled={builder.connecting}>
         {builder.connecting ? <Spinner /> : null}
         {builder.connecting
           ? t(`${K}connecting`)
@@ -312,15 +327,22 @@ function NoProviderEmpty({
         icon={IconCpu}
         title={t(`${K}emptyTitle`)}
         description={
-          canAdd || canConnect
-            ? t(`${K}emptyDescription`)
-            : t(`${K}emptyAskAdmin`)
+          canConnect
+            ? t(`${K}emptyDescriptionBuilder`)
+            : canAdd
+              ? t(`${K}emptyDescription`)
+              : t(`${K}emptyAskAdmin`)
         }
       >
         {canAdd || connect ? (
           <>
-            {canAdd ? <AddProviderButton onClick={onAdd} /> : null}
             {connect}
+            {canAdd ? (
+              <AddProviderButton
+                variant={connect ? "secondary" : "default"}
+                onClick={onAdd}
+              />
+            ) : null}
           </>
         ) : null}
       </SettingsEmpty>
@@ -481,6 +503,7 @@ function BuilderRow({
   const openPage = () => navigate("integrations", "builder");
   const mayConnect = hasOrganization ? flow.canConnect[scope] : true;
   let control: ReactNode = null;
+  let recommended = false;
   if (flow.hasFetchedStatus) {
     if (connected || (flow.grants === null && hasOrganization)) {
       control = (
@@ -489,6 +512,9 @@ function BuilderRow({
         </RowButton>
       );
     } else if (mayConnect) {
+      // A member connecting their own account over a working organization
+      // connection is an override, not the recommended path.
+      recommended = !orgConnected;
       control = (
         <DeferredBuilderConnectPopover
           flow={flow}
@@ -517,6 +543,13 @@ function BuilderRow({
     <SettingsRow
       id={`provider-${scope}-builder`}
       label={BUILDER_LABEL}
+      status={
+        recommended ? (
+          <Badge variant="outline">
+            {t("agentChat.integrations.recommended")}
+          </Badge>
+        ) : undefined
+      }
       description={description}
       control={control}
     >

@@ -34,7 +34,13 @@ import {
   IconTerminal2,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { buildSettingsRoute } from "../../navigation/index.js";
 import {
@@ -64,6 +70,7 @@ import {
   useSettingsPageHeader,
   useSettingsShell,
 } from "../settings/shell/context.js";
+import { settingsPageHref } from "../settings/shell/routing.js";
 import { useBuilderStatus } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import {
@@ -89,7 +96,7 @@ const BUILDER_LOGO_ID = "builder-cms";
 
 export const BUILDER_INTEGRATION_SUBPAGE = "builder";
 
-const CATEGORY_LABEL_KEYS: Record<IntegrationCategory, string> = {
+export const CATEGORY_LABEL_KEYS: Record<IntegrationCategory, string> = {
   engineering: `${K}.category.engineering`,
   design: `${K}.category.design`,
   productivity: `${K}.category.productivity`,
@@ -102,7 +109,7 @@ const CATEGORY_LABEL_KEYS: Record<IntegrationCategory, string> = {
 
 // Builder Publish is the content grant, not the Builder.io account; the
 // account has its own page, so the catalog entry stays off this page.
-function catalogWithoutBuilderPublish(): DefaultMcpIntegration[] {
+export function catalogWithoutBuilderPublish(): DefaultMcpIntegration[] {
   return getDefaultMcpIntegrations().filter(
     (integration) => integration.id !== BUILDER_LOGO_ID,
   );
@@ -113,26 +120,43 @@ function initialQuery(): string {
   return new URLSearchParams(window.location.search).get("q") ?? "";
 }
 
+function isModifiedClick(event: MouseEvent<HTMLAnchorElement>): boolean {
+  return (
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  );
+}
+
+/**
+ * A catalog tile. It opens the integration's own page, so the whole tile is
+ * a link; the trailing plus only marks it as not connected yet.
+ */
 function IntegrationTile({
   name,
   description,
   logo,
   connectable,
-  connectLabel,
+  href,
   onOpen,
 }: {
   name: string;
   description?: string;
   logo: ReactNode;
   connectable: boolean;
-  connectLabel: string;
+  href: string;
   onOpen: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={connectable ? connectLabel : undefined}
+    <a
+      href={href}
+      onClick={(event) => {
+        if (isModifiedClick(event)) return;
+        event.preventDefault();
+        onOpen();
+      }}
       data-integration-tile={name}
       className="flex min-w-0 items-center gap-3 rounded-lg p-2.5 text-start transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
@@ -155,7 +179,7 @@ function IntegrationTile({
           <IconPlus className="size-4" />
         </span>
       ) : null}
-    </button>
+    </a>
   );
 }
 
@@ -323,7 +347,7 @@ function ConnectedServerTile({
 }
 
 /** "Remove {name}?" naming who loses the integration's tools. */
-function RemoveServerDialog({
+export function RemoveServerDialog({
   server,
   onOpenChange,
   onRemove,
@@ -420,8 +444,6 @@ function catalogLogo(integration: DefaultMcpIntegration, className?: string) {
 }
 
 export interface IntegrationsPageProps {
-  /** A catalog id opens that integration's connect dialog. */
-  sub: string | null;
   /** The app's display name, for the MCP server footnote. */
   appName: string;
 }
@@ -431,7 +453,7 @@ export interface IntegrationsPageProps {
  * Builder.io first, then the catalog by category (spec §5.4). Messaging
  * channels and transactional email live elsewhere.
  */
-export function IntegrationsPage({ sub, appName }: IntegrationsPageProps) {
+export function IntegrationsPage({ appName }: IntegrationsPageProps) {
   const t = useT();
   const { navigate } = useSettingsShell();
   const [query, setQuery] = useState(initialQuery);
@@ -465,15 +487,6 @@ export function IntegrationsPage({ sub, appName }: IntegrationsPageProps) {
   );
   useSettingsPageHeader(header);
 
-  // `/settings/integrations/<id>` (a search hit) opens that integration.
-  const { openCatalog } = mcp;
-  useEffect(() => {
-    if (!sub || sub === BUILDER_INTEGRATION_SUBPAGE) return;
-    if (catalog.some((integration) => integration.id === sub)) {
-      openCatalog(sub);
-    }
-  }, [catalog, openCatalog, sub]);
-
   const normalizedQuery = query.trim().toLowerCase();
   const builderConnected = builder.status?.configured === true;
   const builderDescription = t(`${K}.builderDescription`);
@@ -492,7 +505,7 @@ export function IntegrationsPage({ sub, appName }: IntegrationsPageProps) {
         />
       }
       connectable={!builderConnected}
-      connectLabel={t(`${K}.connectName`, { name: "Builder.io" })}
+      href={settingsPageHref("integrations", BUILDER_INTEGRATION_SUBPAGE)}
       onOpen={openBuilder}
     />
   );
@@ -508,8 +521,8 @@ export function IntegrationsPage({ sub, appName }: IntegrationsPageProps) {
       description={integration.description || integration.useCase}
       logo={catalogLogo(integration)}
       connectable
-      connectLabel={t(`${K}.connectName`, { name: integration.name })}
-      onOpen={() => mcp.openConnection(integration.id, false)}
+      href={settingsPageHref("integrations", integration.id)}
+      onOpen={() => navigate("integrations", integration.id)}
     />
   );
   const available = catalog.filter(
@@ -581,15 +594,13 @@ export function IntegrationsPage({ sub, appName }: IntegrationsPageProps) {
     !!builder.status &&
     mcp.serversQuery.isSuccess === true;
 
+  const mcpGuideHref = appPath(
+    `${buildSettingsRoute("mcp")}?guide=${encodeURIComponent(
+      resolveMcpConnectGuideId(normalizedQuery),
+    )}`,
+  );
   const openMcpGuide = () => {
-    const guide = resolveMcpConnectGuideId(normalizedQuery);
-    window.history.pushState(
-      null,
-      "",
-      appPath(
-        `${buildSettingsRoute("mcp")}?guide=${encodeURIComponent(guide)}`,
-      ),
-    );
+    window.history.pushState(null, "", mcpGuideHref);
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
@@ -706,9 +717,7 @@ export function IntegrationsPage({ sub, appName }: IntegrationsPageProps) {
               </span>
             }
             connectable
-            connectLabel={t(`${K}.connectName`, {
-              name: t("settings.mcpClientSetup"),
-            })}
+            href={mcpGuideHref}
             onOpen={openMcpGuide}
           />
         </TileGrid>
@@ -785,26 +794,6 @@ export function IntegrationsPage({ sub, appName }: IntegrationsPageProps) {
         />
       </p>
 
-      <McpIntegrationDialog
-        open={mcp.dialogOpen}
-        onOpenChange={(open) => {
-          mcp.setDialogOpen(open);
-          if (!open) {
-            mcp.setInitialIntegrationId(null);
-            mcp.setConnectIntegrationId(null);
-            if (sub && sub !== BUILDER_INTEGRATION_SUBPAGE) {
-              navigate("integrations", null, { replace: true });
-            }
-          }
-        }}
-        initialIntegrationId={mcp.initialIntegrationId}
-        connectIntegrationId={mcp.connectIntegrationId}
-        defaultScope="user"
-        canCreateOrgMcp={mcp.canCreateOrgMcp}
-        hasOrg={mcp.hasOrg}
-        integrations={catalog}
-        onCreateMcpServer={(args) => mcp.createServer.mutateAsync(args)}
-      />
       <RemoveServerDialog
         server={removing}
         onOpenChange={(open) => {

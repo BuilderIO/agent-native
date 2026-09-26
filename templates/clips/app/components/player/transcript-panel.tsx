@@ -346,11 +346,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         <div className="relative flex-1">
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            size="sm"
             value={query}
             aria-label={t("transcriptPanel.searchPlaceholder")}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("transcriptPanel.searchPlaceholder")}
-            className="pl-8 h-8 text-xs"
+            className="pl-8 text-xs"
           />
         </div>
         <div className="flex items-center gap-0.5">
@@ -560,7 +561,7 @@ function BuilderCreditsPausedNotice({
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-0.5">
-            <Button asChild size="sm" className="h-8">
+            <Button asChild size="sm">
               <a
                 href={BUILDER_CREDITS_UPGRADE_URL}
                 target="_blank"
@@ -575,13 +576,12 @@ function BuilderCreditsPausedNotice({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8"
                 onClick={onRetry}
               >
                 {t("builderCredits.retryAfterUpgrade")}
               </Button>
             ) : null}
-            <Button asChild variant="ghost" size="sm" className="h-8">
+            <Button asChild variant="ghost" size="sm">
               <a href={aiSetupHref}>{t("builderCredits.openAiSetup")}</a>
             </Button>
           </div>

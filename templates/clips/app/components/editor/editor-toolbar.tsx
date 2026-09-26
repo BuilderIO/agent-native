@@ -463,7 +463,7 @@ export function EditorToolbar({
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-8 shrink-0 gap-1.5 px-2 font-mono text-xs tabular-nums"
+                    className="shrink-0 gap-1.5 px-2 font-mono text-xs tabular-nums"
                     aria-label={t("editorToolbar.previewSpeed")}
                   >
                     <IconGauge className="h-4 w-4" />
@@ -589,12 +589,7 @@ export function EditorToolbar({
           <Separator orientation="vertical" className="mx-1 h-6" />
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-                onClick={onPlayPause}
-              >
+              <Button size="icon-sm" variant="ghost" onClick={onPlayPause}>
                 {playing ? (
                   <IconPlayerPause className="h-4 w-4" />
                 ) : (

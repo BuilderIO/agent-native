@@ -53,6 +53,12 @@ export {
 } from "./NewKeyMenu.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";
 export {
+  KeyValueDialog,
+  type KeyValueDialogMode,
+  type KeyValueDialogProps,
+} from "./api-keys/ApiKeyDialogs.js";
+export type { ApiKeyEntry, ApiKeysListing } from "./api-keys/api-keys-state.js";
+export {
   StorageSettingsForm,
   type StorageSettingsFormProps,
 } from "./StorageSettingsForm.js";

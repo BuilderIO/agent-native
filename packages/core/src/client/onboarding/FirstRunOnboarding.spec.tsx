@@ -22,7 +22,6 @@ const mocks = vi.hoisted(() => ({
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
   redesign: false,
-  org: undefined as { orgId: string | null; role: string | null } | undefined,
 }));
 
 vi.mock("../feature-flags/use-feature-flag.js", () => ({
@@ -30,10 +29,6 @@ vi.mock("../feature-flags/use-feature-flag.js", () => ({
     status: "ready",
     enabled: mocks.redesign,
   }),
-}));
-
-vi.mock("../org/hooks.js", () => ({
-  useOrg: () => ({ data: mocks.org }),
 }));
 
 vi.mock("react-router", async (importOriginal) => {
@@ -76,7 +71,6 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboardingPreviewStep.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
     mocks.redesign = false;
-    mocks.org = undefined;
     mocks.useOnboardingPreviewStep.mockReturnValue(null);
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
@@ -1524,9 +1518,8 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("lands owners and admins on Infrastructure when the redesign is on", async () => {
+  it("lands on Agent › Model when the redesign is on", async () => {
     mocks.redesign = true;
-    mocks.org = { orgId: "org-1", role: "admin" };
     act(() => {
       root.render(
         <TooltipProvider>
@@ -1546,7 +1539,8 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.pathname).toBe("/settings/infra");
+    expect(window.location.pathname).toBe("/settings/model");
+    expect(mocks.completeFirstRun).toHaveBeenCalled();
     window.history.replaceState(null, "", "/");
   });
 
@@ -1580,35 +1574,13 @@ describe("FirstRunOnboarding", () => {
     expect(window.location.pathname).toBe("/dispatch/settings/keys");
   });
 
-  it("picks the manual setup page from the flag and the role", () => {
-    expect(
-      manualSetupSettingsRoute({
-        redesign: true,
-        org: { orgId: "org-1", role: "owner" },
-      }),
-    ).toBe("/settings/infra");
-    // No organization yet: the single user manages Infrastructure.
-    expect(
-      manualSetupSettingsRoute({
-        redesign: true,
-        org: { orgId: null, role: null },
-      }),
-    ).toBe("/settings/infra");
-    expect(
-      manualSetupSettingsRoute({
-        redesign: true,
-        org: { orgId: "org-1", role: "member" },
-      }),
-    ).toBe("/settings/agent/llm");
-    expect(manualSetupSettingsRoute({ redesign: true, org: undefined })).toBe(
-      "/settings/agent/llm",
+  it("picks the manual setup page from the flag", () => {
+    expect(manualSetupSettingsRoute({ redesign: true })).toBe(
+      "/settings/model",
     );
-    expect(
-      manualSetupSettingsRoute({
-        redesign: false,
-        org: { orgId: "org-1", role: "owner" },
-      }),
-    ).toBe("/settings/keys");
+    expect(manualSetupSettingsRoute({ redesign: false })).toBe(
+      "/settings/keys",
+    );
   });
 
   it("keeps the choice screen visible when completion fails", async () => {

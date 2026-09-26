@@ -2270,7 +2270,7 @@ export default function RecordingPage() {
                 variant="ghost"
                 size="sm"
                 disabled={!canComment}
-                className="h-8 gap-1.5 px-2 text-xs"
+                className="gap-1.5 px-2 text-xs"
               >
                 <IconMoodSmile className="size-4" />
                 {t("recordingPage.react")}
@@ -2283,8 +2283,8 @@ export default function RecordingPage() {
                     key={emoji}
                     type="button"
                     variant="ghost"
-                    size="icon"
-                    className="size-8 rounded-full text-lg"
+                    size="icon-sm"
+                    className="rounded-full text-lg"
                     aria-label={`${t("recordingPage.react")} ${REACTION_NAMES[emoji]}`}
                     onClick={() => {
                       setReactionPickerOpen(false);

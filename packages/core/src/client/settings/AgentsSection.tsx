@@ -414,10 +414,12 @@ function HostedAgentFields({
       selected: string | undefined,
       onPick: (key: string) => void,
     ) => {
-      const menu = (label: string) => (
+      const menu = (label: string, size: "xs" | "default") => (
         <NewKeyMenu
           options={credentialOptions}
           label={label}
+          size={size}
+          variant={size === "xs" ? "ghost" : "secondary"}
           onPick={(option) => onPick(option.key)}
           onCustom={(name) => {
             if (name) onPick(name);
@@ -428,7 +430,7 @@ function HostedAgentFields({
       if (!selected) {
         return (
           <div className="justify-self-start">
-            {menu(t("agentChat.agents.chooseCredential"))}
+            {menu(t("agentChat.agents.chooseCredential"), "default")}
           </div>
         );
       }
@@ -438,7 +440,7 @@ function HostedAgentFields({
             {credentialOptions.find((option) => option.key === selected)
               ?.label ?? selected}
           </span>
-          {menu(t("agentChat.settingsModel.change"))}
+          {menu(t("agentChat.settingsModel.change"), "xs")}
         </div>
       );
     };

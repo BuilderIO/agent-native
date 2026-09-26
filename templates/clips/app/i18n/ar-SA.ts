@@ -938,6 +938,8 @@ const messages = {
     slackConnected: "Slack متصل",
   },
   clipsSettings: {
+    popupBlocked:
+      "حظر المتصفح النافذة المنبثقة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مجددًا.",
     recordingsTab: "التسجيلات",
     meetingsTab: "الاجتماعات",
     yourDefaults: "إعداداتك الافتراضية",

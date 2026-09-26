@@ -367,6 +367,34 @@ function InfrastructurePageContent({
     ),
   });
 
+  // Builder.io is the recommended way to power every service, so while it can
+  // be connected it heads the page with the page's one primary action, and
+  // each Builder.io-only service offers the same connect in place.
+  const canConnectBuilder = !hasOrg || flow.canConnect.org;
+  const recommendBuilder =
+    !builderUnknown && !builderConnected && canConnectBuilder;
+  const connectBuilder = (variant: "default" | "secondary", label: string) => (
+    <DeferredBuilderConnectPopover
+      flow={flow}
+      onConnect={(provisionAccount) =>
+        flow.start({
+          provisionAccount,
+          ...(hasOrg ? { scope: "org" as const } : {}),
+        })
+      }
+    >
+      <Button
+        type="button"
+        variant={variant}
+        size="sm"
+        disabled={flow.connecting}
+      >
+        {flow.connecting ? <Spinner aria-hidden /> : null}
+        {flow.connecting ? t(`${K}connecting`) : label}
+      </Button>
+    </DeferredBuilderConnectPopover>
+  );
+
   // Setup › Builder.io
   let builderDescription: ReactNode;
   let builderControl: ReactNode = null;
@@ -384,31 +412,11 @@ function InfrastructurePageContent({
         {t(`${K}manage`)}
       </RowButton>
     );
+  } else if (recommendBuilder) {
+    builderDescription = t(`${K}builderRecommended`);
+    builderControl = connectBuilder("default", t(`${K}connect`));
   } else {
     builderDescription = t(`${K}builderNotConnected`);
-    if (!hasOrg || flow.canConnect.org) {
-      builderControl = (
-        <DeferredBuilderConnectPopover
-          flow={flow}
-          onConnect={(provisionAccount) =>
-            flow.start({
-              provisionAccount,
-              ...(hasOrg ? { scope: "org" as const } : {}),
-            })
-          }
-        >
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={flow.connecting}
-          >
-            {flow.connecting ? <Spinner aria-hidden /> : null}
-            {flow.connecting ? t(`${K}connecting`) : t(`${K}connect`)}
-          </Button>
-        </DeferredBuilderConnectPopover>
-      );
-    }
   }
 
   // Services › AI model
@@ -510,7 +518,10 @@ function InfrastructurePageContent({
 
   return (
     <div className="flex flex-col gap-8" data-infrastructure-settings="">
-      <SettingsGroup id="setup" title={t(`${K}setup`)}>
+      <SettingsGroup
+        id="setup"
+        title={recommendBuilder ? t(`${K}recommended`) : t(`${K}setup`)}
+      >
         <SettingsRow
           id="builder"
           icon={<BrandLogo logoId="builder-cms" />}
@@ -572,13 +583,25 @@ function InfrastructurePageContent({
                   label={t(entry.labelKey)}
                   status={
                     builderConnected ? undefined : (
-                      <Badge variant="outline">{t(`${K}needsBuilder`)}</Badge>
+                      <Badge variant="outline" data-builder-only="">
+                        {t(`${K}builderOnly`)}
+                      </Badge>
                     )
                   }
                   description={rowDescription(
-                    builderConnected ? BUILDER_LABEL : t(`${K}notAvailable`),
+                    builderConnected
+                      ? BUILDER_LABEL
+                      : t(`${K}availableWithBuilder`),
                     t(entry.whyKey),
                   )}
+                  control={
+                    recommendBuilder
+                      ? connectBuilder(
+                          "secondary",
+                          t("agentChat.setup.connectBuilder"),
+                        )
+                      : undefined
+                  }
                 />
               );
             }

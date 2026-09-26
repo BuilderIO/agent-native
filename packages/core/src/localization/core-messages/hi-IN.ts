@@ -1016,9 +1016,6 @@ const messages: AgentChatTranslation = {
     "जब तक आप स्टोरेज फिर से सेट नहीं करते, अपलोड विफल होंगे।",
   "settings.storage.clearExisting": "मौजूदा फ़ाइलें {{bucket}} में रहेंगी।",
   "settings.storage.clearExistingGeneric": "मौजूदा फ़ाइलें आपके बकेट में रहेंगी।",
-  "settings.storage.missing": "पहले एंडपॉइंट, बकेट और कीज़ भरें।",
-  "settings.storage.missingPublicUrl":
-    "पहले एंडपॉइंट, बकेट, कीज़ और सार्वजनिक URL भरें।",
   "settings.storage.invalidUrl":
     "ऐसा URL इस्तेमाल करें जो https:// या http:// से शुरू हो।",
   "settings.storage.invalidBucket":
@@ -1169,7 +1166,6 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "जोड़ें",
   "settingsOrg.invite.send": "आमंत्रण भेजें",
   "settingsOrg.invite.sending": "भेजा जा रहा है…",
-  "settingsOrg.invite.close": "बंद करें",
   "settingsOrg.invite.csvNoEmails": "इस CSV में कोई मान्य ईमेल नहीं मिला।",
   "settingsOrg.auth.synced_one": "{{count}} ऐप के साथ सिंक किया गया।",
   "settingsOrg.auth.synced_other": "{{count}} ऐप्स के साथ सिंक किया गया।",
@@ -1203,7 +1199,6 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.nameSaveError": "आपका नाम अपडेट नहीं किया जा सका।",
   "settingsShell.account.nameSaved": "नाम अपडेट किया गया",
   "settingsShell.account.newEmail": "नया ईमेल",
-  "settingsShell.account.newEmailPlaceholder": "नया ईमेल दर्ज करें",
   "settingsShell.account.newPassword": "नया पासवर्ड",
   "settingsShell.account.password": "पासवर्ड",
   "settingsShell.account.passwordDescription":
@@ -1448,6 +1443,270 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.webhookRegistered": "रजिस्टर हो गया",
   "settingsShell.channels.webhookRegistration": "वेबहुक",
   "settingsShell.channels.webhookUrl": "वेबहुक URL",
+  "settingsShell.channels.category": "श्रेणी",
+  "settingsShell.channels.developer": "डेवलपर",
+  "settingsShell.channels.mentionAgent": "एजेंट को मेंशन करें",
+  "settingsShell.channels.rowDescription": "{{about}} {{state}}।",
+  "settingsShell.channels.separately": "हर ऐप का एजेंट अलग से सेट अप होता है।",
+  "settingsShell.channels.setUpLocked": "केवल मालिक और एडमिन इसे सेट अप कर सकते हैं",
+  "settingsShell.integrationDetail.access.none":
+    "यह एक सार्वजनिक सर्वर है, इसलिए साइन इन करने की ज़रूरत नहीं है।",
+  "settingsShell.integrationDetail.access.oauth":
+    "एजेंट आपकी {{name}} अनुमतियों के साथ काम करता है, इसलिए वह केवल वही देखता है जो आप देख सकते हैं।",
+  "settingsShell.integrationDetail.access.token":
+    "एजेंट आपके जोड़े गए एक्सेस टोकन का इस्तेमाल करता है, इसलिए वह वही देखता है जो वह टोकन देख सकता है।",
+  "settingsShell.integrationDetail.accessToken": "एक्सेस टोकन",
+  "settingsShell.integrationDetail.addAccessToken": "एक्सेस टोकन जोड़ें",
+  "settingsShell.integrationDetail.callout.adminNeeded":
+    "इसे किसी एडमिन को सेट अप करना होगा",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "{{org}} के किसी मालिक या एडमिन से {{name}} का क्लाइंट ID और सीक्रेट जोड़ने के लिए कहें। फिर आप अपना खुद का अकाउंट कनेक्ट कर सकते हैं।",
+  "settingsShell.integrationDetail.callout.beforeAnyone":
+    "किसी के कनेक्ट करने से पहले",
+  "settingsShell.integrationDetail.callout.beforeYouConnect": "कनेक्ट करने से पहले",
+  "settingsShell.integrationDetail.callout.token": "एक्सेस टोकन से कनेक्ट होता है",
+  "settingsShell.integrationDetail.callout.unavailable": "अभी उपलब्ध नहीं है",
+  "settingsShell.integrationDetail.category": "श्रेणी",
+  "settingsShell.integrationDetail.connected": "{{name}} कनेक्ट हो गया",
+  "settingsShell.integrationDetail.copyServerUrl": "सर्वर URL कॉपी करें",
+  "settingsShell.integrationDetail.developer": "डेवलपर",
+  "settingsShell.integrationDetail.howToCreateToken": "टोकन कैसे बनाएँ",
+  "settingsShell.integrationDetail.justMe": "केवल मैं",
+  "settingsShell.integrationDetail.notFound": "यह इंटीग्रेशन कैटलॉग में नहीं है।",
+  "settingsShell.integrationDetail.notFoundTitle": "नहीं मिला",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "इस महीने साप्ताहिक एक्टिव यूज़र का रुझान कैसा रहा?",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "साइनअप से पहली रिकॉर्डिंग तक का फ़नल बनाओ",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "किन कोहोर्ट का रिटेंशन सबसे अच्छा है?",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "Series B स्टार्टअप में डिज़ाइन हेड ढूँढो",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "ईमेल की इस सूची को एनरिच करो",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "इन कॉन्टैक्ट को Q4 सीक्वेंस में जोड़ो",
+  "settingsShell.integrationDetail.prompt.asana.1": "इस हफ़्ते मेरे कौन-से काम ड्यू हैं?",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "इस रिकॉर्डिंग के एक्शन आइटम से टास्क बनाओ",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "कौन-से प्रोजेक्ट शेड्यूल से पीछे हैं?",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "इस रिकॉर्डिंग के एक्शन आइटम से Jira टिकट बनाओ",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "Q4 रिलीज़ को क्या रोक रहा है?",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "ऑनबोर्डिंग वाला Confluence पेज ढूँढो",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "Acme का साइन किया हुआ कॉन्ट्रैक्ट ढूँढो",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "Q3 रिपोर्ट फ़ोल्डर फ़ाइनेंस के साथ शेयर करो",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "इस हफ़्ते लीगल फ़ोल्डर में क्या बदला?",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "इस रिकॉर्डिंग की हाइलाइट से एक सोशल पोस्ट बनाओ",
+  "settingsShell.integrationDetail.prompt.canva.2": "हमारे ब्रांड किट के रंग ढूँढो",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "नवीनतम डेक को PDF के रूप में एक्सपोर्ट करो",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "कौन-से DNS रिकॉर्ड {{host}} की ओर पॉइंट करते हैं?",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "पिछले एक घंटे की Worker एरर दिखाओ",
+  "settingsShell.integrationDetail.prompt.cloudflare.3": "इस URL का कैश साफ़ करो",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "कौन-सी कंपनियाँ खरीदारी के संकेत दिखा रही हैं?",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "Acme में हमारी कम्युनिटी में कौन सक्रिय है?",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "हमारे टॉप अकाउंट की गतिविधि का सारांश दो",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "लोडर पर React Router के मौजूदा डॉक्स दिखाओ",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "मैं Drizzle माइग्रेशन कैसे कॉन्फ़िगर करूँ?",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "नवीनतम Tailwind रिलीज़ में नया क्या है?",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "agent-native ऐप के बारे में हाल के लेख ढूँढो",
+  "settingsShell.integrationDetail.prompt.exa.2":
+    "{{app}} के प्रतिस्पर्धियों पर रिसर्च करो",
+  "settingsShell.integrationDetail.prompt.exa.3": "यह पेज लाओ और उसका सारांश दो",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "इस Figma फ़ाइल के कंपोनेंट का सारांश दो",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "हमारे डिज़ाइन सिस्टम के कलर वेरिएबल की सूची बनाओ",
+  "settingsShell.integrationDetail.prompt.figma.3": "इस फ़्रेम के लेआउट का वर्णन करो",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "वे सेशन दिखाओ जिनमें लोगों ने शेयर पर गुस्से में क्लिक किया",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "प्राइसिंग पेज पर आने वाली दिक्कतों का सारांश दो",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "ऑनबोर्डिंग में लोग कहाँ छोड़कर चले जाते हैं?",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "मेरे रिव्यू का इंतज़ार कर रहे पुल रिक्वेस्ट का सारांश दो",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "agent-native में Slack लिंक प्रीव्यू से जुड़े issue ढूँढो",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "इस हफ़्ते packages/core में क्या बदला?",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "आज CI में कौन-से मर्ज रिक्वेस्ट फ़ेल हुए?",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "bug लेबल वाले खुले issue का सारांश दो",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "इस हफ़्ते कौन-सी पाइपलाइन सबसे धीमी रहीं?",
+  "settingsShell.integrationDetail.prompt.gong.1":
+    "Acme के साथ मेरी पिछली कॉल का सारांश दो",
+  "settingsShell.integrationDetail.prompt.gong.2": "इस महीने कौन-सी आपत्तियाँ आईं?",
+  "settingsShell.integrationDetail.prompt.gong.3":
+    "किन डील में कीमत को लेकर चिंता का ज़िक्र है?",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent इस डॉक की टिप्पणियों का सारांश दो",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent इस टिप्पणी का जवाब ड्राफ़्ट करो",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent इन नोट्स को चेकलिस्ट में बदलो",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "पिछले एक दिन की API p95 लेटेंसी का चार्ट बनाओ",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "दोपहर 2 बजे के आसपास के एरर लॉग ढूँढो",
+  "settingsShell.integrationDetail.prompt.grafana.3":
+    "इस हफ़्ते कौन-से अलर्ट ट्रिगर हुए?",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "कल के डिज़ाइन रिव्यू में हमने क्या तय किया?",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "मीटिंग से मेरे खुले एक्शन आइटम की सूची बनाओ",
+  "settingsShell.integrationDetail.prompt.granola.3":
+    "Acme के साथ मेरी कॉल का सारांश दो",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "Acme डील को Closed won में ले जाओ",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "कौन-सी डील नेगोशिएशन में अटकी हैं?",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "इस कॉल को कॉन्टैक्ट पर नोट के रूप में दर्ज करो",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "आज की खुली बातचीत का सारांश दो",
+  "settingsShell.integrationDetail.prompt.intercom.2": "SSO पर हेल्प आर्टिकल ढूँढो",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "इस हफ़्ते ग्राहक सबसे ज़्यादा क्या पूछ रहे हैं?",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "टूटे हुए Slack प्रीव्यू के लिए issue बनाओ और मुझे असाइन करो",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "मौजूदा साइकिल में क्या बाकी है?",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "इस हफ़्ते रिपोर्ट हुए बग का सारांश दो",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "इस स्प्रिंट में डिज़ाइन बोर्ड पर क्या है?",
+  "settingsShell.integrationDetail.prompt.monday.2": "इस आइटम को Done में ले जाओ",
+  "settingsShell.integrationDetail.prompt.monday.3": "कौन-से आइटम ओवरड्यू हैं?",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "टेस्टिंग के लिए प्रोडक्शन की एक ब्रांच बनाओ",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "इस हफ़्ते की सबसे धीमी क्वेरी दिखाओ",
+  "settingsShell.integrationDetail.prompt.neon.3": "मुख्य डेटाबेस कितना बड़ा है?",
+  "settingsShell.integrationDetail.prompt.netlify.1": "पिछला डिप्लॉय क्यों फ़ेल हुआ?",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "इस हफ़्ते किन साइट के बिल्ड फ़ेल हुए?",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "पिछले प्रोडक्शन डिप्लॉय पर वापस जाओ",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "हमारी ऑनबोर्डिंग चेकलिस्ट ढूँढो",
+  "settingsShell.integrationDetail.prompt.notion.2":
+    "इस हफ़्ते के मीटिंग नोट्स का सारांश दो",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "ये एक्शन आइटम टीम विकी में जोड़ो",
+  "settingsShell.integrationDetail.prompt.paypal.1": "ओवरड्यू इनवॉइस की सूची बनाओ",
+  "settingsShell.integrationDetail.prompt.paypal.2":
+    "इस महीने के ट्रांज़ैक्शन का सारांश दो",
+  "settingsShell.integrationDetail.prompt.paypal.3":
+    "Acme के लिए एक इनवॉइस बनाओ",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "किन अकाउंट में ज़रूरी खुले issue हैं?",
+  "settingsShell.integrationDetail.prompt.pylon.2":
+    "Acme के नवीनतम टिकट का सारांश दो",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "इस issue का जवाब ड्राफ़्ट करो",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "packages/core में सुरक्षा से जुड़ी समस्याएँ स्कैन करो",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "इस फ़ाइंडिंग को और इसे ठीक करने का तरीका समझाओ",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "क्या इस रिपो में हार्डकोड किए गए सीक्रेट हैं?",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "कल की डिप्लॉय के बाद से सबसे ज़्यादा नई एरर कौन-सी हैं?",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "सबसे आम क्रैश का स्टैक ट्रेस दिखाओ",
+  "settingsShell.integrationDetail.prompt.sentry.3": "यह एरर किस रिलीज़ में आई?",
+  "settingsShell.integrationDetail.prompt.sigma.1": "रेवेन्यू डैशबोर्ड ढूँढो",
+  "settingsShell.integrationDetail.prompt.sigma.2":
+    "पिछले महीने MRR में बदलाव की वजह क्या थी?",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "इस वर्कबुक के मुख्य मेट्रिक समझाओ",
+  "settingsShell.integrationDetail.prompt.slack.1":
+    "इस हफ़्ते के #design का सारांश दो",
+  "settingsShell.integrationDetail.prompt.slack.2": "कीमत में बदलाव वाला थ्रेड ढूँढो",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "लॉन्च के बारे में Camila ने क्या कहा?",
+  "settingsShell.integrationDetail.prompt.stripe.1":
+    "पिछले महीने हमारा रेवेन्यू कितना रहा?",
+  "settingsShell.integrationDetail.prompt.stripe.2": "इस इनवॉइस का ग्राहक ढूँढो",
+  "settingsShell.integrationDetail.prompt.stripe.3":
+    "कौन-से सब्सक्रिप्शन रिन्यू नहीं हो सके?",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "इस हफ़्ते कितने लोगों ने साइन अप किया?",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "recordings टेबल का स्कीमा दिखाओ",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "आज कौन-से Edge Functions में एरर आई?",
+  "settingsShell.integrationDetail.prompt.telegram.1":
+    "आज की रिकॉर्डिंग का सारांश दो",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "मुझे दोपहर 3 बजे के रिव्यू की याद दिलाओ",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "कल के डेमो का लिंक शेयर करो",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "पिछला प्रीव्यू डिप्लॉय क्यों फ़ेल हुआ?",
+  "settingsShell.integrationDetail.prompt.vercel.2":
+    "प्रोडक्शन डिप्लॉयमेंट के लॉग दिखाओ",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "कौन-से डोमेन इस प्रोजेक्ट की ओर पॉइंट करते हैं?",
+  "settingsShell.integrationDetail.prompt.webflow.1":
+    "प्राइसिंग पेज की हेडलाइन अपडेट करो",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "इस हफ़्ते पब्लिश हुए CMS आइटम की सूची बनाओ",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "किन पेजों में मेटा डिस्क्रिप्शन नहीं है?",
+  "settingsShell.integrationDetail.prompt.whatsapp.1": "आज मेरे कैलेंडर में क्या है?",
+  "settingsShell.integrationDetail.prompt.whatsapp.2":
+    "नवीनतम रिकॉर्डिंग का सारांश दो",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "डिज़ाइन रिव्यू के नोट्स मुझे भेजो",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "नई रिकॉर्डिंग Slack में #design पर पोस्ट करो",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "नए साइनअप हमारे CRM में जोड़ो",
+  "settingsShell.integrationDetail.prompt.zapier.3": "तुम कौन-से Zap चला सकते हो?",
+  "settingsShell.integrationDetail.serverUrl": "सर्वर URL",
+  "settingsShell.integrationDetail.setUp": "सेट अप करें",
+  "settingsShell.integrationDetail.signIn": "साइन-इन",
+  "settingsShell.integrationDetail.signInNone": "कोई नहीं",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "Figma में एक पर्सनल एक्सेस टोकन बनाएँ, फिर उसे यहाँ पेस्ट करें।",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "GitHub में एक पर्सनल एक्सेस टोकन बनाएँ, फिर उसे यहाँ पेस्ट करें।",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "Sentry में एक यूज़र ऑथ टोकन बनाएँ, फिर उसे यहाँ पेस्ट करें।",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "Zapier में एक कनेक्शन बनाएँ, फिर उसका बियरर टोकन यहाँ पेस्ट करें।",
+  "settingsShell.integrationDetail.tokenPlaceholder":
+    "अपना {{name}} टोकन पेस्ट करें",
+  "settingsShell.integrationDetail.who": "कौन इस्तेमाल कर सकता है",
+  "settingsShell.integrationDetail.whoMember":
+    "केवल मालिक और एडमिन इसे {{org}} के साथ शेयर कर सकते हैं।",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "{{org}} में सभी के लिए एक बार कनेक्ट होता है।",
+  "settingsShell.integrationDetail.whoPersonal":
+    "हर व्यक्ति अपना खुद का अकाउंट कनेक्ट करता है।",
+  "settingsShell.integrationDetail.whoShared":
+    "शेयर किए गए कनेक्शन से {{org}} में सभी आपके एक्सेस का इस्तेमाल कर सकते हैं।",
   "settingsShell.clearSearch": "खोज साफ़ करें",
   "settingsShell.group.account": "खाता",
   "settingsShell.group.agent": "एजेंट",
@@ -1619,10 +1878,12 @@ const messages: AgentChatTranslation = {
   "settingsInfra.required": "ज़रूरी",
   "settingsInfra.recommended": "सुझाया गया",
   "settingsInfra.optional": "वैकल्पिक",
-  "settingsInfra.needsBuilder": "Builder.io ज़रूरी है",
+  "settingsInfra.builderRecommended":
+    "नीचे दी गई हर सेवा को अपने Builder.io खाते के क्रेडिट से चलाएँ। फ़्री टियर उपलब्ध है।",
+  "settingsInfra.builderOnly": "सिर्फ़ Builder.io",
   "settingsInfra.rowDescription": "{{source}} · {{use}}",
   "settingsInfra.notSetUp": "सेट अप नहीं है",
-  "settingsInfra.notAvailable": "उपलब्ध नहीं",
+  "settingsInfra.availableWithBuilder": "Builder.io के साथ उपलब्ध",
   "settingsInfra.loadFailed": "यह लोड नहीं हो सका।",
   "settingsInfra.aiModel": "AI मॉडल",
   "settingsInfra.useEveryApp": "हर ऐप",
@@ -1812,6 +2073,8 @@ const messages: AgentChatTranslation = {
   "settingsModel.effectModelsLeave": "{{provider}} मॉडल, मॉडल पिकर से हट जाते हैं।",
   "settingsModel.emptyAskAdmin": "किसी मालिक या एडमिन से एक प्रदाता जोड़ने को कहें।",
   "settingsModel.emptyDescription": "जवाब देने के लिए एजेंट को एक प्रदाता चाहिए।",
+  "settingsModel.emptyDescriptionBuilder":
+    "जवाब देने के लिए एजेंट को एक प्रदाता चाहिए। मॉडल एक्सेस, ब्राउज़र ऑटोमेशन, फ़ाइल स्टोरेज और वर्कस्पेस पहचान के लिए हम Builder.io की सलाह देते हैं। फ़्री टियर उपलब्ध है।",
   "settingsModel.emptyTitle": "मॉडल प्रदाता जोड़ें",
   "settingsModel.endpointFirst": "पहले एंडपॉइंट URL डालें।",
   "settingsModel.endpointHint":
@@ -1922,7 +2185,6 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.externalEmpty":
     "Foundry, Gemini Enterprise, Anthropic या कोई भी A2A एजेंट कनेक्ट करें।",
   "settingsSubAgents.externalEmptyTitle": "अभी तक कोई बाहरी एजेंट नहीं",
-  "settingsSubAgents.browseDirectory": "डायरेक्टरी देखें",
   "settingsSubAgents.customEmpty": "एक केंद्रित एजेंट बनाएं जिसे मुख्य एजेंट काम सौंप सके।",
   "settingsSubAgents.customEmptyTitle": "अभी तक कोई कस्टम एजेंट नहीं",
   "settingsSubAgents.addAgent": "एजेंट जोड़ें",

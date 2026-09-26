@@ -1060,9 +1060,6 @@ const messages: AgentChatTranslation = {
     "ستفشل عمليات الرفع حتى تُعِد التخزين مرة أخرى.",
   "settings.storage.clearExisting": "تبقى الملفات الحالية في {{bucket}}.",
   "settings.storage.clearExistingGeneric": "تبقى الملفات الحالية في حاويتك.",
-  "settings.storage.missing": "املأ نقطة النهاية والحاوية والمفاتيح أولًا.",
-  "settings.storage.missingPublicUrl":
-    "املأ نقطة النهاية والحاوية والمفاتيح وعنوان URL العام أولًا.",
   "settings.storage.invalidUrl":
     "استخدم عنوان URL يبدأ بـ https:// أو http://.",
   "settings.storage.invalidBucket":
@@ -1217,7 +1214,6 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "إضافة",
   "settingsOrg.invite.send": "إرسال الدعوات",
   "settingsOrg.invite.sending": "جارٍ الإرسال…",
-  "settingsOrg.invite.close": "إغلاق",
   "settingsOrg.invite.csvNoEmails":
     "لم يتم العثور على عناوين بريد إلكتروني صالحة في ملف CSV هذا.",
   "settingsOrg.auth.synced_zero": "تمت المزامنة مع {{count}} تطبيق.",
@@ -1268,7 +1264,6 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.nameSaveError": "تعذّر تحديث اسمك.",
   "settingsShell.account.nameSaved": "تم تحديث الاسم",
   "settingsShell.account.newEmail": "البريد الإلكتروني الجديد",
-  "settingsShell.account.newEmailPlaceholder": "أدخل البريد الإلكتروني الجديد",
   "settingsShell.account.newPassword": "كلمة المرور الجديدة",
   "settingsShell.account.password": "كلمة المرور",
   "settingsShell.account.passwordDescription":
@@ -1515,6 +1510,272 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.webhookRegistered": "تم التسجيل",
   "settingsShell.channels.webhookRegistration": "الويب هوك",
   "settingsShell.channels.webhookUrl": "عنوان URL للويب هوك",
+  "settingsShell.channels.category": "الفئة",
+  "settingsShell.channels.developer": "المطوّر",
+  "settingsShell.channels.mentionAgent": "إشارة إلى الوكيل",
+  "settingsShell.channels.rowDescription": "{{about}} {{state}}.",
+  "settingsShell.channels.separately": "يُعدّ وكيل كل تطبيق بشكل منفصل.",
+  "settingsShell.channels.setUpLocked":
+    "يمكن للمالكين والمسؤولين فقط إعداد هذا",
+  "settingsShell.integrationDetail.access.none":
+    "إنه خادم عام، لذلك لا حاجة لتسجيل الدخول إلى أي شيء.",
+  "settingsShell.integrationDetail.access.oauth":
+    "يعمل الوكيل بأذونات {{name}} الخاصة بك، لذلك لا يرى إلا ما يمكنك رؤيته.",
+  "settingsShell.integrationDetail.access.token":
+    "يستخدم الوكيل رمز الوصول الذي تضيفه، لذلك يرى ما يمكن لهذا الرمز رؤيته.",
+  "settingsShell.integrationDetail.accessToken": "رمز الوصول",
+  "settingsShell.integrationDetail.addAccessToken": "إضافة رمز وصول",
+  "settingsShell.integrationDetail.callout.adminNeeded": "يجب أن يُعدّ مسؤول هذا",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "اطلب من مالك أو مسؤول في {{org}} إضافة معرّف العميل والسر الخاصين بـ {{name}}. بعد ذلك يمكنك ربط حسابك.",
+  "settingsShell.integrationDetail.callout.beforeAnyone":
+    "قبل أن يتمكن أي شخص من الاتصال",
+  "settingsShell.integrationDetail.callout.beforeYouConnect": "قبل الاتصال",
+  "settingsShell.integrationDetail.callout.token": "يتصل برمز وصول",
+  "settingsShell.integrationDetail.callout.unavailable": "غير متاح بعد",
+  "settingsShell.integrationDetail.category": "الفئة",
+  "settingsShell.integrationDetail.connected": "تم ربط {{name}}",
+  "settingsShell.integrationDetail.copyServerUrl": "نسخ عنوان URL للخادم",
+  "settingsShell.integrationDetail.developer": "المطوّر",
+  "settingsShell.integrationDetail.howToCreateToken": "كيفية إنشاء رمز",
+  "settingsShell.integrationDetail.justMe": "أنا فقط",
+  "settingsShell.integrationDetail.notFound":
+    "هذا التكامل غير موجود في الكتالوج.",
+  "settingsShell.integrationDetail.notFoundTitle": "غير موجود",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "كيف تطوّر عدد المستخدمين النشطين أسبوعيًا هذا الشهر؟",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "أنشئ مسارًا تحويليًا من الاشتراك حتى أول تسجيل",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "ما المجموعات التي تتمتع بأفضل احتفاظ؟",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "ابحث عن رؤساء التصميم في الشركات الناشئة في الجولة B",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "أثرِ قائمة عناوين البريد الإلكتروني هذه",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "أضف جهات الاتصال هذه إلى تسلسل الربع الرابع",
+  "settingsShell.integrationDetail.prompt.asana.1":
+    "ما المهام المستحقة عليّ هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "أنشئ مهام من بنود العمل في هذا التسجيل",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "ما المشروعات المتأخرة عن الجدول؟",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "أنشئ تذكرة Jira من بنود العمل في هذا التسجيل",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "ما الذي يعيق إصدار الربع الرابع؟",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "ابحث عن صفحة Confluence الخاصة بالتهيئة",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "ابحث عن العقد الموقّع لـ Acme",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "شارك مجلد تقرير الربع الثالث مع فريق المالية",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "ما الذي تغيّر في المجلد القانوني هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "أنشئ منشورًا لوسائل التواصل من أبرز لحظات هذا التسجيل",
+  "settingsShell.integrationDetail.prompt.canva.2":
+    "ابحث عن ألوان مجموعة علامتنا التجارية",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "صدّر أحدث عرض تقديمي بصيغة PDF",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "ما سجلات DNS التي تشير إلى {{host}}؟",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "اعرض أخطاء Worker خلال الساعة الأخيرة",
+  "settingsShell.integrationDetail.prompt.cloudflare.3":
+    "امسح ذاكرة التخزين المؤقت لعنوان URL هذا",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "ما الشركات التي تُظهر إشارات شراء؟",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "من في Acme نشط في مجتمعنا؟",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "لخّص نشاط أهم حساباتنا",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "اعرض وثائق React Router الحالية حول loaders",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "كيف أضبط عمليات ترحيل Drizzle؟",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "ما الجديد في أحدث إصدار من Tailwind؟",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "ابحث عن مقالات حديثة حول تطبيقات agent-native",
+  "settingsShell.integrationDetail.prompt.exa.2": "ابحث عن منافسي {{app}}",
+  "settingsShell.integrationDetail.prompt.exa.3": "اجلب هذه الصفحة ولخّصها",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "لخّص المكوّنات في ملف Figma هذا",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "اعرض متغيرات الألوان في نظام التصميم لدينا",
+  "settingsShell.integrationDetail.prompt.figma.3": "صِف تخطيط هذا الإطار",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "اعرض الجلسات التي نقر فيها المستخدمون بغضب على مشاركة",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "لخّص نقاط الاحتكاك في صفحة الأسعار",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "أين يتوقف المستخدمون خلال التهيئة؟",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "لخّص طلبات السحب التي تنتظر مراجعتي",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "ابحث عن مشكلات حول معاينات روابط Slack في agent-native",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "ما الذي تغيّر في packages/core هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "ما طلبات الدمج التي فشلت في CI اليوم؟",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "لخّص المشكلات المفتوحة التي تحمل التصنيف bug",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "ما خطوط التنفيذ الأبطأ هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.gong.1": "لخّص آخر مكالمة لي مع Acme",
+  "settingsShell.integrationDetail.prompt.gong.2":
+    "ما الاعتراضات التي ظهرت هذا الشهر؟",
+  "settingsShell.integrationDetail.prompt.gong.3":
+    "ما الصفقات التي تذكر مخاوف بشأن الأسعار؟",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent لخّص التعليقات في هذا المستند",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent اكتب مسودة رد على هذا التعليق",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent حوّل هذه الملاحظات إلى قائمة تحقق",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "اعرض مخططًا لزمن استجابة API عند p95 خلال اليوم الأخير",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "ابحث عن سجلات الأخطاء في حوالي الساعة 2 ظهرًا",
+  "settingsShell.integrationDetail.prompt.grafana.3":
+    "ما التنبيهات التي انطلقت هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "ماذا قررنا في مراجعة التصميم بالأمس؟",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "اعرض بنود العمل المفتوحة لي من الاجتماعات",
+  "settingsShell.integrationDetail.prompt.granola.3": "لخّص مكالماتي مع Acme",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "انقل صفقة Acme إلى Closed won",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "ما الصفقات العالقة في مرحلة التفاوض؟",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "سجّل هذه المكالمة كملاحظة على جهة الاتصال",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "لخّص المحادثات المفتوحة اليوم",
+  "settingsShell.integrationDetail.prompt.intercom.2":
+    "ابحث عن مقالات مساعدة حول SSO",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "ما أكثر ما يسأل عنه العملاء هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "أنشئ مشكلة لمعاينة Slack المعطلة وأسندها إليّ",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "ما المتبقي في الدورة الحالية؟",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "لخّص الأخطاء المُبلّغ عنها هذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "ما الموجود على لوحة التصميم في هذا السباق؟",
+  "settingsShell.integrationDetail.prompt.monday.2": "انقل هذا العنصر إلى Done",
+  "settingsShell.integrationDetail.prompt.monday.3": "ما العناصر المتأخرة؟",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "أنشئ فرعًا من الإنتاج للاختبار",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "اعرض أبطأ الاستعلامات هذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.neon.3":
+    "ما حجم قاعدة البيانات الرئيسية؟",
+  "settingsShell.integrationDetail.prompt.netlify.1": "لماذا فشل آخر نشر؟",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "ما المواقع التي فشلت عمليات بنائها هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "ارجع إلى نشر الإنتاج السابق",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "ابحث عن قائمة التحقق الخاصة بالتهيئة",
+  "settingsShell.integrationDetail.prompt.notion.2":
+    "لخّص ملاحظات اجتماعات هذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "أضف بنود العمل هذه إلى ويكي الفريق",
+  "settingsShell.integrationDetail.prompt.paypal.1":
+    "اعرض الفواتير المتأخرة السداد",
+  "settingsShell.integrationDetail.prompt.paypal.2": "لخّص معاملات هذا الشهر",
+  "settingsShell.integrationDetail.prompt.paypal.3": "أنشئ فاتورة لـ Acme",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "ما الحسابات التي لديها مشكلات عاجلة مفتوحة؟",
+  "settingsShell.integrationDetail.prompt.pylon.2": "لخّص أحدث تذكرة لـ Acme",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "اكتب مسودة رد على هذه المشكلة",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "افحص packages/core بحثًا عن مشكلات أمنية",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "اشرح هذه النتيجة وكيفية إصلاحها",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "هل توجد أسرار مكتوبة مباشرة في هذا المستودع؟",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "ما أبرز الأخطاء الجديدة منذ نشر الأمس؟",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "اعرض تتبع المكدس لأكثر الأعطال تكرارًا",
+  "settingsShell.integrationDetail.prompt.sentry.3":
+    "أي إصدار تسبب في هذا الخطأ؟",
+  "settingsShell.integrationDetail.prompt.sigma.1":
+    "ابحث عن لوحة معلومات الإيرادات",
+  "settingsShell.integrationDetail.prompt.sigma.2":
+    "ما سبب تغيّر MRR في الشهر الماضي؟",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "اشرح المقاييس الرئيسية في دفتر العمل هذا",
+  "settingsShell.integrationDetail.prompt.slack.1": "لخّص #design لهذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.slack.2":
+    "ابحث عن سلسلة الرسائل حول تغيير الأسعار",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "ماذا قالت Camila عن الإطلاق؟",
+  "settingsShell.integrationDetail.prompt.stripe.1":
+    "كم بلغت إيراداتنا في الشهر الماضي؟",
+  "settingsShell.integrationDetail.prompt.stripe.2":
+    "ابحث عن العميل في هذه الفاتورة",
+  "settingsShell.integrationDetail.prompt.stripe.3":
+    "ما الاشتراكات التي فشل تجديدها؟",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "كم شخصًا اشترك هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "اعرض مخطط جدول recordings",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "ما وظائف Edge التي حدثت فيها أخطاء اليوم؟",
+  "settingsShell.integrationDetail.prompt.telegram.1": "لخّص تسجيلات اليوم",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "ذكّرني بمراجعة الساعة 3 عصرًا",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "شارك رابط العرض التوضيحي بالأمس",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "لماذا فشل آخر نشر للمعاينة؟",
+  "settingsShell.integrationDetail.prompt.vercel.2": "اعرض سجلات نشر الإنتاج",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "ما النطاقات التي تشير إلى هذا المشروع؟",
+  "settingsShell.integrationDetail.prompt.webflow.1": "حدّث عنوان صفحة الأسعار",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "اعرض عناصر CMS المنشورة هذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "ما الصفحات التي تفتقد وصف meta؟",
+  "settingsShell.integrationDetail.prompt.whatsapp.1":
+    "ما الموجود في تقويمي اليوم؟",
+  "settingsShell.integrationDetail.prompt.whatsapp.2": "لخّص أحدث تسجيل",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "أرسل لي ملاحظات مراجعة التصميم",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "انشر التسجيلات الجديدة في #design على Slack",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "أضف المشتركين الجدد إلى نظام CRM لدينا",
+  "settingsShell.integrationDetail.prompt.zapier.3":
+    "ما Zaps التي يمكنك تشغيلها؟",
+  "settingsShell.integrationDetail.serverUrl": "عنوان URL للخادم",
+  "settingsShell.integrationDetail.setUp": "إعداد",
+  "settingsShell.integrationDetail.signIn": "تسجيل الدخول",
+  "settingsShell.integrationDetail.signInNone": "لا يوجد",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "أنشئ رمز وصول شخصيًا في Figma، ثم الصقه هنا.",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "أنشئ رمز وصول شخصيًا في GitHub، ثم الصقه هنا.",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "أنشئ رمز مصادقة مستخدم في Sentry، ثم الصقه هنا.",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "أنشئ اتصالًا في Zapier، ثم الصق رمز Bearer الخاص به هنا.",
+  "settingsShell.integrationDetail.tokenPlaceholder":
+    "الصق رمز {{name}} الخاص بك",
+  "settingsShell.integrationDetail.who": "من يمكنه استخدامه",
+  "settingsShell.integrationDetail.whoMember":
+    "يمكن للمالكين والمسؤولين فقط مشاركته مع {{org}}.",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "يتصل مرة واحدة للجميع في {{org}}.",
+  "settingsShell.integrationDetail.whoPersonal": "يربط كل شخص حسابه الخاص.",
+  "settingsShell.integrationDetail.whoShared":
+    "يتيح الاتصال المشترك للجميع في {{org}} استخدام وصولك.",
   "settingsShell.clearSearch": "مسح البحث",
   "settingsShell.group.account": "الحساب",
   "settingsShell.group.agent": "الوكيل",
@@ -1682,10 +1943,12 @@ const messages: AgentChatTranslation = {
   "settingsInfra.required": "مطلوب",
   "settingsInfra.recommended": "موصى به",
   "settingsInfra.optional": "اختياري",
-  "settingsInfra.needsBuilder": "يتطلب Builder.io",
+  "settingsInfra.builderRecommended":
+    "شغّل كل الخدمات أدناه برصيد حسابك في Builder.io. تتوفر خطة مجانية.",
+  "settingsInfra.builderOnly": "Builder.io فقط",
   "settingsInfra.rowDescription": "{{source}} · {{use}}",
   "settingsInfra.notSetUp": "غير معدّ",
-  "settingsInfra.notAvailable": "غير متاح",
+  "settingsInfra.availableWithBuilder": "متاح مع Builder.io",
   "settingsInfra.loadFailed": "تعذّر تحميل هذا.",
   "settingsInfra.aiModel": "نموذج الذكاء الاصطناعي",
   "settingsInfra.useEveryApp": "كل تطبيق",
@@ -1882,6 +2145,8 @@ const messages: AgentChatTranslation = {
     "تختفي نماذج {{provider}} من أداة اختيار النموذج.",
   "settingsModel.emptyAskAdmin": "اطلب من مالك أو مسؤول إضافة مزوّد.",
   "settingsModel.emptyDescription": "يحتاج الوكيل إلى مزوّد ليتمكن من الرد.",
+  "settingsModel.emptyDescriptionBuilder":
+    "يحتاج الوكيل إلى مزوّد ليتمكن من الرد. ننصح بـ Builder.io للوصول إلى النماذج وأتمتة المتصفح وتخزين الملفات وهوية مساحة العمل. تتوفر خطة مجانية.",
   "settingsModel.emptyTitle": "أضف مزوّد نماذج",
   "settingsModel.endpointFirst": "أدخل عنوان URL لنقطة النهاية أولًا.",
   "settingsModel.endpointHint":
@@ -2003,7 +2268,6 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.externalEmpty":
     "اربط Foundry أو Gemini Enterprise أو Anthropic أو أي وكيل A2A.",
   "settingsSubAgents.externalEmptyTitle": "لا يوجد وكلاء خارجيون بعد",
-  "settingsSubAgents.browseDirectory": "تصفح الدليل",
   "settingsSubAgents.customEmpty":
     "حدّد وكيلًا متخصصًا يمكن للوكيل الرئيسي تفويض العمل إليه.",
   "settingsSubAgents.customEmptyTitle": "لا يوجد وكلاء مخصصون بعد",

@@ -959,6 +959,8 @@ const messages = {
     slackConnected: "Slack conectado",
   },
   clipsSettings: {
+    popupBlocked:
+      "El navegador bloqueó la ventana emergente. Permite las ventanas emergentes para este sitio e inténtalo de nuevo.",
     recordingsTab: "Grabaciones",
     meetingsTab: "Reuniones",
     yourDefaults: "Tus valores predeterminados",

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   queries: {} as Record<string, unknown>,
   mutate: vi.fn<(name: string, args: unknown, options?: unknown) => void>(),
   navigate: vi.fn(),
+  keyDialog: null as { dialog: unknown; orgName: string } | null,
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
   startCalendarOAuth: vi.fn(),
@@ -47,7 +48,7 @@ vi.mock("@agent-native/core/client/hooks", async () => {
 
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({
-    data: { orgId: "org-1" },
+    data: { orgId: "org-1", orgName: "Acme" },
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
@@ -82,6 +83,10 @@ vi.mock("@agent-native/core/client/settings", () => ({
     </div>
   ),
   SettingsLoadingRow: () => <div data-loading-row="" />,
+  KeyValueDialog: (props: { dialog: unknown; orgName: string }) => {
+    mocks.keyDialog = { dialog: props.dialog, orgName: props.orgName };
+    return <div data-key-dialog="" />;
+  },
   useSettingsShell: () => ({ navigate: mocks.navigate }),
 }));
 
@@ -233,6 +238,7 @@ beforeEach(() => {
   mocks.queries = {};
   mocks.mutate.mockReset();
   mocks.navigate.mockReset();
+  mocks.keyDialog = null;
   mocks.toastError.mockReset();
   mocks.toastSuccess.mockReset();
   mocks.startCalendarOAuth.mockReset();
@@ -338,7 +344,21 @@ describe("General › Sharing", () => {
 });
 
 describe("FeatureKeysGroup", () => {
-  it("opens API keys at the organization row, the caller's row, or the Add dialog", async () => {
+  it("opens the key dialog in place for the organization row, the caller's row, or a new key", async () => {
+    const orgEntry = {
+      name: "BRAIN_INGEST_URL",
+      label: "Brain ingest URL",
+      scope: "org",
+      storedScope: "org",
+      masked: "org…2222",
+      canReplace: true,
+    };
+    const userEntry = {
+      name: "BRAIN_INGEST_TOKEN",
+      scope: "user",
+      storedScope: "user",
+      canReplace: true,
+    };
     mocks.queries["list-api-keys"] = {
       keys: [
         {
@@ -346,21 +366,20 @@ describe("FeatureKeysGroup", () => {
           scope: "user",
           storedScope: "user",
           masked: "user…1111",
+          canReplace: true,
         },
+        orgEntry,
+        userEntry,
         {
-          name: "BRAIN_INGEST_URL",
-          label: "Brain ingest URL",
+          name: "GOOGLE_CLIENT_SECRET",
           scope: "org",
           storedScope: "org",
-          masked: "org…2222",
-        },
-        {
-          name: "BRAIN_INGEST_TOKEN",
-          scope: "user",
-          storedScope: "user",
+          vault: true,
+          canReplace: false,
         },
       ],
       addable: [{ name: "GOOGLE_CLIENT_ID", label: "Google client ID" }],
+      managed: [],
     };
     await render(
       <FeatureKeysGroup
@@ -370,6 +389,7 @@ describe("FeatureKeysGroup", () => {
           "BRAIN_INGEST_URL",
           "BRAIN_INGEST_TOKEN",
           "GOOGLE_CLIENT_ID",
+          "GOOGLE_CLIENT_SECRET",
           "NOT_OFFERED",
         ]}
       />,
@@ -379,24 +399,31 @@ describe("FeatureKeysGroup", () => {
     expect(orgRow.textContent).toContain("Brain ingest URL");
     expect(orgRow.textContent).toContain("org…2222");
     await click(button(orgRow, "clipsSettings.manage"));
-    expect(mocks.navigate).toHaveBeenLastCalledWith("api-keys", null, {
-      anchor: "secrets:org-org:BRAIN_INGEST_URL",
+    expect(mocks.keyDialog).toEqual({
+      dialog: { mode: "replace", entry: orgEntry },
+      orgName: "Acme",
     });
 
     const userRow = row("key-BRAIN_INGEST_TOKEN");
     expect(userRow.textContent).toContain("clipsSettings.keySaved");
     await click(button(userRow, "clipsSettings.manage"));
-    expect(mocks.navigate).toHaveBeenLastCalledWith("api-keys", null, {
-      anchor: "secrets:BRAIN_INGEST_TOKEN",
+    expect(mocks.keyDialog?.dialog).toEqual({
+      mode: "replace",
+      entry: userEntry,
     });
 
     const addRow = row("key-GOOGLE_CLIENT_ID");
     expect(addRow.textContent).toContain("clipsSettings.keyNotSaved");
     await click(button(addRow, "clipsSettings.add"));
-    expect(mocks.navigate).toHaveBeenLastCalledWith("api-keys", null, {
-      anchor: "secrets:GOOGLE_CLIENT_ID",
+    expect(mocks.keyDialog?.dialog).toEqual({
+      mode: "add",
+      initialName: "GOOGLE_CLIENT_ID",
+      forService: true,
     });
 
+    expect(row("key-GOOGLE_CLIENT_SECRET").querySelector("button")).toBeNull();
+
+    expect(mocks.navigate).not.toHaveBeenCalled();
     expect(container.querySelector('[data-row="key-NOT_OFFERED"]')).toBeNull();
   });
 

@@ -274,7 +274,7 @@ export function QuickAskSidebar({
             type="submit"
             size="icon"
             disabled={!draft.trim()}
-            className="cursor-pointer h-9 w-9 shrink-0"
+            className="cursor-pointer shrink-0"
             aria-label={t("quickAsk.send")}
           >
             <IconSend className="h-4 w-4 rtl:-scale-x-100" />

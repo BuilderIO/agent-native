@@ -1,43 +1,24 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import {
+  KeyValueDialog,
   SettingsGroup,
   SettingsLoadingRow,
   SettingsRow,
-  useSettingsShell,
+  type ApiKeysListing,
+  type KeyValueDialogMode,
 } from "@agent-native/core/client/settings";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
 import { LoadFailedRow } from "./load-failed-row";
 
-interface ApiKeyRow {
-  name: string;
-  label?: string;
-  scope: "user" | "org";
-  storedScope: string;
-  masked?: string;
-}
-
-interface ApiKeysListing {
-  keys: ApiKeyRow[];
-  addable: { name: string; label: string }[];
-}
-
-// The row ids Settings › API keys gives each key: a bare `secrets:NAME` for
-// the caller's own row (and for a key nobody saved, which opens its Add
-// dialog there), otherwise one that carries the row's scope.
-function apiKeysAnchor(name: string, saved: ApiKeyRow | undefined): string {
-  if (!saved || (saved.scope === "user" && saved.storedScope === "user")) {
-    return `secrets:${name}`;
-  }
-  return `secrets:${saved.scope}-${saved.storedScope}:${name}`;
-}
-
 /**
  * Keys that power one Clips feature, shown with that feature for owners and
- * admins. Values are added and replaced on Settings › API keys, which the
- * row opens at that key.
+ * admins. Add and Manage open the API keys dialog here, at the key's
+ * registered scope.
  */
 export function FeatureKeysGroup({
   id,
@@ -49,7 +30,8 @@ export function FeatureKeysGroup({
   keys: readonly string[];
 }) {
   const t = useT();
-  const { navigate } = useSettingsShell();
+  const org = useOrg();
+  const [dialog, setDialog] = useState<KeyValueDialogMode | null>(null);
   const listing = useActionQuery<ApiKeysListing>("list-api-keys", undefined, {
     retry: false,
   });
@@ -101,21 +83,37 @@ export function FeatureKeysGroup({
             )
           }
           control={
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() =>
-                navigate("api-keys", null, {
-                  anchor: apiKeysAnchor(name, saved),
-                })
-              }
-            >
-              {saved ? t("clipsSettings.manage") : t("clipsSettings.add")}
-            </Button>
+            // Vault-synced and managed keys can't be replaced from here.
+            saved && !saved.canReplace ? null : (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  setDialog(
+                    saved
+                      ? { mode: "replace", entry: saved }
+                      : { mode: "add", initialName: name, forService: true },
+                  )
+                }
+              >
+                {saved ? t("clipsSettings.manage") : t("clipsSettings.add")}
+              </Button>
+            )
           }
         />
       ))}
+      {dialog ? (
+        <KeyValueDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setDialog(null);
+          }}
+          dialog={dialog}
+          listing={data}
+          orgName={org.data?.orgName ?? ""}
+        />
+      ) : null}
     </SettingsGroup>
   );
 }

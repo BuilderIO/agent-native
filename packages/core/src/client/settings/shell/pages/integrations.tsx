@@ -17,6 +17,12 @@ const BuilderIntegrationPage = lazy(() =>
   })),
 );
 
+const IntegrationDetailPage = lazy(() =>
+  import("../../../integrations/IntegrationDetailPage.js").then((module) => ({
+    default: module.IntegrationDetailPage,
+  })),
+);
+
 // No bridge fallback: the `integrations` tab templates pass comes from core's
 // own `useAgentSettingsTabs` and carries the legacy panel this page replaces.
 export default function IntegrationsSettingsPage({
@@ -24,18 +30,17 @@ export default function IntegrationsSettingsPage({
   sub,
 }: SettingsPageProps) {
   const t = useT();
+  const appName =
+    resolveSettingsAppIdentity({ appId: context.appId }).name ??
+    t("agentChat.settingsShell.appFallbackName");
   return (
     <Suspense fallback={<SettingsSkeleton lines={4} />}>
       {sub === "builder" ? (
         <BuilderIntegrationPage context={context} />
+      ) : sub ? (
+        <IntegrationDetailPage id={sub} appName={appName} context={context} />
       ) : (
-        <IntegrationsPage
-          sub={sub}
-          appName={
-            resolveSettingsAppIdentity({ appId: context.appId }).name ??
-            t("agentChat.settingsShell.appFallbackName")
-          }
-        />
+        <IntegrationsPage appName={appName} />
       )}
     </Suspense>
   );

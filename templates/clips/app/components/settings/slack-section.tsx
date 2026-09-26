@@ -31,6 +31,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { PopupBlockedError } from "@/lib/popup-blocked";
 
 import { LoadFailedRow } from "./load-failed-row";
 
@@ -104,11 +105,7 @@ async function startSlackOAuth(): Promise<void> {
     "clips-slack-oauth",
     "width=600,height=760",
   );
-  if (!popup) {
-    throw new Error(
-      "Popup blocked — please allow popups for this site and try again.",
-    );
-  }
+  if (!popup) throw new PopupBlockedError();
   await waitForPopupClose(popup);
 }
 
@@ -170,7 +167,11 @@ export function SlackSection({ variant = "general" }: SlackSectionProps) {
       }
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : t("settings.slackConnectFailed"),
+        err instanceof PopupBlockedError
+          ? t("clipsSettings.popupBlocked")
+          : err instanceof Error
+            ? err.message
+            : t("settings.slackConnectFailed"),
       );
     } finally {
       setConnecting(false);

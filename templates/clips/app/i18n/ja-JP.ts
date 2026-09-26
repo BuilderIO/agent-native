@@ -948,6 +948,8 @@ const messages = {
     slackConnected: "Slack 接続済み",
   },
   clipsSettings: {
+    popupBlocked:
+      "ブラウザーがポップアップをブロックしました。このサイトのポップアップを許可して再試行してください。",
     recordingsTab: "録画",
     meetingsTab: "ミーティング",
     yourDefaults: "あなたのデフォルト",

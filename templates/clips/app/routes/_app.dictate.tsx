@@ -295,10 +295,10 @@ function DictationInfoPopover({ dictation }: { dictation: Dictation }) {
           <PopoverTrigger asChild>
             <Button
               type="button"
-              size="icon"
+              size="icon-sm"
               variant="ghost"
               aria-label={t("dictateRoute.info")}
-              className="size-8 text-muted-foreground"
+              className="text-muted-foreground"
             >
               <IconInfoCircle aria-hidden="true" />
             </Button>
@@ -392,11 +392,11 @@ function DictationActions({
           <TooltipTrigger asChild>
             <Button
               type="button"
-              size="icon"
+              size="icon-sm"
               variant="ghost"
               aria-label={t("dictateRoute.copy")}
               onClick={onCopy}
-              className="size-8 text-muted-foreground"
+              className="text-muted-foreground"
             >
               <IconCopy />
             </Button>
@@ -408,12 +408,12 @@ function DictationActions({
           <TooltipTrigger asChild>
             <Button
               type="button"
-              size="icon"
+              size="icon-sm"
               variant="ghost"
               aria-label={t("dictateRoute.delete")}
               onClick={onDelete}
               disabled={deletePending}
-              className="size-8 text-muted-foreground"
+              className="text-muted-foreground"
             >
               {deletePending ? (
                 <IconLoader2 className="animate-spin" />
@@ -544,14 +544,14 @@ function DictationCard({
                 <CollapsibleTrigger asChild>
                   <Button
                     type="button"
-                    size="icon"
+                    size="icon-sm"
                     variant="ghost"
                     aria-label={
                       expanded
                         ? t("dictateRoute.hideDetails")
                         : t("dictateRoute.showDetails")
                     }
-                    className="size-8 text-muted-foreground"
+                    className="text-muted-foreground"
                   >
                     <IconChevronRight
                       aria-hidden="true"

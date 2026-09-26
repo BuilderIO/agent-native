@@ -890,6 +890,7 @@ const messages = {
     slackConnected: "Slack 已连接",
   },
   clipsSettings: {
+    popupBlocked: "浏览器阻止了弹出窗口。请允许此网站显示弹出窗口，然后重试。",
     recordingsTab: "录制",
     meetingsTab: "会议",
     yourDefaults: "你的默认设置",

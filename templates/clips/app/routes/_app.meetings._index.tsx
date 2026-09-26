@@ -60,6 +60,7 @@ import {
   buildMeetingHistoryQuery,
   MEETING_HISTORY_PAGE_SIZE,
 } from "@/lib/meeting-history-query";
+import { PopupBlockedError } from "@/lib/popup-blocked";
 import { shortcutLabel } from "@/lib/utils";
 
 export function meta() {
@@ -220,7 +221,7 @@ function CalendarReauthBanner({
         onClick={onReconnect}
         disabled={isPending}
         aria-busy={isPending}
-        className="h-8 cursor-pointer"
+        className="cursor-pointer"
       >
         {isPending && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
         Reconnect
@@ -530,7 +531,7 @@ function MeetingsHeader({
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder={t("meetingsRoute.searchPlaceholder")}
             aria-label={t("meetingsRoute.searchPlaceholder")}
-            className="h-9 ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
+            className="ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
           />
           {query ? (
             <Button
@@ -754,13 +755,19 @@ export default function MeetingsIndexRoute() {
             return handleCalendarConnected(result.accountId, expectedAccountId);
           }
         })
-        .catch((err: Error) => toast.error(err.message))
+        .catch((err: Error) =>
+          toast.error(
+            err instanceof PopupBlockedError
+              ? t("clipsSettings.popupBlocked")
+              : err.message,
+          ),
+        )
         .finally(() => {
           calendarConnectionInFlightRef.current = false;
           setIsCalendarConnectionInFlight(false);
         });
     },
-    [handleCalendarConnected],
+    [handleCalendarConnected, t],
   );
 
   const isLoading = accounts.isLoading || history.isLoading;
@@ -937,7 +944,7 @@ export default function MeetingsIndexRoute() {
                             size="sm"
                             onClick={() => history.fetchNextPage()}
                             disabled={history.isFetchingNextPage}
-                            className="h-8 cursor-pointer gap-1.5 text-xs"
+                            className="cursor-pointer gap-1.5 text-xs"
                           >
                             {history.isFetchingNextPage ? (
                               <IconLoader2 className="size-3.5 animate-spin" />

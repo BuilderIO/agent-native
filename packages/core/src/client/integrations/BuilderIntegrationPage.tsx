@@ -25,7 +25,7 @@ import {
   IconUnlink,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useState, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 
 import type {
   BuilderConnectionState,
@@ -45,6 +45,7 @@ import { useOrg } from "../org/hooks.js";
 import { mcpIntegrationLogo } from "../resources/mcp-integration-logos.js";
 import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
+import { useSettingsPageHeader } from "../settings/shell/context.js";
 import type { SettingsPageContext } from "../settings/shell/registry.js";
 import {
   useBuilderConnectFlow,
@@ -63,6 +64,7 @@ import {
   type BuilderUsageId,
   type BuilderUsageLoss,
 } from "./builder-usage.js";
+import { BrandMark, BreadcrumbTitle } from "./IntegrationDetailParts.js";
 import {
   SENTENCE_LINK_TOKEN,
   SentenceWithLink,
@@ -487,6 +489,23 @@ export function BuilderIntegrationPage({
 }: BuilderIntegrationPageProps) {
   const t = useT();
   const org = useOrg();
+  const header = useMemo(
+    () => ({
+      title: (
+        <BreadcrumbTitle
+          name="Builder.io"
+          mark={
+            <BrandMark
+              logoUrl={mcpIntegrationLogo("builder-cms")}
+              className="size-4 rounded-[3px]"
+            />
+          }
+        />
+      ),
+    }),
+    [],
+  );
+  useSettingsPageHeader(header);
   const flow = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: TRACKING_SOURCE,
@@ -626,7 +645,7 @@ export function BuilderIntegrationPage({
 
   return (
     <div className="flex flex-col gap-8" data-builder-page="">
-      <p className="text-sm leading-6 text-muted-foreground">
+      <p className="text-sm leading-[1.6] text-muted-foreground">
         {t("agentChat.settingsShell.integrations.builderDescription")}
       </p>
 

@@ -231,6 +231,18 @@ function buttons(element: HTMLElement): string[] {
   );
 }
 
+/** Each button's label and whether it is the primary or a secondary one. */
+function prominence(element: HTMLElement): string[] {
+  return [...element.querySelectorAll("button")].map((button) => {
+    const kind = button.classList.contains("bg-primary")
+      ? "primary"
+      : button.classList.contains("bg-secondary")
+        ? "secondary"
+        : "other";
+    return `${button.textContent?.trim() ?? ""}:${kind}`;
+  });
+}
+
 describe("ModelSettingsPage", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -537,7 +549,7 @@ describe("ModelSettingsPage", () => {
     expect(state.header?.action).toBeTruthy();
   });
 
-  it("starts an owner with no provider at an empty state that adds one", async () => {
+  it("starts an owner with no provider at an empty state led by Builder.io", async () => {
     state.listing = listing({
       canManageOrg: true,
       canUpdateDefault: true,
@@ -553,9 +565,14 @@ describe("ModelSettingsPage", () => {
     const empty = row("llm");
     expect(empty.textContent).toContain("Add a model provider");
     expect(empty.textContent).toContain(
-      "The agent needs a provider to respond.",
+      "The agent needs a provider to respond. We recommend Builder.io for model access, browser automation, file storage, and workspace identity. Free tier available.",
     );
-    expect(buttons(empty)).toEqual(["Add provider", "Connect Builder.io"]);
+    expect(prominence(empty)).toEqual([
+      "Connect Builder.io:primary",
+      "Add provider:secondary",
+    ]);
+    // The empty state holds the page's one primary, so the header is empty.
+    expect(state.header?.action).toBeUndefined();
     expect(document.getElementById("provider-org-builder")).toBeNull();
 
     const defaultRow = row("default-model");
@@ -605,6 +622,66 @@ describe("ModelSettingsPage", () => {
     expect(empty.textContent).toContain("Ask an owner or admin to add one.");
     expect(buttons(empty)).toEqual([]);
     expect(document.getElementById("personal-providers")).toBeNull();
+  });
+
+  it("makes Add provider the empty state's primary when Builder.io can't be connected", async () => {
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: false, personal: false },
+    });
+    await render();
+
+    const empty = row("llm");
+    expect(empty.textContent).toContain(
+      "The agent needs a provider to respond.",
+    );
+    expect(empty.textContent).not.toContain("We recommend Builder.io");
+    expect(prominence(empty)).toEqual(["Add provider:primary"]);
+    expect(state.header?.action).toBeUndefined();
+  });
+
+  it("returns the header to Add provider once a provider is set up, and recommends Builder.io on its row", async () => {
+    state.listing = listing(
+      { canManageOrg: true, canUpdateDefault: true },
+      {
+        anthropic: { org: { scope: "org", masked: "••••1234", updatedAt: 1 } },
+      },
+    );
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    await render();
+
+    expect(document.querySelector("[data-model-settings] #llm")).toBeTruthy();
+    expect(container.textContent).not.toContain("Add a model provider");
+    const action = state.header?.action as React.ReactElement | undefined;
+    expect((action?.type as { name?: string } | undefined)?.name).toBe(
+      "AddProviderButton",
+    );
+    const builderRow = row("provider-org-builder");
+    expect(builderRow.textContent).toContain("Recommended");
+    expect(prominence(builderRow)).toEqual(["Connect:secondary"]);
+  });
+
+  it("doesn't recommend a member's own Builder.io over the organization's connection", async () => {
+    state.builder = builderFlow({
+      grants: {
+        org: { connectedAt: 1, needsReconnect: false },
+        personal: null,
+      },
+      canConnect: { org: false, personal: true },
+    });
+    await render();
+
+    expect(row("provider-personal-builder").textContent).not.toContain(
+      "Recommended",
+    );
+    expect(row("provider-org-builder").textContent).not.toContain(
+      "Recommended",
+    );
   });
 
   it("keeps the provider groups until the Builder.io status is known", async () => {

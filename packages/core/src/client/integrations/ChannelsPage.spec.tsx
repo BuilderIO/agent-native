@@ -19,6 +19,9 @@ const actions = vi.hoisted(() => ({
   manage: vi.fn(),
 }));
 
+const agent = vi.hoisted(() => ({ submitToAgent: vi.fn() }));
+vi.mock("../CommandMenu.js", () => agent);
+
 // The hooks' transport belongs to the framework. The page's contract is which
 // action it calls with what, and what it does with the answer.
 vi.mock("../use-action.js", async () => {
@@ -317,7 +320,7 @@ describe("ChannelsPage", () => {
     expect(
       document.getElementById(link!.getAttribute("aria-describedby")!)
         ?.textContent,
-    ).toBe("Not set up");
+    ).toBe("Chat with your agent via a Telegram bot. Not set up.");
     expect(container.querySelector("[data-channels-page] button")).toBeNull();
     await act(async () => link?.click());
     expect(navigate).toHaveBeenCalledWith("channels", "telegram");
@@ -397,9 +400,9 @@ describe("ChannelsPage", () => {
 
   it("shows members the state only", async () => {
     actions.list.mockResolvedValue(
-      listed({ slack: { configured: true, enabled: true } }, false),
+      listed({ telegram: { configured: true, enabled: true } }, false),
     );
-    await render("slack", MEMBER);
+    await render("telegram", MEMBER);
 
     expect(container.querySelector('button[role="switch"]')).toBeNull();
     expect(rowText("status")).toContain("On");
@@ -407,7 +410,24 @@ describe("ChannelsPage", () => {
     expect(container.textContent).toContain(
       "Only owners and admins can set up channels.",
     );
-    expect(setHeader.mock.calls.at(-1)?.[0]).toBeNull();
+    expect(
+      (setHeader.mock.calls.at(-1)?.[0] as { action?: ReactNode }).action,
+    ).toBeNull();
+  });
+
+  it("shows members Slack's state with a lock instead of Set up", async () => {
+    actions.list.mockResolvedValue(
+      listed({ slack: { configured: true, enabled: true } }, false),
+    );
+    await render("slack", MEMBER);
+
+    expect(rowText("mention")).toContain("Mention the agent");
+    expect(rowText("mention")).toContain("On");
+    expect(container.querySelector("#mention button")).toBeNull();
+    expect(
+      container.querySelector("#mention svg.tabler-icon-lock"),
+    ).not.toBeNull();
+    expect(container.querySelector('button[role="switch"]')).toBeNull();
   });
 
   it("copies the webhook URL the server reports", async () => {
@@ -535,8 +555,11 @@ describe("ChannelsPage", () => {
       }),
     );
     await render("slack");
-    const manage = await openSetup();
+    const manage =
+      container.querySelector<HTMLButtonElement>("#mention button");
     expect(manage?.textContent).toBe("Manage");
+    await act(async () => manage?.click());
+    await flush();
 
     const saved = document.querySelector(
       '[data-channel-credential="SLACK_SIGNING_SECRET"]',
@@ -714,10 +737,88 @@ describe("ChannelsPage", () => {
     ).toContain("Agent in Slack");
   });
 
-  it("uses the Connection group when no app adds settings", async () => {
+  it("lays Slack out as the agent in Slack, with Set up on its row", async () => {
     await render("slack");
     expect(
       Array.from(container.querySelectorAll("h2"), (h) => h.textContent),
+    ).toEqual(["Agent in Slack"]);
+    expect(rowText("mention")).toContain(
+      "@mention the agent in a thread or DM it, and it replies in that thread.",
+    );
+    expect(
+      (setHeader.mock.calls.at(-1)?.[0] as { action?: ReactNode }).action,
+    ).toBeNull();
+    await act(async () => buttonNamed("Set up", container)?.click());
+    await flush();
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Set up Slack",
+    );
+  });
+
+  it("uses the Connection and Information groups for other channels", async () => {
+    await render("telegram");
+    expect(
+      Array.from(container.querySelectorAll("h2"), (h) => h.textContent),
     ).toEqual(["Connection", "Information"]);
+    expect(rowText("developer")).toContain("Telegram");
+    expect(rowText("category")).toContain("Channels");
+  });
+
+  it("shows each channel's brand logo, and Email's icon", async () => {
+    await render(null);
+    for (const id of [
+      "slack",
+      "google-docs",
+      "telegram",
+      "whatsapp",
+      "discord",
+      "microsoft-teams",
+    ]) {
+      expect(
+        container.querySelector(`a[id="${id}"] img`)?.getAttribute("src"),
+      ).toMatch(/^data:image\//);
+    }
+    expect(container.querySelector('a[id="email"] img')).toBeNull();
+    expect(
+      container.querySelector('a[id="email"] svg.tabler-icon-mail'),
+    ).not.toBeNull();
+  });
+
+  it("names the channel with its logo in the breadcrumb", async () => {
+    await render("whatsapp");
+    const header = setHeader.mock.calls.at(-1)?.[0] as { title?: ReactNode };
+    await act(async () => {
+      headerRoot.render(<Providers>{header.title}</Providers>);
+    });
+    expect(headerContainer.textContent).toBe("WhatsApp");
+    expect(headerContainer.querySelector("img")?.getAttribute("src")).toMatch(
+      /^data:image\//,
+    );
+  });
+
+  it("asks the agent when a hero prompt is clicked", async () => {
+    await render("telegram");
+    const hero = container.querySelector("[data-integration-hero]");
+    expect(hero).not.toBeNull();
+    const prompt = Array.from(hero!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Summarize today's recordings"),
+    );
+    await act(async () => prompt?.click());
+    expect(agent.submitToAgent).toHaveBeenCalledWith(
+      "Summarize today's recordings",
+    );
+    expect(container.textContent).toContain(
+      "Chat with your agent via a Telegram bot. Each app's agent is set up separately.",
+    );
+  });
+
+  it("keeps the breadcrumb on an unknown channel", async () => {
+    await render("nope");
+    expect(
+      (setHeader.mock.calls.at(-1)?.[0] as { title?: ReactNode }).title,
+    ).toBe("Not found");
+    expect(
+      container.querySelector("[data-channel-not-found]")?.textContent,
+    ).toBe("This channel isn't available in Clips.");
   });
 });

@@ -953,6 +953,8 @@ const messages = {
     slackConnected: "Slack conectado",
   },
   clipsSettings: {
+    popupBlocked:
+      "O navegador bloqueou o pop-up. Permita pop-ups para este site e tente novamente.",
     recordingsTab: "Gravações",
     meetingsTab: "Reuniões",
     yourDefaults: "Seus padrões",

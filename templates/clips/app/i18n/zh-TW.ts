@@ -889,6 +889,7 @@ const messages = {
     slackConnected: "Slack 已連線",
   },
   clipsSettings: {
+    popupBlocked: "瀏覽器封鎖了快顯視窗。請允許此網站顯示快顯視窗後再試一次。",
     recordingsTab: "錄製",
     meetingsTab: "會議",
     yourDefaults: "你的預設設定",

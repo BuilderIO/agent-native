@@ -1023,9 +1023,6 @@ const messages: AgentChatTranslation = {
     "스토리지를 다시 설정할 때까지 업로드가 실패합니다.",
   "settings.storage.clearExisting": "기존 파일은 {{bucket}}에 남아 있습니다.",
   "settings.storage.clearExistingGeneric": "기존 파일은 버킷에 남아 있습니다.",
-  "settings.storage.missing": "먼저 엔드포인트, 버킷, 키를 입력하세요.",
-  "settings.storage.missingPublicUrl":
-    "먼저 엔드포인트, 버킷, 키, 공개 URL을 입력하세요.",
   "settings.storage.invalidUrl":
     "https:// 또는 http://로 시작하는 URL을 사용하세요.",
   "settings.storage.invalidBucket":
@@ -1178,7 +1175,6 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "추가",
   "settingsOrg.invite.send": "초대 보내기",
   "settingsOrg.invite.sending": "보내는 중…",
-  "settingsOrg.invite.close": "닫기",
   "settingsOrg.invite.csvNoEmails":
     "이 CSV에서 유효한 이메일을 찾지 못했습니다.",
   "settingsOrg.auth.synced_other": "앱 {{count}}개에 동기화했습니다.",
@@ -1209,7 +1205,6 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.nameSaveError": "이름을 업데이트할 수 없습니다.",
   "settingsShell.account.nameSaved": "이름이 업데이트되었습니다",
   "settingsShell.account.newEmail": "새 이메일",
-  "settingsShell.account.newEmailPlaceholder": "새 이메일 입력",
   "settingsShell.account.newPassword": "새 비밀번호",
   "settingsShell.account.password": "비밀번호",
   "settingsShell.account.passwordDescription":
@@ -1464,6 +1459,274 @@ const messages: AgentChatTranslation = {
   "settingsShell.channels.webhookRegistered": "등록됨",
   "settingsShell.channels.webhookRegistration": "웹훅",
   "settingsShell.channels.webhookUrl": "웹훅 URL",
+  "settingsShell.channels.category": "카테고리",
+  "settingsShell.channels.developer": "개발사",
+  "settingsShell.channels.mentionAgent": "에이전트 멘션",
+  "settingsShell.channels.rowDescription": "{{about}} {{state}}.",
+  "settingsShell.channels.separately": "에이전트는 앱마다 따로 설정합니다.",
+  "settingsShell.channels.setUpLocked": "소유자와 관리자만 설정할 수 있습니다",
+  "settingsShell.integrationDetail.access.none":
+    "공개 서버라서 로그인할 필요가 없습니다.",
+  "settingsShell.integrationDetail.access.oauth":
+    "에이전트가 내 {{name}} 권한으로 작업하므로 내가 볼 수 있는 것만 봅니다.",
+  "settingsShell.integrationDetail.access.token":
+    "에이전트가 추가한 액세스 토큰을 사용하므로 그 토큰이 볼 수 있는 것을 봅니다.",
+  "settingsShell.integrationDetail.accessToken": "액세스 토큰",
+  "settingsShell.integrationDetail.addAccessToken": "액세스 토큰 추가",
+  "settingsShell.integrationDetail.callout.adminNeeded":
+    "관리자가 설정해야 합니다",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "{{org}}의 소유자나 관리자에게 {{name}}의 클라이언트 ID와 시크릿을 추가해 달라고 요청하세요. 그러면 내 계정을 연결할 수 있습니다.",
+  "settingsShell.integrationDetail.callout.beforeAnyone":
+    "누구든 연결하기 전에",
+  "settingsShell.integrationDetail.callout.beforeYouConnect": "연결하기 전에",
+  "settingsShell.integrationDetail.callout.token": "액세스 토큰으로 연결합니다",
+  "settingsShell.integrationDetail.callout.unavailable": "아직 사용할 수 없음",
+  "settingsShell.integrationDetail.category": "카테고리",
+  "settingsShell.integrationDetail.connected": "{{name}}을(를) 연결했습니다",
+  "settingsShell.integrationDetail.copyServerUrl": "서버 URL 복사",
+  "settingsShell.integrationDetail.developer": "개발사",
+  "settingsShell.integrationDetail.howToCreateToken": "토큰 만드는 방법",
+  "settingsShell.integrationDetail.justMe": "나만",
+  "settingsShell.integrationDetail.notFound": "이 통합은 카탈로그에 없습니다.",
+  "settingsShell.integrationDetail.notFoundTitle": "찾을 수 없음",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "이번 달 주간 활성 사용자 추세는 어땠어?",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "가입부터 첫 녹화까지의 퍼널을 만들어 줘",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "리텐션이 가장 좋은 코호트는?",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "시리즈 B 스타트업의 디자인 책임자를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "이 이메일 목록을 보강해 줘",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "이 연락처를 Q4 시퀀스에 추가해 줘",
+  "settingsShell.integrationDetail.prompt.asana.1": "이번 주 내 마감 작업은?",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "이 녹화의 액션 아이템으로 작업을 만들어 줘",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "일정보다 늦어진 프로젝트는?",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "이 녹화의 액션 아이템으로 Jira 티켓을 만들어 줘",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "Q4 릴리스를 막고 있는 게 뭐야?",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "온보딩에 관한 Confluence 페이지를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "Acme의 서명된 계약서를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "Q3 보고서 폴더를 재무팀과 공유해 줘",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "이번 주 법무 폴더에서 무엇이 바뀌었어?",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "이 녹화의 하이라이트로 소셜 게시물을 만들어 줘",
+  "settingsShell.integrationDetail.prompt.canva.2":
+    "브랜드 키트 색상을 찾아 줘",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "최신 프레젠테이션을 PDF로 내보내 줘",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "{{host}}를 가리키는 DNS 레코드는?",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "지난 1시간의 Worker 오류를 보여 줘",
+  "settingsShell.integrationDetail.prompt.cloudflare.3":
+    "이 URL의 캐시를 삭제해 줘",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "구매 신호를 보이는 회사는?",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "Acme에서 우리 커뮤니티에 활발한 사람은?",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "주요 계정의 활동을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "로더에 관한 최신 React Router 문서를 보여 줘",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "Drizzle 마이그레이션은 어떻게 설정해?",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "최신 Tailwind 릴리스의 새로운 점은?",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "agent-native 앱에 관한 최근 기사를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.exa.2":
+    "{{app}}의 경쟁사를 조사해 줘",
+  "settingsShell.integrationDetail.prompt.exa.3":
+    "이 페이지를 가져와서 요약해 줘",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "이 Figma 파일의 컴포넌트를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "디자인 시스템의 색상 변수를 나열해 줘",
+  "settingsShell.integrationDetail.prompt.figma.3":
+    "이 프레임의 레이아웃을 설명해 줘",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "공유 버튼을 분노 클릭한 세션을 보여 줘",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "가격 페이지의 불편 사항을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "온보딩의 어디에서 이탈해?",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "내 리뷰를 기다리는 풀 리퀘스트를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "agent-native에서 Slack 링크 미리보기 관련 이슈를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "이번 주 packages/core에서 무엇이 바뀌었어?",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "오늘 CI에서 실패한 머지 리퀘스트는?",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "bug 라벨이 붙은 열린 이슈를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "이번 주 가장 느렸던 파이프라인은?",
+  "settingsShell.integrationDetail.prompt.gong.1":
+    "Acme와의 마지막 통화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.gong.2": "이번 달 나온 반대 의견은?",
+  "settingsShell.integrationDetail.prompt.gong.3": "가격 우려를 언급한 거래는?",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent 이 문서의 댓글을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent 이 댓글에 대한 답장 초안을 써 줘",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent 이 메모를 체크리스트로 바꿔 줘",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "지난 하루 동안의 API p95 지연 시간을 차트로 보여 줘",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "오후 2시쯤의 오류 로그를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.grafana.3": "이번 주 발생한 알림은?",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "어제 디자인 리뷰에서 무엇을 결정했어?",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "회의에서 나온 미완료 액션 아이템을 나열해 줘",
+  "settingsShell.integrationDetail.prompt.granola.3":
+    "Acme와의 통화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "Acme 거래를 Closed won으로 옮겨 줘",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "협상 단계에서 멈춘 거래는?",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "이 통화를 연락처의 메모로 기록해 줘",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "오늘 열린 대화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.intercom.2":
+    "SSO에 관한 도움말 문서를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "이번 주 고객이 가장 많이 묻는 건?",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "깨진 Slack 미리보기 이슈를 만들고 나에게 할당해 줘",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "현재 사이클에 남은 게 뭐야?",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "이번 주 보고된 버그를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "이번 스프린트 디자인 보드에 뭐가 있어?",
+  "settingsShell.integrationDetail.prompt.monday.2":
+    "이 항목을 Done으로 옮겨 줘",
+  "settingsShell.integrationDetail.prompt.monday.3": "기한이 지난 항목은?",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "테스트용으로 프로덕션 브랜치를 만들어 줘",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "이번 주 가장 느린 쿼리를 보여 줘",
+  "settingsShell.integrationDetail.prompt.neon.3":
+    "메인 데이터베이스 크기는 얼마야?",
+  "settingsShell.integrationDetail.prompt.netlify.1":
+    "마지막 배포가 왜 실패했어?",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "이번 주 빌드가 실패한 사이트는?",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "이전 프로덕션 배포로 롤백해 줘",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "온보딩 체크리스트를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.notion.2":
+    "이번 주 회의록을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "이 액션 아이템을 팀 위키에 추가해 줘",
+  "settingsShell.integrationDetail.prompt.paypal.1":
+    "연체된 인보이스를 나열해 줘",
+  "settingsShell.integrationDetail.prompt.paypal.2": "이번 달 거래를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.paypal.3":
+    "Acme에 보낼 인보이스를 만들어 줘",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "긴급한 열린 이슈가 있는 계정은?",
+  "settingsShell.integrationDetail.prompt.pylon.2":
+    "최신 Acme 티켓을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "이 이슈에 대한 답장 초안을 써 줘",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "packages/core의 보안 문제를 스캔해 줘",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "이 발견 사항과 수정 방법을 설명해 줘",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "이 저장소에 하드코딩된 시크릿이 있어?",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "어제 배포 이후 가장 많은 새 오류는?",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "가장 자주 발생하는 크래시의 스택 트레이스를 보여 줘",
+  "settingsShell.integrationDetail.prompt.sentry.3":
+    "이 오류는 어느 릴리스에서 생겼어?",
+  "settingsShell.integrationDetail.prompt.sigma.1": "매출 대시보드를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.sigma.2": "지난달 MRR 변화의 원인은?",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "이 워크북의 주요 지표를 설명해 줘",
+  "settingsShell.integrationDetail.prompt.slack.1":
+    "이번 주 #design을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.slack.2":
+    "가격 변경에 관한 스레드를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "출시에 대해 Camila가 뭐라고 했어?",
+  "settingsShell.integrationDetail.prompt.stripe.1": "지난달 매출은 얼마야?",
+  "settingsShell.integrationDetail.prompt.stripe.2":
+    "이 인보이스의 고객을 찾아 줘",
+  "settingsShell.integrationDetail.prompt.stripe.3": "갱신에 실패한 구독은?",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "이번 주 몇 명이 가입했어?",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "recordings 테이블의 스키마를 보여 줘",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "오늘 오류가 난 Edge Functions는?",
+  "settingsShell.integrationDetail.prompt.telegram.1":
+    "오늘의 녹화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "오후 3시 리뷰를 알려 줘",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "어제 데모 링크를 공유해 줘",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "마지막 프리뷰 배포가 왜 실패했어?",
+  "settingsShell.integrationDetail.prompt.vercel.2":
+    "프로덕션 배포 로그를 보여 줘",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "이 프로젝트를 가리키는 도메인은?",
+  "settingsShell.integrationDetail.prompt.webflow.1":
+    "가격 페이지 헤드라인을 업데이트해 줘",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "이번 주 게시된 CMS 항목을 나열해 줘",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "메타 설명이 없는 페이지는?",
+  "settingsShell.integrationDetail.prompt.whatsapp.1": "오늘 내 일정은 뭐야?",
+  "settingsShell.integrationDetail.prompt.whatsapp.2": "최신 녹화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "디자인 리뷰 메모를 보내 줘",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "새 녹화를 Slack의 #design에 게시해 줘",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "새 가입자를 CRM에 추가해 줘",
+  "settingsShell.integrationDetail.prompt.zapier.3": "실행할 수 있는 Zap은?",
+  "settingsShell.integrationDetail.serverUrl": "서버 URL",
+  "settingsShell.integrationDetail.setUp": "설정",
+  "settingsShell.integrationDetail.signIn": "로그인",
+  "settingsShell.integrationDetail.signInNone": "없음",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "Figma에서 개인 액세스 토큰을 만든 다음 여기에 붙여 넣으세요.",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "GitHub에서 개인 액세스 토큰을 만든 다음 여기에 붙여 넣으세요.",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "Sentry에서 사용자 인증 토큰을 만든 다음 여기에 붙여 넣으세요.",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "Zapier에서 연결을 만든 다음 그 Bearer 토큰을 여기에 붙여 넣으세요.",
+  "settingsShell.integrationDetail.tokenPlaceholder": "{{name}} 토큰 붙여 넣기",
+  "settingsShell.integrationDetail.who": "사용할 수 있는 사람",
+  "settingsShell.integrationDetail.whoMember":
+    "{{org}}와 공유는 소유자와 관리자만 할 수 있습니다.",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "{{org}}의 모든 사람을 위해 한 번만 연결합니다.",
+  "settingsShell.integrationDetail.whoPersonal":
+    "각자 자신의 계정을 연결합니다.",
+  "settingsShell.integrationDetail.whoShared":
+    "공유 연결을 사용하면 {{org}}의 모든 사람이 내 액세스를 사용할 수 있습니다.",
   "settingsShell.clearSearch": "검색 지우기",
   "settingsShell.group.account": "계정",
   "settingsShell.group.agent": "에이전트",
@@ -1638,10 +1901,12 @@ const messages: AgentChatTranslation = {
   "settingsInfra.required": "필수",
   "settingsInfra.recommended": "권장",
   "settingsInfra.optional": "선택",
-  "settingsInfra.needsBuilder": "Builder.io 필요",
+  "settingsInfra.builderRecommended":
+    "아래의 모든 서비스를 Builder.io 계정 크레딧으로 사용하세요. 무료 요금제가 있습니다.",
+  "settingsInfra.builderOnly": "Builder.io 전용",
   "settingsInfra.rowDescription": "{{source}} · {{use}}",
   "settingsInfra.notSetUp": "설정되지 않음",
-  "settingsInfra.notAvailable": "사용할 수 없음",
+  "settingsInfra.availableWithBuilder": "Builder.io로 사용 가능",
   "settingsInfra.loadFailed": "불러올 수 없습니다.",
   "settingsInfra.aiModel": "AI 모델",
   "settingsInfra.useEveryApp": "모든 앱",
@@ -1839,6 +2104,8 @@ const messages: AgentChatTranslation = {
   "settingsModel.emptyAskAdmin": "소유자나 관리자에게 추가를 요청하세요.",
   "settingsModel.emptyDescription":
     "에이전트가 응답하려면 공급자가 필요합니다.",
+  "settingsModel.emptyDescriptionBuilder":
+    "에이전트가 응답하려면 공급자가 필요합니다. 모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID에는 Builder.io를 권장합니다. 무료 요금제가 있습니다.",
   "settingsModel.emptyTitle": "모델 공급자 추가",
   "settingsModel.endpointFirst": "먼저 엔드포인트 URL을 입력하세요.",
   "settingsModel.endpointHint":
@@ -1948,7 +2215,6 @@ const messages: AgentChatTranslation = {
   "settingsSubAgents.externalEmpty":
     "Foundry, Gemini Enterprise, Anthropic 또는 모든 A2A 에이전트를 연결하세요.",
   "settingsSubAgents.externalEmptyTitle": "아직 외부 에이전트가 없습니다",
-  "settingsSubAgents.browseDirectory": "디렉터리 둘러보기",
   "settingsSubAgents.customEmpty":
     "메인 에이전트가 작업을 맡길 수 있는 전문 에이전트를 정의하세요.",
   "settingsSubAgents.customEmptyTitle": "아직 사용자 지정 에이전트가 없습니다",

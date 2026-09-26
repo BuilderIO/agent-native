@@ -959,6 +959,8 @@ const messages = {
     slackConnected: "Slack connecté",
   },
   clipsSettings: {
+    popupBlocked:
+      "Le navigateur a bloqué la fenêtre contextuelle. Autorisez les fenêtres contextuelles pour ce site, puis réessayez.",
     recordingsTab: "Enregistrements",
     meetingsTab: "Réunions",
     yourDefaults: "Vos valeurs par défaut",

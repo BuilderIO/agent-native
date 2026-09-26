@@ -67,7 +67,7 @@ export function BulkActionToolbar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
+          className="gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
           onClick={onSelectAll}
           disabled={isPending}
         >
@@ -80,7 +80,7 @@ export function BulkActionToolbar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
+        className="gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
         onClick={onArchive}
         disabled={isPending}
       >
@@ -97,7 +97,7 @@ export function BulkActionToolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
+              className="gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
               disabled={isPending}
             >
               <IconFolder className="h-3.5 w-3.5" /> {t("clipsFinalRaw.move")}
@@ -143,7 +143,7 @@ export function BulkActionToolbar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 gap-1.5 px-2.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        className="gap-1.5 px-2.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
         onClick={onTrash}
         disabled={isPending}
       >
@@ -154,9 +154,9 @@ export function BulkActionToolbar({
       <Button
         type="button"
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         onClick={onClear}
-        className="size-8 text-background/70 hover:bg-background/15 hover:text-background dark:text-foreground/70 dark:hover:bg-foreground/10 dark:hover:text-foreground"
+        className="text-background/70 hover:bg-background/15 hover:text-background dark:text-foreground/70 dark:hover:bg-foreground/10 dark:hover:text-foreground"
         aria-label={t("clipsFinalRaw.clearSelection")}
       >
         <IconX className="h-3.5 w-3.5" />

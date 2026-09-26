@@ -1,5 +1,7 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 
+import { PopupBlockedError } from "./popup-blocked";
+
 export interface CalendarOAuthResult {
   accountId: string;
 }
@@ -44,11 +46,7 @@ export async function startCalendarOAuth(
     "clips-calendar-oauth",
     "width=600,height=700",
   );
-  if (!popup) {
-    throw new Error(
-      "Popup blocked — please allow popups for this site and try again.",
-    );
-  }
+  if (!popup) throw new PopupBlockedError();
   return await new Promise<CalendarOAuthResult | null>((resolve) => {
     let settled = false;
     const finish = (result: CalendarOAuthResult | null) => {

@@ -33,7 +33,6 @@ import {
   IconCheck,
   IconChevronRight,
   IconCopy,
-  IconExternalLink,
   IconMessages,
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -51,7 +50,10 @@ import type {
   MessagingChannelStatus,
 } from "../../integrations/channel-settings.js";
 import { writeClipboardText } from "../clipboard.js";
+import { submitToAgent } from "../CommandMenu.js";
 import { useT } from "../i18n.js";
+import { mcpIntegrationLogo } from "../resources/mcp-integration-logos.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import {
   useSettingsPageHeader,
@@ -64,12 +66,22 @@ import {
   useActionMutation,
   useActionQuery,
 } from "../use-action.js";
+import { integrationBrand } from "./brand/integration-brands.js";
 import { useChannelSettingsExtensions } from "./channel-extensions.js";
 import {
   channelIcon,
   hasMissingRequiredCredentials,
   listChannelsForSettings,
 } from "./channel-setup.js";
+import {
+  BrandLogo,
+  BrandMark,
+  BreadcrumbTitle,
+  CopyField,
+  IntegrationHero,
+  LockedValue,
+  RowValue,
+} from "./IntegrationDetailParts.js";
 import { isNonPublicWebhookUrl } from "./webhook-url.js";
 
 const K = "agentChat.settingsShell.channels";
@@ -93,6 +105,22 @@ const ABOUT_KEYS: Record<BuiltInChannelId, string> = {
   "microsoft-teams": `${K}.about.microsoftTeams`,
   email: `${K}.about.email`,
 };
+
+// The logo table's id for each channel. Email has no brand, so it keeps its
+// icon.
+const LOGO_IDS: Partial<Record<BuiltInChannelId, string>> = {
+  slack: "slack",
+  "google-docs": "google-workspace",
+  telegram: "telegram",
+  whatsapp: "whatsapp",
+  discord: "discord",
+  "microsoft-teams": "microsoft-teams",
+};
+
+function channelLogo(channel: IntegrationCatalogEntry) {
+  const logoId = LOGO_IDS[channel.id as BuiltInChannelId];
+  return { logoId, logoUrl: logoId ? mcpIntegrationLogo(logoId) : "" };
+}
 
 type ManageChannelArgs =
   | {
@@ -195,11 +223,11 @@ function CopyButton({ value, label }: { value: string; label: string }) {
  */
 function ChannelLinkRow({
   channel,
-  state,
+  description,
   ariaLabel,
 }: {
   channel: IntegrationCatalogEntry;
-  state: string;
+  description?: string;
   ariaLabel: string;
 }) {
   const { navigate } = useSettingsShell();
@@ -209,7 +237,7 @@ function ChannelLinkRow({
       id={channel.id}
       href={settingsPageHref(PAGE_ID, channel.id)}
       aria-label={ariaLabel}
-      aria-describedby={stateId}
+      aria-describedby={description ? stateId : undefined}
       onClick={(event) => {
         if (isModifiedClick(event)) return;
         event.preventDefault();
@@ -217,20 +245,24 @@ function ChannelLinkRow({
       }}
       className="agent-native-settings-row flex scroll-mt-16 items-center gap-4 px-5 py-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-6"
     >
-      <span className="flex min-w-0 flex-1 gap-3">
-        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground [&>svg]:size-[18px]">
-          <ChannelIcon channel={channel} />
-        </span>
+      <span className="flex min-w-0 flex-1 items-center gap-3">
+        <BrandLogo
+          name={channel.name}
+          {...channelLogo(channel)}
+          icon={<ChannelIcon channel={channel} />}
+        />
         <span className="min-w-0">
           <span className="block text-sm font-medium text-foreground">
             {channel.name}
           </span>
-          <span
-            id={stateId}
-            className="mt-1 block text-sm leading-6 text-muted-foreground"
-          >
-            {state}
-          </span>
+          {description ? (
+            <span
+              id={stateId}
+              className="mt-0.5 block text-sm leading-6 text-muted-foreground"
+            >
+              {description}
+            </span>
+          ) : null}
         </span>
       </span>
       <IconChevronRight
@@ -263,7 +295,7 @@ function ChannelList({ appName }: { appName: string }) {
 
   return (
     <div className="flex flex-col gap-8" data-channels-page="">
-      <p className="text-sm leading-6 text-muted-foreground">
+      <p className="text-sm leading-[1.6] text-muted-foreground">
         {t(`${K}.about.page`, { app: appName })}
       </p>
       <SettingsGroup id="channel-list">
@@ -290,11 +322,20 @@ function ChannelList({ appName }: { appName: string }) {
               : state === "not-set-up"
                 ? "setUp"
                 : "manage";
+            const aboutKey = ABOUT_KEYS[channel.id as BuiltInChannelId];
+            // Slack's line is how to use it, which reads wrong before it's set up.
             return (
               <ChannelLinkRow
                 key={channel.id}
                 channel={channel}
-                state={t(STATE_KEYS[state])}
+                description={
+                  aboutKey && channel.id !== "slack"
+                    ? t(`${K}.rowDescription`, {
+                        about: t(aboutKey),
+                        state: t(STATE_KEYS[state]),
+                      })
+                    : t(STATE_KEYS[state])
+                }
                 ariaLabel={t(`${K}.action.${action}Aria`, {
                   platform: channel.name,
                 })}
@@ -736,10 +777,9 @@ function RegisterWebhookControl({ platform }: { platform: string }) {
 
 function ExternalLink({ href, label }: { href: string; label: string }) {
   return (
-    <Button asChild variant="secondary" size="sm">
-      <a href={href} target="_blank" rel="noreferrer">
+    <Button asChild variant="link" size="sm">
+      <a href={href} target="_blank" rel="noopener noreferrer">
         {label}
-        <IconExternalLink aria-hidden="true" />
       </a>
     </Button>
   );
@@ -763,29 +803,42 @@ function ChannelDetail({
   const toggle = useToggleChannel(channel.id);
   const [setupOpen, setSetupOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  // Slack's page is two groups (spec §5.19): the app's own Slack settings,
+  // and the agent in Slack, whose Set up sits on its row.
+  const isSlack = channel.id === "slack";
+  const { logoId, logoUrl } = channelLogo(channel);
+  const brand = integrationBrand(channel.id);
 
   const header = useMemo(
-    () =>
-      canManage && state
-        ? {
-            action: (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setSetupOpen(true)}
-              >
-                {state === "not-set-up"
-                  ? t(`${K}.action.setUp`)
-                  : t(`${K}.action.manage`)}
-              </Button>
-            ),
+    () => ({
+      title: (
+        <BreadcrumbTitle
+          name={channel.name}
+          mark={
+            <BrandMark
+              logoUrl={logoUrl}
+              logoId={logoId}
+              icon={<ChannelIcon channel={channel} />}
+              className="size-4 rounded-[3px]"
+            />
           }
-        : null,
-    [canManage, state, t],
+        />
+      ),
+      action:
+        canManage && state && !isSlack ? (
+          <Button type="button" size="sm" onClick={() => setSetupOpen(true)}>
+            {state === "not-set-up"
+              ? t(`${K}.action.setUp`)
+              : t(`${K}.action.manage`)}
+          </Button>
+        ) : null,
+    }),
+    [canManage, channel, isSlack, logoId, logoUrl, state, t],
   );
   useSettingsPageHeader(header);
 
   const aboutKey = ABOUT_KEYS[channel.id as BuiltInChannelId];
+  const prompts = (brand?.prompts ?? []).map((key) => t(key, { app: appName }));
   const webhookSetup = channel.channelCapabilities?.webhookSetup;
   const webhookUrl = webhookSetup ? status?.webhookUrl : null;
   const serviceAccountEmail =
@@ -797,11 +850,67 @@ function ChannelDetail({
         .filter((item) => item.removable)
         .map((item) => item.key)
     : [];
+  const setUp = state !== null && state !== "not-set-up";
+
+  const mentionRow =
+    isSlack && aboutKey ? (
+      <SettingsRow
+        id="mention"
+        label={t(`${K}.mentionAgent`)}
+        description={t(aboutKey)}
+        control={
+          canManage ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setSetupOpen(true)}
+            >
+              {setUp ? t(`${K}.action.manage`) : t(`${K}.action.setUp`)}
+            </Button>
+          ) : state ? (
+            <LockedValue
+              value={t(STATE_KEYS[state])}
+              reason={t(`${K}.setUpLocked`)}
+            />
+          ) : null
+        }
+      />
+    ) : null;
 
   return (
     <div className="flex flex-col gap-8" data-channel-page={channel.id}>
-      {aboutKey ? (
-        <p className="text-sm leading-6 text-muted-foreground">{t(aboutKey)}</p>
+      {!isSlack && (prompts.length > 0 || aboutKey) ? (
+        <div className="flex flex-col gap-5">
+          {prompts.length > 0 ? (
+            <IntegrationHero
+              name={channel.name}
+              hue={brand?.hue}
+              mark={
+                <BrandMark
+                  logoUrl={logoUrl}
+                  logoId={logoId}
+                  className="size-[15px]"
+                />
+              }
+              heroMark={
+                <McpIntegrationLogo
+                  name={channel.name}
+                  logoUrl={logoUrl}
+                  integrationId={logoId}
+                  className="size-12 rounded-xl shadow-sm"
+                />
+              }
+              prompts={prompts}
+              onAsk={submitToAgent}
+            />
+          ) : null}
+          {aboutKey ? (
+            <p className="max-w-[680px] px-0.5 text-sm leading-[1.6] text-muted-foreground">
+              {t(aboutKey)} {t(`${K}.separately`)}
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {extensions.map((extension) => (
@@ -821,7 +930,7 @@ function ChannelDetail({
           <SettingsGroup
             id="connection"
             title={
-              extensions.length > 0
+              isSlack
                 ? t(`${K}.agentIn`, { platform: channel.name })
                 : t(`${K}.connection`)
             }
@@ -835,44 +944,47 @@ function ChannelDetail({
               <LoadError onRetry={() => void list.refetch()} />
             ) : (
               <>
-                <SettingsRow
-                  id="status"
-                  label={t(`${K}.status`)}
-                  description={t(STATE_KEYS[state])}
-                  control={
-                    canManage && state !== "not-set-up" ? (
-                      <Switch
-                        checked={status.enabled}
-                        disabled={toggle.isPending}
-                        aria-label={t(`${K}.turnOnAria`, {
-                          platform: channel.name,
-                        })}
-                        onCheckedChange={(enabled) =>
-                          toggle.mutate({
-                            operation: enabled ? "enable" : "disable",
-                            platform: channel.id,
-                          })
-                        }
-                      />
-                    ) : null
-                  }
-                />
-                {webhookUrl ? (
+                {mentionRow}
+                {/* Before setup the header's Set up says the state; a card
+                    with nothing else in it still names it. */}
+                {setUp || (!isSlack && !webhookUrl) ? (
+                  <SettingsRow
+                    id="status"
+                    label={t(`${K}.status`)}
+                    description={t(STATE_KEYS[state])}
+                    control={
+                      canManage && setUp ? (
+                        <Switch
+                          checked={status.enabled}
+                          disabled={toggle.isPending}
+                          aria-label={t(`${K}.turnOnAria`, {
+                            platform: channel.name,
+                          })}
+                          onCheckedChange={(enabled) =>
+                            toggle.mutate({
+                              operation: enabled ? "enable" : "disable",
+                              platform: channel.id,
+                            })
+                          }
+                        />
+                      ) : null
+                    }
+                  />
+                ) : null}
+                {webhookUrl && (!isSlack || setUp) ? (
                   <SettingsRow
                     id="webhook-url"
                     label={t(`${K}.webhookUrl`)}
                     description={
-                      isNonPublicWebhookUrl(webhookUrl) ? (
-                        t(`${K}.webhookLocalOnly`, { platform: channel.name })
-                      ) : (
-                        <code className="break-all font-mono text-xs text-foreground">
-                          {webhookUrl}
-                        </code>
-                      )
+                      isNonPublicWebhookUrl(webhookUrl)
+                        ? t(`${K}.webhookLocalOnly`, {
+                            platform: channel.name,
+                          })
+                        : undefined
                     }
                     control={
                       isNonPublicWebhookUrl(webhookUrl) ? null : (
-                        <CopyButton
+                        <CopyField
                           value={webhookUrl}
                           label={t(`${K}.copyWebhookUrl`)}
                         />
@@ -886,7 +998,7 @@ function ChannelDetail({
                 webhookUrl &&
                 !isNonPublicWebhookUrl(webhookUrl) &&
                 canManage &&
-                state !== "not-set-up" ? (
+                setUp ? (
                   <SettingsRow
                     id="webhook-registration"
                     label={t(`${K}.webhookRegistration`)}
@@ -897,13 +1009,8 @@ function ChannelDetail({
                   <SettingsRow
                     id="service-account"
                     label={t(`${K}.shareDocumentsWith`)}
-                    description={
-                      <code className="break-all font-mono text-xs text-foreground">
-                        {serviceAccountEmail}
-                      </code>
-                    }
                     control={
-                      <CopyButton
+                      <CopyField
                         value={serviceAccountEmail}
                         label={t(`${K}.copyServiceAccountEmail`)}
                       />
@@ -943,7 +1050,7 @@ function ChannelDetail({
                 t(`${K}.toggleFailed`, { platform: channel.name })}
             </p>
           ) : null}
-          {list.isSuccess && !canManage ? (
+          {list.isSuccess && !canManage && !isSlack ? (
             <p className="text-xs leading-5 text-muted-foreground">
               {t(`${K}.membersFootnote`)}
             </p>
@@ -951,30 +1058,46 @@ function ChannelDetail({
         </div>
       )}
 
-      <SettingsGroup id="information" title={t(`${K}.information`)}>
-        <SettingsRow
-          id="documentation"
-          label={t(`${K}.documentation`)}
-          control={
-            <ExternalLink
-              href={channel.documentation.href}
-              label={t(`${K}.openDocs`)}
+      {isSlack ? null : (
+        <SettingsGroup id="information" title={t(`${K}.information`)}>
+          {brand ? (
+            <SettingsRow
+              id="developer"
+              label={t(`${K}.developer`)}
+              control={<RowValue>{brand.developer}</RowValue>}
             />
-          }
-        />
-        {channel.documentation.externalHref ? (
+          ) : null}
           <SettingsRow
-            id="developer-site"
-            label={t(`${K}.developerSite`)}
+            id="category"
+            label={t(`${K}.category`)}
+            control={
+              <RowValue>{t("agentChat.settingsShell.page.channels")}</RowValue>
+            }
+          />
+          <SettingsRow
+            id="documentation"
+            label={t(`${K}.documentation`)}
             control={
               <ExternalLink
-                href={channel.documentation.externalHref}
-                label={t(`${K}.open`)}
+                href={channel.documentation.href}
+                label={t(`${K}.openDocs`)}
               />
             }
           />
-        ) : null}
-      </SettingsGroup>
+          {channel.documentation.externalHref ? (
+            <SettingsRow
+              id="developer-site"
+              label={t(`${K}.developerSite`)}
+              control={
+                <ExternalLink
+                  href={channel.documentation.externalHref}
+                  label={t(`${K}.open`)}
+                />
+              }
+            />
+          ) : null}
+        </SettingsGroup>
+      )}
 
       {canManage && status ? (
         <>
@@ -996,6 +1119,31 @@ function ChannelDetail({
   );
 }
 
+function ChannelNotFound({ appName }: { appName: string }) {
+  const t = useT();
+  const header = useMemo(
+    () => ({
+      title: t("agentChat.settingsShell.integrationDetail.notFoundTitle"),
+    }),
+    [t],
+  );
+  useSettingsPageHeader(header);
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
+      <Empty data-channel-not-found="">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <IconMessages aria-hidden="true" />
+          </EmptyMedia>
+          <EmptyDescription>
+            {t(`${K}.notFound`, { app: appName })}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    </div>
+  );
+}
+
 export interface ChannelsPageProps {
   /** A channel's catalog id opens its page. */
   sub: string | null;
@@ -1011,16 +1159,9 @@ export interface ChannelsPageProps {
  * allows owners and admins only.
  */
 export function ChannelsPage({ sub, context, appName }: ChannelsPageProps) {
-  const t = useT();
   if (!sub) return <ChannelList appName={appName} />;
   const channel = listChannelsForSettings().find((entry) => entry.id === sub);
-  if (!channel) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        {t(`${K}.notFound`, { app: appName })}
-      </p>
-    );
-  }
+  if (!channel) return <ChannelNotFound appName={appName} />;
   return (
     <ChannelDetail
       key={channel.id}
