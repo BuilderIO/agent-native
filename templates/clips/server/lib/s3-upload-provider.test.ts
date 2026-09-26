@@ -216,7 +216,7 @@ describe("s3FileUploadProvider", () => {
       expect.objectContaining({ method: "GET" }),
       {
         followRedirects: false,
-        requireDispatcher: false,
+        requireDispatcher: true,
         allowedPrivateOrigins: [],
       },
     );
@@ -375,7 +375,7 @@ describe("s3FileUploadProvider", () => {
       expect.objectContaining({ method: "GET" }),
       {
         followRedirects: false,
-        requireDispatcher: false,
+        requireDispatcher: true,
         allowedPrivateOrigins: [],
       },
     );
@@ -391,6 +391,70 @@ describe("s3FileUploadProvider", () => {
         }),
       }),
     );
+  });
+
+  it("fails closed when a public S3 request cannot create its dispatcher", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mockSsrfSafeFetch.mockRejectedValueOnce(
+      new Error(
+        "SSRF protection is unavailable because the server dispatcher could not be loaded.",
+      ),
+    );
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://s3.example.com/clips-bucket/clips/recording/video.webm",
+        { recordingId: "recording" },
+      ),
+    ).rejects.toThrow("SSRF protection is unavailable");
+
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      "https://s3.example.com/clips-bucket/clips/recording/video.webm",
+      expect.objectContaining({ method: "GET" }),
+      {
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: [],
+      },
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("includes endpoint DNS validation in the S3 request timeout", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    mockIsBlockedExtensionUrlWithDns.mockReturnValueOnce(
+      new Promise<boolean>(() => {}),
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://s3.example.com/clips-bucket/clips/recording/video.webm",
+        { recordingId: "recording", timeoutMs: 10 },
+      ),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("does not expose multipart staging objects through signed reads", async () => {

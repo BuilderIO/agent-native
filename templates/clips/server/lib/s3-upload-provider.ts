@@ -72,23 +72,36 @@ async function fetchWithTimeout(
   init: RequestInit,
   timeoutMs: number,
 ): Promise<Response> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      const timeoutError = new Error("S3 request timed out");
+      timeoutError.name = "TimeoutError";
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+
   try {
-    const requiresPrivateOriginDispatcher =
-      await isBlockedExtensionUrlWithDns(url);
-    return await ssrfSafeFetch(
-      url,
-      {
-        ...init,
-        signal: AbortSignal.timeout(timeoutMs),
-      },
-      {
-        followRedirects: false,
-        requireDispatcher: requiresPrivateOriginDispatcher,
-        allowedPrivateOrigins: requiresPrivateOriginDispatcher
-          ? [new URL(url).origin]
-          : [],
-      },
-    );
+    const request = (async () => {
+      const allowsPrivateOrigin = await isBlockedExtensionUrlWithDns(url);
+      return ssrfSafeFetch(
+        url,
+        {
+          ...init,
+          signal: controller.signal,
+        },
+        {
+          followRedirects: false,
+          requireDispatcher: true,
+          allowedPrivateOrigins: allowsPrivateOrigin
+            ? [new URL(url).origin]
+            : [],
+        },
+      );
+    })();
+    return await Promise.race([request, timeoutPromise]);
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
       const timeoutError = new Error(
@@ -105,6 +118,8 @@ async function fetchWithTimeout(
       throw abortError;
     }
     throw err;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 
