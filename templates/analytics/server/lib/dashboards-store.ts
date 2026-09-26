@@ -862,6 +862,37 @@ export async function getDashboard(
   );
 }
 
+export async function getPublicDashboardMetadata(id: string) {
+  const [row] = await (getDb() as any)
+    .select({
+      title: schema.dashboards.title,
+      description: sql<
+        string | null
+      >`(${schema.dashboards.config}::jsonb ->> 'description')`,
+      panelTitlesJson: sql<string>`jsonb_path_query_array(${schema.dashboards.config}::jsonb, '$.panels[0 to 2].title')::text`,
+    })
+    .from(schema.dashboards)
+    .where(
+      and(
+        eq(schema.dashboards.id, id),
+        eq(schema.dashboards.visibility, "public"),
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+
+  const panelTitles: unknown = JSON.parse(row.panelTitlesJson);
+  return {
+    title: row.title,
+    description: row.description,
+    panelTitles: Array.isArray(panelTitles)
+      ? panelTitles.filter(
+          (title): title is string => typeof title === "string",
+        )
+      : [],
+  };
+}
+
 /**
  * List dashboards visible to the caller. Union of SQL rows + not-yet-migrated
  * legacy keys.

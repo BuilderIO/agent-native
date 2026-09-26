@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getPublicAnalysisMetadata: vi.fn(),
-  getDashboard: vi.fn(),
+  getPublicDashboardMetadata: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -11,7 +11,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("../../server/lib/dashboards-store", () => ({
   getPublicAnalysisMetadata: mocks.getPublicAnalysisMetadata,
-  getDashboard: mocks.getDashboard,
+  getPublicDashboardMetadata: mocks.getPublicDashboardMetadata,
 }));
 
 vi.mock("@/pages/adhoc/AdhocRouter", () => ({ default: () => null }));
@@ -30,16 +30,12 @@ const request = new Request("https://analytics.example.com/dashboards/shared");
 
 describe("public Analytics resource metadata", () => {
   it("uses dashboard details only when the dashboard is public", async () => {
-    mocks.getDashboard.mockResolvedValueOnce({
-      visibility: "public",
+    mocks.getPublicDashboardMetadata.mockResolvedValueOnce({
       title: "Active Customers",
-      config: { panels: [{ title: "Monthly customers" }] },
+      description: null,
+      panelTitles: ["Monthly customers"],
     });
-    mocks.getDashboard.mockResolvedValueOnce({
-      visibility: "private",
-      title: "Confidential Forecast",
-      config: { description: "Internal revenue projections" },
-    });
+    mocks.getPublicDashboardMetadata.mockResolvedValueOnce(null);
 
     const publicData = await loadDashboard({
       params: { id: "shared" },
@@ -64,6 +60,14 @@ describe("public Analytics resource metadata", () => {
     );
     expect(privateMeta).toEqual([{ title: expect.any(String) }]);
     expect(JSON.stringify(privateMeta)).not.toContain("Confidential Forecast");
+    expect(mocks.getPublicDashboardMetadata).toHaveBeenNthCalledWith(
+      1,
+      "shared",
+    );
+    expect(mocks.getPublicDashboardMetadata).toHaveBeenNthCalledWith(
+      2,
+      "private",
+    );
   });
 
   it("uses analysis title and description only when the analysis is public", async () => {

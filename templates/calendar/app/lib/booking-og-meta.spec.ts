@@ -1,3 +1,4 @@
+import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const database = vi.hoisted(() => ({
@@ -73,7 +74,9 @@ describe("booking OG meta", () => {
       duration: 30,
     });
     expect(url.searchParams.get("username")).toBe("steve");
-    expect(url.searchParams.get("v")).toBe("2026-09-25T18:00:00.000Z");
+    expect(url.searchParams.get("bookingUpdatedAt")).toBe(
+      "2026-09-25T18:00:00.000Z",
+    );
     expect(where).toHaveBeenCalled();
   });
 
@@ -103,7 +106,12 @@ describe("booking OG meta", () => {
     expect(imageUrl.pathname).toBe(
       "/api/public/booking-links/meet-steve/og.png",
     );
-    expect(imageUrl.searchParams.get("v")).toBe("2026-09-25T18:00:00.000Z");
+    expect(imageUrl.searchParams.get("bookingUpdatedAt")).toBe(
+      "2026-09-25T18:00:00.000Z",
+    );
+    expect(imageUrl.searchParams.get("v")).toBe(
+      AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+    );
     expect(meta).toContainEqual({
       property: "og:image:width",
       content: "1200",

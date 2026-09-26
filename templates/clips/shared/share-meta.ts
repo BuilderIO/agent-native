@@ -162,10 +162,15 @@ export function resolveClipsSocialImageUrl(options: {
     recordingId: recording.id,
     fallback: "live-frame",
   });
-  return buildAgentApiUrls(recording.id, {
-    origin,
-    basePath,
-  }).frameUrl(SOCIAL_FRAME_AT_MS);
+  const frameUrl = new URL(
+    buildAgentApiUrls(recording.id, {
+      origin,
+      basePath,
+    }).frameUrl(SOCIAL_FRAME_AT_MS),
+  );
+  const version = recording.updatedAt?.trim();
+  if (version) frameUrl.searchParams.set("v", version);
+  return frameUrl.toString();
 }
 
 export function buildClipsShareMeta(options: {

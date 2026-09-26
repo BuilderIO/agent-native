@@ -77,7 +77,7 @@ export async function bookingOgLoader({
     request.url,
   );
   if (params.username) imageUrl.searchParams.set("username", params.username);
-  if (link) imageUrl.searchParams.set("v", link.updatedAt);
+  if (link) imageUrl.searchParams.set("bookingUpdatedAt", link.updatedAt);
   return {
     ogImageUrl: imageUrl.toString(),
     link: link ?? null,
