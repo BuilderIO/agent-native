@@ -364,6 +364,8 @@ const messages = {
     unavailableTitle: "سجل CRM هذا غير متاح",
     unavailableDescription:
       "ربما حُذف، أو أنه خارج السجلات التي يمكنك الوصول إليها.",
+    withheld:
+      "تغيّر الوصول إلى هذا السجل في نظام CRM المتصل. سيظل مخفيًا حتى المزامنة التالية.",
     panelLoadFailed: "تعذر تحميل لوحة السجل.",
     saveFailed: "تعذر حفظ التغيير.",
     signals: "الإشارات",

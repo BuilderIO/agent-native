@@ -10,7 +10,11 @@
  * record whose stored access scope no longer matches the current scope.
  */
 
-import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -129,8 +133,9 @@ export default defineAction({
       crmScopeResolver(ctx),
     );
     if (!inScope) {
-      throw new Error(
+      fail(
         "CRM provider access changed; the local record is withheld until it is refreshed.",
+        { errorCode: "crm_record_withheld", statusCode: 403 },
       );
     }
 

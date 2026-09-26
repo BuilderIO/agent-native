@@ -376,6 +376,8 @@ const messages = {
     unavailableTitle: "Cet enregistrement CRM est indisponible",
     unavailableDescription:
       "Il a peut-être été supprimé, ou il se trouve hors des enregistrements auxquels vous avez accès.",
+    withheld:
+      "L'accès à cet enregistrement a changé dans le CRM connecté. Il reste masqué jusqu'à la prochaine synchronisation.",
     panelLoadFailed: "Le panneau de l’enregistrement n’a pas pu être chargé.",
     saveFailed: "La modification n’a pas pu être enregistrée.",
     signals: "Signaux",

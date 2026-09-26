@@ -241,9 +241,12 @@ export function RecordWorkspace({
               are different answers and must not render the same. */}
           {pageQuery.error ? (
             <p className="text-sm text-destructive">
-              {pageQuery.error instanceof Error
-                ? pageQuery.error.message
-                : t("record.panelLoadFailed")}
+              {(pageQuery.error as { errorCode?: string }).errorCode ===
+              "crm_record_withheld"
+                ? t("record.withheld")
+                : pageQuery.error instanceof Error
+                  ? pageQuery.error.message
+                  : t("record.panelLoadFailed")}
             </p>
           ) : page ? (
             <>

@@ -353,6 +353,8 @@ const messages = {
     loadFailedDescription: "CRM 无法读取此记录，它可能不在你的访问范围内。",
     unavailableTitle: "此 CRM 记录不可用",
     unavailableDescription: "它可能已被删除，或不在你可访问的记录范围内。",
+    withheld:
+      "已连接的 CRM 中此记录的访问权限已更改。在下次同步之前，它将保持隐藏。",
     panelLoadFailed: "无法加载记录面板。",
     saveFailed: "无法保存此次更改。",
     signals: "信号",
