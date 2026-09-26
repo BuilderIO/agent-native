@@ -1402,6 +1402,7 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "添加",
   "settingsOrg.invite.send": "发送邀请",
   "settingsOrg.invite.sending": "正在发送…",
+  "settingsOrg.invite.invalidEmail": "请输入完整的邮箱地址。",
   "settingsOrg.invite.csvNoEmails": "此 CSV 中未找到有效邮箱。",
   "settingsOrg.auth.synced_other": "已同步到 {{count}} 个应用。",
   "settingsOrg.auth.syncedPartial_other":

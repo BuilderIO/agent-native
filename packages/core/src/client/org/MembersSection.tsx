@@ -54,6 +54,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import type { ShareOrgMember } from "../sharing/share-controller-helpers.js";
 import { DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS } from "../sharing/share-controller-helpers.js";
 import { useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
@@ -75,6 +76,7 @@ import {
   ORG_MEMBER_PAGE_SIZE,
 } from "./hooks.js";
 import { AppRoleControl, AppPermissionsPanel } from "./MemberAppRoles.js";
+import { SuccessorPicker } from "./SuccessorPicker.js";
 import { Button, ErrorText, SectionTooltipProvider } from "./TeamPrimitives.js";
 
 interface MemberListItem {
@@ -511,7 +513,6 @@ export function MembersTableCard({
                 appRoles={appRoles}
                 appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? []}
                 canManageAppRoles={Boolean(appRoleData?.canManage)}
-                transferCandidates={members}
                 canSelect={canBulkSelect}
                 selected={selectedEmails.has(m.email)}
                 onSelect={(checked) => toggleSelected(m.email, checked)}
@@ -679,7 +680,6 @@ export function MemberRow({
   appRoles,
   appRole,
   canManageAppRoles,
-  transferCandidates = [],
   canSelect = false,
   selected = false,
   onSelect,
@@ -694,7 +694,6 @@ export function MemberRow({
   appRoles?: AppRolesDescriptor;
   appRole?: string[];
   canManageAppRoles?: boolean;
-  transferCandidates?: MemberListItem[];
   canSelect?: boolean;
   selected?: boolean;
   onSelect?: (checked: boolean) => void;
@@ -704,22 +703,12 @@ export function MemberRow({
   const changeRole = useChangeMemberRole();
   const [editing, setEditing] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const [transferTo, setTransferTo] = useState(currentUserEmail ?? "");
-  const transferOptions = useMemo(() => {
-    const options = transferCandidates.filter(
-      (candidate) => candidate.email.toLowerCase() !== email.toLowerCase(),
-    );
-    if (
-      currentUserEmail &&
-      !options.some(
-        (candidate) =>
-          candidate.email.toLowerCase() === currentUserEmail.toLowerCase(),
-      )
-    ) {
-      options.unshift({ email: currentUserEmail, role: "member" });
-    }
-    return options;
-  }, [currentUserEmail, email, transferCandidates]);
+  const currentUser = useMemo(
+    () => (currentUserEmail ? { email: currentUserEmail } : null),
+    [currentUserEmail],
+  );
+  const [transfer, setTransfer] = useState<ShareOrgMember | null>(currentUser);
+  const transferTo = transfer?.email.trim() ?? "";
   const avatarUrl = image?.trim() || null;
   const displayName = name?.trim() || email;
 
@@ -831,27 +820,17 @@ export function MemberRow({
             ) : null}
             {confirmingRemove ? (
               <div className="flex flex-col items-end gap-1">
-                <Select
-                  value={transferTo || undefined}
-                  onValueChange={setTransferTo}
-                  disabled={
-                    removeMember.isPending || transferOptions.length === 0
-                  }
-                >
-                  <SelectTrigger
-                    className="h-7 w-52 text-xs"
-                    aria-label={t("org.transferTo")}
-                  >
-                    <SelectValue placeholder={t("org.transferTo")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {transferOptions.map((candidate) => (
-                      <SelectItem key={candidate.email} value={candidate.email}>
-                        {candidate.name?.trim() || candidate.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {currentUser ? (
+                  <SuccessorPicker
+                    value={transfer}
+                    onChange={setTransfer}
+                    excludeEmail={email}
+                    currentUser={currentUser}
+                    disabled={removeMember.isPending}
+                    size="sm"
+                    className="w-52"
+                  />
+                ) : null}
                 <div className="flex items-center gap-1">
                   <Button
                     type="button"
@@ -868,16 +847,12 @@ export function MemberRow({
                     emphasis="solid"
                     disabled={
                       removeMember.isPending ||
-                      !transferOptions.some(
-                        (candidate) =>
-                          candidate.email.toLowerCase() ===
-                          transferTo.trim().toLowerCase(),
-                      ) ||
-                      transferTo.trim().toLowerCase() === email.toLowerCase()
+                      !transferTo ||
+                      transferTo.toLowerCase() === email.toLowerCase()
                     }
                     onClick={() =>
                       removeMember.mutate(
-                        { email, transferTo: transferTo.trim() },
+                        { email, transferTo },
                         { onSettled: () => setConfirmingRemove(false) },
                       )
                     }
@@ -898,7 +873,7 @@ export function MemberRow({
                     aria-label={t("org.removeMember")}
                     disabled={removeMember.isPending}
                     onClick={() => {
-                      setTransferTo(currentUserEmail ?? "");
+                      setTransfer(currentUser);
                       setConfirmingRemove(true);
                     }}
                     className="inline-flex size-8 items-center justify-center text-muted-foreground hover:text-destructive disabled:opacity-50"

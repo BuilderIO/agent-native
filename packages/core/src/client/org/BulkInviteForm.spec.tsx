@@ -92,6 +92,97 @@ describe("BulkInviteForm", () => {
     });
   }
 
+  function type(input: HTMLInputElement, value: string) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  function emailInputs() {
+    return Array.from(
+      container.querySelectorAll<HTMLInputElement>('input[type="email"]'),
+    );
+  }
+
+  it("sends the valid rows and keeps a malformed one with its error", async () => {
+    mocks.bulkInvite.mutateAsync.mockResolvedValue({
+      succeeded: [
+        {
+          id: "inv_1",
+          email: "good@example.test",
+          role: "member",
+          status: "pending",
+          emailSent: false,
+        },
+      ],
+      failed: [],
+      total: 1,
+    });
+    const onClose = render(true);
+    type(emailInputs()[0]!, "not-an-email");
+    const addAnother = Array.from(container.querySelectorAll("button")).find(
+      (button) =>
+        button.textContent?.includes("agentChat.settingsOrg.invite.addAnother"),
+    );
+    act(() => addAnother!.click());
+    type(emailInputs()[1]!, "good@example.test");
+
+    const form = container.querySelector("form")!;
+    expect(form.noValidate).toBe(true);
+    await act(async () => {
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(mocks.bulkInvite.mutateAsync).toHaveBeenCalledWith([
+      expect.objectContaining({ email: "good@example.test" }),
+    ]);
+    expect(onClose).not.toHaveBeenCalled();
+    const [remaining] = emailInputs();
+    expect(emailInputs()).toHaveLength(1);
+    expect(remaining!.value).toBe("not-an-email");
+    expect(remaining!.getAttribute("aria-invalid")).toBe("true");
+    expect(container.textContent).toContain(
+      "agentChat.settingsOrg.invite.invalidEmail",
+    );
+  });
+
+  it("leaves out the app when no app role is picked", async () => {
+    mocks.bulkInvite.mutateAsync.mockResolvedValue({
+      succeeded: [
+        {
+          id: "inv_1",
+          email: "new@example.test",
+          role: "member",
+          status: "pending",
+          emailSent: true,
+        },
+      ],
+      failed: [],
+      total: 1,
+    });
+    act(() =>
+      root.render(
+        <BulkInviteForm
+          currentUserRole="owner"
+          emailConfigured
+          appRoles={{ appId: "clips", roles: ["viewer", "editor"] }}
+          onClose={vi.fn()}
+        />,
+      ),
+    );
+    await submit("new@example.test");
+
+    const [invite] = mocks.bulkInvite.mutateAsync.mock.calls[0]![0];
+    expect(invite).not.toHaveProperty("appId");
+    expect(invite.appRoles).toBeUndefined();
+  });
+
   it("says invites won't be emailed when email isn't configured", () => {
     render(false);
     expect(container.textContent).toContain(

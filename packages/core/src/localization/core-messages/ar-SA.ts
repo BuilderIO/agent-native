@@ -1523,6 +1523,7 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "إضافة",
   "settingsOrg.invite.send": "إرسال الدعوات",
   "settingsOrg.invite.sending": "جارٍ الإرسال…",
+  "settingsOrg.invite.invalidEmail": "أدخل عنوان بريد إلكتروني كاملًا.",
   "settingsOrg.invite.csvNoEmails":
     "لم يتم العثور على عناوين بريد إلكتروني صالحة في ملف CSV هذا.",
   "settingsOrg.auth.synced_zero": "تمت المزامنة مع {{count}} تطبيق.",

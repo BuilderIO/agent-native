@@ -58,6 +58,7 @@ import { canInviteOrgMembers } from "../../../org/permissions.js";
 import type { OrgInfo, OrgRole } from "../../../org/types.js";
 import { useT } from "../../i18n.js";
 import { useSettingsPageHeader } from "../../settings/shell/context.js";
+import type { ShareOrgMember } from "../../sharing/share-controller-helpers.js";
 import { DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS } from "../../sharing/share-controller-helpers.js";
 import { BulkInviteForm } from "../BulkInviteForm.js";
 import { GroupsSection } from "../GroupsSection.js";
@@ -70,6 +71,7 @@ import {
 } from "../hooks.js";
 import { AppPermissionsPanel, AppRoleControl } from "../MemberAppRoles.js";
 import { MemberPagination } from "../MembersSection.js";
+import { SuccessorPicker } from "../SuccessorPicker.js";
 import {
   DialogErrorAlert,
   ErrorText,
@@ -100,41 +102,33 @@ function initials(value: string): string {
 function RemoveMemberDialog({
   member,
   orgName,
-  candidates,
   currentUserEmail,
   onClose,
 }: {
   member: MemberItem | null;
   orgName: string;
-  candidates: MemberItem[];
   currentUserEmail: string;
   onClose: () => void;
 }) {
   const t = useT();
   const removeMember = useRemoveMember();
   const transferId = useId();
-  const [transferTo, setTransferTo] = useState(currentUserEmail);
-  const options = useMemo(() => {
-    if (!member) return [];
-    const target = member.email.toLowerCase();
-    const list = candidates.filter(
-      (candidate) => candidate.email.toLowerCase() !== target,
-    );
-    if (
-      !list.some(
-        (candidate) =>
-          candidate.email.toLowerCase() === currentUserEmail.toLowerCase(),
-      )
-    ) {
-      list.unshift({ email: currentUserEmail, role: "member" });
-    }
-    return list;
-  }, [candidates, currentUserEmail, member]);
+  const currentUser = useMemo(
+    () => ({ email: currentUserEmail }),
+    [currentUserEmail],
+  );
+  const [transfer, setTransfer] = useState<ShareOrgMember | null>(
+    member && member.email.toLowerCase() !== currentUserEmail.toLowerCase()
+      ? currentUser
+      : null,
+  );
 
   const name = member ? member.name?.trim() || member.email : "";
-  const validTransfer = options.some(
-    (candidate) => candidate.email.toLowerCase() === transferTo.toLowerCase(),
-  );
+  const transferTo = transfer?.email ?? "";
+  const validTransfer =
+    !!member &&
+    !!transferTo &&
+    transferTo.toLowerCase() !== member.email.toLowerCase();
 
   return (
     <Dialog
@@ -167,22 +161,15 @@ function RemoveMemberDialog({
           </DialogHeader>
           <div className="grid gap-2">
             <Label htmlFor={transferId}>{t("org.transferTo")}</Label>
-            <Select
-              value={transferTo || undefined}
-              onValueChange={setTransferTo}
+            <SuccessorPicker
+              id={transferId}
+              value={transfer}
+              onChange={setTransfer}
+              excludeEmail={member?.email ?? ""}
+              currentUser={currentUser}
               disabled={removeMember.isPending}
-            >
-              <SelectTrigger id={transferId}>
-                <SelectValue placeholder={t("org.transferTo")} />
-              </SelectTrigger>
-              <SelectContent>
-                {options.map((candidate) => (
-                  <SelectItem key={candidate.email} value={candidate.email}>
-                    {candidate.name?.trim() || candidate.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className="w-full"
+            />
           </div>
           <DialogErrorAlert error={removeMember.error} />
           <DialogFooter>
@@ -603,7 +590,6 @@ function OrgMembersContent({
         key={removing?.email ?? ""}
         member={removing}
         orgName={org.orgName ?? ""}
-        candidates={members}
         currentUserEmail={org.email}
         onClose={() => setRemoving(null)}
       />

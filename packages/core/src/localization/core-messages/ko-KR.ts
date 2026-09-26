@@ -1480,6 +1480,7 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "추가",
   "settingsOrg.invite.send": "초대 보내기",
   "settingsOrg.invite.sending": "보내는 중…",
+  "settingsOrg.invite.invalidEmail": "전체 이메일 주소를 입력하세요.",
   "settingsOrg.invite.csvNoEmails":
     "이 CSV에서 유효한 이메일을 찾지 못했습니다.",
   "settingsOrg.auth.synced_other": "앱 {{count}}개에 동기화했습니다.",

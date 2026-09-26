@@ -1488,6 +1488,7 @@ const messages = {
   "settingsOrg.invite.add": "Add",
   "settingsOrg.invite.send": "Send invites",
   "settingsOrg.invite.sending": "Sending…",
+  "settingsOrg.invite.invalidEmail": "Enter a full email address.",
   "settingsOrg.invite.csvNoEmails": "No valid emails found in this CSV.",
   "settingsOrg.auth.synced_one": "Synced to {{count}} app.",
   "settingsOrg.auth.synced_other": "Synced to {{count}} apps.",

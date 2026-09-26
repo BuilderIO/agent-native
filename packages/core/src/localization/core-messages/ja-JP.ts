@@ -1507,6 +1507,7 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "追加",
   "settingsOrg.invite.send": "招待を送信",
   "settingsOrg.invite.sending": "送信中…",
+  "settingsOrg.invite.invalidEmail": "完全なメールアドレスを入力してください。",
   "settingsOrg.invite.csvNoEmails":
     "この CSV に有効なメールアドレスが見つかりませんでした。",
   "settingsOrg.auth.synced_other": "{{count}} 個のアプリと同期しました。",

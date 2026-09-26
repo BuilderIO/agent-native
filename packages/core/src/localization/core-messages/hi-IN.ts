@@ -1465,6 +1465,7 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "जोड़ें",
   "settingsOrg.invite.send": "आमंत्रण भेजें",
   "settingsOrg.invite.sending": "भेजा जा रहा है…",
+  "settingsOrg.invite.invalidEmail": "पूरा ईमेल पता दर्ज करें।",
   "settingsOrg.invite.csvNoEmails": "इस CSV में कोई मान्य ईमेल नहीं मिला।",
   "settingsOrg.auth.synced_one": "{{count}} ऐप के साथ सिंक किया गया।",
   "settingsOrg.auth.synced_other": "{{count}} ऐप्स के साथ सिंक किया गया।",

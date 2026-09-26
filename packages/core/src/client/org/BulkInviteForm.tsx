@@ -154,6 +154,7 @@ export function BulkInviteForm({
   const [pasteValue, setPasteValue] = useState("");
   const [pasteRole, setPasteRole] = useState<InviteRole>("member");
   const [csvError, setCsvError] = useState<string | null>(null);
+  const [showInvalid, setShowInvalid] = useState(false);
   const [result, setResult] = useState<{
     succeeded: number;
     allEmailed: boolean;
@@ -218,6 +219,7 @@ export function BulkInviteForm({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (bulkInvite.isPending) return;
+    setShowInvalid(true);
     setResult(null);
     const dedup = new Map<string, DraftInvite>();
     for (const d of validDrafts) {
@@ -226,11 +228,13 @@ export function BulkInviteForm({
       const role = canSetAdmin ? d.role : "member";
       dedup.set(d.email, { ...d, role });
     }
-    const invites = Array.from(dedup.values()).map((invite) => ({
-      ...invite,
-      appId: appRoles?.appId,
-      appRoles: invite.appRoles?.length ? invite.appRoles : undefined,
-    }));
+    // The server reads a defined appId as an app-role assignment, so an invite
+    // with no roles picked must leave both out.
+    const invites = Array.from(dedup.values()).map((invite) =>
+      invite.appRoles?.length && appRoles
+        ? { ...invite, appId: appRoles.appId, appRoles: invite.appRoles }
+        : { ...invite, appRoles: undefined },
+    );
     if (invites.length === 0) return;
 
     let response: Awaited<ReturnType<typeof bulkInvite.mutateAsync>>;
@@ -243,32 +247,42 @@ export function BulkInviteForm({
 
     const succeeded = response.succeeded.length;
     const allEmailed = response.succeeded.every((invite) => invite.emailSent);
-    if (response.failed.length === 0) {
+    const malformed = drafts.filter((d) => {
+      const typed = d.email.trim();
+      return typed && !EMAIL_RE.test(typed);
+    });
+    if (response.failed.length === 0 && malformed.length === 0) {
       toast.success(savedMessage(succeeded, allEmailed));
       onClose();
       return;
     }
 
-    // Keep only the rows that failed, each with its own error, so they can be
-    // fixed and sent again.
+    // Keep only the rows that failed or never sent, each with its own error,
+    // so they can be fixed and sent again.
     const failed = new Map(response.failed.map((f) => [f.email, f.error]));
     setResult({ succeeded, allEmailed, failed });
     setDrafts((prev) => {
-      const remaining = prev.filter((d) =>
-        failed.has(d.email.trim().toLowerCase()),
+      const remaining = prev.filter(
+        (d) =>
+          failed.has(d.email.trim().toLowerCase()) || malformed.includes(d),
       );
       return remaining.length > 0 ? remaining : [{ email: "", role: "member" }];
     });
   }
 
   return (
-    <form className="grid gap-4" onSubmit={submit}>
+    <form className="grid gap-4" noValidate onSubmit={submit}>
       <div className="grid gap-2">
         <Label htmlFor={emailId(0)}>
           {t("agentChat.settingsOrg.invite.emails")}
         </Label>
         {drafts.map((draft, i) => {
-          const rowError = result?.failed.get(draft.email.trim().toLowerCase());
+          const typed = draft.email.trim();
+          const rowError =
+            result?.failed.get(typed.toLowerCase()) ??
+            (showInvalid && typed && !EMAIL_RE.test(typed)
+              ? t("agentChat.settingsOrg.invite.invalidEmail")
+              : undefined);
           const errorId = `${emailId(i)}-error`;
           return (
             <div key={i} className="grid gap-1.5">
@@ -278,6 +292,7 @@ export function BulkInviteForm({
                   type="email"
                   value={draft.email}
                   onChange={(e) => setDraft(i, { email: e.target.value })}
+                  onBlur={() => setShowInvalid(true)}
                   placeholder={t(
                     "agentChat.settingsOrg.invite.emailPlaceholder",
                   )}

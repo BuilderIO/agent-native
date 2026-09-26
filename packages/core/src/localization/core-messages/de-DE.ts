@@ -1559,6 +1559,8 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.add": "Hinzufügen",
   "settingsOrg.invite.send": "Einladungen senden",
   "settingsOrg.invite.sending": "Wird gesendet…",
+  "settingsOrg.invite.invalidEmail":
+    "Gib eine vollständige E-Mail-Adresse ein.",
   "settingsOrg.invite.csvNoEmails":
     "In dieser CSV wurden keine gültigen E-Mail-Adressen gefunden.",
   "settingsOrg.auth.synced_one": "Mit {{count}} App synchronisiert.",
