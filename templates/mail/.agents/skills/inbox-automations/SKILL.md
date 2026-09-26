@@ -24,14 +24,43 @@ custom label is Gmail's provider-controlled Spam system label.
 ## Automation rules
 
 `manage-email-rules` rules match new inbound mail against a natural-language
-`condition` using AI, then apply `actions` (`label`, `archive`, `mark_read`,
-`star`, `trash`). Rules run on a per-minute cron automatically;
-`trigger-automations` forces immediate processing (debounced — a
-just-triggered run may report "skipped, try again in 30 seconds").
+`condition` using AI. Label/archive-only rules use the canonical
+`kind=ai-filter` path shared with Mail AI filter settings; mark-read, star, and
+trash rules keep legacy automation behavior. Mixed action sets remain legacy
+rules for compatibility.
+
+For a new AI rule, call `manage-email-rules` with `action: "create"`, one
+plain-language `sentence`, and `mode: "tag" | "important" | "filter" |
+"archive"`; tag mode also takes `tagName`. The shared create path stores the
+AI rule, pins tag labels as inbox tabs, and queues bounded recent-mail
+application. Inspect existing rules and update a matching rule before creating
+a duplicate. Update a rule with its `id`, revised `sentence`, and `mode` (and
+`tagName` for a tag). The inbox-tab cog lists AI tags first; unchecking a tag
+only hides its tab and never deletes its rule.
+
+For an AI rule that marks matching mail important, use the
+`agent-native-important` label without archiving. For unwanted mail, pair the
+`agent-native-filtered` label with archive; a plain archive request can use the
+archive action alone.
+
+Creating or updating an enabled AI-filter rule queues a backfill over recent
+mail (at most 200 inbox threads from the last 14 days). A queued result has
+`appliedCounts: null` plus `backfillRunId` and
+`backfillStatus`; report it as queued, not completed. When the action returns
+per-rule `appliedCounts`, report those exact counts. `settingsHref` opens Mail's
+AI filter settings for review. Rules also process new inbound mail on the
+per-minute cron; `trigger-automations` forces immediate processing (debounced —
+a just-triggered run may report "skipped, try again in 30 seconds").
 
 Priority sort uses enabled AI Important rules as its Jev instruction.
-`record-ai-priority-feedback` stores per-email important/not-important votes;
+Use `record-ai-priority-feedback` when the user says a specific email should or
+should not be important. It stores per-email important/not-important votes;
 Priority treats a vote as an explicit score override for that message.
+
+Use `refine-ai-filter` when the user supplies checked recent-email corrections
+for an existing AI-filter rule. It rewrites and saves that rule's condition,
+then queues the same bounded backfill and returns its run id/status and a
+Settings link; do not invent correction examples or report queued work as done.
 
 ## Gmail filters are a different mechanism
 

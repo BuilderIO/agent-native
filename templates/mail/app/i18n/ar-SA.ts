@@ -68,6 +68,25 @@ const messages = {
       aiSetupPromptTravel: "تأكيدات الرحلات والحجوزات التي أحتاجها",
       aiSetupTagFinance: "المالية",
       aiSetupPromptFinance: "الفواتير وكشوف الحسابات التي أحتاجها",
+      aiSetupArchiveExample:
+        "إشعارات الروبوتات وCI من GitHub وVercel وDependabot",
+      aiSetupFilteredExample:
+        "رسائل المبيعات غير المرغوبة والمجندون الذين لم أرد عليهم",
+      aiSetupSortingHeadline: "جارٍ تنظيم صندوق الوارد",
+      aiSetupSortingProgress:
+        "جارٍ تنظيم البريد الحديث: {{processed}} من {{total}}",
+      aiSetupUndoing: "جارٍ التراجع عن تغييرات صندوق الوارد…",
+      aiSetupSortingFailed:
+        "تعذّر تنظيم صندوق الوارد. حُفظت قواعدك؛ حاول مرة أخرى.",
+      aiSetupUndoComplete: "أُعيدت {{count}} رسالة إلى حالتها السابقة.",
+      aiSetupRuleCount: "{{count}} مطابقة",
+      aiSetupNoMatches: "لم تطابق أي رسائل خلال آخر 14 يومًا هذه القواعد.",
+      aiSetupChatTip: "يمكنك تحسين القواعد أو إضافتها في الدردشة متى شئت.",
+      aiSetupChatPrompt: "أعطِ الأولوية لرسائل مديري…",
+      aiSetupNoRules: "لم يتم اختيار أي قواعد.",
+      aiSetupPartialFailure: "تعذّر تحديث {{count}} رسالة.",
+      aiSetupSortInbox: "نظّم صندوق الوارد",
+      aiSetupImportantExample: "كل ما يصل من مديرتي Priya…",
       priorityFeedbackLabel: "تقييم الأهمية",
       priorityScoreHigh: "أهمية عالية",
       priorityScoreMedium: "أهمية متوسطة",
@@ -537,6 +556,8 @@ const messages = {
       labelNote:
         "يضيف تصنيف agent-native-filtered ويؤرشف المحادثة. يمكنك التراجع في أي وقت.",
       learningNote: "يبقي الرسالة في الوارد ويعلّم الفلتر ألا يكرر الخطأ.",
+      learningProgress:
+        "تم تأكيد {{count}} من أصل {{required}} أمثلة. ستتم مراجعة الرسائل الحديثة بعد تأكيد الأمثلة كلها.",
       rememberLabel: "تذكّر للرسائل المستقبلية (اختياري)",
       correctLabel: "ما الذي يجب أن يتعلمه؟ (اختياري)",
       rememberPlaceholder:
@@ -556,6 +577,23 @@ const messages = {
       spamMode: "مزعج",
       tagMode: "وسم",
       aiTagsTitle: "وسوم الذكاء الاصطناعي",
+      filteredMode: "مصفّى",
+      autoArchiveMode: "أرشفة تلقائية",
+      manageSettings: "إدارة",
+      askJev: "اسأل Jev",
+      askJevPrompt:
+        "ساعدني في تحسين قاعدة Mail هذه: {{condition}}. اسألني عما أريد تغييره ثم حدّثها.",
+      composerPlaceholder: "اطلب من Jev تنظيم صندوق الوارد…",
+      ruleBackfillStarting: "جارٍ تطبيق هذه القاعدة على البريد الحديث…",
+      ruleBackfillProgress:
+        "جارٍ التطبيق على البريد الحديث: {{processed}} من {{total}}",
+      ruleBackfillMatches: "تطابقت {{count}} رسالة حديثة",
+      ruleBackfillNoMatches: "لا توجد رسائل حديثة تطابق هذه القاعدة.",
+      ruleBackfillFailed: "تعذّر تطبيق هذه القاعدة على البريد الحديث.",
+      ruleBackfillPartialFailure: "تعذّر تحديث {{count}} رسالة.",
+      ruleBackfillUndoing: "جارٍ استعادة البريد الحديث…",
+      ruleBackfillUndoComplete: "تمت استعادة {{count}} رسالة",
+      ruleBackfillReview: "مراجعة النتائج",
       importantMode: "مهم",
       notImportantMode: "غير مهم",
       importantLabel: "مهم بالذكاء الاصطناعي",

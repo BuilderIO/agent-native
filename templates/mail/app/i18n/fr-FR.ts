@@ -72,6 +72,28 @@ const messages = {
         "Confirmations et réservations de voyage dont j’ai besoin",
       aiSetupTagFinance: "Finances",
       aiSetupPromptFinance: "Factures et relevés de compte dont j’ai besoin",
+      aiSetupArchiveExample:
+        "Notifications de bots et de CI de GitHub, Vercel et Dependabot",
+      aiSetupFilteredExample:
+        "Prospection commerciale non sollicitée et recruteurs auxquels je n’ai pas répondu",
+      aiSetupSortingHeadline: "Tri de votre boîte de réception",
+      aiSetupSortingProgress:
+        "Tri des messages récents : {{processed}} sur {{total}}",
+      aiSetupUndoing: "Annulation des changements dans la boîte de réception…",
+      aiSetupSortingFailed:
+        "Impossible de trier votre boîte de réception. Vos règles sont enregistrées ; réessayez.",
+      aiSetupUndoComplete:
+        "{{count}} messages ont retrouvé leur état précédent.",
+      aiSetupRuleCount: "{{count}} correspondances",
+      aiSetupNoMatches:
+        "Aucun message des 14 derniers jours ne correspond à ces règles.",
+      aiSetupChatTip:
+        "Vous pouvez modifier ou ajouter des règles dans le chat à tout moment.",
+      aiSetupChatPrompt: "Prioriser les e-mails de ma responsable…",
+      aiSetupNoRules: "Aucune règle n’a été sélectionnée.",
+      aiSetupPartialFailure: "{{count}} messages n’ont pas pu être mis à jour.",
+      aiSetupSortInbox: "Trier ma boîte de réception",
+      aiSetupImportantExample: "Tout ce qui vient de ma responsable, Priya…",
       priorityFeedbackLabel: "Retour sur l’importance",
       priorityScoreHigh: "Importance élevée",
       priorityScoreMedium: "Importance moyenne",
@@ -548,6 +570,8 @@ const messages = {
         "Ajoute le libellé agent-native-filtered et archive la conversation. Vous pouvez annuler à tout moment.",
       learningNote:
         "Garde le message dans la boîte de réception et apprend au filtre à ne pas répéter l’erreur.",
+      learningProgress:
+        "{{count}} exemple(s) sur {{required}} confirmé(s). Le courrier récent sera vérifié une fois les {{required}} confirmés.",
       rememberLabel: "Mémoriser pour les futurs messages (facultatif)",
       correctLabel: "Que doit-il apprendre ? (facultatif)",
       rememberPlaceholder:
@@ -569,6 +593,26 @@ const messages = {
       spamMode: "Indésirable",
       tagMode: "Tag",
       aiTagsTitle: "Tags IA",
+      filteredMode: "Filtrés",
+      autoArchiveMode: "Archivage automatique",
+      manageSettings: "Gérer",
+      askJev: "Demander à Jev",
+      askJevPrompt:
+        "Aidez-moi à améliorer cette règle Mail : {{condition}}. Demandez-moi ce que je souhaite modifier, puis mettez-la à jour.",
+      composerPlaceholder: "Demandez à Jev d’organiser votre boîte…",
+      ruleBackfillStarting: "Application de cette règle aux messages récents…",
+      ruleBackfillProgress:
+        "Application aux messages récents : {{processed}} sur {{total}}",
+      ruleBackfillMatches: "{{count}} messages récents correspondent",
+      ruleBackfillNoMatches:
+        "Aucun message récent ne correspond à cette règle.",
+      ruleBackfillFailed:
+        "Impossible d’appliquer cette règle aux messages récents.",
+      ruleBackfillPartialFailure:
+        "{{count}} messages n’ont pas pu être mis à jour.",
+      ruleBackfillUndoing: "Restauration des messages récents…",
+      ruleBackfillUndoComplete: "{{count}} messages restaurés",
+      ruleBackfillReview: "Examiner les correspondances",
       importantMode: "Important",
       notImportantMode: "Pas important",
       importantLabel: "Important par IA",
