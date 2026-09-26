@@ -748,6 +748,80 @@ const messages = {
       "게스트로 탐색 중입니다. 로그인하면 계획을 만들고 댓글을 남기며 작업을 보관할 수 있습니다.",
     signIn: "로그인",
   },
+  edition: {
+    rail: {
+      notes: "메모",
+      inThisBuild: "이번 빌드",
+      threads: "스레드",
+      partial: "* 일부 풀 리퀘스트가 변경 내역을 보고하지 않았습니다",
+    },
+    promise: {
+      readTime: "약 {{minutes}}분",
+      unavailable: "사용할 수 없음",
+      analysed_other: "풀 리퀘스트 {{count}}건 분석",
+      storyCount_other: "기사 {{count}}건",
+      areaCount_other: "영역 {{count}}개",
+    },
+    nav: {
+      label: "발행호",
+    },
+    masthead: {
+      issue: "제 {{number}}호",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "엔지니어링 일보",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "배포된 내용",
+      fileCount_other: "{{count}}개 파일",
+      sources: "출처",
+      quickLinks: "간단 소식",
+      authors: "작성자: {{names}}",
+      prCount_other: "PR {{count}}건",
+      whyAndHow: "이유와 작동 방식",
+      why: "이유",
+      howItWorks: "작동 방식",
+      diffUnavailable: "변경 규모를 확인할 수 없음",
+    },
+    coverage: {
+      unresolvedBlocks: "확인할 수 없는 인용 블록: {{total}}",
+      label: "커버리지",
+      reposLabel: "저장소",
+      reposUnavailable: "저장소 정보를 확인할 수 없음",
+      staleNote:
+        "이 병합된 풀 리퀘스트에는 요약이 있지만 병합 시 다시 게시되지 않아 변경의 이전 상태를 설명할 수 있습니다.",
+      missingNote:
+        "다음 병합된 풀 리퀘스트에는 요약이 없어 이번 호에서 다루지 않습니다.",
+      complete: "이 기간에 병합된 모든 풀 리퀘스트에 요약이 있습니다.",
+      unknown: "이번 호의 커버리지가 기록되지 않아 누락 여부를 알 수 없습니다.",
+    },
+    reader: {
+      loading: "호를 불러오는 중",
+      error: "이번 호를 불러올 수 없습니다.",
+      retry: "다시 시도",
+      notFound: "해당 호를 볼 수 없습니다.",
+      noStories: "이번 호에는 기사가 없습니다.",
+    },
+    listen: {
+      voice: "음성",
+      play: "듣기",
+      pause: "일시정지",
+      resume: "계속",
+      stop: "읽기 중지",
+      preparing: "준비 중…",
+      failed: "이 호를 소리 내어 읽을 수 없습니다: {reason}",
+    },
+    signIn: {
+      prompt: "신문을 읽으려면 로그인하세요.",
+    },
+    archive: {
+      build: "오늘 발행호 만들기",
+      loading: "호 목록을 불러오는 중",
+      error: "호 아카이브를 불러올 수 없습니다.",
+      retry: "다시 시도",
+      empty: "아직 발행된 호가 없습니다.",
+    },
+  },
 };
 
 export default messages;

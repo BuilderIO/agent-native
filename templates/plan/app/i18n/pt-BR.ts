@@ -796,6 +796,91 @@ const messages = {
       "Voce esta navegando como convidado. Entre para criar planos, deixar comentarios e manter seu trabalho.",
     signIn: "Entrar",
   },
+  edition: {
+    rail: {
+      notes: "Notas",
+      inThisBuild: "Nesta build",
+      threads: "Tópicos",
+      partial: "* parcial: alguns pull requests não informaram diferenças",
+    },
+    promise: {
+      readTime: "~{{minutes}} min",
+      unavailable: "Não disponível",
+      analysed_one: "{{count}} pull request analisado",
+      analysed_many: "{{count}} pull requests analisados",
+      analysed_other: "{{count}} pull requests analisados",
+      storyCount_one: "{{count}} matéria",
+      storyCount_many: "{{count}} matérias",
+      storyCount_other: "{{count}} matérias",
+      areaCount_one: "{{count}} área",
+      areaCount_many: "{{count}} áreas",
+      areaCount_other: "{{count}} áreas",
+    },
+    nav: {
+      label: "Edições",
+    },
+    masthead: {
+      issue: "N.º {{number}}",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "O Diário de Engenharia",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "O que foi lançado",
+      fileCount_one: "{{count}} arquivo",
+      fileCount_many: "{{count}} arquivos",
+      fileCount_other: "{{count}} arquivos",
+      sources: "Fontes",
+      quickLinks: "Links rápidos",
+      authors: "Autores: {{names}}",
+      prCount_one: "{{count}} PR",
+      prCount_many: "{{count}} PRs",
+      prCount_other: "{{count}} PRs",
+      whyAndHow: "Por que e como funciona",
+      why: "Por quê",
+      howItWorks: "Como funciona",
+      diffUnavailable: "Tamanho do diff indisponível",
+    },
+    coverage: {
+      unresolvedBlocks: "Blocos citados que não resolvem mais: {{total}}",
+      label: "Cobertura",
+      reposLabel: "Repositórios",
+      reposUnavailable: "Repositórios indisponíveis",
+      staleNote:
+        "Estes pull requests mesclados têm um resumo, mas ele nunca foi republicado na mesclagem, portanto pode descrever um estado anterior da alteração.",
+      missingNote:
+        "Estes pull requests mesclados não têm resumo, então esta edição não os cobre.",
+      complete: "Todos os pull requests mesclados neste período têm resumo.",
+      unknown:
+        "A cobertura desta edição não foi registrada, então a lacuna é desconhecida.",
+    },
+    reader: {
+      loading: "Carregando a edição",
+      error: "Não foi possível carregar esta edição.",
+      retry: "Tentar novamente",
+      notFound: "Essa edição não está disponível.",
+      noStories: "Esta edição não tem artigos.",
+    },
+    listen: {
+      voice: "Voz",
+      play: "Ouvir",
+      pause: "Pausar",
+      resume: "Retomar",
+      stop: "Parar a leitura",
+      preparing: "Preparando…",
+      failed: "Não foi possível ler esta edição em voz alta: {reason}",
+    },
+    signIn: {
+      prompt: "Entre para ler o jornal.",
+    },
+    archive: {
+      build: "Criar a edição de hoje",
+      loading: "Carregando edições",
+      error: "Não foi possível carregar o arquivo de edições.",
+      retry: "Tentar novamente",
+      empty: "Ainda não há edições.",
+    },
+  },
 };
 
 export default messages;

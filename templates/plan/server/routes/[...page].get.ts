@@ -16,6 +16,12 @@ import {
 } from "h3";
 
 import { PLAN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+import {
+  planKindFromRouteSegment,
+  planPathForKind,
+  planRouteSegmentPattern,
+} from "../../shared/plan-routes.js";
+import type { PlanKind } from "../../shared/types.js";
 
 const ssrHandler = createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
@@ -31,24 +37,26 @@ function stripBasePath(pathname: string): string {
   return pathname;
 }
 
-function planFromPath(pathname: string): {
-  id: string;
-  kind: "plan" | "recap";
-} | null {
+const PLAN_PAGE_PATH_PATTERN = new RegExp(
+  `^\\/(${planRouteSegmentPattern()})\\/([^/]+)\\/?$`,
+);
+
+function planFromPath(pathname: string): { id: string; kind: PlanKind } | null {
   const stripped = stripBasePath(pathname);
-  const match = stripped.match(/^\/(plans|recaps)\/([^/]+)\/?$/);
+  const match = stripped.match(PLAN_PAGE_PATH_PATTERN);
   if (!match?.[1] || !match[2]) return null;
+  const kind = planKindFromRouteSegment(match[1]);
+  if (!kind) return null;
+  const rawId = match[2];
+  let id: string;
   try {
-    return {
-      kind: match[1] === "recaps" ? "recap" : "plan",
-      id: decodeURIComponent(match[2]),
-    };
+    id = decodeURIComponent(rawId);
   } catch {
-    return {
-      kind: match[1] === "recaps" ? "recap" : "plan",
-      id: match[2],
-    };
+    // A malformed percent-escape is still a routable segment; discovery only
+    // needs the literal id the client will request.
+    id = rawId;
   }
+  return { kind, id };
 }
 
 function queryString(value: unknown): string {
@@ -73,10 +81,7 @@ export default defineEventHandler(async (event) => {
     buildAgentReadableResourceDiscovery({
       resourceType: "plan",
       resourceId: resource.id,
-      path:
-        resource.kind === "recap"
-          ? `/recaps/${resource.id}`
-          : `/plans/${resource.id}`,
+      path: planPathForKind(resource.id, resource.kind),
       contextEndpoint: PLAN_AGENT_CONTEXT_ENDPOINT,
       origin: requestUrl.origin,
       basePath: getConfiguredAppBasePath(),

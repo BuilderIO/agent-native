@@ -30,11 +30,10 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently.
-export const runPlanMigrations = runMigrations(
-  [
-    {
-      version: 1,
-      sql: `CREATE TABLE IF NOT EXISTS plans (
+export const planMigrations = [
+  {
+    version: 1,
+    sql: `CREATE TABLE IF NOT EXISTS plans (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   brief TEXT NOT NULL,
@@ -51,10 +50,10 @@ export const runPlanMigrations = runMigrations(
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
 )`,
-    },
-    {
-      version: 2,
-      sql: `CREATE TABLE IF NOT EXISTS plan_sections (
+  },
+  {
+    version: 2,
+    sql: `CREATE TABLE IF NOT EXISTS plan_sections (
   id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL REFERENCES plans(id),
   type TEXT NOT NULL DEFAULT 'custom',
@@ -66,10 +65,10 @@ export const runPlanMigrations = runMigrations(
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`,
-    },
-    {
-      version: 3,
-      sql: `CREATE TABLE IF NOT EXISTS plan_comments (
+  },
+  {
+    version: 3,
+    sql: `CREATE TABLE IF NOT EXISTS plan_comments (
   id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL REFERENCES plans(id),
   section_id TEXT REFERENCES plan_sections(id),
@@ -82,10 +81,10 @@ export const runPlanMigrations = runMigrations(
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`,
-    },
-    {
-      version: 4,
-      sql: `CREATE TABLE IF NOT EXISTS plan_events (
+  },
+  {
+    version: 4,
+    sql: `CREATE TABLE IF NOT EXISTS plan_events (
   id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL REFERENCES plans(id),
   type TEXT NOT NULL,
@@ -94,11 +93,11 @@ export const runPlanMigrations = runMigrations(
   created_by TEXT NOT NULL DEFAULT 'agent',
   created_at TEXT NOT NULL
 )`,
-    },
-    {
-      version: 5,
-      sql: {
-        postgres: `CREATE TABLE IF NOT EXISTS plan_shares (
+  },
+  {
+    version: 5,
+    sql: {
+      postgres: `CREATE TABLE IF NOT EXISTS plan_shares (
   id TEXT PRIMARY KEY,
   resource_id TEXT NOT NULL,
   principal_type TEXT NOT NULL,
@@ -107,75 +106,75 @@ export const runPlanMigrations = runMigrations(
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (now())
 )`,
-      },
     },
-    {
-      version: 6,
-      sql: `CREATE INDEX IF NOT EXISTS plans_owner_status_idx ON plans(owner_email, org_id, status, updated_at)`,
+  },
+  {
+    version: 6,
+    sql: `CREATE INDEX IF NOT EXISTS plans_owner_status_idx ON plans(owner_email, org_id, status, updated_at)`,
+  },
+  {
+    version: 7,
+    sql: `CREATE INDEX IF NOT EXISTS plan_sections_plan_idx ON plan_sections(plan_id, sort_order)`,
+  },
+  {
+    version: 8,
+    sql: `CREATE INDEX IF NOT EXISTS plan_comments_plan_status_idx ON plan_comments(plan_id, status, consumed_at)`,
+  },
+  {
+    version: 9,
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS content TEXT`,
     },
-    {
-      version: 7,
-      sql: `CREATE INDEX IF NOT EXISTS plan_sections_plan_idx ON plan_sections(plan_id, sort_order)`,
+  },
+  {
+    version: 10,
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_id TEXT`,
     },
-    {
-      version: 8,
-      sql: `CREATE INDEX IF NOT EXISTS plan_comments_plan_status_idx ON plan_comments(plan_id, status, consumed_at)`,
+  },
+  {
+    version: 11,
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_url TEXT`,
     },
-    {
-      version: 9,
-      sql: {
-        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS content TEXT`,
-      },
-    },
-    {
-      version: 10,
-      sql: {
-        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_id TEXT`,
-      },
-    },
-    {
-      version: 11,
-      sql: {
-        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_url TEXT`,
-      },
-    },
-    {
-      version: 12,
-      sql: `CREATE TABLE IF NOT EXISTS plan_guest_mints (
+  },
+  {
+    version: 12,
+    sql: `CREATE TABLE IF NOT EXISTS plan_guest_mints (
   id TEXT PRIMARY KEY,
   ip_hash TEXT NOT NULL,
   created_at TEXT NOT NULL
 )`,
-    },
-    {
-      version: 13,
-      sql: `CREATE INDEX IF NOT EXISTS plan_guest_mints_ip_created_idx ON plan_guest_mints(ip_hash, created_at)`,
-    },
-    {
-      version: 14,
-      sql: `CREATE INDEX IF NOT EXISTS plans_owner_created_idx ON plans(owner_email, created_at)`,
-    },
-    {
-      version: 15,
-      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS author_email TEXT;
+  },
+  {
+    version: 13,
+    sql: `CREATE INDEX IF NOT EXISTS plan_guest_mints_ip_created_idx ON plan_guest_mints(ip_hash, created_at)`,
+  },
+  {
+    version: 14,
+    sql: `CREATE INDEX IF NOT EXISTS plans_owner_created_idx ON plans(owner_email, created_at)`,
+  },
+  {
+    version: 15,
+    sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS author_email TEXT;
 ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS author_name TEXT`,
-    },
-    {
-      version: 16,
-      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS parent_comment_id TEXT REFERENCES plan_comments(id);
+  },
+  {
+    version: 16,
+    sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS parent_comment_id TEXT REFERENCES plan_comments(id);
 CREATE INDEX IF NOT EXISTS plan_comments_parent_idx ON plan_comments(parent_comment_id)`,
-    },
-    {
-      version: 17,
-      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolution_target TEXT;
+  },
+  {
+    version: 17,
+    sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolution_target TEXT;
 ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT;
 ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolved_by TEXT;
 ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS resolved_at TEXT;
 CREATE INDEX IF NOT EXISTS plan_comments_resolution_idx ON plan_comments(plan_id, resolution_target, status, consumed_at)`,
-    },
-    {
-      version: 18,
-      sql: `CREATE TABLE IF NOT EXISTS plan_versions (
+  },
+  {
+    version: 18,
+    sql: `CREATE TABLE IF NOT EXISTS plan_versions (
   id TEXT PRIMARY KEY,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   plan_id TEXT NOT NULL REFERENCES plans(id),
@@ -186,34 +185,34 @@ CREATE INDEX IF NOT EXISTS plan_comments_resolution_idx ON plan_comments(plan_id
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS plan_versions_plan_owner_created_idx ON plan_versions(plan_id, owner_email, created_at)`,
-    },
-    {
-      // `kind` distinguishes read-only visual recaps from editable plans. Add it
-      // with a 'plan' default, then backfill existing recaps (identified by the
-      // recap-review focus the create-visual-recap action sets).
-      version: 19,
-      sql: {
-        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'plan';
+  },
+  {
+    // `kind` distinguishes read-only visual recaps from editable plans. Add it
+    // with a 'plan' default, then backfill existing recaps (identified by the
+    // recap-review focus the create-visual-recap action sets).
+    version: 19,
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'plan';
 UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual recap review'`,
-      },
     },
-    {
-      // plan_events is an append-only log shared across every plan. loadPlanBundle
-      // reads `WHERE plan_id = $1 ORDER BY created_at` on each plan open, which
-      // seq-scanned the whole growing table (plan_sections.plan_id and
-      // plan_comments.plan_id are already covered by v7/v8/v17 composites; this
-      // was the one hot-path lookup left unindexed).
-      version: 20,
-      sql: `CREATE INDEX IF NOT EXISTS plan_events_plan_created_idx ON plan_events(plan_id, created_at)`,
-    },
-    {
-      // Token usage + derived cost for the LLM run that produced a recap. All
-      // nullable and additive — only populated for kind="recap" rows by the PR
-      // Visual Recap workflow. Cost is centicents (1/100¢), matching core's
-      // token_usage.cost_cents_x100 so the two surfaces are directly comparable.
-      version: 21,
-      sql: {
-        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_agent TEXT;
+  },
+  {
+    // plan_events is an append-only log shared across every plan. loadPlanBundle
+    // reads `WHERE plan_id = $1 ORDER BY created_at` on each plan open, which
+    // seq-scanned the whole growing table (plan_sections.plan_id and
+    // plan_comments.plan_id are already covered by v7/v8/v17 composites; this
+    // was the one hot-path lookup left unindexed).
+    version: 20,
+    sql: `CREATE INDEX IF NOT EXISTS plan_events_plan_created_idx ON plan_events(plan_id, created_at)`,
+  },
+  {
+    // Token usage + derived cost for the LLM run that produced a recap. All
+    // nullable and additive — only populated for kind="recap" rows by the PR
+    // Visual Recap workflow. Cost is centicents (1/100¢), matching core's
+    // token_usage.cost_cents_x100 so the two surfaces are directly comparable.
+    version: 21,
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_agent TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_model TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_input_tokens INTEGER;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_output_tokens INTEGER;
@@ -222,11 +221,11 @@ ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cache_write_tokens INTEGER;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cost_cents_x100 INTEGER;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cost_source TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_recorded_at TEXT`,
-      },
     },
-    {
-      version: 22,
-      sql: `CREATE TABLE IF NOT EXISTS plan_assets (
+  },
+  {
+    version: 22,
+    sql: `CREATE TABLE IF NOT EXISTS plan_assets (
   id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL REFERENCES plans(id),
   filename TEXT NOT NULL,
@@ -236,14 +235,14 @@ ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_recorded_at TEXT`,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS plan_assets_plan_idx ON plan_assets(plan_id, created_at)`,
-    },
-    {
-      version: 23,
-      sql: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_url TEXT`,
-    },
-    {
-      version: 24,
-      sql: `CREATE TABLE IF NOT EXISTS plan_reports (
+  },
+  {
+    version: 23,
+    sql: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_url TEXT`,
+  },
+  {
+    version: 24,
+    sql: `CREATE TABLE IF NOT EXISTS plan_reports (
   id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL REFERENCES plans(id),
   reason TEXT NOT NULL,
@@ -258,72 +257,72 @@ CREATE INDEX IF NOT EXISTS plan_assets_plan_idx ON plan_assets(plan_id, created_
 );
 CREATE INDEX IF NOT EXISTS plan_reports_plan_status_idx ON plan_reports(plan_id, status, updated_at);
 CREATE INDEX IF NOT EXISTS plan_reports_status_updated_idx ON plan_reports(status, updated_at)`,
-    },
-    {
-      version: 25,
-      sql: `CREATE INDEX IF NOT EXISTS plan_reports_plan_reporter_status_idx ON plan_reports(plan_id, reporter_email, status)`,
-    },
-    {
-      version: 26,
-      sql: `CREATE INDEX IF NOT EXISTS plan_shares_resource_principal_idx ON plan_shares(resource_id, principal_type, principal_id)`,
-    },
-    {
-      version: 27,
-      sql: `CREATE INDEX IF NOT EXISTS plan_comments_plan_created_idx ON plan_comments(plan_id, created_at)`,
-    },
-    {
-      version: 28,
-      sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+  },
+  {
+    version: 25,
+    sql: `CREATE INDEX IF NOT EXISTS plan_reports_plan_reporter_status_idx ON plan_reports(plan_id, reporter_email, status)`,
+  },
+  {
+    version: 26,
+    sql: `CREATE INDEX IF NOT EXISTS plan_shares_resource_principal_idx ON plan_shares(resource_id, principal_type, principal_id)`,
+  },
+  {
+    version: 27,
+    sql: `CREATE INDEX IF NOT EXISTS plan_comments_plan_created_idx ON plan_comments(plan_id, created_at)`,
+  },
+  {
+    version: 28,
+    sql: `ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS deleted_at TEXT;
 ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS deleted_by TEXT;
 CREATE INDEX IF NOT EXISTS plan_comments_plan_deleted_created_idx ON plan_comments(plan_id, deleted_at, created_at)`,
-    },
-    {
-      version: 29,
-      sql: {
-        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS recap_idempotency_key TEXT;
+  },
+  {
+    version: 29,
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS recap_idempotency_key TEXT;
 CREATE INDEX IF NOT EXISTS plans_recap_idempotency_key_idx ON plans(recap_idempotency_key)`,
-      },
     },
-    {
-      version: 30,
-      sql: `CREATE UNIQUE INDEX IF NOT EXISTS plans_recap_idempotency_key_unique_idx
+  },
+  {
+    version: 30,
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS plans_recap_idempotency_key_unique_idx
 ON plans(owner_email, COALESCE(org_id, ''), recap_idempotency_key)
 WHERE kind = 'recap' AND recap_idempotency_key IS NOT NULL`,
-    },
-    {
-      version: 31,
-      sql: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+  },
+  {
+    version: 31,
+    sql: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_at TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_by TEXT;
 CREATE INDEX IF NOT EXISTS plans_owner_deleted_updated_idx ON plans(owner_email, deleted_at, updated_at)`,
-    },
-    {
-      version: 32,
-      sql: {
-        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_type TEXT;
+  },
+  {
+    version: 32,
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_type TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_repo TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_number INTEGER;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_state TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_merged_at TEXT;
 CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type, source_pr_merged_at, updated_at);
 CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number)`,
-      },
     },
-    {
-      version: 33,
-      sql: {
-        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_email TEXT;
+  },
+  {
+    version: 33,
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_email TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_name TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_login TEXT`,
-      },
     },
-    {
-      // Repair migration for hosted databases that recorded an earlier migration
-      // while still missing additive columns now present in schema.ts. Missing
-      // optional plan columns make Drizzle's full-row access lookup throw before
-      // plan pages can render or show a clean access error.
-      version: 36,
-      sql: {
-        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+  },
+  {
+    // Repair migration for hosted databases that recorded an earlier migration
+    // while still missing additive columns now present in schema.ts. Missing
+    // optional plan columns make Drizzle's full-row access lookup throw before
+    // plan pages can render or show a clean access error.
+    version: 36,
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_at TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_by TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_type TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_repo TEXT;
@@ -339,55 +338,134 @@ CREATE INDEX IF NOT EXISTS plans_owner_deleted_updated_idx ON plans(owner_email,
 CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type, source_pr_merged_at, updated_at);
 CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number);
 CREATE INDEX IF NOT EXISTS plan_comments_plan_deleted_created_idx ON plan_comments(plan_id, deleted_at, created_at)`,
-      },
     },
-    {
-      // Denormalized summary fields for plan_versions, populated at snapshot-write
-      // time (createPlanVersionSnapshot). list-plan-versions previously ran a
-      // bare `.select()` that pulled every row's full snapshot_json (the entire
-      // plan + sections blob) just to JSON.parse it and compute these same small
-      // values via summarizePlanVersion on every list call. Nullable so existing
-      // rows fall back to the legacy parse-on-read path until they're
-      // re-snapshotted.
-      //
-      // Confirmed swallowed on the live plan Neon DB: plans_migrations' recorded
-      // MAX(version) was 36 (this v37 entry had never actually run — a parallel
-      // branch's DB state advanced past v37 without ever applying this specific
-      // DDL), and information_schema confirmed plan_versions was missing all
-      // seven of these columns. Named so it applies by name on next boot
-      // regardless of any database's recorded MAX(version) — its SQL was
-      // already idempotent (ADD COLUMN IF NOT EXISTS on postgres) before this
-      // name was added.
-      version: 37,
-      name: "plan-versions-summary-columns",
-      sql: {
-        postgres: `ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS summary_status TEXT;
+  },
+  {
+    // Denormalized summary fields for plan_versions, populated at snapshot-write
+    // time (createPlanVersionSnapshot). list-plan-versions previously ran a
+    // bare `.select()` that pulled every row's full snapshot_json (the entire
+    // plan + sections blob) just to JSON.parse it and compute these same small
+    // values via summarizePlanVersion on every list call. Nullable so existing
+    // rows fall back to the legacy parse-on-read path until they're
+    // re-snapshotted.
+    //
+    // Confirmed swallowed on the live plan Neon DB: plans_migrations' recorded
+    // MAX(version) was 36 (this v37 entry had never actually run — a parallel
+    // branch's DB state advanced past v37 without ever applying this specific
+    // DDL), and information_schema confirmed plan_versions was missing all
+    // seven of these columns. Named so it applies by name on next boot
+    // regardless of any database's recorded MAX(version) — its SQL was
+    // already idempotent (ADD COLUMN IF NOT EXISTS on postgres) before this
+    // name was added.
+    version: 37,
+    name: "plan-versions-summary-columns",
+    sql: {
+      postgres: `ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS summary_status TEXT;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS summary_source TEXT;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS block_count INTEGER;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS section_count INTEGER;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_canvas BOOLEAN;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_prototype BOOLEAN;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS preview_text TEXT`,
-      },
     },
-    {
-      version: 38,
-      name: "plan-version-chat-context",
-      sql: {
-        postgres:
-          "ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS chat_context TEXT",
-      },
+  },
+  {
+    version: 38,
+    name: "plan-version-chat-context",
+    sql: {
+      postgres:
+        "ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS chat_context TEXT",
     },
-    {
-      version: 39,
-      name: "share-tables-notified-at",
-      sql: `
+  },
+  {
+    version: 39,
+    name: "share-tables-notified-at",
+    sql: `
         ALTER TABLE IF EXISTS plan_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
-    },
-  ],
-  { table: "plans_migrations" },
+  },
+  {
+    // The partial unique index is the real one-edition-per-window invariant.
+    // The read-then-write lookup in create-edition races two schedulers on a
+    // retry; only the DB can refuse the second insert.
+    version: 40,
+    name: "plan-edition-window",
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS edition_date_key TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS edition_window_start TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS edition_window_end TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS edition_timezone TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS plans_edition_day_unique_idx
+ON plans(owner_email, COALESCE(org_id, ''), edition_date_key)
+WHERE kind = 'edition' AND edition_date_key IS NOT NULL;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS edition_coverage_json TEXT;
+CREATE TABLE IF NOT EXISTS plan_edition_stories (
+  id TEXT PRIMARY KEY,
+  edition_id TEXT NOT NULL,
+  story_id TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_lead BOOLEAN NOT NULL DEFAULT FALSE,
+  headline TEXT NOT NULL,
+  dek TEXT NOT NULL DEFAULT '',
+  tags_json TEXT,
+  recaps_json TEXT NOT NULL,
+  what_shipped TEXT,
+  why TEXT,
+  how_it_works TEXT,
+  created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS plan_edition_stories_edition_idx ON plan_edition_stories(edition_id, sort_order);
+CREATE INDEX IF NOT EXISTS plans_edition_window_idx ON plans(kind, edition_date_key)`,
+    },
+  },
+  {
+    version: 41,
+    name: "plan-edition-cohorts",
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS edition_issue_number INTEGER;
+ALTER TABLE plan_edition_stories ADD COLUMN IF NOT EXISTS cohorts_json TEXT`,
+    },
+  },
+  {
+    // Scope joins the window in an edition's identity. The v40 index keyed
+    // uniqueness on the day alone, which made a per-repo edition silently
+    // replace the org-wide one for the same day. Replacing a unique index
+    // loosens a constraint and touches no data; the COALESCE keeps pre-series
+    // rows in the `daily` series.
+    version: 42,
+    name: "plan-edition-series",
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS edition_series TEXT;
+DROP INDEX IF EXISTS plans_edition_day_unique_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS plans_edition_series_day_unique_idx
+ON plans(owner_email, COALESCE(org_id, ''), COALESCE(edition_series, 'daily'), edition_date_key)
+WHERE kind = 'edition' AND edition_date_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS plans_edition_series_idx ON plans(kind, edition_series, edition_date_key)`,
+    },
+  },
+  {
+    version: 43,
+    name: "plan-edition-notes",
+    sql: {
+      postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS edition_notes TEXT`,
+    },
+  },
+  {
+    version: 44,
+    name: "plan-edition-issue-number-unique",
+    // Scoped exactly like nextIssueNumber()'s MAX: a NULL series is `daily`
+    // there, so bucketing it as '' here would let two rows share a number.
+    sql: {
+      postgres: `CREATE UNIQUE INDEX IF NOT EXISTS plans_edition_issue_number_unique_idx
+ON plans(owner_email, COALESCE(org_id, ''), COALESCE(edition_series, 'daily'), edition_issue_number)
+WHERE kind = 'edition' AND edition_issue_number IS NOT NULL`,
+    },
+  },
+];
+
+export const runPlanMigrations = runMigrations(planMigrations, {
+  table: "plans_migrations",
+});
 
 /**
  * The migration list above is the authoritative source for tables, indexes,

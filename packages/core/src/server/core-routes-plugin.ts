@@ -295,6 +295,7 @@ import {
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
 } from "./scoped-key-storage.js";
+import { createSpeakHandler } from "./speak.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
@@ -5240,6 +5241,10 @@ export function createCoreRoutesPlugin(
         `${P}/transcribe-voice`,
         createTranscribeVoiceHandler(),
       );
+
+      // ─── Speech synthesis ────────────────────────────────────────────
+      // POST /_agent-native/speak — text → audio/mpeg bytes
+      getH3App(nitroApp).use(`${P}/speak`, createSpeakHandler());
 
       // ─── Google realtime transcription session bridge ───────────────
       // POST /_agent-native/transcribe-stream/session — resolve the user's

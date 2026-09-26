@@ -760,6 +760,81 @@ const messages = {
       "ゲストとして閲覧しています。サインインすると、プランの作成、コメント、作業の保存ができます。",
     signIn: "サインイン",
   },
+  edition: {
+    rail: {
+      notes: "メモ",
+      inThisBuild: "このビルド",
+      threads: "スレッド",
+      partial: "* 一部のプルリクエストは差分を報告していません",
+    },
+    promise: {
+      readTime: "約 {{minutes}} 分",
+      unavailable: "利用できません",
+      analysed_other: "プルリクエスト {{count}} 件を分析",
+      storyCount_other: "{{count}} 本の記事",
+      areaCount_other: "{{count}} 領域",
+    },
+    nav: {
+      label: "日報",
+    },
+    masthead: {
+      issue: "第 {{number}} 号",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "エンジニアリング日報",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "リリース内容",
+      fileCount_other: "{{count}} ファイル",
+      sources: "出典",
+      quickLinks: "短信",
+      authors: "作成者: {{names}}",
+      prCount_other: "PR {{count}} 件",
+      whyAndHow: "理由と仕組み",
+      why: "理由",
+      howItWorks: "仕組み",
+      diffUnavailable: "差分サイズは取得できません",
+    },
+    coverage: {
+      unresolvedBlocks: "解決できない引用ブロック: {{total}}",
+      label: "カバー範囲",
+      reposLabel: "リポジトリ",
+      reposUnavailable: "リポジトリ情報は取得できません",
+      staleNote:
+        "これらのマージ済みプルリクエストにはリキャップがありますが、マージ時に再公開されていないため、変更の以前の状態を示している可能性があります。",
+      missingNote:
+        "これらのマージ済みプルリクエストにはリキャップがないため、この号では扱っていません。",
+      complete:
+        "この期間にマージされたすべてのプルリクエストにリキャップがあります。",
+      unknown: "この号のカバー範囲は記録されていないため、抜けは不明です。",
+    },
+    reader: {
+      loading: "号を読み込み中",
+      error: "この号を読み込めませんでした。",
+      retry: "再試行",
+      notFound: "その号は利用できません。",
+      noStories: "この号には記事がありません。",
+    },
+    listen: {
+      voice: "音声",
+      play: "読み上げ",
+      pause: "一時停止",
+      resume: "再開",
+      stop: "読み上げを停止",
+      preparing: "準備中…",
+      failed: "この号を読み上げられませんでした: {reason}",
+    },
+    signIn: {
+      prompt: "新聞を読むにはサインインしてください。",
+    },
+    archive: {
+      build: "本日の日報を作成",
+      loading: "各号を読み込み中",
+      error: "号のアーカイブを読み込めませんでした。",
+      retry: "再試行",
+      empty: "まだ号がありません。",
+    },
+  },
 };
 
 export default messages;

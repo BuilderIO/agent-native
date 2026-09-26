@@ -797,6 +797,92 @@ const messages = {
       "Vous naviguez en tant qu'invite. Connectez-vous pour creer des plans, laisser des commentaires et conserver votre travail.",
     signIn: "Se connecter",
   },
+  edition: {
+    rail: {
+      notes: "Notes",
+      inThisBuild: "Dans cette build",
+      threads: "Fils",
+      partial: "* partiel : certaines pull requests n'ont pas signalé de diff",
+    },
+    promise: {
+      readTime: "~{{minutes}} min",
+      unavailable: "Indisponible",
+      analysed_one: "{{count}} pull request analysée",
+      analysed_many: "{{count}} pull requests analysées",
+      analysed_other: "{{count}} pull requests analysées",
+      storyCount_one: "{{count}} article",
+      storyCount_many: "{{count}} articles",
+      storyCount_other: "{{count}} articles",
+      areaCount_one: "{{count}} domaine",
+      areaCount_many: "{{count}} domaines",
+      areaCount_other: "{{count}} domaines",
+    },
+    nav: {
+      label: "Éditions",
+    },
+    masthead: {
+      issue: "N° {{number}}",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "Le Quotidien de l'Ingénierie",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "Ce qui a été livré",
+      fileCount_one: "{{count}} fichier",
+      fileCount_many: "{{count}} fichiers",
+      fileCount_other: "{{count}} fichiers",
+      sources: "Sources",
+      quickLinks: "Liens rapides",
+      authors: "Auteurs : {{names}}",
+      prCount_one: "{{count}} PR",
+      prCount_many: "{{count}} PR",
+      prCount_other: "{{count}} PR",
+      whyAndHow: "Pourquoi et comment ça marche",
+      why: "Pourquoi",
+      howItWorks: "Comment ça marche",
+      diffUnavailable: "Taille du diff indisponible",
+    },
+    coverage: {
+      unresolvedBlocks: "Blocs cités qui ne se résolvent plus : {{total}}",
+      label: "Couverture",
+      reposLabel: "Dépôts",
+      reposUnavailable: "Dépôts indisponibles",
+      staleNote:
+        "Ces pull requests fusionnées ont un récapitulatif, mais il n'a jamais été republié lors de la fusion et peut donc décrire un état antérieur de la modification.",
+      missingNote:
+        "Ces pull requests fusionnées n'ont pas de récapitulatif : ce numéro ne les couvre donc pas.",
+      complete:
+        "Toutes les pull requests fusionnées sur cette période ont un récapitulatif.",
+      unknown:
+        "La couverture de ce numéro n'a pas été enregistrée : l'écart est inconnu.",
+    },
+    reader: {
+      loading: "Chargement du numéro",
+      error: "Ce numéro n'a pas pu être chargé.",
+      retry: "Réessayer",
+      notFound: "Ce numéro n'est pas disponible.",
+      noStories: "Ce numéro ne contient aucun article.",
+    },
+    listen: {
+      voice: "Voix",
+      play: "Écouter",
+      pause: "Pause",
+      resume: "Reprendre",
+      stop: "Arrêter la lecture",
+      preparing: "Préparation…",
+      failed: "Impossible de lire cette édition à voix haute : {reason}",
+    },
+    signIn: {
+      prompt: "Connectez-vous pour lire le journal.",
+    },
+    archive: {
+      build: "Créer l'édition du jour",
+      loading: "Chargement des numéros",
+      error: "Les archives des numéros n'ont pas pu être chargées.",
+      retry: "Réessayer",
+      empty: "Aucun numéro pour le moment.",
+    },
+  },
 };
 
 export default messages;

@@ -29,11 +29,13 @@ export const PLAN_SOURCES = [
   "imported",
 ] as const;
 
-// A plan is either a forward-looking `plan` (the default) or a read-only
-// `recap` — a reverse plan that recaps a code change/PR diff for review. Recaps
-// render as "Visual Recap", live at `/recaps/:id`, use `recap-` ids, and are
-// not text-editable in the browser (highlight + comment still work).
-export const PLAN_KINDS = ["plan", "recap"] as const;
+// A plan is either a forward-looking `plan` (the default), a read-only `recap`
+// — a reverse plan that recaps a code change/PR diff for review — or an
+// `edition`, the scheduled digest written from recaps. Every non-`plan` kind
+// routes through `PLAN_KIND_ROUTE_SEGMENT` (shared/plan-routes.ts), takes a
+// matching id prefix, and is not text-editable in the browser (highlight +
+// comment still work).
+export const PLAN_KINDS = ["plan", "recap", "edition"] as const;
 
 export const PLAN_SECTION_TYPES = [
   "summary",

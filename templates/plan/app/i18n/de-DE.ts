@@ -798,6 +798,88 @@ const messages = {
       "Du surfst als Gast. Melde dich an, um Plane zu erstellen, Kommentare zu hinterlassen und deine Arbeit zu behalten.",
     signIn: "Anmelden",
   },
+  edition: {
+    rail: {
+      notes: "Notizen",
+      inThisBuild: "In diesem Build",
+      threads: "Themen",
+      partial: "* teilweise: einige Pull Requests meldeten kein Diff",
+    },
+    promise: {
+      readTime: "~{{minutes}} Min.",
+      unavailable: "Nicht verfügbar",
+      analysed_one: "{{count}} Pull Request analysiert",
+      analysed_other: "{{count}} Pull Requests analysiert",
+      storyCount_one: "{{count}} Beitrag",
+      storyCount_other: "{{count}} Beiträge",
+      areaCount_one: "{{count}} Bereich",
+      areaCount_other: "{{count}} Bereiche",
+    },
+    nav: {
+      label: "Ausgaben",
+    },
+    masthead: {
+      issue: "Nr. {{number}}",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "Das Engineering-Tagblatt",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "Was ausgeliefert wurde",
+      fileCount_one: "{{count}} Datei",
+      fileCount_other: "{{count}} Dateien",
+      sources: "Quellen",
+      quickLinks: "Kurzmeldungen",
+      authors: "Autoren: {{names}}",
+      prCount_one: "{{count}} PR",
+      prCount_other: "{{count}} PRs",
+      whyAndHow: "Warum und wie es funktioniert",
+      why: "Warum",
+      howItWorks: "So funktioniert es",
+      diffUnavailable: "Diff-Größe nicht verfügbar",
+    },
+    coverage: {
+      unresolvedBlocks:
+        "Zitierte Blöcke, die nicht mehr auflösbar sind: {{total}}",
+      label: "Abdeckung",
+      reposLabel: "Repositorys",
+      reposUnavailable: "Repositorys nicht verfügbar",
+      staleNote:
+        "Diese gemergten Pull Requests haben ein Recap, das beim Merge nie neu veröffentlicht wurde und daher einen früheren Stand der Änderung beschreiben kann.",
+      missingNote:
+        "Diese gemergten Pull Requests haben keine Zusammenfassung, daher deckt diese Ausgabe sie nicht ab.",
+      complete:
+        "Jeder in diesem Zeitraum gemergte Pull Request hat eine Zusammenfassung.",
+      unknown:
+        "Die Abdeckung dieser Ausgabe wurde nicht erfasst, die Lücke ist daher unbekannt.",
+    },
+    reader: {
+      loading: "Ausgabe wird geladen",
+      error: "Diese Ausgabe konnte nicht geladen werden.",
+      retry: "Erneut versuchen",
+      notFound: "Diese Ausgabe ist nicht verfügbar.",
+      noStories: "Diese Ausgabe enthält keine Beiträge.",
+    },
+    listen: {
+      voice: "Stimme",
+      play: "Vorlesen",
+      pause: "Pause",
+      resume: "Fortsetzen",
+      stop: "Vorlesen beenden",
+      preparing: "Wird vorbereitet…",
+      failed: "Diese Ausgabe konnte nicht vorgelesen werden: {reason}",
+    },
+    signIn: {
+      prompt: "Melden Sie sich an, um die Zeitung zu lesen.",
+    },
+    archive: {
+      build: "Heutige Ausgabe erstellen",
+      loading: "Ausgaben werden geladen",
+      error: "Das Ausgabenarchiv konnte nicht geladen werden.",
+      retry: "Erneut versuchen",
+      empty: "Noch keine Ausgaben.",
+    },
+  },
 };
 
 export default messages;

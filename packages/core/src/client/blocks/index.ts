@@ -45,6 +45,13 @@ export { BlockView, blockEditSurface } from "./BlockView.js";
 export { AiEditableFieldLabel } from "./AiEditableField.js";
 export { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 export { RegistryBlockDataProvider } from "./RegistryBlockDataProvider.js";
+// Width-sensitive block defaults are not only a tabs/columns concern: any app
+// surface that renders a borrowed block in a narrow column needs the same
+// nudge, so the provider ships from the barrel rather than staying internal.
+export {
+  NarrowContainerProvider,
+  useInNarrowContainer,
+} from "./library/narrow-container.js";
 export type {
   RegistryBlockDataChangeMeta,
   RegistryBlockDataValue,

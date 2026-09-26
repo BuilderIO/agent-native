@@ -12,6 +12,7 @@ import { TAB_ID } from "@/lib/tab-id";
 export interface NavigationState {
   view: string;
   planId?: string;
+  editionId?: string;
   localPlanSlug?: string;
   localPlanPath?: string;
   path?: string;
@@ -34,7 +35,10 @@ export function useNavigationState() {
     const planMatch =
       location.pathname.match(/^\/plans\/([^/]+)/) ??
       location.pathname.match(/^\/recaps\/([^/]+)/);
-    if (localPlanMatch) {
+    const editionMatch = location.pathname.match(/^\/editions\/([^/]+)/);
+    if (editionMatch) {
+      state.editionId = decodeURIComponent(editionMatch[1] ?? "");
+    } else if (localPlanMatch) {
       const slug = decodeURIComponent(localPlanMatch[1] ?? "");
       state.planId = `local-${slug}`;
       state.localPlanSlug = slug;
@@ -155,6 +159,8 @@ function viewForPath(pathname: string): string {
   ) {
     return "plans";
   }
+  if (normalizedPathname.startsWith("/editions/")) return "edition";
+  if (normalizedPathname.startsWith("/editions")) return "editions";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/team")) return "settings";
   return "plans";
@@ -173,6 +179,9 @@ function pathForCommand(command: NavigationState): string {
     return `${path}?${new URLSearchParams({
       path: command.localPlanPath,
     }).toString()}`;
+  }
+  if (command.editionId) {
+    return `/editions/${encodeURIComponent(command.editionId)}`;
   }
   if (command.planId) {
     return `/plans/${encodeURIComponent(command.planId)}`;
@@ -205,6 +214,9 @@ function pathForView(view?: string): string {
     case "plan":
     case "plans":
       return "/plans";
+    case "edition":
+    case "editions":
+      return "/editions";
     case "extensions":
       return "/extensions";
     case "settings":

@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, currentAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isEditionsLabEnabled } from "../server/lib/editions-lab.js";
 import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
 import { planStatusSchema, summarizePlans } from "../server/plans.js";
 
@@ -49,6 +50,11 @@ export default defineAction({
       accessContext,
     );
     const clauses = [accessWhere];
+    // Editions are ordinary `plans` rows, so gating only the edition actions
+    // would still let an opted-out caller discover them through this list.
+    if (!(await isEditionsLabEnabled())) {
+      clauses.push(ne(schema.plans.kind, "edition"));
+    }
     if (args.status) clauses.push(eq(schema.plans.status, args.status));
     if (args.deleted === "active") clauses.push(isNull(schema.plans.deletedAt));
     if (args.deleted === "deleted") {

@@ -39,6 +39,12 @@
       "description": "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review."
     },
     {
+      "id": "editions",
+      "action": "list-editions",
+      "path": "/editions",
+      "description": "Read editions of the engineering newspaper — the scheduled digest of merged-PR recaps, grouped into stories that link back to each recap."
+    },
+    {
       "id": "visualize-repo",
       "path": "/local-plans",
       "description": "Open a local, repo-backed visual documentation workspace for APIs, components, models, flows, comments, and coding-agent handoff."

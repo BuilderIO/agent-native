@@ -81,6 +81,7 @@ async function deletePlanCollabState(planId: string) {
 
 type HardDeleteCounts = {
   comments: number;
+  editionStories: number;
   sections: number;
   events: number;
   reports: number;
@@ -95,48 +96,62 @@ async function countPlanRows(
   ownerEmail: string,
 ): Promise<HardDeleteCounts> {
   const db = getDb();
-  const [comments, sections, events, reports, versions, shares, assets, plans] =
-    await Promise.all([
-      db
-        .select({ id: schema.planComments.id })
-        .from(schema.planComments)
-        .where(eq(schema.planComments.planId, planId)),
-      db
-        .select({ id: schema.planSections.id })
-        .from(schema.planSections)
-        .where(eq(schema.planSections.planId, planId)),
-      db
-        .select({ id: schema.planEvents.id })
-        .from(schema.planEvents)
-        .where(eq(schema.planEvents.planId, planId)),
-      db
-        .select({ id: schema.planReports.id })
-        .from(schema.planReports)
-        .where(eq(schema.planReports.planId, planId)),
-      db
-        .select({ id: schema.planVersions.id })
-        .from(schema.planVersions)
-        .where(eq(schema.planVersions.planId, planId)),
-      db
-        .select({ id: schema.planShares.id })
-        .from(schema.planShares)
-        .where(eq(schema.planShares.resourceId, planId)),
-      db
-        .select({ id: schema.planAssets.id })
-        .from(schema.planAssets)
-        .where(eq(schema.planAssets.planId, planId)),
-      db
-        .select({ id: schema.plans.id })
-        .from(schema.plans)
-        .where(
-          and(
-            eq(schema.plans.id, planId),
-            eq(schema.plans.ownerEmail, ownerEmail),
-          ),
+  const [
+    comments,
+    editionStories,
+    sections,
+    events,
+    reports,
+    versions,
+    shares,
+    assets,
+    plans,
+  ] = await Promise.all([
+    db
+      .select({ id: schema.planComments.id })
+      .from(schema.planComments)
+      .where(eq(schema.planComments.planId, planId)),
+    db
+      .select({ id: schema.planEditionStories.id })
+      .from(schema.planEditionStories)
+      .where(eq(schema.planEditionStories.editionId, planId)),
+    db
+      .select({ id: schema.planSections.id })
+      .from(schema.planSections)
+      .where(eq(schema.planSections.planId, planId)),
+    db
+      .select({ id: schema.planEvents.id })
+      .from(schema.planEvents)
+      .where(eq(schema.planEvents.planId, planId)),
+    db
+      .select({ id: schema.planReports.id })
+      .from(schema.planReports)
+      .where(eq(schema.planReports.planId, planId)),
+    db
+      .select({ id: schema.planVersions.id })
+      .from(schema.planVersions)
+      .where(eq(schema.planVersions.planId, planId)),
+    db
+      .select({ id: schema.planShares.id })
+      .from(schema.planShares)
+      .where(eq(schema.planShares.resourceId, planId)),
+    db
+      .select({ id: schema.planAssets.id })
+      .from(schema.planAssets)
+      .where(eq(schema.planAssets.planId, planId)),
+    db
+      .select({ id: schema.plans.id })
+      .from(schema.plans)
+      .where(
+        and(
+          eq(schema.plans.id, planId),
+          eq(schema.plans.ownerEmail, ownerEmail),
         ),
-    ]);
+      ),
+  ]);
   return {
     comments: comments.length,
+    editionStories: editionStories.length,
     sections: sections.length,
     events: events.length,
     reports: reports.length,
@@ -152,6 +167,11 @@ async function hardDeletePlanRows(planId: string, ownerEmail: string) {
   await db
     .delete(schema.planComments)
     .where(eq(schema.planComments.planId, planId));
+  // An edition's stories hang off the plan row with no cascade behind them, so
+  // skipping this leaves the whole issue as rows nothing can reach.
+  await db
+    .delete(schema.planEditionStories)
+    .where(eq(schema.planEditionStories.editionId, planId));
   await db
     .delete(schema.planSections)
     .where(eq(schema.planSections.planId, planId));

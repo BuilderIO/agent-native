@@ -737,6 +737,79 @@ const messages = {
     banner: "你正以訪客身分瀏覽。登入即可建立計畫、留下評論並儲存你的工作。",
     signIn: "登入",
   },
+  edition: {
+    rail: {
+      notes: "備註",
+      inThisBuild: "本次建置",
+      threads: "主題",
+      partial: "* 部分資料：部分拉取請求未報告差異",
+    },
+    promise: {
+      readTime: "約 {{minutes}} 分鐘",
+      unavailable: "不可用",
+      analysed_other: "已分析 {{count}} 個拉取請求",
+      storyCount_other: "{{count}} 篇報導",
+      areaCount_other: "{{count}} 個領域",
+    },
+    nav: {
+      label: "日報",
+    },
+    masthead: {
+      issue: "第 {{number}} 期",
+      dateline: "{{issue}} · {{date}}",
+      nameplate: "工程日報",
+      dateRange: "{{start}} – {{end}}",
+    },
+    story: {
+      whatShipped: "已交付內容",
+      fileCount_other: "{{count}} 個檔案",
+      sources: "來源",
+      quickLinks: "快訊",
+      authors: "作者：{{names}}",
+      prCount_other: "{{count}} 個 PR",
+      whyAndHow: "原因與運作方式",
+      why: "原因",
+      howItWorks: "運作方式",
+      diffUnavailable: "差異規模不可用",
+    },
+    coverage: {
+      unresolvedBlocks: "無法解析的引用區塊：{{total}}",
+      label: "涵蓋範圍",
+      reposLabel: "儲存庫",
+      reposUnavailable: "儲存庫資訊不可用",
+      staleNote:
+        "這些已合併的拉取請求有回顧，但在合併時從未重新發布，因此可能描述的是變更的較早狀態。",
+      missingNote: "這些已合併的拉取請求沒有回顧，因此本期未涵蓋它們。",
+      complete: "此時間範圍內每個已合併的拉取請求都有回顧。",
+      unknown: "本期未記錄涵蓋範圍，因此缺口未知。",
+    },
+    reader: {
+      loading: "正在載入本期",
+      error: "無法載入本期。",
+      retry: "重試",
+      notFound: "該期不可用。",
+      noStories: "本期沒有報導。",
+    },
+    listen: {
+      voice: "語音",
+      play: "朗讀",
+      pause: "暫停",
+      resume: "繼續",
+      stop: "停止朗讀",
+      preparing: "準備中…",
+      failed: "無法朗讀這一期：{reason}",
+    },
+    signIn: {
+      prompt: "登入後即可閱讀這份報紙。",
+    },
+    archive: {
+      build: "產生今天的日報",
+      loading: "正在載入各期",
+      error: "無法載入過往存檔。",
+      retry: "重試",
+      empty: "尚無過往期號。",
+    },
+  },
 };
 
 export default messages;
