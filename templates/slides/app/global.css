@@ -48,7 +48,7 @@
   }
 }
 
-@container (max-width: 36rem) {
+@container (max-width: 28rem) {
   .slides-home-toolbar {
     height: 7rem;
     grid-template-columns: minmax(0, 1fr) auto;

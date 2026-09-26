@@ -64,7 +64,7 @@
   border-bottom: 0;
 }
 
-@container design-home-toolbar (max-width: 36rem) {
+@container design-home-toolbar (max-width: 28rem) {
   .design-home-header {
     height: 7rem;
     grid-template-columns: minmax(0, 1fr) auto;
