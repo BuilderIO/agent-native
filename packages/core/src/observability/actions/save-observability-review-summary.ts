@@ -145,7 +145,9 @@ export default defineAction({
         .min(1)
         .max(200)
         .optional()
-        .describe("The target organization ID; required for super-org access."),
+        .describe(
+          "The target organization ID; must match the active organization.",
+        ),
       ask: summaryText(2_000).describe(
         "Concise summary of what the user asked.",
       ),
@@ -161,7 +163,10 @@ export default defineAction({
     const access = getObservabilityOrgAdminAccess(ctx);
     const { userId } = access;
     requireObservabilityReviewRunScope(args.runId);
-    const orgId = resolveObservabilityReviewOrg(access.reviewScope, args.orgId);
+    const orgId = resolveObservabilityReviewOrg(
+      { kind: "organization", orgId: access.orgId },
+      args.orgId,
+    );
     const target = await getTraceSummary(args.runId, { orgId });
     if (!target)
       fail("That agent output is no longer available.", { statusCode: 404 });
