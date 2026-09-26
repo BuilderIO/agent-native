@@ -199,6 +199,7 @@ describe("get-design", () => {
 
   it("allows an org admin to read a same-org design for Human Review", async () => {
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.track.mockClear();
 
     const result = await action.run({ id: "design_123", reviewPreview: true });
 
@@ -209,6 +210,7 @@ describe("get-design", () => {
     );
     expect(result).toMatchObject({ id: "design_123", accessRole: "viewer" });
     expect(result.files[0].content).toBe("<main>Hello</main>");
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 
   it("rejects non-admin Human Review design previews before querying", async () => {

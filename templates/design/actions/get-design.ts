@@ -119,7 +119,7 @@ export default defineAction({
       getDesignSystem,
     );
 
-    if (shouldTrackDesignView(ctx?.userEmail, id)) {
+    if (!reviewPreview && shouldTrackDesignView(ctx?.userEmail, id)) {
       track(
         "design_viewed",
         {
