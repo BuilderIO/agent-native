@@ -321,6 +321,30 @@ describe("s3FileUploadProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects bucket dot segments before using a trusted private endpoint", async () => {
+    process.env.S3_ENDPOINT = "http://10.0.0.12:9000/minio/";
+    const values: Record<string, string> = {
+      S3_BUCKET: "..",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "http://10.0.0.12:9000/minio/",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/media",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/media/clips/recording/video.webm",
+        { recordingId: "recording" },
+      ),
+    ).rejects.toThrow("S3 object path contains an unsafe URL path segment");
+
+    expect(mockIsBlockedExtensionUrlWithDns).not.toHaveBeenCalled();
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
   it("fails loudly when a recognized legacy logo URL has no current storage config", async () => {
     mockResolveSecret.mockResolvedValue(null);
 
@@ -372,6 +396,44 @@ describe("s3FileUploadProvider", () => {
       }),
     );
   });
+
+  it.each(["PUT", "DELETE"] as const)(
+    "cancels successful %s response bodies that callers do not read",
+    async (method) => {
+      const values: Record<string, string> = {
+        S3_BUCKET: "clips-bucket",
+        S3_ACCESS_KEY_ID: "access",
+        S3_SECRET_ACCESS_KEY: "secret",
+        S3_ENDPOINT: "https://s3.example.com",
+        S3_PUBLIC_BASE_URL: "https://cdn.example.com/media",
+      };
+      mockResolveSecret.mockImplementation(async (key: string) => {
+        return values[key] ?? null;
+      });
+      const cancelBody = vi.fn();
+      mockSsrfSafeFetch.mockResolvedValueOnce(
+        new Response(new ReadableStream({ cancel: cancelBody }), {
+          status: 200,
+        }),
+      );
+
+      if (method === "PUT") {
+        await s3FileUploadProvider.upload({
+          data: new Uint8Array([1]),
+          filename: "recording.webm",
+          mimeType: "video/webm",
+        });
+      } else {
+        await expect(
+          deleteS3ObjectByUrl(
+            "https://cdn.example.com/media/clips/recording/video.webm",
+          ),
+        ).resolves.toBe(true);
+      }
+
+      expect(cancelBody).toHaveBeenCalledOnce();
+    },
+  );
 
   it("skips URLs that do not belong to the configured S3 bucket", async () => {
     const values: Record<string, string> = {

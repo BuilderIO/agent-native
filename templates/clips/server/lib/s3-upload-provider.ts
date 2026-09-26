@@ -151,6 +151,7 @@ async function fetchWithTimeout(
     const resetIdleTimeout = () => {
       clearIdleTimeout();
       idleTimeout = setTimeout(timeOutBody, timeoutMs);
+      if (idleTimeout.unref) idleTimeout.unref();
     };
     const body = new ReadableStream<Uint8Array>(
       {
@@ -208,6 +209,10 @@ async function fetchWithTimeout(
     }
     throw err;
   }
+}
+
+async function cancelS3ResponseBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
 }
 
 function trustedDeploymentS3Origin(endpoint: string): string | undefined {
@@ -415,7 +420,17 @@ function rfc3986(str: string): string {
 }
 
 function objectUri(cfg: S3Config, key: string): string {
-  return `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
+  const keySegments = key.split("/");
+  if (
+    cfg.bucket.includes("/") ||
+    cfg.bucket.includes("\\") ||
+    cfg.bucket === "." ||
+    cfg.bucket === ".." ||
+    keySegments.some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error("S3 object path contains an unsafe URL path segment");
+  }
+  return `/${rfc3986(cfg.bucket)}/${keySegments.map(rfc3986).join("/")}`;
 }
 
 export class S3MultipartStartError extends Error {
@@ -547,6 +562,7 @@ async function putObject(
       `S3 PutObject failed (${res.status}): ${text || res.statusText}`,
     );
   }
+  await cancelS3ResponseBody(res);
 
   return cfg.publicBaseUrl
     ? `${cfg.publicBaseUrl}/${key}`
@@ -640,6 +656,7 @@ async function deleteObject(cfg: S3Config, key: string): Promise<void> {
       `S3 DeleteObject failed (${res.status}): ${text || res.statusText}`,
     );
   }
+  await cancelS3ResponseBody(res);
 }
 
 async function getObject(cfg: S3Config, key: string): Promise<Uint8Array> {
@@ -907,6 +924,7 @@ async function uploadMultipartPart(
     );
   }
   const etag = res.headers.get("etag");
+  await cancelS3ResponseBody(res);
   if (!etag) throw new Error("S3 UploadPart did not return an ETag");
   return { partNumber, etag, sizeBytes: bytes.byteLength };
 }
@@ -925,7 +943,10 @@ async function verifyCompletedMultipartObject(
     method: "HEAD",
     timeoutMs: S3_DELETE_TIMEOUT_MS,
   });
-  if (res.status === 404) return false;
+  if (res.status === 404) {
+    await cancelS3ResponseBody(res);
+    return false;
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
@@ -948,6 +969,7 @@ async function verifyCompletedMultipartObject(
     0,
   );
   const contentLength = Number(res.headers.get("content-length"));
+  await cancelS3ResponseBody(res);
   return Number.isSafeInteger(contentLength) && contentLength === expectedBytes;
 }
 
@@ -1226,6 +1248,7 @@ export const s3FileUploadProvider: FileUploadProvider = {
           `S3 AbortMultipartUpload failed (${abortRes.status}): ${body || abortRes.statusText}`,
         );
       }
+      await cancelS3ResponseBody(abortRes);
       await deleteObject(cfg, meta.stagingKey).catch((err) => {
         console.warn(
           "[s3-upload] failed to delete aborted multipart staging object:",
