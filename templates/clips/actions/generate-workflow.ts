@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
 import {
+  compareAndSetManyAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -57,10 +58,19 @@ Output markdown.`,
 Keep it concise, warm, and professional.`,
 } as const;
 
-// Actions for the same recording can arrive concurrently when the player and
-// agent both retry a request. Keep the read-check-write/enqueue sequence
-// single-flight within this runtime so only one request can claim generation.
+// Skip duplicate database work in this runtime; the multi-key CAS below also
+// prevents separate runtimes from claiming the same generation.
 const workflowGenerationLocks = new Set<string>();
+
+function isRecentGeneration(state: Record<string, unknown> | null): boolean {
+  if (state?.status !== "generating") return false;
+  const requestedAt = Date.parse(
+    typeof state.requestedAt === "string" ? state.requestedAt : "",
+  );
+  return (
+    !Number.isFinite(requestedAt) || Date.now() - requestedAt < 10 * 60_000
+  );
+}
 
 export default defineAction({
   description:
@@ -106,35 +116,27 @@ export default defineAction({
       const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
       const existing = await readAppState(stateKey);
-      if (existing?.status === "generating") {
-        const requestedAt = Date.parse(
-          typeof existing.requestedAt === "string" ? existing.requestedAt : "",
-        );
-        const isRecent =
-          !Number.isFinite(requestedAt) ||
-          Date.now() - requestedAt < 10 * 60_000;
-        if (isRecent) {
-          return {
-            queued: false,
-            duplicate: true,
-            recordingId: args.recordingId,
-            kind: existing.kind ?? args.kind,
-            stateKey,
-          };
-        }
+      if (isRecentGeneration(existing)) {
+        return {
+          queued: false,
+          duplicate: true,
+          recordingId: args.recordingId,
+          kind: existing?.kind ?? args.kind,
+          stateKey,
+        };
       }
 
+      const requestKey = `clips-ai-request-${args.recordingId}`;
+      const existingRequest = await readAppState(requestKey);
       const requestedAt = new Date().toISOString();
       const requestId = randomUUID();
-      // Seed the output state with a "generating" placeholder so the UI can show
-      // a loading state immediately.
-      await writeAppState(stateKey, {
+      const workflowState = {
         kind: args.kind,
         status: "generating",
         recordingId: args.recordingId,
         requestedAt,
         requestId,
-      } as any);
+      };
 
       const baseMessage =
         `Generate a ${args.kind.toUpperCase()} workflow document from recording ${args.recordingId} ` +
@@ -167,10 +169,40 @@ export default defineAction({
         ),
       };
 
-      await writeAppState(
-        `clips-ai-request-${args.recordingId}`,
-        request as any,
-      );
+      const claimed = await compareAndSetManyAppState([
+        {
+          key: stateKey,
+          expectedValue: existing,
+          nextValue: workflowState,
+        },
+        {
+          key: requestKey,
+          expectedValue: existingRequest,
+          nextValue: request,
+        },
+      ]);
+      if (!claimed) {
+        const current = await readAppState(stateKey);
+        if (isRecentGeneration(current)) {
+          return {
+            queued: false,
+            duplicate: true,
+            recordingId: args.recordingId,
+            kind: current?.kind ?? args.kind,
+            stateKey,
+          };
+        }
+        return {
+          queued: false,
+          duplicate: false,
+          retry: true,
+          reason: "claim-contended",
+          recordingId: args.recordingId,
+          kind: args.kind,
+          stateKey,
+        };
+      }
+
       await writeAppState("refresh-signal", { ts: Date.now() });
 
       console.log(

@@ -272,7 +272,7 @@ async function fetchGoogleSlidesImageFallbacks(
     const download = downloadLimit(async () => {
       const imageResponse = await ssrfSafeFetch(
         candidate.contentUrl,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
+        {},
         { httpsOnly: true, maxRedirects: 2 },
       );
       if (!imageResponse.ok) {

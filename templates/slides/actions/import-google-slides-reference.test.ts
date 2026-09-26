@@ -1,8 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   getAvailableGoogleDocsAccessToken: vi.fn(),
+  ssrfSafeFetch: vi.fn(),
+  parsePptx: vi.fn(),
+  importPptxBufferToDeck: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  ssrfSafeFetch: (...args: unknown[]) => mocks.ssrfSafeFetch(...args),
 }));
 
 vi.mock("@agent-native/core/server/request-context", async (importOriginal) => {
@@ -20,6 +27,15 @@ vi.mock("@agent-native/core/server/request-context", async (importOriginal) => {
 vi.mock("../server/lib/google-docs-access.js", () => ({
   getAvailableGoogleDocsAccessToken: (...args: unknown[]) =>
     mocks.getAvailableGoogleDocsAccessToken(...args),
+}));
+
+vi.mock("../server/handlers/import/pptx-parser.js", () => ({
+  parsePptx: (...args: unknown[]) => mocks.parsePptx(...args),
+}));
+
+vi.mock("./import-pptx.js", () => ({
+  importPptxBufferToDeck: (...args: unknown[]) =>
+    mocks.importPptxBufferToDeck(...args),
 }));
 
 import { extractGoogleSlidesUrls } from "../shared/google-docs";
@@ -102,6 +118,10 @@ describe("import-google-slides-reference action", () => {
     mocks.getAvailableGoogleDocsAccessToken.mockResolvedValue(null);
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("reports a missing Google connection as a safe precondition failure", async () => {
     await expect(
       action.run({ fileId: "presentation_123" }),
@@ -114,5 +134,61 @@ describe("import-google-slides-reference action", () => {
       "user@example.com",
       undefined,
     );
+  });
+
+  it("omits the Drive token from image content URLs", async () => {
+    const imageUrl = "https://lh3.googleusercontent.com/image.png";
+    mocks.getAvailableGoogleDocsAccessToken.mockResolvedValue({
+      accessToken: "example-access-token",
+    });
+    mocks.parsePptx.mockResolvedValue({ slides: [{ elements: [] }] });
+    mocks.importPptxBufferToDeck.mockResolvedValue({ id: "deck-1" });
+    mocks.ssrfSafeFetch.mockImplementation(async (url: string) =>
+      url.startsWith("https://slides.googleapis.com/")
+        ? new Response(
+            JSON.stringify({
+              slides: [
+                {
+                  pageElements: [
+                    {
+                      size: {
+                        width: { magnitude: 100, unit: "EMU" },
+                        height: { magnitude: 100, unit: "EMU" },
+                      },
+                      transform: {
+                        translateX: 0,
+                        translateY: 0,
+                        unit: "EMU",
+                      },
+                      image: { contentUrl: imageUrl },
+                    },
+                  ],
+                },
+              ],
+            }),
+          )
+        : new Response(new Uint8Array([1]), {
+            headers: { "content-type": "image/png" },
+          }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint8Array([1]))),
+    );
+
+    await action.run({ fileId: "presentation_123" });
+
+    const apiCall = mocks.ssrfSafeFetch.mock.calls.find(([url]) =>
+      String(url).startsWith("https://slides.googleapis.com/"),
+    );
+    expect(apiCall?.[1]).toEqual({
+      headers: { Authorization: "Bearer example-access-token" },
+    });
+    expect(apiCall?.[2]).toEqual({ httpsOnly: true, maxRedirects: 2 });
+
+    const imageCall = mocks.ssrfSafeFetch.mock.calls.find(
+      ([url]) => url === imageUrl,
+    );
+    expect(imageCall?.[1]).toEqual({});
   });
 });

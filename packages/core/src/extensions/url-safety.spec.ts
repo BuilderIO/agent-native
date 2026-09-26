@@ -359,6 +359,61 @@ describe("ssrfSafeFetch per-hop policies", () => {
     expect(redirectResponse.bodyUsed).toBe(true);
   });
 
+  it("keeps credentials on same-origin redirects", async () => {
+    const redirectUrl = "https://93.184.216.34/next";
+    const fetchMock = vi.fn(async (url: string) =>
+      url === httpsOrigin
+        ? new Response(null, {
+            status: 302,
+            headers: { location: redirectUrl },
+          })
+        : new Response("ok", { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ssrfSafeFetch(httpsOrigin, {
+        headers: { Authorization: "Bearer example-token" },
+      }),
+    ).resolves.toMatchObject({ status: 200 });
+
+    expect(
+      new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("authorization"),
+    ).toBe("Bearer example-token");
+  });
+
+  it("strips credentials before following a cross-origin redirect", async () => {
+    const redirectUrl = "https://93.184.216.35/image.png";
+    const fetchMock = vi.fn(async (url: string) =>
+      url === httpsOrigin
+        ? new Response(null, {
+            status: 302,
+            headers: { location: redirectUrl },
+          })
+        : new Response("ok", { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ssrfSafeFetch(httpsOrigin, {
+        headers: {
+          Authorization: "Bearer example-token",
+          Cookie: "session=example-cookie",
+          "Proxy-Authorization": "Bearer example-proxy-token",
+          "X-Request-Id": "example-request",
+        },
+      }),
+    ).resolves.toMatchObject({ status: 200 });
+
+    const redirectedHeaders = new Headers(
+      fetchMock.mock.calls[1]?.[1]?.headers,
+    );
+    expect(redirectedHeaders.get("authorization")).toBeNull();
+    expect(redirectedHeaders.get("cookie")).toBeNull();
+    expect(redirectedHeaders.get("proxy-authorization")).toBeNull();
+    expect(redirectedHeaders.get("x-request-id")).toBe("example-request");
+  });
+
   it("can return a validated redirect for a caller with its own redirect policy", async () => {
     const redirectResponse = new Response("moved", {
       status: 302,
