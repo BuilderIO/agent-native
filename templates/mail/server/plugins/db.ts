@@ -3,8 +3,49 @@ import {
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
+import { registerIdentityColumns } from "@agent-native/core/org";
 
 import * as schema from "../db/schema.js";
+
+// Mailbox rows belong to their owner_email. account_email is the connected
+// provider mailbox, which an app email change does not rename.
+registerIdentityColumns([
+  ...[
+    "mail_sync_accounts",
+    "mail_inbox_threads",
+    "mail_inbox_push_invalidations",
+    "queued_email_drafts",
+    "scheduled_jobs",
+  ].map((table) => ({
+    table,
+    column: "account_email",
+    emailChange: "retain" as const,
+    offboard: "retain" as const,
+    reason: "Connected provider mailbox address, not the member.",
+  })),
+  {
+    table: "mail_inbox_threads",
+    column: "from_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Message sender address.",
+  },
+  {
+    table: "contact_frequency",
+    column: "contact_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Correspondent address counted for the owner.",
+  },
+  {
+    table: "queued_email_drafts",
+    column: "requester_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Gives the requester access to their request while they are in the org; the draft belongs to its owner.",
+  },
+]);
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and

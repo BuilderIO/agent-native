@@ -88,6 +88,13 @@ export type {
   OffboardMemberOptions,
   OffboardMemberResult,
 } from "../identity/offboard.js";
+export { registerIdentityColumns } from "../identity/rekey.js";
+export type {
+  AppIdentityColumn,
+  IdentityEmailChange,
+  IdentityOffboard,
+  IdentityOrgScope,
+} from "../identity/rekey.js";
 export {
   claimWorkspaceAppForOrganization,
   isStandaloneDispatchRuntime,

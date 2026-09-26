@@ -126,7 +126,7 @@ async function syncFederatedOrgBestEffort(
   }).catch((error) => {
     // Federation is an opt-in cross-deployment enhancement. A hub outage must
     // not turn a healthy local organization read or create into an outage.
-    void error;
+    console.warn("[org] cross-app organization sync failed", error);
     warnAgent({
       severity: "advisory",
       code: "cross-app-organization-sync-failed",
@@ -415,7 +415,7 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
         memberEmail: email,
       });
     } catch (error) {
-      void error;
+      console.error("[org] leave: identity authority revoke failed", error);
       throw createError({
         statusCode: 503,
         message:
@@ -434,7 +434,7 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
         actorEmail: email,
       });
     } catch (error) {
-      void error;
+      console.error("[org] leave: local offboard cleanup failed", error);
       throw createError({
         statusCode: 503,
         message: "Identity removal succeeded but local cleanup is pending.",
@@ -1068,7 +1068,10 @@ export const acceptInvitationHandler = defineEventHandler(
       } catch (error) {
         // A linked invitation cannot safely fall back while rollout state is
         // unreadable, but should report a retryable authority failure.
-        void error;
+        console.error(
+          "[org] invitation: federation rollout state unreadable",
+          error,
+        );
         throw createError({
           statusCode: 503,
           message:
@@ -1092,7 +1095,10 @@ export const acceptInvitationHandler = defineEventHandler(
       } catch (error) {
         // The invitation remains pending so the authorized inviter can repair
         // or retry the federation path without granting local access.
-        void error;
+        console.error(
+          "[org] invitation: identity authority sync failed",
+          error,
+        );
         throw createError({
           statusCode: 503,
           message:
@@ -1253,7 +1259,10 @@ export const removeMemberHandler = defineEventHandler(
       // authority cannot revoke the copied membership, keep the restrictive
       // marker so the member remains unauthorized until a later removal retry
       // can finish the cleanup.
-      void error;
+      console.error(
+        "[org] member removal: identity authority revoke failed",
+        error,
+      );
       throw createError({
         statusCode: 503,
         message:
@@ -1270,7 +1279,10 @@ export const removeMemberHandler = defineEventHandler(
     } catch (error) {
       // The durable pending marker keeps this member out of auth lookups until
       // the idempotent authority revocation and local delete are retried.
-      void error;
+      console.error(
+        "[org] member removal: local offboard cleanup failed",
+        error,
+      );
       throw createError({
         statusCode: 503,
         message:
@@ -1365,7 +1377,7 @@ export const changeMemberRoleHandler = defineEventHandler(
         memberRole: role,
       });
     } catch (error) {
-      void error;
+      console.error("[org] member role: identity authority sync failed", error);
       throw createError({
         statusCode: 503,
         message:

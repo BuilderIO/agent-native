@@ -800,7 +800,17 @@ switch (command) {
     }
     const cliDir = path.dirname(fileURLToPath(import.meta.url));
     const script = path.resolve(cliDir, "../scripts/identity-rekey.js");
-    run(process.execPath, [script, ...identityArgs]);
+    // Apps declare their identity columns from the module graph of their
+    // database plugin. Without it the rekey refuses every app-owned column.
+    const declarations = path.resolve("server/plugins/db.ts");
+    if (fs.existsSync(declarations))
+      run(findTsxBin(), [
+        script,
+        "--identity-declarations",
+        declarations,
+        ...identityArgs,
+      ]);
+    else run(process.execPath, [script, ...identityArgs]);
     break;
   }
 
