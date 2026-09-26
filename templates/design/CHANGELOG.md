@@ -5,8 +5,21 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-26
 
+### Added
+
+- Eleven new hand-designed templates across every format — story, keynote title, developer and consumer landing pages, Bauhaus poster, luxury ad, editorial one-pager, video thumbnail, diner menu, and more — with the original starters kept below them.
+
+### Improved
+
+- Browse every design template from the home page, with a responsive header and sticky Templates and Recent tabs.
+- Design home suggestions reflect the role selected during onboarding, and the prompt stays centered above templates.
+- Layers dragged out of frames now land at the board level, and copies keep their intended order and selection.
+
 ### Fixed
 
+- Cmd+D places screen duplicates in the next open slot
+- Dropping a layer beside a sibling keeps that insertion point.
+- Opening shared designs no longer fails during client startup
 - Canvas focus stays on toolbar controls when a live preview finishes loading
 
 ### Changed
@@ -22,6 +35,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Design shows how to connect file storage before uploading media or fonts
 - Attach Figma frames and websites from focused dialogs while keeping prompt drafts and uploaded design.md files intact.
 - Recent designs now use the same consistent library card layout as templates.
 - Start designs from a focused prompt with editable suggestions, template previews, and a searchable recent-design library.
@@ -39,6 +53,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Design guides users to connect AI before continuing generation questions.
+- Escape finishes a Pen path as an open vector; during a pointer gesture, it
+  cancels that gesture and keeps previously placed anchors.
+- Pen paths remain available after save failures, and retries keep the active tool
+- Pen retries keep extending the selected vector after a save failure
+- Pressing Enter finishes a new Pen path and selects its vector on Move.
 - Failed Figma imports no longer leave empty designs behind, and malformed preview links stay safely on the current screen.
 - Fix live visual-edit recovery, handoff, and interaction workflows.
 - Human Review previews show the actual design when you have organization admin access.
