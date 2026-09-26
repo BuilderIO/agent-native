@@ -22,6 +22,8 @@ export const bookings = table("bookings", {
   fieldResponses: text("field_responses"),
   /** Meeting link (Zoom, Google Meet, or custom) */
   meetingLink: text("meeting_link"),
+  /** The booking is confirmed, but the host still needs to attach its meeting link. */
+  meetingLinkPending: boolean("meeting_link_pending").notNull().default(false),
   /** Google Calendar event created for this booking, if any */
   googleEventId: text("google_event_id"),
   /** Connected calendar account that owns the provider event, if any */

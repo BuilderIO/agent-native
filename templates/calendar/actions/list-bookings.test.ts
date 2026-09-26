@@ -28,6 +28,7 @@ const schemaMock = vi.hoisted(() => ({
     notes: "bookings.notes",
     fieldResponses: "bookings.fieldResponses",
     meetingLink: "bookings.meetingLink",
+    meetingLinkPending: "bookings.meetingLinkPending",
     googleEventId: "bookings.googleEventId",
     zoomNeedsReview: "bookings.zoomNeedsReview",
     zoomMeetingId: "bookings.zoomMeetingId",
@@ -58,6 +59,7 @@ describe("list-bookings", () => {
       notes: null,
       fieldResponses: null,
       meetingLink: null,
+      meetingLinkPending: true,
       googleEventId: null,
       zoomNeedsReview: true,
       zoomMeetingId: null,
@@ -85,6 +87,7 @@ describe("list-bookings", () => {
       {
         id: "booking-1",
         status: "confirmed",
+        meetingLinkPending: true,
         zoomNeedsReview: true,
         zoomCancellationNeedsReview: true,
       },

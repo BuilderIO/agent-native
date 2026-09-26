@@ -21,6 +21,7 @@ function rowToBooking(
     | "notes"
     | "fieldResponses"
     | "meetingLink"
+    | "meetingLinkPending"
     | "googleEventId"
     | "zoomNeedsReview"
     | "zoomMeetingId"
@@ -51,6 +52,8 @@ function rowToBooking(
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    meetingLinkPending:
+      row.meetingLinkPending && !row.meetingLink ? true : undefined,
     googleEventId: row.googleEventId ?? undefined,
     zoomNeedsReview: row.zoomNeedsReview,
     zoomCancellationNeedsReview: needsZoomCancellationReview({
@@ -93,6 +96,7 @@ export default defineAction({
         notes: schema.bookings.notes,
         fieldResponses: schema.bookings.fieldResponses,
         meetingLink: schema.bookings.meetingLink,
+        meetingLinkPending: schema.bookings.meetingLinkPending,
         googleEventId: schema.bookings.googleEventId,
         zoomNeedsReview: schema.bookings.zoomNeedsReview,
         zoomMeetingId: schema.bookings.zoomMeetingId,

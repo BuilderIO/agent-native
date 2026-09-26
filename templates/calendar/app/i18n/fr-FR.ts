@@ -535,6 +535,8 @@ export default {
     confirmation: "confirmation",
     confirmationSent:
       "Tout est prêt ! Une confirmation a été envoyée à votre adresse e-mail.",
+    meetingDetailsPending:
+      "Votre créneau est réservé. L’hôte vous communiquera les détails de la réunion.",
     confirmed: "Confirmée",
     confirmedCount: "Confirmées ({{count}})",
     zoomNeedsReview: "Vérifiez Zoom avant de réessayer",

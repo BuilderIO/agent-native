@@ -1517,6 +1517,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
     let calendarAccountId: string | undefined;
+    let meetingLinkPending = false;
     let zoomMeetingId: string | undefined;
     let zoomAccountId: string | undefined;
 
@@ -1543,7 +1544,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           endTime: requestedRange.end.toISOString(),
           timezone: bookingTimeZone,
         });
-        if (zoomResult.status === "not_started") {
+        if (
+          zoomResult.status === "not_started" ||
+          zoomResult.status === "rejected"
+        ) {
           await getDb()
             .update(schema.bookings)
             .set({ status: "cancelled" })
@@ -1562,11 +1566,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           `[bookings] Failed to create Zoom meeting for ${hostEmail}:`,
           error,
         );
-        // The reservation remains conflict-blocking, while its review flag
-        // keeps an ambiguous provider result out of the confirmed calendar.
-        recordBookingsChanged(hostEmail);
-        setResponseStatus(event, 502);
-        return { error: "Failed to create booking" };
+        // Zoom may have created the meeting even if its response was lost or
+        // unreadable, so keep the booking to reserve the slot and prevent a
+        // retry from silently creating a duplicate meeting.
+        meetingLinkPending = true;
       }
     }
 
@@ -1649,7 +1652,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     // Persist provider details created after the initial booking insert.
-    if (meetingLink || googleEventId) {
+    meetingLinkPending = meetingLinkPending && !meetingLink;
+    if (meetingLink || googleEventId || meetingLinkPending) {
       const providerUpdates: {
         meetingLink?: string;
         googleEventId?: string;
@@ -1657,12 +1661,18 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         zoomNeedsReview?: boolean;
         zoomMeetingId?: string;
         zoomAccountId?: string;
-      } = {};
+        meetingLinkPending: boolean;
+      } = { meetingLinkPending };
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
       if (zoomMeetingId) providerUpdates.zoomMeetingId = zoomMeetingId;
       if (zoomAccountId) providerUpdates.zoomAccountId = zoomAccountId;
-      if (conferencing?.type === "zoom") {
+      if (
+        conferencing?.type === "zoom" &&
+        meetingLink &&
+        zoomMeetingId &&
+        zoomAccountId
+      ) {
         providerUpdates.zoomNeedsReview = false;
       }
       if (googleEventId && calendarAccountId) {
@@ -1688,9 +1698,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       meetingLink,
+      ...(meetingLinkPending ? { meetingLinkPending: true } : {}),
       googleEventId,
       cancelToken,
-      zoomNeedsReview: false,
+      zoomNeedsReview: conferencing?.type === "zoom" && meetingLinkPending,
       status: "confirmed",
       createdAt: now,
     };
@@ -2072,6 +2083,7 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
         ...row,
         conferencing: link?.conferencing,
       }),
+      meetingLinkPending: booking.meetingLinkPending,
       status: booking.status,
     };
   } catch (error: any) {
@@ -2179,6 +2191,8 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    meetingLinkPending:
+      row.meetingLinkPending && !row.meetingLink ? true : undefined,
     googleEventId: row.googleEventId ?? undefined,
     status: row.status,
     createdAt: row.createdAt,

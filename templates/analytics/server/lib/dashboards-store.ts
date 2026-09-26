@@ -862,6 +862,41 @@ export async function getDashboard(
   );
 }
 
+export async function getPublicDashboardMetadata(id: string) {
+  const config = sql`case
+    when ${schema.dashboards.config} is json
+      then ${schema.dashboards.config}::jsonb
+    else '{}'::jsonb
+  end`;
+  const [row] = await (getDb() as any)
+    .select({
+      title: schema.dashboards.title,
+      description: sql<string | null>`(${config} ->> 'description')`,
+      panelTitlesJson: sql<string>`jsonb_path_query_array(${config}, '$.panels[0 to 2].title')::text`,
+    })
+    .from(schema.dashboards)
+    .where(
+      and(
+        eq(schema.dashboards.id, id),
+        eq(schema.dashboards.visibility, "public"),
+        isNull(schema.dashboards.archivedAt),
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+
+  const panelTitles: unknown = JSON.parse(row.panelTitlesJson);
+  return {
+    title: row.title,
+    description: row.description,
+    panelTitles: Array.isArray(panelTitles)
+      ? panelTitles.filter(
+          (title): title is string => typeof title === "string",
+        )
+      : [],
+  };
+}
+
 /**
  * List dashboards visible to the caller. Union of SQL rows + not-yet-migrated
  * legacy keys.
@@ -2532,6 +2567,21 @@ export async function getAnalysis(
     legacy.visibility,
     "owner",
   );
+}
+
+export async function getPublicAnalysisMetadata(id: string) {
+  const [row] = await (getDb() as any)
+    .select({
+      name: schema.analyses.name,
+      description: schema.analyses.description,
+      question: schema.analyses.question,
+    })
+    .from(schema.analyses)
+    .where(
+      and(eq(schema.analyses.id, id), eq(schema.analyses.visibility, "public")),
+    )
+    .limit(1);
+  return row ?? null;
 }
 
 export async function listAnalyses(

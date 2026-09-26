@@ -35,6 +35,7 @@ interface BookingInfo {
   slug: string;
   meetingLink?: string;
   zoomCancellationNeedsReview?: boolean;
+  meetingLinkPending?: boolean;
   status: "confirmed" | "cancelled";
 }
 
@@ -153,6 +154,11 @@ export function ManageBookingPage() {
           <div className="text-sm text-muted-foreground">
             {t("manageBooking.bookedBy", { name: booking.name })}
           </div>
+          {booking.meetingLinkPending && (
+            <p className="text-sm text-muted-foreground">
+              {t("bookingLinks.meetingDetailsPending")}
+            </p>
+          )}
         </div>
 
         {isPast ? (

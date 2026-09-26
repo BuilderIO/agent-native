@@ -13,6 +13,16 @@
  */
 import type { VideoProvider } from "./types.js";
 
+export class ZoomProviderError extends Error {
+  constructor(
+    readonly statusCode: number,
+    responseBody: string,
+  ) {
+    super(`Zoom ${statusCode}: ${responseBody}`);
+    this.name = "ZoomProviderError";
+  }
+}
+
 export interface ZoomProviderConfig {
   clientId: string;
   clientSecret: string;
@@ -149,7 +159,9 @@ export function createZoomProvider(config: ZoomProviderConfig): VideoProvider {
       if (res.status === 401 || res.status === 403) {
         await config.markInvalid?.(credentialId);
       }
-      if (!res.ok) throw new Error(`Zoom ${res.status}: ${await res.text()}`);
+      if (!res.ok) {
+        throw new ZoomProviderError(res.status, res.statusText);
+      }
       const body = await res.json();
       return {
         meetingUrl: body.join_url,

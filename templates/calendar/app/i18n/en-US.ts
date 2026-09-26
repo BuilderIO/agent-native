@@ -509,6 +509,8 @@ export default {
     confirmation: "confirmation",
     confirmationSent:
       "You're all set! A confirmation has been sent to your email.",
+    meetingDetailsPending:
+      "Your time is reserved. The host will follow up with meeting details.",
     confirmed: "Confirmed",
     confirmedCount: "Confirmed ({{count}})",
     zoomNeedsReview: "Check Zoom before retrying",

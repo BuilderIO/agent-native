@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { Booking, CustomField } from "@shared/api";
-import { IconCircleX } from "@tabler/icons-react";
+import { IconCircleX, IconVideo } from "@tabler/icons-react";
 import { format, parseISO } from "date-fns";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -167,27 +167,51 @@ export default function BookingsList() {
                     />
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      variant={
-                        (booking.zoomNeedsReview ||
-                          booking.zoomCancellationNeedsReview) &&
-                        booking.status === "confirmed"
-                          ? "destructive"
-                          : booking.status === "confirmed"
-                            ? "default"
-                            : "secondary"
-                      }
-                    >
-                      {booking.status === "confirmed" &&
-                      booking.zoomCancellationNeedsReview
-                        ? t("bookingLinks.zoomCancellationNeedsReview")
-                        : booking.status === "confirmed" &&
-                            booking.zoomNeedsReview
-                          ? t("bookingLinks.zoomNeedsReview")
-                          : booking.status === "confirmed"
-                            ? t("bookingLinks.confirmed")
-                            : t("bookingLinks.cancelled")}
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      <Badge
+                        variant={
+                          (booking.zoomNeedsReview ||
+                            booking.zoomCancellationNeedsReview) &&
+                          booking.status === "confirmed"
+                            ? "destructive"
+                            : booking.status === "confirmed"
+                              ? "default"
+                              : "secondary"
+                        }
+                      >
+                        {booking.status === "confirmed" &&
+                        booking.zoomCancellationNeedsReview
+                          ? t("bookingLinks.zoomCancellationNeedsReview")
+                          : booking.status === "confirmed" &&
+                              booking.zoomNeedsReview
+                            ? t("bookingLinks.zoomNeedsReview")
+                            : booking.status === "confirmed"
+                              ? t("bookingLinks.confirmed")
+                              : t("bookingLinks.cancelled")}
+                      </Badge>
+                      {booking.meetingLinkPending && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              role="img"
+                              aria-label={t(
+                                "bookingLinks.meetingDetailsPending",
+                              )}
+                              tabIndex={0}
+                              className="inline-flex text-muted-foreground"
+                            >
+                              <IconVideo
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t("bookingLinks.meetingDetailsPending")}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     {booking.status === "confirmed" &&
