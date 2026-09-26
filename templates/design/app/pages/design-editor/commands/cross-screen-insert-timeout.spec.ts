@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
+  cancelCrossScreenRollbackTimeout,
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
   crossScreenSourceDeleteCancellation,
@@ -50,6 +51,24 @@ describe("scheduleCrossScreenDeleteTimeout", () => {
       screenId: "source",
       selector: "#source",
       waitForInsertTransaction: false,
+      cancelRequested: true,
+    };
+    scheduleCrossScreenDeleteTimeout(request, "board", onTimeout);
+
+    vi.advanceTimersByTime(CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
+
+    expect(onTimeout).toHaveBeenCalledExactlyOnceWith(request);
+  });
+
+  it("times out a source cancellation while the destination insert is pending", () => {
+    vi.useFakeTimers();
+    const onTimeout = vi.fn();
+    const request = {
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      screenId: "source",
+      selector: "#source",
+      waitForInsertTransaction: true,
       cancelRequested: true,
     };
     scheduleCrossScreenDeleteTimeout(request, "board", onTimeout);
@@ -287,5 +306,26 @@ describe("scheduleCrossScreenInsertTimeout", () => {
     expect(onTimeout).toHaveBeenCalledExactlyOnceWith(request);
 
     cancel();
+  });
+
+  it("cancels the failure toast timeout when the bridge replies", () => {
+    vi.useFakeTimers();
+    const toastError = vi.fn();
+    const request = {
+      requestId: "move-1:rollback",
+      transactionId: "move-1",
+      screenId: "target",
+      selector: "",
+    };
+    const timeoutRef = {
+      current: scheduleCrossScreenRollbackTimeout(request, toastError),
+    };
+
+    cancelCrossScreenRollbackTimeout(timeoutRef);
+    toastError();
+    vi.advanceTimersByTime(CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
+
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(timeoutRef.current).toBeNull();
   });
 });

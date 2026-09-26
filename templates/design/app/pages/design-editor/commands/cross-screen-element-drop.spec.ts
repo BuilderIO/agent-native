@@ -2335,7 +2335,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
     });
     expect(recovery.sourceDeleteRequest).toBeNull();
     if (recovery.rollbackRequest) {
-      expect(recovery.admissionReleased).toBe(false);
       expect(recovery.rollbackRequest).toMatchObject({
         screenId: "target",
         transactionId: "move-timed-out",
@@ -2344,7 +2343,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       });
       expect(pendingTransactionRef.current).toBe("move-timed-out");
     } else {
-      expect(recovery.admissionReleased).toBe(true);
       expect(pendingTransactionRef.current).toBeNull();
     }
 
@@ -2443,7 +2441,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       expect(pendingTransactionRef.current).toBeNull();
       runViewerMove();
     } else {
-      expect(recovery.admissionReleased).toBe(true);
       expect(pendingTransactionRef.current).toBeNull();
       runViewerMove();
     }
@@ -2492,7 +2489,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       pendingTransactionRef,
     });
 
-    expect(recovery.admissionReleased).toBe(false);
     expect(recovery.sourceDeleteRequest).toMatchObject({
       cancelRequested: true,
       rollbackScreenId: "target",
@@ -2537,7 +2533,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       pendingTransactionRef,
     });
 
-    expect(recovery.admissionReleased).toBe(false);
     expect(recovery.sourceDeleteRequest).toMatchObject({
       cancelRequested: true,
       selector: "#source",
@@ -2583,7 +2578,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       });
 
       expect(recovery).toMatchObject({
-        admissionReleased: true,
         rollbackRequest: null,
         sourceDeleteRequest: null,
       });
@@ -2621,7 +2615,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       });
 
       expect(recovery).toMatchObject({
-        admissionReleased: true,
         rollbackRequest: null,
         sourceDeleteRequest: null,
       });
@@ -2654,7 +2647,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
       pendingTransactionRef,
     });
 
-    expect(recovery.admissionReleased).toBe(false);
     expect(recovery.sourceDeleteRequest).toBeNull();
     expect(recovery.rollbackRequest).toMatchObject({
       screenId: "target",

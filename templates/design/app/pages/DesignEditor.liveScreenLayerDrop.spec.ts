@@ -59,4 +59,62 @@ describe("DesignEditor Layers-panel live-screen row drop", () => {
       /typeof next !== "function" && next[\s\S]*?runtimeStructurePendingTransactionRef\.current[\s\S]*?toast\.error\(t\("designEditor\.toasts\.layerMoveFailed"\)/,
     );
   });
+
+  it("holds a failed cross-screen move until cancellation and rollback settle", () => {
+    const rejectionStart = source.indexOf(
+      "const handleRuntimeStructureDeleteRejected = useCallback(",
+    );
+    const rejectionEnd = source.indexOf("useEffect(() => {", rejectionStart);
+    const rejectionHandler = source.slice(rejectionStart, rejectionEnd);
+    const cancellationBranch = rejectionHandler.indexOf(
+      'details.reason === "cancelled"',
+    );
+    const admissionRelease = rejectionHandler.indexOf(
+      "releaseCrossScreenDropAdmission(",
+    );
+
+    expect(rejectionStart).toBeGreaterThan(0);
+    expect(cancellationBranch).toBeGreaterThan(0);
+    expect(admissionRelease).toBeGreaterThan(cancellationBranch);
+    expect(rejectionHandler).toContain(
+      "runtimeStructureRollbackRequest?.transactionId ===",
+    );
+
+    const deleteTimeoutStart = source.indexOf(
+      "const deleteRequest = runtimeStructureDeleteRequest;",
+    );
+    const rollbackResultStart = source.indexOf(
+      "const handleRuntimeStructureRollbackResult = useCallback(",
+    );
+    const deleteTimeoutEffect = source.slice(
+      deleteTimeoutStart,
+      rollbackResultStart,
+    );
+    expect(deleteTimeoutEffect).toContain("!deleteRequest.cancelRequested");
+  });
+
+  it("cancels rollback timeout on the first bridge result without rearming per render", () => {
+    const resultStart = source.indexOf(
+      "const handleRuntimeStructureRollbackResult = useCallback(",
+    );
+    const timeoutHandlerStart = source.indexOf(
+      "const runtimeStructureRollbackResultHandlerRef = useRef(",
+      resultStart,
+    );
+    const timeoutEffectEnd = source.indexOf(
+      "const handleRuntimeLayerRenameApplied = useCallback(",
+      timeoutHandlerStart,
+    );
+    const resultHandler = source.slice(resultStart, timeoutHandlerStart);
+    const timeoutEffect = source.slice(timeoutHandlerStart, timeoutEffectEnd);
+
+    expect(resultHandler).toContain("cancelCrossScreenRollbackTimeout(");
+    expect(timeoutEffect).toContain(
+      "runtimeStructureRollbackResultHandlerRef.current({",
+    );
+    expect(timeoutEffect).toContain("[runtimeStructureRollbackRequest]");
+    expect(timeoutEffect).not.toContain(
+      "[handleRuntimeStructureRollbackResult, runtimeStructureRollbackRequest]",
+    );
+  });
 });

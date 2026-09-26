@@ -679,6 +679,7 @@ import {
   runCrossScreenElementDrop,
 } from "./design-editor/commands/cross-screen-element-drop";
 import {
+  cancelCrossScreenRollbackTimeout,
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
   crossScreenSourceDeleteCancellation,
@@ -1802,6 +1803,9 @@ function DesignEditor() {
     useState<(RuntimeStructureRollbackRequest & { screenId: string }) | null>(
       null,
     );
+  const runtimeStructureRollbackTimeoutCancelRef = useRef<(() => void) | null>(
+    null,
+  );
   const runtimeStructureRollbackRevisionRef = useRef(0);
   const [liveRoutePathsByScreenId, setLiveRoutePathsByScreenId] = useState<
     Record<string, string>
@@ -17647,6 +17651,16 @@ function DesignEditor() {
         return;
       }
       if (request.cancelRequested) {
+        if (
+          details.reason === "cancelled" &&
+          runtimeStructureRollbackRequest?.transactionId ===
+            request.transactionId
+        ) {
+          setRuntimeStructureDeleteRequest((current) =>
+            current?.transactionId === request.transactionId ? null : current,
+          );
+          return;
+        }
         releaseCrossScreenDropAdmission(
           runtimeStructurePendingTransactionRef,
           request.transactionId,
@@ -17695,6 +17709,7 @@ function DesignEditor() {
     },
     [
       runtimeStructureDeleteRequest,
+      runtimeStructureRollbackRequest,
       runtimeStructurePendingTransactionRef,
       runtimeStructureInsertRequest,
       setRuntimeStructureDeleteRequest,
@@ -17707,7 +17722,8 @@ function DesignEditor() {
     if (
       runtimeStructureRollbackRequest?.transactionId &&
       runtimeStructureRollbackRequest.transactionId ===
-        deleteRequest?.transactionId
+        deleteRequest?.transactionId &&
+      !deleteRequest.cancelRequested
     ) {
       return;
     }
@@ -17738,6 +17754,9 @@ function DesignEditor() {
       if (runtimeStructureRollbackRequest?.requestId !== details.requestId) {
         return;
       }
+      cancelCrossScreenRollbackTimeout(
+        runtimeStructureRollbackTimeoutCancelRef,
+      );
       const rollbackRequest = runtimeStructureRollbackRequest;
       const transactionId = rollbackRequest.transactionId;
       const hasPendingInsert = Boolean(
@@ -17865,19 +17884,31 @@ function DesignEditor() {
       t,
     ],
   );
+  const runtimeStructureRollbackResultHandlerRef = useRef(
+    handleRuntimeStructureRollbackResult,
+  );
+  runtimeStructureRollbackResultHandlerRef.current =
+    handleRuntimeStructureRollbackResult;
   useEffect(() => {
     if (!runtimeStructureRollbackRequest?.transactionId) return;
-    return scheduleCrossScreenRollbackTimeout(
+    const cancel = scheduleCrossScreenRollbackTimeout(
       runtimeStructureRollbackRequest,
       (request) =>
-        handleRuntimeStructureRollbackResult({
+        runtimeStructureRollbackResultHandlerRef.current({
           requestId: request.requestId,
           transactionId: request.transactionId,
           applied: false,
           reason: "rollback-timeout",
         }),
     );
-  }, [handleRuntimeStructureRollbackResult, runtimeStructureRollbackRequest]);
+    runtimeStructureRollbackTimeoutCancelRef.current = cancel;
+    return () => {
+      cancel();
+      if (runtimeStructureRollbackTimeoutCancelRef.current === cancel) {
+        runtimeStructureRollbackTimeoutCancelRef.current = null;
+      }
+    };
+  }, [runtimeStructureRollbackRequest]);
   const handleRuntimeLayerRenameApplied = useCallback(
     (
       screenId: string,

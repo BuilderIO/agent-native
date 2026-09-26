@@ -123,7 +123,6 @@ export function resolveCrossScreenMoveFailureRecovery(args: {
   rollbackRequestId: string;
   pendingTransactionRef?: RefObject<string | null>;
 }): {
-  admissionReleased: boolean;
   rollbackRequest:
     | (RuntimeStructureRollbackRequest & { screenId: string })
     | null;
@@ -180,14 +179,14 @@ export function resolveCrossScreenMoveFailureRecovery(args: {
       : null
     : undefined;
 
+  if (!rollbackRequest && !recoveredSourceDeleteRequest?.cancelRequested) {
+    releaseCrossScreenDropAdmission(
+      args.pendingTransactionRef,
+      args.transactionId,
+    );
+  }
+
   return {
-    admissionReleased:
-      rollbackRequest || recoveredSourceDeleteRequest?.cancelRequested
-        ? false
-        : releaseCrossScreenDropAdmission(
-            args.pendingTransactionRef,
-            args.transactionId,
-          ),
     rollbackRequest,
     sourceDeleteRequest: recoveredSourceDeleteRequest,
   };

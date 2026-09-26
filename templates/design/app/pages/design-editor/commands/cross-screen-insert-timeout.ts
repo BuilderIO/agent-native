@@ -31,7 +31,7 @@ export function scheduleCrossScreenDeleteTimeout(
 ): () => void {
   if (
     !request?.transactionId ||
-    request.waitForInsertTransaction !== false ||
+    (request.waitForInsertTransaction !== false && !request.cancelRequested) ||
     request.screenId === boardFileId
   ) {
     return () => {};
@@ -53,6 +53,13 @@ export function scheduleCrossScreenRollbackTimeout(
     CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
   );
   return () => window.clearTimeout(timeout);
+}
+
+export function cancelCrossScreenRollbackTimeout(timeoutRef: {
+  current: (() => void) | null;
+}): void {
+  timeoutRef.current?.();
+  timeoutRef.current = null;
 }
 
 export function crossScreenSourceDeleteCancellation(

@@ -7665,46 +7665,55 @@ export function DesignCanvas({
       : deviceFrame === "none"
         ? "100%"
         : (iframeHeight ?? undefined);
-  const focusScrollSurface = useCallback(() => {
-    const surface = scrollContainerRef.current;
-    if (
-      !surface ||
-      document.activeElement === surface ||
-      !editMode ||
-      interactMode
-    )
-      return;
-    // A picker drag ending over the canvas must not take focus from the open
-    // picker: losing it ends the inspector gesture and drops a styled text range.
-    if (
-      textEditingStateRef.current.active ||
-      document.activeElement?.closest("[data-radix-popper-content-wrapper]")
-    ) {
-      return;
-    }
-    const focusedElement = document.activeElement;
-    if (focusedElement instanceof HTMLIFrameElement) {
-      try {
-        const frameDocument = focusedElement.contentDocument;
-        if (frameDocument?.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)) {
-          return;
-        }
-      } catch (error) {
-        if (
-          !(error instanceof DOMException) ||
-          error.name !== "SecurityError"
-        ) {
-          throw error;
-        }
-        // Cross-origin editable focus is reported separately by the live-frame bridge.
+  const focusScrollSurface = useCallback(
+    (fromIframeLoad = false) => {
+      const surface = scrollContainerRef.current;
+      if (
+        !surface ||
+        document.activeElement === surface ||
+        !editMode ||
+        interactMode
+      )
+        return;
+      // A picker drag ending over the canvas must not take focus from the open
+      // picker: losing it ends the inspector gesture and drops a styled text range.
+      if (
+        textEditingStateRef.current.active ||
+        document.activeElement?.closest("[data-radix-popper-content-wrapper]")
+      ) {
+        return;
       }
-    }
-    // Taking focus for keyboard panning must never outrank a field the user
-    // was just handed: a composer that opens under the cursor would otherwise
-    // be focused on mount and silently unfocused by the same pointer motion.
-    if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
-    surface.focus({ preventScroll: true });
-  }, [editMode, interactMode]);
+      const focusedElement = document.activeElement;
+      if (focusedElement instanceof HTMLIFrameElement) {
+        try {
+          const frameDocument = focusedElement.contentDocument;
+          if (frameDocument?.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)) {
+            return;
+          }
+        } catch (error) {
+          if (
+            !(error instanceof DOMException) ||
+            error.name !== "SecurityError"
+          ) {
+            throw error;
+          }
+          // Pointer entry cannot distinguish a cross-origin app input from the
+          // iframe itself; only the load-time canvas-focus repair may take it.
+          if (!fromIframeLoad) return;
+        }
+      }
+      // Taking focus for keyboard panning must never outrank a field the user
+      // was just handed: a composer that opens under the cursor would otherwise
+      // be focused on mount and silently unfocused by the same pointer motion.
+      if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
+      surface.focus({ preventScroll: true });
+    },
+    [editMode, interactMode],
+  );
+  const handleCanvasPointerEnter = useCallback(
+    () => focusScrollSurface(),
+    [focusScrollSurface],
+  );
   useLayoutEffect(() => focusScrollSurface(), [focusScrollSurface]);
 
   // Single-screen pan (Figma parity §3): middle-mouse-button drag always
@@ -7974,7 +7983,7 @@ export function DesignCanvas({
           onLoad={(event) => {
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
-            focusScrollSurface();
+            focusScrollSurface(true);
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },
               "*",
@@ -8426,8 +8435,8 @@ export function DesignCanvas({
         <div
           ref={scrollContainerRef}
           tabIndex={-1}
-          onPointerEnter={focusScrollSurface}
-          onMouseEnter={focusScrollSurface}
+          onPointerEnter={handleCanvasPointerEnter}
+          onMouseEnter={handleCanvasPointerEnter}
           className="relative h-full w-full overflow-clip"
         >
           {iframeElement}
@@ -8444,8 +8453,8 @@ export function DesignCanvas({
       <div
         ref={scrollContainerRef}
         tabIndex={-1}
-        onPointerEnter={focusScrollSurface}
-        onMouseEnter={focusScrollSurface}
+        onPointerEnter={handleCanvasPointerEnter}
+        onMouseEnter={handleCanvasPointerEnter}
         className="relative h-full w-full overflow-clip"
         style={{
           width: embeddedFrame.displayWidth,
@@ -8478,8 +8487,8 @@ export function DesignCanvas({
     <div
       ref={scrollContainerRef}
       tabIndex={-1}
-      onPointerEnter={focusScrollSurface}
-      onMouseEnter={focusScrollSurface}
+      onPointerEnter={handleCanvasPointerEnter}
+      onMouseEnter={handleCanvasPointerEnter}
       onMouseDown={handleScrollSurfaceMouseDown}
       onClick={handleScrollSurfaceBackgroundClick}
       className="relative flex-1 h-full overflow-auto"

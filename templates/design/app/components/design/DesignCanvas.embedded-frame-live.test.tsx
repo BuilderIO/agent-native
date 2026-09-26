@@ -16,7 +16,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DesignCanvas live embedded-frame offset", () => {
-  it("focuses the canvas when a cross-origin frame owns initial focus", async () => {
+  it("does not steal cross-origin frame focus on canvas pointer entry", async () => {
     const container = document.createElement("div");
     const focusedFrame = document.createElement("iframe");
     document.body.append(container, focusedFrame);
@@ -31,9 +31,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
         );
       },
     });
-    focusedFrame.focus();
-    expect(document.activeElement).toBe(focusedFrame);
-
     try {
       await act(async () =>
         root.render(
@@ -64,7 +61,18 @@ describe("DesignCanvas live embedded-frame offset", () => {
       const scrollSurface =
         container.querySelector<HTMLElement>('[tabindex="-1"]');
       expect(scrollSurface).not.toBeNull();
-      expect(document.activeElement).toBe(scrollSurface);
+      focusedFrame.focus();
+      expect(document.activeElement).toBe(focusedFrame);
+
+      await act(async () =>
+        scrollSurface!.dispatchEvent(
+          new MouseEvent("mouseover", {
+            bubbles: true,
+            relatedTarget: document.body,
+          }),
+        ),
+      );
+      expect(document.activeElement).toBe(focusedFrame);
     } finally {
       await act(async () => root.unmount());
       container.remove();
