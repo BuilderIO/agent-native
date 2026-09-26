@@ -193,16 +193,19 @@ function InteractiveLayout({ children }: LayoutProps) {
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
-      if (isAskRoute && typeof detail?.isRunning === "boolean") {
-        markAnalyticsChatActivity();
-        updateAnalyticsChatHandoffForRun(runningTabs.current, detail);
-      }
+      if (typeof detail?.isRunning !== "boolean") return;
+      if (location.pathname === "/ask") markAnalyticsChatActivity();
+      updateAnalyticsChatHandoffForRun(
+        runningTabs.current,
+        detail,
+        location.pathname,
+      );
     }
 
     window.addEventListener("agentNative.chatRunning", handleChatRunning);
     return () =>
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, [isAskRoute]);
+  }, [location.pathname]);
 
   function openAskAgentFullscreen() {
     focusAgentChat();

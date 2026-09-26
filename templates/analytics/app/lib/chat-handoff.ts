@@ -24,6 +24,7 @@ export function discardAnalyticsChatHandoffOnSettings(pathname: string): void {
 export function updateAnalyticsChatHandoffForRun(
   runningTabs: Set<string>,
   detail: unknown,
+  pathname: string,
 ): void {
   if (!detail || typeof detail !== "object") return;
   const run = detail as { isRunning?: unknown; tabId?: unknown };
@@ -31,9 +32,10 @@ export function updateAnalyticsChatHandoffForRun(
   const tabId = typeof run.tabId === "string" ? run.tabId : "";
 
   if (run.isRunning) {
+    if (pathname !== "/ask") return;
     runningTabs.add(tabId);
     markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
-  } else if (runningTabs.delete(tabId)) {
+  } else if (runningTabs.delete(tabId) && pathname === "/ask") {
     markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
   }
 }

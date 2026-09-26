@@ -77,10 +77,14 @@ describe("analytics chat handoff destinations", () => {
     vi.setSystemTime(1_000);
     const runningTabs = new Set<string>();
 
-    updateAnalyticsChatHandoffForRun(runningTabs, {
-      isRunning: true,
-      tabId: "chat-1",
-    });
+    updateAnalyticsChatHandoffForRun(
+      runningTabs,
+      {
+        isRunning: true,
+        tabId: "chat-1",
+      },
+      "/ask",
+    );
     vi.setSystemTime(1_000 + ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS + 1);
     expect(
       consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
@@ -88,10 +92,14 @@ describe("analytics chat handoff destinations", () => {
       }),
     ).toBe(false);
 
-    updateAnalyticsChatHandoffForRun(runningTabs, {
-      isRunning: false,
-      tabId: "chat-1",
-    });
+    updateAnalyticsChatHandoffForRun(
+      runningTabs,
+      {
+        isRunning: false,
+        tabId: "chat-1",
+      },
+      "/ask",
+    );
 
     expect(
       consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
@@ -101,11 +109,45 @@ describe("analytics chat handoff destinations", () => {
   });
 
   it("does not create a handoff for an unrelated run completion", () => {
-    updateAnalyticsChatHandoffForRun(new Set(), {
-      isRunning: false,
-      tabId: "chat-1",
-    });
+    updateAnalyticsChatHandoffForRun(
+      new Set(),
+      {
+        isRunning: false,
+        tabId: "chat-1",
+      },
+      "/ask",
+    );
 
+    expect(
+      consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
+        ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+      }),
+    ).toBe(false);
+  });
+
+  it("retires a tracked run completed after leaving Ask without refreshing it", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const runningTabs = new Set<string>();
+    updateAnalyticsChatHandoffForRun(
+      runningTabs,
+      { isRunning: true, tabId: "chat-1" },
+      "/ask",
+    );
+    vi.setSystemTime(1_000 + ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS + 1);
+    expect(
+      consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
+        ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+      }),
+    ).toBe(false);
+
+    updateAnalyticsChatHandoffForRun(
+      runningTabs,
+      { isRunning: false, tabId: "chat-1" },
+      "/dashboards/revenue",
+    );
+
+    expect(runningTabs.has("chat-1")).toBe(false);
     expect(
       consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
         ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
