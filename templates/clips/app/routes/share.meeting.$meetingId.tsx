@@ -68,8 +68,11 @@ type LoaderData = {
 function shareMeetingLoaderData(
   payload: LoaderData,
   privateAgentAccess = false,
+  varyByQuery = false,
 ) {
-  return privateAgentAccess ? privateShareLoaderData(payload) : payload;
+  return privateAgentAccess
+    ? privateShareLoaderData(payload, 200, varyByQuery)
+    : payload;
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -226,6 +229,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       basePath,
     },
     hasAgentAccessToken,
+    tokenGrantsAgentAccess,
   );
 }
 

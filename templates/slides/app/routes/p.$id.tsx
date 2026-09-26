@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  SSR_QUERY_CACHE_KEY_HEADER,
   buildResourceSocialMeta,
   buildAgentReadableResourceDiscovery,
   normalizeDocumentTitle,
@@ -65,6 +66,7 @@ type DeckData = {
 const PRIVATE_AGENT_DECK_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
+  [SSR_QUERY_CACHE_KEY_HEADER]: "query",
 };
 
 function publicDeckLoaderData(payload: LoaderData, privateAgentAccess = false) {

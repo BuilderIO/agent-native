@@ -3,7 +3,7 @@ import {
   buildResourceSocialMeta,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useParams } from "react-router";
 
@@ -24,6 +24,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
           and(
             eq(schema.assetLibraries.id, id),
             eq(schema.assetLibraries.visibility, "public"),
+            isNull(schema.assetLibraries.archivedAt),
           ),
         )
         .limit(1)

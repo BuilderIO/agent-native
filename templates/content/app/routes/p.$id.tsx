@@ -11,13 +11,14 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  SSR_QUERY_CACHE_KEY_HEADER,
   buildResourceSocialMeta,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildPublicDocumentDescription } from "@shared/og-description";
 import { IconLayoutSidebarRight, IconLock } from "@tabler/icons-react";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useState } from "react";
 import type {
   HeadersArgs,
@@ -61,6 +62,7 @@ type PublicDocumentLoaderData =
 const PRIVATE_AGENT_DOCUMENT_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
+  [SSR_QUERY_CACHE_KEY_HEADER]: "query",
 };
 
 function publicDocumentLoaderData(
@@ -107,7 +109,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       visibility: schema.documents.visibility,
     })
     .from(schema.documents)
-    .where(eq(schema.documents.id, id))
+    .where(and(eq(schema.documents.id, id), isNull(schema.documents.trashedAt)))
     .limit(1);
 
   if (!doc) throw new Response("Not found", { status: 404 });

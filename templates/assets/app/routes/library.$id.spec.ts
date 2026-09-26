@@ -5,6 +5,7 @@ const database = vi.hoisted(() => ({
     title: string;
     description: string | null;
     visibility: string;
+    archivedAt: string | null;
   } | null,
 }));
 const where = vi.hoisted(() =>
@@ -13,9 +14,15 @@ const where = vi.hoisted(() =>
       conditions.some(
         (condition) =>
           condition.column === "asset_library_visibility" &&
-          condition.value === "public" &&
-          database.row?.visibility === "public",
-      )
+          condition.value === "public",
+      ) &&
+      conditions.some(
+        (condition) =>
+          condition.column === "asset_library_archived_at" &&
+          condition.value === null,
+      ) &&
+      database.row?.visibility === "public" &&
+      database.row.archivedAt === null
         ? [
             {
               title: database.row!.title,
@@ -29,6 +36,7 @@ const where = vi.hoisted(() =>
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Array<{ column: string; value: unknown }>) => conditions,
   eq: (column: string, value: unknown) => ({ column, value }),
+  isNull: (column: string) => ({ column, value: null }),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -43,6 +51,7 @@ vi.mock("../../server/db", () => ({
       title: "asset_library_title",
       description: "asset_library_description",
       visibility: "asset_library_visibility",
+      archivedAt: "asset_library_archived_at",
     },
   },
 }));
@@ -62,6 +71,7 @@ describe("public asset library metadata", () => {
       title: "Field photography",
       description: "References and color direction for the campaign.",
       visibility: "public",
+      archivedAt: null,
     };
 
     const loaderData = await loader({
@@ -86,6 +96,7 @@ describe("public asset library metadata", () => {
       title: "Internal brand kit",
       description: "Private assets",
       visibility: "private",
+      archivedAt: null,
     };
 
     const loaderData = await loader({
@@ -97,5 +108,28 @@ describe("public asset library metadata", () => {
     expect(loaderData.library).toBeNull();
     expect(JSON.stringify(descriptors)).not.toContain("Internal brand kit");
     expect(JSON.stringify(descriptors)).not.toContain("Private assets");
+  });
+
+  it("does not include archived public library metadata", async () => {
+    database.row = {
+      title: "Retired campaign library",
+      description: "Archived reference assets",
+      visibility: "public",
+      archivedAt: "2026-09-25T12:00:00.000Z",
+    };
+
+    const loaderData = await loader({
+      params: { id: "library-1" },
+      request: new Request("https://assets.example.test/library/library-1"),
+    } as never);
+    const descriptors = meta({ loaderData } as never);
+
+    expect(loaderData.library).toBeNull();
+    expect(JSON.stringify(descriptors)).not.toContain(
+      "Retired campaign library",
+    );
+    expect(JSON.stringify(descriptors)).not.toContain(
+      "Archived reference assets",
+    );
   });
 });

@@ -1,3 +1,4 @@
+import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,7 +39,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => conditions,
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  isNull: (column: unknown) => ({ column, value: null }),
 }));
 
 vi.mock("../../server/db", () => ({
@@ -50,6 +53,7 @@ vi.mock("../../server/db", () => ({
       content: "content_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
+      trashedAt: "trashed_at_col",
     },
   },
 }));
@@ -224,10 +228,13 @@ describe("public document route", () => {
       origin: "https://content.example.test",
     });
     expect((result as any).type).not.toBe("DataWithResponseInit");
-    expect(where).toHaveBeenCalledWith({ column: "id_col", value: "doc-1" });
+    expect(where).toHaveBeenCalledWith([
+      { column: "id_col", value: "doc-1" },
+      { column: "trashed_at_col", value: null },
+    ]);
   });
 
-  it("marks tokenized document pages private and no-store", async () => {
+  it("uses a query-specific cache key for token-authorized document pages", async () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     resultQueue.current = [documentRows("private")];
 
@@ -241,6 +248,7 @@ describe("public document route", () => {
     expect(result.init.headers).toEqual({
       "Cache-Control": "private, max-age=0, no-store",
       "Referrer-Policy": "no-referrer",
+      [SSR_QUERY_CACHE_KEY_HEADER]: "query",
     });
     expect(result.data).toMatchObject({
       document: { id: "doc-1", title: "Launch notes" },
@@ -248,5 +256,15 @@ describe("public document route", () => {
       basePath: "",
       origin: "https://content.example.test",
     });
+  });
+
+  it("does not load trashed documents for public previews", async () => {
+    resultQueue.current = [[]];
+
+    await expect(loader(requestFor())).rejects.toMatchObject({ status: 404 });
+    expect(where).toHaveBeenCalledWith([
+      { column: "id_col", value: "doc-1" },
+      { column: "trashed_at_col", value: null },
+    ]);
   });
 });
