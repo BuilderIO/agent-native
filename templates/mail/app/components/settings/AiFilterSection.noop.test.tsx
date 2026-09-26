@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
@@ -251,16 +252,19 @@ describe("AiFilterSection prompt blur saves", () => {
     expect(mocks.refetchJevAvailability).toHaveBeenCalledOnce();
   });
 
-  it("allows clearing existing prompt rules when Jev is unavailable", async () => {
+  it("offers a clear action for existing prompt rules when Jev is unavailable", async () => {
     mocks.jevConfigured = false;
     render(<AiFilterSection />, { wrapper: MemoryRouter });
 
     const prompt = screen.getByRole("textbox", {
       name: "mail.aiFilter.importantMode",
     });
-    expect((prompt as HTMLTextAreaElement).disabled).toBe(false);
-    fireEvent.change(prompt, { target: { value: "" } });
-    fireEvent.blur(prompt);
+    expect((prompt as HTMLTextAreaElement).disabled).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "mail.aiFilter.deleteInstruction",
+      }),
+    );
 
     await waitFor(() => {
       expect(mocks.deleteRule).toHaveBeenCalledWith("important-rule");
@@ -270,32 +274,16 @@ describe("AiFilterSection prompt blur saves", () => {
     expect(mocks.consolidateRule).not.toHaveBeenCalled();
   });
 
-  it("does not save non-empty prompt edits when Jev is unavailable", async () => {
-    mocks.jevConfigured = false;
-    render(<AiFilterSection />, { wrapper: MemoryRouter });
-
-    const prompt = screen.getByRole("textbox", {
-      name: "mail.aiFilter.importantMode",
-    });
-    fireEvent.change(prompt, { target: { value: "A new instruction" } });
-    fireEvent.blur(prompt);
-
-    await waitFor(() => {
-      expect((prompt as HTMLTextAreaElement).value).toBe(
-        "Human comments on GitHub matter\nImportant customer conversations",
-      );
-    });
-    expect(mocks.createRule).not.toHaveBeenCalled();
-    expect(mocks.consolidateRule).not.toHaveBeenCalled();
-    expect(mocks.deleteRule).not.toHaveBeenCalled();
-  });
-
   it("allows deleting existing AI tags when Jev is unavailable", async () => {
     mocks.includeTagRule = true;
     mocks.jevConfigured = false;
     render(<AiFilterSection />, { wrapper: MemoryRouter });
 
-    const deleteButton = screen.getByRole("button", {
+    const tagRow = screen
+      .getByRole("button", { name: /Existing tag/ })
+      .closest<HTMLElement>(".group");
+    expect(tagRow).not.toBeNull();
+    const deleteButton = within(tagRow!).getByRole("button", {
       name: "mail.aiFilter.deleteInstruction",
     });
     expect((deleteButton as HTMLButtonElement).disabled).toBe(false);

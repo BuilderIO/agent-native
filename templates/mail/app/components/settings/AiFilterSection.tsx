@@ -158,6 +158,7 @@ function AiTagRow({
         <Button
           variant="ghost"
           size="icon"
+          className={`size-7 text-muted-foreground hover:text-destructive ${disabled ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
           aria-label={t("mail.aiFilter.deleteInstruction")}
           onClick={() => onDelete(rule)}
         >
@@ -206,10 +207,6 @@ export function AiFilterSection() {
   );
   const jevConfigured =
     !jevAvailability.isError && jevAvailability.data?.configured === true;
-  const jevUnavailable =
-    !jevAvailability.isLoading &&
-    !jevAvailability.isError &&
-    jevAvailability.data?.configured === false;
   const updateSettings = useManageAiFilter();
   const updatePreferences = useUpdateSettings();
   const consolidateAiFilterRules = useConsolidateAiFilterRules();
@@ -298,8 +295,8 @@ export function AiFilterSection() {
     );
   };
 
-  const savePrompt = async (mode: PromptMode) => {
-    const condition = promptDrafts[mode].trim();
+  const savePrompt = async (mode: PromptMode, clear = false) => {
+    const condition = clear ? "" : promptDrafts[mode].trim();
     const existing = promptRules[mode];
     if (condition === promptForRules(existing)) return;
     if (!jevConfigured && condition) {
@@ -727,23 +724,32 @@ export function AiFilterSection() {
             id={mode === "important" ? "importance-rules" : `${mode}-rules`}
             className="space-y-2 scroll-mt-6"
           >
-            <h3 className="text-[13px] font-semibold text-foreground">
-              {mode === "important"
-                ? t("mail.aiFilter.importantMode")
-                : mode === "archive"
-                  ? t("mail.aiFilter.skipInboxMode")
-                  : t("mail.aiFilter.spamMode")}
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[13px] font-semibold text-foreground">
+                {mode === "important"
+                  ? t("mail.aiFilter.importantMode")
+                  : mode === "archive"
+                    ? t("mail.aiFilter.skipInboxMode")
+                    : t("mail.aiFilter.spamMode")}
+              </h3>
+              {!jevConfigured && promptRules[mode].length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-destructive"
+                  aria-label={t("mail.aiFilter.deleteInstruction")}
+                  onClick={() => void savePrompt(mode, true)}
+                >
+                  <IconTrash className="size-3.5" />
+                </Button>
+              )}
+            </div>
             <AiRulePromptField
               value={promptDrafts[mode]}
-              disabled={
-                !jevConfigured &&
-                !(jevUnavailable && promptRules[mode].length > 0)
+              disabled={!jevConfigured}
+              onChange={(value) =>
+                setPromptDrafts((drafts) => ({ ...drafts, [mode]: value }))
               }
-              onChange={(value) => {
-                if (!jevConfigured && value.trim()) return;
-                setPromptDrafts((drafts) => ({ ...drafts, [mode]: value }));
-              }}
               onBlur={() => void savePrompt(mode)}
               label={
                 mode === "important"
