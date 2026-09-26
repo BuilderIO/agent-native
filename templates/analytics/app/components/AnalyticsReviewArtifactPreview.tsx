@@ -135,6 +135,8 @@ export function firstReviewDashboardPanel(
     (panel) =>
       panel.source !== "demo" &&
       panel.source !== "program" &&
+      // Dashboard SQL may run with the reviewing admin's credentials.
+      panel.source !== "bigquery" &&
       panel.chartType !== "section" &&
       panel.chartType !== "extension",
   );

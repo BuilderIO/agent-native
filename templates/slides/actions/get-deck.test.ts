@@ -73,11 +73,16 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: () => currentOrgId,
 }));
 
-vi.mock("@agent-native/core/server", () => ({
-  buildDeepLink: () => "/slides/deck-1",
-  currentRequestUserIsOrgAdmin: (...args: unknown[]) =>
-    mockCurrentRequestUserIsOrgAdmin(...args),
-}));
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...actual,
+    buildDeepLink: () => "/slides/deck-1",
+    currentRequestUserIsOrgAdmin: (...args: unknown[]) =>
+      mockCurrentRequestUserIsOrgAdmin(...args),
+  };
+});
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,

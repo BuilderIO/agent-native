@@ -68,4 +68,17 @@ describe("Analytics review artifact preview", () => {
       firstReviewDashboardPanel({ panels: [panel("program"), panel("demo")] }),
     ).toBeUndefined();
   });
+
+  it("does not run saved BigQuery SQL in a review preview", () => {
+    const chart = panel("first-party", "safe-chart");
+
+    expect(
+      firstReviewDashboardPanel({
+        panels: [panel("bigquery"), chart],
+      }),
+    ).toEqual(chart);
+    expect(firstReviewDashboardPanel({ panels: [panel("bigquery")] })).toBe(
+      undefined,
+    );
+  });
 });
