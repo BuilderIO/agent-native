@@ -150,6 +150,7 @@ const messages = {
       deleteDraft: "Supprimer le brouillon",
       deleteDrafts: "Supprimer les brouillons",
       reopenDraft: "Rouvrir",
+      openInMail: "Ouvrir dans Mail",
       discardDraft: "Abandonner le brouillon",
       enterLinkUrl: "Saisissez l’URL du lien.",
       forward: "Forward",

@@ -512,6 +512,24 @@ describe("manage-draft call-shape guidance", () => {
   it("accepts a create call with only action set", () => {
     expect(action.schema.safeParse({ action: "create" }).success).toBe(true);
   });
+
+  it("keeps deletes out of the draft-created chat widget", () => {
+    expect(
+      action.chatUI?.when?.(
+        { action: "delete" },
+        { message: "Deleted draft draft-1" },
+      ),
+    ).toBe(false);
+    expect(
+      action.chatUI?.when?.(
+        { action: "create" },
+        {
+          draft: { id: "draft-1" },
+          deepLink: "/_agent-native/open?app=mail&view=inbox",
+        },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("manage-draft create-then-reply flow", () => {

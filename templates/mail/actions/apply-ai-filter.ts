@@ -140,6 +140,25 @@ export default defineAction({
     comment: z.string().max(500).optional(),
     settings: settingsSchema.optional(),
   }),
+  chatUI: {
+    renderer: "mail.ai-filter-confirmation",
+    title: "AI filter result",
+    when: (args, result) => {
+      if (
+        (args.mode !== "filter" && args.mode !== "keep") ||
+        !result ||
+        typeof result !== "object"
+      ) {
+        return false;
+      }
+      const changed = (result as Record<string, unknown>).changed;
+      return (
+        typeof changed === "number" &&
+        Number.isSafeInteger(changed) &&
+        changed > 0
+      );
+    },
+  },
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

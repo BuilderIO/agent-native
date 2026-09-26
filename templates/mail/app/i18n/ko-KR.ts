@@ -146,6 +146,7 @@ const messages = {
       deleteDraft: "초안 삭제",
       deleteDrafts: "초안 삭제",
       reopenDraft: "다시 열기",
+      openInMail: "Mail에서 열기",
       discardDraft: "초안 버리기",
       enterLinkUrl: "링크 URL을 입력하세요.",
       forward: "Forward",

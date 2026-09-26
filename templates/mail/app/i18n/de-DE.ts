@@ -150,6 +150,7 @@ const messages = {
       deleteDraft: "Entwurf löschen",
       deleteDrafts: "Entwürfe löschen",
       reopenDraft: "Wieder öffnen",
+      openInMail: "In Mail öffnen",
       discardDraft: "Entwurf verwerfen",
       enterLinkUrl: "Gib die URL für den Link ein.",
       forward: "Forward",

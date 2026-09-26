@@ -47,6 +47,11 @@ export default {
     noEventId: "لم يتم تقديم ID للحدث. أضف ?id=<eventId> إلى URL.",
     openCalendar: "فتح التقويم",
   },
+  eventCreation: {
+    created: "تم إنشاء الحدث",
+    zoomNotAdded: "تم إنشاء الحدث، ولكن تعذرت إضافة Zoom.",
+    openInCalendar: "فتح الحدث في Calendar",
+  },
   agentSidebar: {
     emptyState: "اسألني أي شيء عن تقويمك",
     suggestions: {

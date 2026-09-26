@@ -257,6 +257,48 @@ d'un renderer qui n'a pas su se dessiner. Donnez aux graphiques et autres visuel
 dépendant de la hauteur une base en pixels (ou en `rem`) ; les largeurs en pourcentage
 conviennent, car la colonne de transcription a bien une largeur définie.
 
+### Choisir quand afficher l'interface d'une action {#conditional-native-ui}
+
+Une action peut gérer plusieurs opérations, alors que seules certaines réponses ont besoin d'une carte. Ajoutez `when(args, result)` à `chatUI` pour sélectionner ces appels. Le serveur exécute ce prédicat après la réussite de l'action. S'il renvoie `false`, le résultat reste dans l'historique d'outils standard et repliable. Le prédicat n'est ni enregistré ni envoyé au navigateur.
+
+Mail utilise ce mécanisme dans `manage-draft` pour afficher une carte après la création d'un brouillon. Les mises à jour et suppressions restent des appels d'outils standard :
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+Pour les actions avec plusieurs opérations d'écriture, vérifiez les arguments et le résultat réussi. L'action de filtres Gmail de Mail sélectionne la carte de règle uniquement pour les filtres créés ou remplacés qui contiennent les champs de résumé :
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 ## Environnements d'exécution de l'agent BYO {#byo-agent-runtimes}
 
 `AgentChatRuntime` est le contrat « apportez votre propre agent » pour le shell de chat, et

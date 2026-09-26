@@ -15,6 +15,8 @@ export interface ActionChatUIConfig {
   title?: string;
   /** Optional developer-facing description for catalogs/docs. */
   description?: string;
+  /** Show this renderer only for matching successful action calls. */
+  when?: (args: Record<string, unknown>, result: unknown) => boolean;
 }
 
 export function normalizeActionChatUIConfig(
@@ -34,6 +36,9 @@ export function normalizeActionChatUIConfig(
       : {}),
     ...(typeof record.description === "string" && record.description.trim()
       ? { description: record.description }
+      : {}),
+    ...(typeof record.when === "function"
+      ? { when: record.when as ActionChatUIConfig["when"] }
       : {}),
   };
 }

@@ -148,6 +148,7 @@ export default defineAction({
         "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
       ),
   }),
+  chatUI: { renderer: "calendar.event-created" },
   run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

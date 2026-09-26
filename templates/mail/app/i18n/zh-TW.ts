@@ -144,6 +144,7 @@ const messages = {
       deleteDraft: "刪除草稿",
       deleteDrafts: "刪除草稿",
       reopenDraft: "重新開啟",
+      openInMail: "在 Mail 中開啟",
       discardDraft: "丟棄草稿",
       enterLinkUrl: "輸入連結的 URL。",
       forward: "Forward",

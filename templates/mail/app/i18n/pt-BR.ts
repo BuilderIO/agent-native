@@ -149,6 +149,7 @@ const messages = {
       deleteDraft: "Excluir rascunho",
       deleteDrafts: "Excluir rascunhos",
       reopenDraft: "Reabrir",
+      openInMail: "Abrir no Mail",
       discardDraft: "Descartar rascunho",
       enterLinkUrl: "Digite a URL do link.",
       forward: "Forward",

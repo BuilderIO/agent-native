@@ -148,6 +148,7 @@ const messages = {
       deleteDraft: "Delete draft",
       deleteDrafts: "Delete drafts",
       reopenDraft: "Reopen",
+      openInMail: "Open in Mail",
       discardDraft: "Discard draft",
       enterLinkUrl: "Enter the URL for the link.",
       forward: "Forward",

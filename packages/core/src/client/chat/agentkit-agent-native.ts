@@ -3,7 +3,9 @@ import type {
   AgentMessagePart,
   AgentObjectReference,
   AgentQueuedMessage,
+  AgentToolCall,
   AgentThreadSnapshot,
+  AgentWidgetSnapshot,
   TextPart,
 } from "@agent-native/agentkit/protocol";
 
@@ -287,6 +289,63 @@ function storedMessageId(value: unknown): string | undefined {
   return typeof message?.id === "string" ? message.id : undefined;
 }
 
+function storedActionWidgets(value: unknown): {
+  toolCalls: AgentToolCall[];
+  widgets: AgentWidgetSnapshot[];
+} {
+  if (!Array.isArray(value)) return { toolCalls: [], widgets: [] };
+  const toolCalls: AgentToolCall[] = [];
+  const widgets: AgentWidgetSnapshot[] = [];
+
+  for (const [index, entry] of value.entries()) {
+    const outer = asRecord(entry);
+    const message = asRecord(outer?.message ?? outer);
+    if (!message || !Array.isArray(message.content)) continue;
+    const messageId =
+      typeof message.id === "string"
+        ? message.id
+        : `repository-message-${index}`;
+
+    for (const value of message.content) {
+      const part = asRecord(value);
+      const chatUI = asRecord(part?.chatUI);
+      if (
+        part?.type !== "tool-call" ||
+        typeof part.toolCallId !== "string" ||
+        typeof part.toolName !== "string" ||
+        typeof chatUI?.renderer !== "string" ||
+        chatUI.renderer.length === 0 ||
+        part.result === undefined
+      ) {
+        continue;
+      }
+
+      const input = asRecord(part.args);
+      const toolCall: AgentToolCall = {
+        id: part.toolCallId,
+        name: part.toolName,
+        ...(input ? { input } : {}),
+        output: part.result,
+        status: part.isError === true ? "failed" : "completed",
+        messageId,
+      };
+      const widget: AgentWidgetSnapshot["widget"] = {
+        id: `${part.toolCallId}:chat-ui`,
+        kind: chatUI.renderer,
+        data: { toolCallId: part.toolCallId, toolName: part.toolName },
+        ...(typeof chatUI.title === "string" ? { title: chatUI.title } : {}),
+        ...(typeof chatUI.description === "string"
+          ? { metadata: { description: chatUI.description } }
+          : {}),
+      };
+      toolCalls.push(toolCall);
+      widgets.push({ messageId, widget });
+    }
+  }
+
+  return { toolCalls, widgets };
+}
+
 async function responseError(response: Response): Promise<Error> {
   let body: string;
   try {
@@ -352,6 +411,7 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       updatedAt,
     );
+    const actionWidgets = storedActionWidgets(repository.messages);
     queueCache.set(threadId, queuedMessages);
     return {
       id: threadId,
@@ -365,6 +425,7 @@ export function createAgentNativeAgentKitTransport(
         options.adapter?.textFormat,
       ),
       queuedMessages,
+      ...actionWidgets,
     };
   }
 
