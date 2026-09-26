@@ -871,7 +871,8 @@ export function Composer({
                   </Text>
                 </Pressable>
               </View>
-            ) : providerStatus === "unavailable" ? (
+            ) : providerStatus === "unavailable" ||
+              providerStatus === "unknown" ? (
               <Pressable
                 accessibilityRole="button"
                 onPress={retryProviderStatus}
