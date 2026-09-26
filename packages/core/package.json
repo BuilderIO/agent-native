@@ -252,6 +252,8 @@
     "./file-upload/actions/upload-image": "./dist/file-upload/actions/upload-image.js",
     "./file-upload/actions/get-file-storage": "./dist/file-upload/actions/get-file-storage.js",
     "./file-upload/actions/manage-file-storage": "./dist/file-upload/actions/manage-file-storage.js",
+    "./integrations/actions/list-messaging-channels": "./dist/integrations/actions/list-messaging-channels.js",
+    "./integrations/actions/manage-messaging-channel": "./dist/integrations/actions/manage-messaging-channel.js",
     "./private-blob": "./dist/private-blob/index.js",
     "./agent/tool-result-images": "./dist/agent/tool-result-images.js",
     "./agent/context-xray/actions/context-manifest-get": "./dist/agent/context-xray/actions/context-manifest-get.js",

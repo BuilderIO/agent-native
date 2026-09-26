@@ -1316,6 +1316,89 @@ const messages: AgentChatTranslation = {
   "settingsShell.builder.usedForLoadFailed":
     "Builder.io で実行されているサービスを確認できませんでした。",
   "settingsShell.builder.whatHappens": "影響",
+  "settingsShell.channels.about.discord":
+    "Discord のスラッシュコマンドからエージェントを実行します。",
+  "settingsShell.channels.about.email":
+    "エージェントにメールを送ると、同じスレッドで返信します。",
+  "settingsShell.channels.about.googleDocs":
+    "Google ドキュメントのコメントでエージェントをタグ付けすると返信が届きます。",
+  "settingsShell.channels.about.microsoftTeams":
+    "Microsoft Teams でエージェントをメンションすると、その会話で返信します。",
+  "settingsShell.channels.about.page":
+    "{{app}} エージェントにメッセージを送れる場所です。各アプリのエージェントは個別に設定します。",
+  "settingsShell.channels.about.slack":
+    "スレッドでエージェントを @メンションするか DM を送ると、そのスレッドで返信します。",
+  "settingsShell.channels.about.telegram":
+    "Telegram ボットでエージェントとチャットします。",
+  "settingsShell.channels.about.whatsapp":
+    "エージェントを WhatsApp Business に接続します。",
+  "settingsShell.channels.action.manage": "管理",
+  "settingsShell.channels.action.manageAria": "{{platform}} を管理",
+  "settingsShell.channels.action.setUp": "設定",
+  "settingsShell.channels.action.setUpAria": "{{platform}} を設定",
+  "settingsShell.channels.action.view": "表示",
+  "settingsShell.channels.action.viewAria": "{{platform}} を表示",
+  "settingsShell.channels.agentIn": "{{platform}} のエージェント",
+  "settingsShell.channels.connection": "接続",
+  "settingsShell.channels.copyServiceAccountEmail":
+    "サービスアカウントのメールアドレスをコピー",
+  "settingsShell.channels.copyWebhookUrl": "Webhook URL をコピー",
+  "settingsShell.channels.credentials": "認証情報",
+  "settingsShell.channels.developerSite": "開発者サイト",
+  "settingsShell.channels.documentation": "ドキュメント",
+  "settingsShell.channels.empty": "{{app}} で利用できるチャネルはありません。",
+  "settingsShell.channels.information": "情報",
+  "settingsShell.channels.loadFailed": "チャネルを読み込めませんでした。",
+  "settingsShell.channels.membersFootnote":
+    "チャネルを設定できるのはオーナーと管理者のみです。",
+  "settingsShell.channels.notFound":
+    "このチャネルは {{app}} では利用できません。",
+  "settingsShell.channels.open": "開く",
+  "settingsShell.channels.openDocs": "ドキュメントを開く",
+  "settingsShell.channels.registerWebhook": "登録",
+  "settingsShell.channels.removeCredentials.action": "削除",
+  "settingsShell.channels.removeCredentials.aria":
+    "{{platform}} の認証情報を削除",
+  "settingsShell.channels.removeCredentials.body":
+    "デプロイ環境でもこれらのキーが設定されていない限り、エージェントは全員に対して {{platform}} で返信しなくなります。",
+  "settingsShell.channels.removeCredentials.confirm": "削除",
+  "settingsShell.channels.removeCredentials.failed":
+    "認証情報を削除できませんでした。",
+  "settingsShell.channels.removeCredentials.title":
+    "{{platform}} の認証情報を削除しますか？",
+  "settingsShell.channels.retry": "再試行",
+  "settingsShell.channels.setup.addToEnvironment":
+    "デプロイ環境に追加してください",
+  "settingsShell.channels.setup.body":
+    "これらをこのデプロイに追加してから、オンにします。",
+  "settingsShell.channels.setup.close": "閉じる",
+  "settingsShell.channels.setup.failed": "変数を保存できませんでした。",
+  "settingsShell.channels.setup.optional": "任意",
+  "settingsShell.channels.setup.replace": "置き換え",
+  "settingsShell.channels.setup.replaceAria": "{{key}} を置き換え",
+  "settingsShell.channels.setup.save": "保存",
+  "settingsShell.channels.setup.saveAndTurnOn": "保存してオンにする",
+  "settingsShell.channels.setup.saved": "保存済み",
+  "settingsShell.channels.setup.savedElsewhere": "チャネル以外で保存済み",
+  "settingsShell.channels.setup.setInEnvironment": "デプロイ環境で設定",
+  "settingsShell.channels.setup.stillMissing":
+    "必須の変数がまだ不足しています。",
+  "settingsShell.channels.setup.title": "{{platform}} を設定",
+  "settingsShell.channels.shareDocumentsWith": "ドキュメントの共有先",
+  "settingsShell.channels.state.notSetUp": "未設定",
+  "settingsShell.channels.state.off": "オフ",
+  "settingsShell.channels.state.on": "オン",
+  "settingsShell.channels.status": "ステータス",
+  "settingsShell.channels.toggleFailed":
+    "{{platform}} を更新できませんでした。",
+  "settingsShell.channels.turnOnAria": "{{platform}} をオンにする",
+  "settingsShell.channels.unavailable":
+    "{{platform}} は {{app}} では利用できません。",
+  "settingsShell.channels.webhookLocalOnly":
+    "{{platform}} はこのアドレスにアクセスできません。Webhook URL を取得するには、アプリの公開 HTTPS アドレスからこのページを開いてください。",
+  "settingsShell.channels.webhookRegistered": "登録済み",
+  "settingsShell.channels.webhookRegistration": "Webhook",
+  "settingsShell.channels.webhookUrl": "Webhook URL",
   "settingsShell.clearSearch": "検索をクリア",
   "settingsShell.group.account": "アカウント",
   "settingsShell.group.agent": "エージェント",

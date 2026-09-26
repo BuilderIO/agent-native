@@ -61,6 +61,13 @@ export {
   type SettingsSearchResult,
 } from "./search.js";
 export {
+  getChannelSettingsExtensions,
+  registerChannelSettingsExtensions,
+  useChannelSettingsExtensions,
+  type ChannelSettingsExtension,
+  type ChannelSettingsExtensionProps,
+} from "../../integrations/channel-extensions.js";
+export {
   readSettingsReturnPath,
   rememberSettingsReturnPath,
 } from "./return-path.js";

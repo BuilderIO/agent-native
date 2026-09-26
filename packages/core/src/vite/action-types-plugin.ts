@@ -167,6 +167,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/agent/actions/get-infrastructure-status",
   },
   {
+    name: "list-messaging-channels",
+    specifier:
+      "@agent-native/core/integrations/actions/list-messaging-channels",
+  },
+  {
+    name: "manage-messaging-channel",
+    specifier:
+      "@agent-native/core/integrations/actions/manage-messaging-channel",
+  },
+  {
     name: "list-workspace-user-groups",
     specifier:
       "@agent-native/core/workspace-connections/actions/list-workspace-user-groups",

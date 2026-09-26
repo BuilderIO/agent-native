@@ -382,7 +382,9 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
 - `DELETE /_agent-native/secrets/:key` — remove the stored value. A managed
   key returns 409 naming its owner unless the owner passes `?managedBy=<id>`
   (same on `DELETE /secrets/adhoc/:name`). Owner pages call
-  `removeManagedSecrets(keys, managerId)` from `@agent-native/core/client`.
+  `removeManagedSecrets(keys, managerId)` from `@agent-native/core/client`,
+  or their own action when the agent must reach it too: Channels saves and
+  removes channel keys through `manage-messaging-channel`.
 - `POST /_agent-native/secrets/:key/test` — re-run the validator against the
   currently stored value.
 - `GET /_agent-native/secrets/:key/usage[?scope=]` — the remove-impact

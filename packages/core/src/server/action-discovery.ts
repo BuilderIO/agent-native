@@ -689,6 +689,14 @@ export async function mergeCoreSharingActions(
       () => import("../agent/actions/get-infrastructure-status.js"),
     ],
     [
+      "list-messaging-channels",
+      () => import("../integrations/actions/list-messaging-channels.js"),
+    ],
+    [
+      "manage-messaging-channel",
+      () => import("../integrations/actions/manage-messaging-channel.js"),
+    ],
+    [
       "list-workspace-user-groups",
       () =>
         import("../workspace-connections/actions/list-workspace-user-groups.js"),

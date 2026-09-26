@@ -48,6 +48,12 @@ export interface EnvKeyConfig {
    * secrets.
    */
   secret?: boolean;
+  /**
+   * The runtime reads this key only from the deployment environment, so a
+   * value saved in Settings would never be used. Settings shows it as a
+   * deployment variable instead of offering an input.
+   */
+  deploymentOnly?: boolean;
 }
 
 export interface CreateServerOptions {

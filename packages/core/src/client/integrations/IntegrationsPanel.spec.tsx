@@ -252,6 +252,30 @@ describe("IntegrationsPanel MCP connection errors", () => {
   });
 
   it("removes a channel's stored credentials as their owner", async () => {
+    integrationMocks.useIntegrationStatus.mockReturnValue({
+      statuses: [
+        {
+          platform: "slack",
+          label: "Slack",
+          enabled: false,
+          configured: false,
+          requiredEnvKeys: [
+            {
+              key: "SLACK_BOT_TOKEN",
+              label: "Slack Bot Token",
+              required: false,
+            },
+            {
+              key: "SLACK_SIGNING_SECRET",
+              label: "Slack Signing Secret",
+              required: true,
+            },
+          ],
+        },
+      ],
+      loading: false,
+      refetch: vi.fn(),
+    });
     const deletes: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -292,6 +316,50 @@ describe("IntegrationsPanel MCP connection errors", () => {
     expect(deletes).toEqual([
       "/_agent-native/secrets/adhoc/SLACK_BOT_TOKEN?managedBy=channels",
     ]);
+  });
+
+  it("lists the variables the adapter reports, not a hardcoded set", async () => {
+    integrationMocks.useIntegrationStatus.mockReturnValue({
+      statuses: [
+        {
+          platform: "whatsapp",
+          label: "WhatsApp",
+          enabled: false,
+          configured: false,
+          requiredEnvKeys: [
+            "WHATSAPP_ACCESS_TOKEN",
+            "WHATSAPP_VERIFY_TOKEN",
+            "WHATSAPP_PHONE_NUMBER_ID",
+            "WHATSAPP_APP_SECRET",
+          ].map((key) => ({ key, label: key, required: true })),
+        },
+      ],
+      loading: false,
+      refetch: vi.fn(),
+    });
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Connect WhatsApp"]',
+        )
+        ?.click(),
+    );
+
+    const codes = Array.from(container.querySelectorAll("code")).map(
+      (code) => code.textContent,
+    );
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        "WHATSAPP_ACCESS_TOKEN",
+        "WHATSAPP_PHONE_NUMBER_ID",
+        "WHATSAPP_APP_SECRET",
+      ]),
+    );
+    expect(codes).not.toContain("WHATSAPP_TOKEN");
   });
 
   it.each([

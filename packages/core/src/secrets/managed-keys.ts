@@ -65,15 +65,13 @@ function prefix(value: string): (key: string) => boolean {
 }
 
 // Email is left out on purpose: its Resend/SendGrid keys double as the app's
-// transactional email, and Email is not a Channels row today.
+// transactional email, so removing one is not only a Channels change.
 function channelCredentialKeys(): string[] {
-  const keys = listBuiltInChannelIntegrations()
+  return listBuiltInChannelIntegrations()
     .filter((entry) => entry.id !== "email")
     .flatMap((entry) =>
       (entry.credentialRequirements ?? []).map((item) => item.key),
     );
-  // Google Docs is a Channels row but has no built-in catalog entry.
-  return [...keys, "GOOGLE_SERVICE_ACCOUNT_KEY"];
 }
 
 let rules: ManagedKeyRule[] | null = null;

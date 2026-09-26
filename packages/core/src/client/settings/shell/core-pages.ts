@@ -28,6 +28,7 @@ import {
 import { lazy } from "react";
 
 import { AGENT_PROVIDER_CATALOG } from "../../agent-provider-catalog.js";
+import { listChannelsForSettings } from "../../integrations/channel-setup.js";
 import { DEFAULT_MCP_INTEGRATIONS } from "../../resources/mcp-integration-catalog.js";
 import { SIGN_OUT_SEARCH_TERMS } from "../../sign-out.js";
 import {
@@ -234,6 +235,22 @@ const INTEGRATION_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
     sub: integration.id,
   })),
 ];
+
+// One page per channel, and one search result each opening it. Brand names
+// aren't translated.
+const CHANNELS = listChannelsForSettings();
+const CHANNEL_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = CHANNELS.map(
+  (channel) => ({
+    id: `channel:${channel.id}`,
+    label: channel.name,
+    keywords: [
+      channel.id.replace(/-/g, " "),
+      "agent channel messaging bot mention webhook",
+      ...channel.credentialRequirements.map((item) => item.key),
+    ].join(" "),
+    sub: channel.id,
+  }),
+);
 
 /**
  * Core pages in spec order (§4.2). Each renders today's component for its
@@ -568,7 +585,13 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     labelKey: label("channels"),
     icon: IconMessages,
     component: lazy(() => import("./pages/channels.js")),
-    keywords: "channels slack telegram whatsapp google docs messaging",
+    keywords:
+      "channels slack telegram whatsapp google docs discord teams email messaging",
+    subpages: CHANNELS.map((channel) => ({
+      id: channel.id,
+      label: channel.name,
+    })),
+    searchEntries: CHANNEL_SEARCH_ENTRIES,
   }),
   defineSettingsPage({
     id: "mcp",

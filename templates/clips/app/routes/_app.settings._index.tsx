@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/library/page-header";
 import { AiSetupSection } from "@/components/settings/ai-setup-section";
 import { NotificationSettings } from "@/components/settings/notification-settings";
+import "@/components/settings/slack-channel-extension";
 import { SlackSection } from "@/components/settings/slack-section";
 import { VideoStorageSection } from "@/components/settings/video-storage-section";
 import { Button } from "@/components/ui/button";

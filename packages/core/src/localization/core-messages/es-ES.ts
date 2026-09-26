@@ -1369,6 +1369,90 @@ const messages: AgentChatTranslation = {
   "settingsShell.builder.usedForLoadFailed":
     "No se pudo comprobar qué servicios se ejecutan en Builder.io.",
   "settingsShell.builder.whatHappens": "Qué pasa",
+  "settingsShell.channels.about.discord":
+    "Ejecuta el agente con comandos de barra de Discord.",
+  "settingsShell.channels.about.email":
+    "Envía un correo al agente y responderá en el mismo hilo.",
+  "settingsShell.channels.about.googleDocs":
+    "Etiqueta al agente en comentarios de Google Docs para recibir respuestas.",
+  "settingsShell.channels.about.microsoftTeams":
+    "Menciona al agente en Microsoft Teams y responderá en esa conversación.",
+  "settingsShell.channels.about.page":
+    "Dónde pueden escribir al agente de {{app}}. El agente de cada app se configura por separado.",
+  "settingsShell.channels.about.slack":
+    "Menciona al agente con @ en un hilo o envíale un mensaje directo, y responderá en ese hilo.",
+  "settingsShell.channels.about.telegram":
+    "Chatea con tu agente a través de un bot de Telegram.",
+  "settingsShell.channels.about.whatsapp":
+    "Conecta tu agente a WhatsApp Business.",
+  "settingsShell.channels.action.manage": "Gestionar",
+  "settingsShell.channels.action.manageAria": "Gestionar {{platform}}",
+  "settingsShell.channels.action.setUp": "Configurar",
+  "settingsShell.channels.action.setUpAria": "Configurar {{platform}}",
+  "settingsShell.channels.action.view": "Ver",
+  "settingsShell.channels.action.viewAria": "Ver {{platform}}",
+  "settingsShell.channels.agentIn": "Agente en {{platform}}",
+  "settingsShell.channels.connection": "Conexión",
+  "settingsShell.channels.copyServiceAccountEmail":
+    "Copiar el correo de la cuenta de servicio",
+  "settingsShell.channels.copyWebhookUrl": "Copiar URL del webhook",
+  "settingsShell.channels.credentials": "Credenciales",
+  "settingsShell.channels.developerSite": "Sitio para desarrolladores",
+  "settingsShell.channels.documentation": "Documentación",
+  "settingsShell.channels.empty": "No hay canales disponibles en {{app}}.",
+  "settingsShell.channels.information": "Información",
+  "settingsShell.channels.loadFailed": "No se pudieron cargar los canales.",
+  "settingsShell.channels.membersFootnote":
+    "Solo los propietarios y administradores pueden configurar canales.",
+  "settingsShell.channels.notFound":
+    "Este canal no está disponible en {{app}}.",
+  "settingsShell.channels.open": "Abrir",
+  "settingsShell.channels.openDocs": "Abrir documentación",
+  "settingsShell.channels.registerWebhook": "Registrar",
+  "settingsShell.channels.removeCredentials.action": "Quitar",
+  "settingsShell.channels.removeCredentials.aria":
+    "Quitar las credenciales de {{platform}}",
+  "settingsShell.channels.removeCredentials.body":
+    "El agente deja de responder en {{platform}} para todos, salvo que el entorno de despliegue también defina estas claves.",
+  "settingsShell.channels.removeCredentials.confirm": "Quitar",
+  "settingsShell.channels.removeCredentials.failed":
+    "No se pudieron quitar las credenciales.",
+  "settingsShell.channels.removeCredentials.title":
+    "¿Quitar las credenciales de {{platform}}?",
+  "settingsShell.channels.retry": "Reintentar",
+  "settingsShell.channels.setup.addToEnvironment":
+    "Añádela al entorno de despliegue",
+  "settingsShell.channels.setup.body":
+    "Añade estos valores a esta implementación y después actívalo.",
+  "settingsShell.channels.setup.close": "Cerrar",
+  "settingsShell.channels.setup.failed":
+    "No se pudieron guardar las variables.",
+  "settingsShell.channels.setup.optional": "Opcional",
+  "settingsShell.channels.setup.replace": "Reemplazar",
+  "settingsShell.channels.setup.replaceAria": "Reemplazar {{key}}",
+  "settingsShell.channels.setup.save": "Guardar",
+  "settingsShell.channels.setup.saveAndTurnOn": "Guardar y activar",
+  "settingsShell.channels.setup.saved": "Guardada",
+  "settingsShell.channels.setup.savedElsewhere": "Guardada fuera de Canales",
+  "settingsShell.channels.setup.setInEnvironment":
+    "Se define en el entorno de la implementación",
+  "settingsShell.channels.setup.stillMissing":
+    "Todavía faltan algunas variables obligatorias.",
+  "settingsShell.channels.setup.title": "Configurar {{platform}}",
+  "settingsShell.channels.shareDocumentsWith": "Comparte los documentos con",
+  "settingsShell.channels.state.notSetUp": "Sin configurar",
+  "settingsShell.channels.state.off": "Desactivado",
+  "settingsShell.channels.state.on": "Activado",
+  "settingsShell.channels.status": "Estado",
+  "settingsShell.channels.toggleFailed": "No se pudo actualizar {{platform}}.",
+  "settingsShell.channels.turnOnAria": "Activar {{platform}}",
+  "settingsShell.channels.unavailable":
+    "{{platform}} no está disponible en {{app}}.",
+  "settingsShell.channels.webhookLocalOnly":
+    "{{platform}} no puede acceder a esta dirección. Abre esta página desde la dirección HTTPS pública de la app para obtener una URL de webhook.",
+  "settingsShell.channels.webhookRegistered": "Registrado",
+  "settingsShell.channels.webhookRegistration": "Webhook",
+  "settingsShell.channels.webhookUrl": "URL del webhook",
   "settingsShell.clearSearch": "Borrar búsqueda",
   "settingsShell.group.account": "Cuenta",
   "settingsShell.group.agent": "Agente",

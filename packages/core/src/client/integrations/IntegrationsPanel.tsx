@@ -85,7 +85,6 @@ interface PlatformInfo {
   label: string;
   icon: React.ComponentType<any>;
   description: string;
-  envVars: string[];
   setupSteps: string[];
   docsUrl?: string;
   /** If true, this is a "client" integration (user connects TO the agent) rather than a webhook */
@@ -100,7 +99,6 @@ const PLATFORMS: PlatformInfo[] = [
     icon: IconBrandSlack,
     description:
       "@mention the agent in a Slack thread or DM it, and it replies in that thread.",
-    envVars: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
     setupSteps: [
       "At api.slack.com/apps, create an app for your workspace, then under OAuth & Permissions add the bot scopes app_mentions:read, chat:write, channels:history, and im:history",
       "Click Install to Workspace, then copy the Bot User OAuth Token and the Signing Secret (Basic Information → App Credentials) into the two secrets listed below",
@@ -116,7 +114,6 @@ const PLATFORMS: PlatformInfo[] = [
     label: "Telegram",
     icon: IconBrandTelegram,
     description: "Chat with your agent via a Telegram bot.",
-    envVars: ["TELEGRAM_BOT_TOKEN"],
     setupSteps: [
       "Message @BotFather on Telegram to create a new bot",
       "Copy the bot token into your environment",
@@ -129,7 +126,6 @@ const PLATFORMS: PlatformInfo[] = [
     label: "WhatsApp",
     icon: IconBrandWhatsapp,
     description: "Connect your agent to WhatsApp Business.",
-    envVars: ["WHATSAPP_TOKEN", "WHATSAPP_VERIFY_TOKEN"],
     setupSteps: [
       "Create a Meta Business app at developers.facebook.com",
       "Set up WhatsApp Business API",
@@ -144,7 +140,6 @@ const PLATFORMS: PlatformInfo[] = [
     label: "Google Docs",
     icon: IconBrandGoogleDrive,
     description: "Tag the agent in Google Doc comments to get responses.",
-    envVars: ["GOOGLE_SERVICE_ACCOUNT_KEY"],
     setupSteps: [
       "Create a Google Cloud service account and download the JSON key",
       "Set GOOGLE_SERVICE_ACCOUNT_KEY in your environment (JSON string or file path)",
@@ -158,7 +153,6 @@ const PLATFORMS: PlatformInfo[] = [
     label: "OpenClaw",
     icon: IconTerminal2,
     description: "Access this agent from OpenClaw's unified agent interface.",
-    envVars: [],
     isClient: true,
     setupSteps: [
       "Install OpenClaw: npm install -g openclaw",
@@ -218,13 +212,23 @@ function IntegrationDetail({
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [keysReloadToken, setKeysReloadToken] = useState(0);
 
+  // The adapter's own list, as the server reports it, so this never drifts
+  // from what the adapter checks.
+  const envVarsKey = (serverStatus?.requiredEnvKeys ?? [])
+    .map((envKey) => envKey.key)
+    .join(",");
+  const envVars = useMemo(
+    () => (envVarsKey ? envVarsKey.split(",") : []),
+    [envVarsKey],
+  );
+
   useEffect(() => {
-    if (platform.envVars.length === 0) return;
+    if (envVars.length === 0) return;
     let cancelled = false;
     listRemovableSecretNames()
       .then((names) => {
         if (!cancelled) {
-          setStoredKeys(platform.envVars.filter((key) => names.has(key)));
+          setStoredKeys(envVars.filter((key) => names.has(key)));
         }
       })
       .catch(() => {
@@ -233,7 +237,7 @@ function IntegrationDetail({
     return () => {
       cancelled = true;
     };
-  }, [platform.envVars, keysReloadToken]);
+  }, [envVars, keysReloadToken]);
 
   const handleRemoveCredentials = useCallback(async () => {
     if (removing || !storedKeys?.length) return;
@@ -404,13 +408,13 @@ function IntegrationDetail({
       )}
 
       {/* Required secrets */}
-      {platform.envVars.length > 0 && (
+      {envVars.length > 0 && (
         <div className="mb-3">
           <div className="text-[10px] font-medium text-muted-foreground mb-1">
             {t("integrations.requiredSecrets")}
           </div>
           <div className="space-y-0.5">
-            {platform.envVars.map((v) => (
+            {envVars.map((v) => (
               <div key={v} className="flex items-center gap-1">
                 <code className="text-[10px] text-foreground bg-muted px-1 py-0.5 rounded">
                   {v}

@@ -119,6 +119,47 @@ All under `/_agent-native/integrations/`:
 | POST   | `/:platform/disable`       | Disable an integration.                                       |
 | POST   | `/:platform/setup`         | Platform-specific setup (e.g. Telegram webhook registration). |
 
+## Settings › Channels
+
+With the `settings-redesign` flag on, each app's Channels page
+(`packages/core/src/client/integrations/ChannelsPage.tsx`) lists the channels
+the deployment mounts. It reads and changes them only through two core
+actions, which the agent calls too:
+
+- `list-messaging-channels` (GET): each mounted adapter's state, webhook URL,
+  and its own `getRequiredEnvKeys()`. For owners and admins each key also says
+  where its value comes from (`saved`, `environment`, `elsewhere`, or null).
+- `manage-messaging-channel`: `save-credentials`, `enable`, `disable`,
+  `remove-credentials`, `register-webhook`. Owners and admins only, checked in
+  `integrations/channel-settings.ts`.
+
+Rules that keep it working in every app:
+
+- Credentials are saved as workspace-scoped secrets for the org (`solo:<email>`
+  without one), not through `/env-vars`, so no template has to declare channel
+  keys. `resolveSecret` finds them in Settings requests and in webhooks, which
+  run as the admin who turned the channel on.
+- An adapter key the runtime reads only from `process.env` sets
+  `deploymentOnly: true` in `getRequiredEnvKeys()` (Google Docs' service
+  account key). The page then points at the deployment instead of offering an
+  input, and `save-credentials` refuses it.
+- The plugin publishes its adapters and the enable/disable and webhook
+  registration side effects through `setMountedChannels`
+  (`integrations/mounted-channels.ts`); the `/:platform/enable|disable|setup`
+  routes and the actions share them. Add a new side effect there, not in a
+  route.
+- A new channel adapter needs a catalog entry in `integrations/catalog.ts`;
+  `catalog.spec.ts` fails until the catalog and
+  `BUILT_IN_INTEGRATION_ADAPTER_IDS` match. Add its about line under
+  `settingsShell.channels.about.*` in every core locale.
+- `webhookSetup` decides the page's rows: `manual` shows the webhook URL to
+  copy, `automatic` adds a Register button (`register-webhook`), and no value
+  (Google Docs) shows no webhook URL.
+- An app adds its own settings to one channel's page with
+  `registerChannelSettingsExtensions([{ id, platform, component }])` from
+  `@agent-native/core/client/settings`, at module scope next to its settings
+  route. Clips registers Slack link previews this way.
+
 ## SQL Schema
 
 The pending-task queue lives in `integration_pending_tasks`:

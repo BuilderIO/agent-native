@@ -1323,6 +1323,82 @@ const messages: AgentChatTranslation = {
   "settingsShell.builder.usedForLoadFailed":
     "تعذّر التحقق من الخدمات التي تعمل على Builder.io.",
   "settingsShell.builder.whatHappens": "ما الذي سيحدث",
+  "settingsShell.channels.about.discord":
+    "شغّل الوكيل من أوامر الشرطة المائلة في Discord.",
+  "settingsShell.channels.about.email":
+    "أرسل بريدًا إلكترونيًا إلى الوكيل، وسيرد في سلسلة الرسائل نفسها.",
+  "settingsShell.channels.about.googleDocs":
+    "أشِر إلى الوكيل في تعليقات مستندات Google لتلقي الردود.",
+  "settingsShell.channels.about.microsoftTeams":
+    "أشِر إلى الوكيل في Microsoft Teams، وسيرد في تلك المحادثة.",
+  "settingsShell.channels.about.page":
+    "الأماكن التي يمكن للأشخاص مراسلة وكيل {{app}} منها. يُعدّ وكيل كل تطبيق بشكل منفصل.",
+  "settingsShell.channels.about.slack":
+    "أشِر إلى الوكيل باستخدام @ في سلسلة رسائل أو راسله مباشرةً، وسيرد في سلسلة الرسائل نفسها.",
+  "settingsShell.channels.about.telegram": "تحدّث مع وكيلك عبر روبوت Telegram.",
+  "settingsShell.channels.about.whatsapp": "اربط وكيلك بـ WhatsApp Business.",
+  "settingsShell.channels.action.manage": "إدارة",
+  "settingsShell.channels.action.manageAria": "إدارة {{platform}}",
+  "settingsShell.channels.action.setUp": "إعداد",
+  "settingsShell.channels.action.setUpAria": "إعداد {{platform}}",
+  "settingsShell.channels.action.view": "عرض",
+  "settingsShell.channels.action.viewAria": "عرض {{platform}}",
+  "settingsShell.channels.agentIn": "الوكيل في {{platform}}",
+  "settingsShell.channels.connection": "الاتصال",
+  "settingsShell.channels.copyServiceAccountEmail":
+    "نسخ البريد الإلكتروني لحساب الخدمة",
+  "settingsShell.channels.copyWebhookUrl": "نسخ عنوان URL للويب هوك",
+  "settingsShell.channels.credentials": "بيانات الاعتماد",
+  "settingsShell.channels.developerSite": "موقع المطورين",
+  "settingsShell.channels.documentation": "الوثائق",
+  "settingsShell.channels.empty": "لا توجد قنوات متاحة في {{app}}.",
+  "settingsShell.channels.information": "المعلومات",
+  "settingsShell.channels.loadFailed": "تعذّر تحميل القنوات.",
+  "settingsShell.channels.membersFootnote":
+    "يمكن للمالكين والمسؤولين فقط إعداد القنوات.",
+  "settingsShell.channels.notFound": "هذه القناة غير متاحة في {{app}}.",
+  "settingsShell.channels.open": "فتح",
+  "settingsShell.channels.openDocs": "فتح الوثائق",
+  "settingsShell.channels.registerWebhook": "تسجيل",
+  "settingsShell.channels.removeCredentials.action": "إزالة",
+  "settingsShell.channels.removeCredentials.aria":
+    "إزالة بيانات اعتماد {{platform}}",
+  "settingsShell.channels.removeCredentials.body":
+    "يتوقف الوكيل عن الرد في {{platform}} للجميع، ما لم تضبط بيئة النشر هذه المفاتيح أيضًا.",
+  "settingsShell.channels.removeCredentials.confirm": "إزالة",
+  "settingsShell.channels.removeCredentials.failed":
+    "تعذّرت إزالة بيانات الاعتماد.",
+  "settingsShell.channels.removeCredentials.title":
+    "هل تريد إزالة بيانات اعتماد {{platform}}؟",
+  "settingsShell.channels.retry": "إعادة المحاولة",
+  "settingsShell.channels.setup.addToEnvironment": "أضفه إلى بيئة النشر",
+  "settingsShell.channels.setup.body": "أضف هذه القيم إلى هذا النشر، ثم شغّله.",
+  "settingsShell.channels.setup.close": "إغلاق",
+  "settingsShell.channels.setup.failed": "تعذّر حفظ المتغيرات.",
+  "settingsShell.channels.setup.optional": "اختياري",
+  "settingsShell.channels.setup.replace": "استبدال",
+  "settingsShell.channels.setup.replaceAria": "استبدال {{key}}",
+  "settingsShell.channels.setup.save": "حفظ",
+  "settingsShell.channels.setup.saveAndTurnOn": "حفظ وتشغيل",
+  "settingsShell.channels.setup.saved": "محفوظ",
+  "settingsShell.channels.setup.savedElsewhere": "محفوظ خارج القنوات",
+  "settingsShell.channels.setup.setInEnvironment": "يُضبط في بيئة النشر",
+  "settingsShell.channels.setup.stillMissing":
+    "لا تزال بعض المتغيرات المطلوبة مفقودة.",
+  "settingsShell.channels.setup.title": "إعداد {{platform}}",
+  "settingsShell.channels.shareDocumentsWith": "شارك المستندات مع",
+  "settingsShell.channels.state.notSetUp": "غير مُعدّ",
+  "settingsShell.channels.state.off": "متوقف",
+  "settingsShell.channels.state.on": "مُشغّل",
+  "settingsShell.channels.status": "الحالة",
+  "settingsShell.channels.toggleFailed": "تعذّر تحديث {{platform}}.",
+  "settingsShell.channels.turnOnAria": "تشغيل {{platform}}",
+  "settingsShell.channels.unavailable": "{{platform}} غير متاح في {{app}}.",
+  "settingsShell.channels.webhookLocalOnly":
+    "لا يمكن لـ {{platform}} الوصول إلى هذا العنوان. افتح هذه الصفحة من عنوان HTTPS العام للتطبيق للحصول على عنوان URL للويب هوك.",
+  "settingsShell.channels.webhookRegistered": "تم التسجيل",
+  "settingsShell.channels.webhookRegistration": "الويب هوك",
+  "settingsShell.channels.webhookUrl": "عنوان URL للويب هوك",
   "settingsShell.clearSearch": "مسح البحث",
   "settingsShell.group.account": "الحساب",
   "settingsShell.group.agent": "الوكيل",

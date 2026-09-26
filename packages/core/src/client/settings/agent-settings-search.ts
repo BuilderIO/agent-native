@@ -223,13 +223,6 @@ export function getCoreSettingsSearchEntries(): ReadonlyMap<
       anchor: target.anchor,
     });
   }
-  // Provider names aren't translated.
-  add("channels", {
-    id: "channel:slack",
-    label: "Slack",
-    keywords: "slack agent mention bot messaging channel",
-    sub: "slack",
-  });
   return byPage;
 }
 

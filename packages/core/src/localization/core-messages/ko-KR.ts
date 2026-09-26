@@ -1287,6 +1287,87 @@ const messages: AgentChatTranslation = {
   "settingsShell.builder.usedForLoadFailed":
     "Builder.io에서 실행되는 서비스를 확인하지 못했습니다.",
   "settingsShell.builder.whatHappens": "영향",
+  "settingsShell.channels.about.discord":
+    "Discord 슬래시 명령으로 에이전트를 실행합니다.",
+  "settingsShell.channels.about.email":
+    "에이전트에게 이메일을 보내면 같은 스레드에서 답장합니다.",
+  "settingsShell.channels.about.googleDocs":
+    "Google Docs 댓글에서 에이전트를 태그하면 답변을 받을 수 있습니다.",
+  "settingsShell.channels.about.microsoftTeams":
+    "Microsoft Teams에서 에이전트를 멘션하면 그 대화에서 답장합니다.",
+  "settingsShell.channels.about.page":
+    "{{app}} 에이전트에게 메시지를 보낼 수 있는 곳입니다. 각 앱의 에이전트는 따로 설정합니다.",
+  "settingsShell.channels.about.slack":
+    "스레드에서 에이전트를 @멘션하거나 DM을 보내면 그 스레드에서 답장합니다.",
+  "settingsShell.channels.about.telegram":
+    "Telegram 봇으로 에이전트와 채팅합니다.",
+  "settingsShell.channels.about.whatsapp":
+    "에이전트를 WhatsApp Business에 연결합니다.",
+  "settingsShell.channels.action.manage": "관리",
+  "settingsShell.channels.action.manageAria": "{{platform}} 관리",
+  "settingsShell.channels.action.setUp": "설정",
+  "settingsShell.channels.action.setUpAria": "{{platform}} 설정",
+  "settingsShell.channels.action.view": "보기",
+  "settingsShell.channels.action.viewAria": "{{platform}} 보기",
+  "settingsShell.channels.agentIn": "{{platform}}의 에이전트",
+  "settingsShell.channels.connection": "연결",
+  "settingsShell.channels.copyServiceAccountEmail": "서비스 계정 이메일 복사",
+  "settingsShell.channels.copyWebhookUrl": "웹훅 URL 복사",
+  "settingsShell.channels.credentials": "자격 증명",
+  "settingsShell.channels.developerSite": "개발자 사이트",
+  "settingsShell.channels.documentation": "문서",
+  "settingsShell.channels.empty": "{{app}}에서 사용할 수 있는 채널이 없습니다.",
+  "settingsShell.channels.information": "정보",
+  "settingsShell.channels.loadFailed": "채널을 불러오지 못했습니다.",
+  "settingsShell.channels.membersFootnote":
+    "채널은 소유자와 관리자만 설정할 수 있습니다.",
+  "settingsShell.channels.notFound":
+    "이 채널은 {{app}}에서 사용할 수 없습니다.",
+  "settingsShell.channels.open": "열기",
+  "settingsShell.channels.openDocs": "문서 열기",
+  "settingsShell.channels.registerWebhook": "등록",
+  "settingsShell.channels.removeCredentials.action": "제거",
+  "settingsShell.channels.removeCredentials.aria":
+    "{{platform}} 자격 증명 제거",
+  "settingsShell.channels.removeCredentials.body":
+    "배포 환경에서도 이 키를 설정하지 않는 한, 에이전트가 모든 사용자에게 {{platform}}에서 더 이상 응답하지 않습니다.",
+  "settingsShell.channels.removeCredentials.confirm": "제거",
+  "settingsShell.channels.removeCredentials.failed":
+    "자격 증명을 제거하지 못했습니다.",
+  "settingsShell.channels.removeCredentials.title":
+    "{{platform}} 자격 증명을 제거할까요?",
+  "settingsShell.channels.retry": "다시 시도",
+  "settingsShell.channels.setup.addToEnvironment": "배포 환경에 추가하세요",
+  "settingsShell.channels.setup.body":
+    "이 값들을 이 배포에 추가한 다음 켜세요.",
+  "settingsShell.channels.setup.close": "닫기",
+  "settingsShell.channels.setup.failed": "변수를 저장하지 못했습니다.",
+  "settingsShell.channels.setup.optional": "선택 사항",
+  "settingsShell.channels.setup.replace": "교체",
+  "settingsShell.channels.setup.replaceAria": "{{key}} 교체",
+  "settingsShell.channels.setup.save": "저장",
+  "settingsShell.channels.setup.saveAndTurnOn": "저장하고 켜기",
+  "settingsShell.channels.setup.saved": "저장됨",
+  "settingsShell.channels.setup.savedElsewhere": "채널 외부에 저장됨",
+  "settingsShell.channels.setup.setInEnvironment": "배포 환경에서 설정",
+  "settingsShell.channels.setup.stillMissing":
+    "필수 변수가 아직 누락되었습니다.",
+  "settingsShell.channels.setup.title": "{{platform}} 설정",
+  "settingsShell.channels.shareDocumentsWith": "문서 공유 대상",
+  "settingsShell.channels.state.notSetUp": "설정 안 됨",
+  "settingsShell.channels.state.off": "꺼짐",
+  "settingsShell.channels.state.on": "켜짐",
+  "settingsShell.channels.status": "상태",
+  "settingsShell.channels.toggleFailed":
+    "{{platform}}을(를) 업데이트하지 못했습니다.",
+  "settingsShell.channels.turnOnAria": "{{platform}} 켜기",
+  "settingsShell.channels.unavailable":
+    "{{platform}}은(는) {{app}}에서 사용할 수 없습니다.",
+  "settingsShell.channels.webhookLocalOnly":
+    "{{platform}}이(가) 이 주소에 접근할 수 없습니다. 웹훅 URL을 받으려면 앱의 공개 HTTPS 주소에서 이 페이지를 여세요.",
+  "settingsShell.channels.webhookRegistered": "등록됨",
+  "settingsShell.channels.webhookRegistration": "웹훅",
+  "settingsShell.channels.webhookUrl": "웹훅 URL",
   "settingsShell.clearSearch": "검색 지우기",
   "settingsShell.group.account": "계정",
   "settingsShell.group.agent": "에이전트",
