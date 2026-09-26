@@ -992,6 +992,13 @@ describe("ObservabilityDashboard human review", () => {
               createdAt: 40,
             },
             {
+              id: "note-run-2",
+              runId: "run-2",
+              feedbackType: "text",
+              value: "The earlier version used the wrong artifact.",
+              createdAt: 35,
+            },
+            {
               id: "vote-run-1-up",
               runId: "run-1",
               feedbackType: "thumbs_up",
@@ -1015,6 +1022,19 @@ describe("ObservabilityDashboard human review", () => {
       (button) => button.textContent?.includes("Human review"),
     );
     await act(async () => reviewTab?.click());
+
+    const improveButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Update instructions"));
+    expect(improveButton).toBeTruthy();
+    await act(async () => improveButton?.click());
+    expect(mockSendToAgentChat.mock.calls[0]?.[0].actionScope).toEqual({
+      kind: "observability-feedback-improvement",
+      runId: "run-2",
+    });
+    expect(mockSendToAgentChat.mock.calls[0]?.[0].message).toContain(
+      "The earlier version used the wrong artifact.",
+    );
 
     const row = container.querySelector<HTMLElement>(
       '[data-review-row="run-1"]',
@@ -1177,6 +1197,137 @@ describe("ObservabilityDashboard human review", () => {
         (button) => button.getAttribute("aria-busy") === "false",
       ),
     ).toBe(true);
+  });
+
+  it("coordinates bulk and per-run summary requests", async () => {
+    const finishSummaries: ((result: {
+      tabId: string;
+      delivered: boolean;
+    }) => void)[] = [];
+    mockConfirmAgentChat.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishSummaries.push(resolve);
+        }),
+    );
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+
+    const row = container.querySelector<HTMLElement>(
+      '[data-review-row="run-1"]',
+    )!;
+    await act(async () =>
+      row
+        .querySelector<HTMLButtonElement>('[aria-label="Summarize with agent"]')
+        ?.click(),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-review-bulk-summary]")
+        ?.click(),
+    );
+
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(2);
+    expect(mockConfirmAgentChat.mock.calls[1]?.[0].actionScope).toEqual({
+      kind: "observability-review-summary-batch",
+      runIds: ["run-2", "run-no-preview"],
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
+        ?.click(),
+    );
+    const summaryButtons = Array.from(
+      row.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="Summarize with agent"]',
+      ),
+    );
+    expect(summaryButtons).toHaveLength(2);
+    expect(
+      summaryButtons.every(
+        (button) => button.getAttribute("aria-busy") === "true",
+      ),
+    ).toBe(true);
+    await act(async () => summaryButtons[1]?.click());
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      for (const finish of finishSummaries)
+        finish({ tabId: "review-test", delivered: true });
+    });
+    expect(
+      summaryButtons.every(
+        (button) => button.getAttribute("aria-busy") === "false",
+      ),
+    ).toBe(true);
+  });
+
+  it("marks per-run buttons busy while a bulk summary is in flight", async () => {
+    let finishSummary:
+      | ((result: { tabId: string; delivered: boolean }) => void)
+      | undefined;
+    mockConfirmAgentChat.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishSummary = resolve;
+        }),
+    );
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
+        ?.click(),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-review-bulk-summary]")
+        ?.click(),
+    );
+
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(1);
+    const row = container.querySelector<HTMLElement>(
+      '[data-review-row="run-1"]',
+    )!;
+    const summaryButtons = Array.from(
+      row.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="Summarize with agent"]',
+      ),
+    );
+    expect(summaryButtons).toHaveLength(2);
+    expect(
+      summaryButtons.every(
+        (button) => button.getAttribute("aria-busy") === "true",
+      ),
+    ).toBe(true);
+    await act(async () => summaryButtons[1]?.click());
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(1);
+
+    await act(async () =>
+      finishSummary?.({ tabId: "review-test", delivered: true }),
+    );
   });
 
   it("expands one inline row with its preview, transcript, thread link, and actions", async () => {
