@@ -89,6 +89,20 @@ describe("generate-home-suggestions", () => {
     );
   });
 
+  it("treats inherited object properties as custom roles", async () => {
+    mocks.getUserProfile.mockResolvedValue({
+      email: "user@example.test",
+      name: "User",
+      onboardingRole: "constructor",
+    });
+
+    await action.run({}, { userEmail: "user@example.test" } as never);
+
+    expect(mocks.completeText.mock.calls[0]?.[0].input).toContain(
+      'selected onboarding role is "constructor"',
+    );
+  });
+
   it("fails loudly when the model does not return three structured suggestions", async () => {
     mocks.completeText.mockResolvedValue({ text: "not json" });
 

@@ -41,10 +41,9 @@ function roleContext(value: string | null | undefined): string {
   if (!role || role.toLowerCase() === "other") {
     return "Use broadly useful design starters such as a landing page, dashboard, or small web experience.";
   }
-  return (
-    ROLE_CONTEXT[role.toLowerCase()] ??
-    `The user's selected onboarding role is ${JSON.stringify(role)}. Tailor suggestions to that role's typical work and goals.`
-  );
+  const roleKey = role.toLowerCase();
+  if (Object.hasOwn(ROLE_CONTEXT, roleKey)) return ROLE_CONTEXT[roleKey];
+  return `The user's selected onboarding role is ${JSON.stringify(role)}. Tailor suggestions to that role's typical work and goals.`;
 }
 
 function parseSuggestions(text: string) {

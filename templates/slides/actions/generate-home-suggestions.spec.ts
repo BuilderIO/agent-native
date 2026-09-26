@@ -87,4 +87,18 @@ describe("generate-home-suggestions", () => {
       "broadly useful presentation starters",
     );
   });
+
+  it("treats inherited object properties as custom roles", async () => {
+    mocks.getUserProfile.mockResolvedValue({
+      email: "user@example.test",
+      name: "User",
+      onboardingRole: "constructor",
+    });
+
+    await action.run({}, { userEmail: "user@example.test" } as never);
+
+    expect(mocks.completeText.mock.calls[0]?.[0].input).toContain(
+      'selected onboarding role is "constructor"',
+    );
+  });
 });
