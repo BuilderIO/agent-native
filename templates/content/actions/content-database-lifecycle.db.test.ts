@@ -2100,6 +2100,20 @@ describe("content database soft-delete actions and reads", () => {
     const db = getDb();
     const now = new Date().toISOString();
     const { databaseId } = await createDatabase({ systemRole: "files" });
+    const primaryId = nextId("files-primary");
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: primaryId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: primaryId, blocksSeeded: 1 })
+      .where(eq(schema.contentDatabases.id, databaseId));
     const sharedDocumentId = await createDocument({
       title: "Shared Personal Page",
       content: "A Page body open to suggestions.",
@@ -2206,6 +2220,39 @@ describe("content database soft-delete actions and reads", () => {
       })
       .where(eq(schema.documents.id, inlineDocumentId));
     const fullPageDatabase = await createDatabase({});
+    const metadataDatabase = await createDatabase({});
+    const itemDatabase = await createDatabase({});
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("suggestion-metadata-item"),
+      ownerEmail: OWNER,
+      databaseId: metadataDatabase.databaseId,
+      documentId: ordinaryDocumentId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const itemPrimaryId = nextId("suggestion-primary");
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: itemPrimaryId,
+      ownerEmail: OWNER,
+      databaseId: itemDatabase.databaseId,
+      name: "Content",
+      type: "blocks",
+      optionsJson: JSON.stringify({ blocks: { primary: true } }),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: itemPrimaryId, blocksSeeded: 1 })
+      .where(eq(schema.contentDatabases.id, itemDatabase.databaseId));
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("suggestion-item"),
+      ownerEmail: OWNER,
+      databaseId: itemDatabase.databaseId,
+      documentId: ordinaryDocumentId,
+      createdAt: now,
+      updatedAt: now,
+    });
     const sourceDocumentId = await createDocument({
       title: "Source-owned suggestion exclusion",
       content: "Source-owned content.",
@@ -2268,7 +2315,7 @@ describe("content database soft-delete actions and reads", () => {
         canSuggest: document.canSuggest,
       })),
     ).toEqual([
-      { id: ordinaryDocumentId, canComment: true, canSuggest: true },
+      { id: ordinaryDocumentId, canComment: true, canSuggest: false },
       { id: inlineDocumentId, canComment: true, canSuggest: false },
       {
         id: fullPageDatabase.databaseDocumentId,
@@ -2294,13 +2341,42 @@ describe("content database soft-delete actions and reads", () => {
     );
     expect(listedEligibility).toEqual(
       new Map([
-        [ordinaryDocumentId, true],
+        [ordinaryDocumentId, false],
         [inlineDocumentId, false],
         [fullPageDatabase.databaseDocumentId, false],
         [sourceDocumentId, false],
         ...unrecognizedSourceDocumentIds.map((id) => [id, false] as const),
       ]),
     );
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: itemDatabase.databaseDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "viewer",
+      createdBy: OWNER,
+      createdAt: now,
+    });
+    const accessible = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => getDocumentAction.run({ id: ordinaryDocumentId }),
+    );
+    expect(accessible).toMatchObject({
+      canSuggest: true,
+      databaseMembership: { databaseId: itemDatabase.databaseId },
+    });
+    const listedWithAccess = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listDocumentsAction.run({}),
+    );
+    expect(
+      listedWithAccess.documents.find(
+        (document) => document.id === ordinaryDocumentId,
+      ),
+    ).toMatchObject({
+      canSuggest: true,
+      databaseMembership: { databaseId: itemDatabase.databaseId },
+    });
   });
 
   it("rejects restoring a database whose page belongs to another Trash root", async () => {

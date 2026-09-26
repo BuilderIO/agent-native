@@ -3544,7 +3544,7 @@ export function AddProperty({
         documentId,
         name: label,
         type,
-        options: defaultPropertyOptions(type),
+        options: type === "blocks" ? undefined : defaultPropertyOptions(type),
       });
       setTypeQuery("");
       setOpen(false);

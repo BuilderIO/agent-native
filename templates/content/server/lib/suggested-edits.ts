@@ -19,7 +19,9 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
+import { accessibleDocumentIds } from "../../actions/_document-access.js";
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
+import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
   SUPPORTED_SUGGESTION_BLOCKS,
@@ -372,6 +374,80 @@ function drizzleTransactionForExec(transaction: DbExec) {
   );
 }
 
+async function assertSuggestionBodyTarget(
+  transaction: DbExec,
+  documentId: string,
+) {
+  const row = (
+    await transaction.execute({
+      sql: `SELECT
+              EXISTS (SELECT 1 FROM content_databases d WHERE d.document_id = ?) AS is_database,
+              EXISTS (SELECT 1 FROM content_database_items i INNER JOIN content_databases d ON d.id = i.database_id WHERE i.document_id = ? AND d.deleted_at IS NULL) AS has_membership`,
+      args: [documentId, documentId],
+    })
+  ).rows[0];
+  if (row?.is_database) {
+    fail("Collection Pages cannot receive body suggestions.", {
+      statusCode: 409,
+      errorCode: "suggestion_body_unavailable",
+    });
+  }
+  const memberships = (
+    await transaction.execute({
+      sql: `SELECT d.document_id AS database_document_id, d.system_role, p.id AS primary_id
+            FROM content_database_items i
+            INNER JOIN content_databases d ON d.id = i.database_id
+            LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+            WHERE i.document_id = ? AND d.deleted_at IS NULL
+            ORDER BY d.id`,
+      args: [documentId],
+    })
+  ).rows;
+  const ordinaryMemberships = memberships.filter(
+    (membership) => membership.system_role === null,
+  );
+  const eligibleDocumentIds = ordinaryMemberships
+    .filter((membership) => membership.primary_id)
+    .map((membership) => String(membership.database_document_id));
+  const identityDb = drizzleTransactionForExec(transaction);
+  const accessibleIds = await accessibleDocumentIds(
+    eligibleDocumentIds,
+    undefined,
+    identityDb,
+    transaction,
+  );
+  let hasAccessiblePrimary = accessibleIds.size > 0;
+  if (!hasAccessiblePrimary && !ordinaryMemberships.length) {
+    hasAccessiblePrimary = memberships.some(
+      (membership) =>
+        membership.system_role === "files" && membership.primary_id,
+    );
+  }
+  if (
+    !hasSuggestionBodyTarget({
+      hasDatabaseMembership: Boolean(row?.has_membership),
+      hasPrimaryBlocksField: hasAccessiblePrimary,
+    })
+  ) {
+    fail(
+      "This database item has no primary Blocks field for body suggestions.",
+      {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      },
+    );
+  }
+  return memberships
+    .filter(
+      (membership) =>
+        membership.primary_id &&
+        ((membership.system_role === null &&
+          accessibleIds.has(String(membership.database_document_id))) ||
+          (membership.system_role === "files" && !ordinaryMemberships.length)),
+    )
+    .map((membership) => String(membership.primary_id));
+}
+
 function replacePreparedCollabContent(
   lease: PreparedYDocMutationLease,
   proseMirrorDoc: ReturnType<typeof parseSuggestionMarkdown>,
@@ -488,20 +564,16 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       });
     }
     const exclusions = await (transaction ?? getDbExec()).execute({
-      sql: `SELECT 'database' AS kind
-            FROM content_database_items i
-            INNER JOIN content_databases d ON d.id = i.database_id
-            WHERE i.document_id = ? AND d.system_role IS NULL
-            UNION ALL
-            SELECT 'external' AS kind FROM document_sync_links WHERE document_id = ? AND state != 'unlinked'
-            LIMIT 1`,
-      args: [input.resourceId, input.resourceId],
+      sql: "SELECT state FROM document_sync_links WHERE document_id = ? AND state != 'unlinked' LIMIT 1",
+      args: [input.resourceId],
     });
     if (exclusions.rows.length) {
-      throw new Error(
-        "Database item and externally linked Pages cannot receive suggestions yet",
-      );
+      throw new Error("Externally linked Pages cannot receive suggestions yet");
     }
+    await assertSuggestionBodyTarget(
+      transaction ?? getDbExec(),
+      input.resourceId,
+    );
     const operations = validateOperations(input.operations);
     const before = markdownPayload(operations[0]!.before, "before");
     const after = markdownPayload(operations[0]!.after, "after");
@@ -593,29 +665,73 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       currentContent,
       nextContent,
     );
-    const membership = await tx.execute({
-      sql: `SELECT i.id
-            FROM content_database_items i
-            INNER JOIN content_databases d ON d.id = i.database_id
-            WHERE i.document_id = ? AND d.system_role IS NULL
-            LIMIT 1`,
-      args: [context.resourceId],
-    });
-    if (membership.rows.length) {
-      throw new Error(
-        "Database item Pages cannot receive body suggestions yet",
-      );
-    }
     if (currentContent.includes("<InlineDatabase")) {
       throw new Error(
         "Pages containing inline databases cannot accept suggestions yet",
       );
     }
+    const eligiblePrimaryIds = await assertSuggestionBodyTarget(
+      tx,
+      context.resourceId,
+    );
     const identityTx = drizzleTransactionForExec(tx);
+    await tx.execute({
+      sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+      args: [context.resourceId],
+    });
+    // Memberships have no document foreign key. Never wait for the table after
+    // locking the Page: other editors lock memberships before the Page.
+    try {
+      await tx.execute(
+        "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT",
+      );
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "55P03"
+      ) {
+        fail("The Page is busy. Try accepting the suggestion again.", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      }
+      throw error;
+    }
     const primaryBlocksFields = await lockPrimaryBlocksFields(
       identityTx,
       context.resourceId,
     );
+    const currentTargets = await tx.execute({
+      sql: `SELECT d.system_role, p.id FROM content_database_items i
+            INNER JOIN content_databases d ON d.id = i.database_id AND d.deleted_at IS NULL
+            LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+            WHERE i.document_id = ?`,
+      args: [context.resourceId],
+    });
+    const hasOrdinaryMembership = currentTargets.rows.some(
+      (row) => row.system_role === null,
+    );
+    const hasEligibleTarget = currentTargets.rows.some(
+      (row) =>
+        (row.system_role === null ||
+          (row.system_role === "files" && !hasOrdinaryMembership)) &&
+        eligiblePrimaryIds.includes(String(row.id)) &&
+        primaryBlocksFields.some((field) => field.propertyId === row.id),
+    );
+    if (
+      !hasEligibleTarget &&
+      (eligiblePrimaryIds.length > 0 || currentTargets.rows.length > 0)
+    ) {
+      fail(
+        "This database item has no primary Blocks field for body suggestions.",
+        {
+          statusCode: 409,
+          errorCode: "suggestion_body_unavailable",
+        },
+      );
+    }
     replacePreparedCollabContent(coordination.ydoc, nextDocument);
     const now = new Date().toISOString();
     const nextBodyRevision = currentDocument.bodyRevision + 1;

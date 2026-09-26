@@ -16,6 +16,7 @@ import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { serializeDatabaseMembership } from "./_database-utils.js";
+import { accessibleDocumentIds } from "./_document-access.js";
 import {
   DOCUMENT_DISCOVERY_DEFAULT_LIMIT,
   DOCUMENT_DISCOVERY_MAX_LIMIT,
@@ -26,6 +27,7 @@ import { serializeDocumentSource } from "./_document-source.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
 import {
   canSuggestDocument,
+  hasSuggestionBodyTarget,
   INLINE_DATABASE_SUGGESTION_EXCLUSION,
 } from "./_suggestion-eligibility.js";
 
@@ -157,7 +159,9 @@ export default defineAction({
     const shareRoleByDocumentId = new Map<string, ShareRole>();
     const notionPageIdByDocumentId = new Map<string, string>();
     const externallyLinkedDocumentIds = new Set<string>();
-    const ordinaryDatabaseItemDocumentIds = new Set<string>();
+    const documentsWithMembership = new Set<string>();
+    const documentsWithPrimaryBlocks = new Set<string>();
+    const accessibleDatabaseDocumentIds = new Set<string>();
     const databaseByDocumentId = new Map<
       string,
       typeof schema.contentDatabases.$inferSelect
@@ -167,6 +171,7 @@ export default defineAction({
       {
         item: typeof schema.contentDatabaseItems.$inferSelect;
         database: typeof schema.contentDatabases.$inferSelect;
+        primaryId: string | null;
       }
     >();
     const favoriteIds = userEmail
@@ -248,6 +253,7 @@ export default defineAction({
             .select({
               item: schema.contentDatabaseItems,
               database: schema.contentDatabases,
+              primaryId: schema.documentPropertyDefinitions.id,
             })
             .from(schema.contentDatabaseItems)
             .innerJoin(
@@ -255,6 +261,20 @@ export default defineAction({
               eq(
                 schema.contentDatabases.id,
                 schema.contentDatabaseItems.databaseId,
+              ),
+            )
+            .leftJoin(
+              schema.documentPropertyDefinitions,
+              and(
+                eq(
+                  schema.documentPropertyDefinitions.id,
+                  schema.contentDatabases.primaryBlocksPropertyId,
+                ),
+                eq(
+                  schema.documentPropertyDefinitions.databaseId,
+                  schema.contentDatabases.id,
+                ),
+                eq(schema.documentPropertyDefinitions.type, "blocks"),
               ),
             )
             .where(
@@ -293,11 +313,45 @@ export default defineAction({
         databaseByDocumentId.set(database.documentId, database);
       }
 
+      const accessibleDatabases = await accessibleDocumentIds(
+        databaseMemberships.map((row) => row.database.documentId),
+        authorizedOrgIds,
+      );
+      for (const id of accessibleDatabases) {
+        accessibleDatabaseDocumentIds.add(id);
+      }
+      const documentsWithOrdinaryMembership = new Set(
+        databaseMemberships
+          .filter((row) => row.database.systemRole === null)
+          .map((row) => row.item.documentId),
+      );
+      const eligibleMembership = (row: (typeof databaseMemberships)[number]) =>
+        row.primaryId !== null &&
+        (row.database.systemRole === null
+          ? accessibleDatabases.has(row.database.documentId)
+          : row.database.systemRole === "files" &&
+            !documentsWithOrdinaryMembership.has(row.item.documentId));
       for (const row of databaseMemberships) {
-        if (row.database.systemRole == null) {
-          ordinaryDatabaseItemDocumentIds.add(row.item.documentId);
+        documentsWithMembership.add(row.item.documentId);
+        if (eligibleMembership(row)) {
+          documentsWithPrimaryBlocks.add(row.item.documentId);
         }
-        if (!databaseMembershipByDocumentId.has(row.item.documentId)) {
+        const selected = databaseMembershipByDocumentId.get(
+          row.item.documentId,
+        );
+        if (
+          !selected ||
+          (eligibleMembership(row) &&
+            !(
+              selected.primaryId &&
+              (selected.database.systemRole === null
+                ? accessibleDatabases.has(selected.database.documentId)
+                : selected.database.systemRole === "files" &&
+                  !documentsWithOrdinaryMembership.has(
+                    selected.item.documentId,
+                  ))
+            ))
+        ) {
           databaseMembershipByDocumentId.set(row.item.documentId, row);
         }
       }
@@ -356,7 +410,9 @@ export default defineAction({
             }
           : undefined,
         databaseMembership: databaseMembership
-          ? visibleDocumentIds.has(databaseMembership.database.documentId)
+          ? accessibleDatabaseDocumentIds.has(
+              databaseMembership.database.documentId,
+            )
             ? serializeDatabaseMembership(databaseMembership)
             : {
                 databaseId: null,
@@ -370,7 +426,10 @@ export default defineAction({
         canSuggest: canSuggestDocument({
           canComment: canCommentRole(accessRole),
           isDatabase: Boolean(database),
-          isOrdinaryDatabaseItem: ordinaryDatabaseItemDocumentIds.has(d.id),
+          hasBodyTarget: hasSuggestionBodyTarget({
+            hasDatabaseMembership: documentsWithMembership.has(d.id),
+            hasPrimaryBlocksField: documentsWithPrimaryBlocks.has(d.id),
+          }),
           isExternallyLinked: externallyLinkedDocumentIds.has(d.id),
           isSourceOwned: Boolean(d.sourceMode || d.sourceKind || d.sourcePath),
           hasInlineDatabase: d.hasInlineDatabase,

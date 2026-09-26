@@ -1,5 +1,5 @@
 import { ActionContractError } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
+import { getDbExec, type DbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
@@ -133,10 +133,20 @@ export async function getContentOrganizationMembership(
   });
 }
 
-export async function listContentOrganizationMemberships(userEmail: string) {
+export async function listContentOrganizationMemberships(
+  userEmail: string,
+  transaction?: DbExec,
+) {
+  if (transaction) {
+    const relation = await transaction.execute({
+      sql: "SELECT to_regclass('org_members') AS relation",
+      args: [],
+    });
+    if (!relation.rows[0]?.relation) return [];
+  }
   let result;
   try {
-    result = await getDbExec().execute({
+    result = await (transaction ?? getDbExec()).execute({
       sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS name,
                  o.created_by AS "createdBy",
                  o.identity_authority AS "identityAuthority",

@@ -594,11 +594,19 @@ describe("suggest-document-edit", () => {
     ).rejects.toThrow(/baseRevision and idempotencyKey/);
   });
 
-  it("rejects pages that cannot receive suggestions", async () => {
+  it("proposes an edit to an ordinary database item without changing its body", async () => {
     const { id, revision } = await createPage("Database item body.");
     const db = getDb();
     const now = new Date().toISOString();
     const databaseId = `suggest-edit-db-${sequence}`;
+    await db.insert(schema.documents).values({
+      id: `suggest-edit-db-doc-${sequence}`,
+      title: "Test database",
+      content: "",
+      ownerEmail: ctx.userEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(schema.contentDatabases).values({
       id: databaseId,
       ownerEmail: ctx.userEmail,
@@ -607,6 +615,20 @@ describe("suggest-document-edit", () => {
       createdAt: now,
       updatedAt: now,
     });
+    const primaryId = `suggest-edit-primary-${sequence}`;
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: primaryId,
+      ownerEmail: ctx.userEmail,
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: primaryId, blocksSeeded: 1 })
+      .where(eq(schema.contentDatabases.id, databaseId));
     await db.insert(schema.contentDatabaseItems).values({
       id: `suggest-edit-item-${sequence}`,
       ownerEmail: ctx.userEmail,
@@ -618,18 +640,76 @@ describe("suggest-document-edit", () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
       async () => {
+        const result = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `db-${id}`,
+            find: "Database item body.",
+            replace: "x",
+          },
+          ctx,
+        )) as { suggestionId: string };
+        expect(result.suggestionId).toBeTruthy();
+        const [document] = await db
+          .select({ content: schema.documents.content })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id));
+        expect(document?.content).toBe("Database item body.");
+      },
+    );
+    const collaborator = "collaborator@example.com";
+    await db.insert(schema.documentShares).values({
+      id: `suggest-edit-row-share-${sequence}`,
+      resourceId: id,
+      principalType: "user",
+      principalId: collaborator,
+      role: "commenter",
+      createdBy: ctx.userEmail,
+      createdAt: now,
+    });
+    const collaboratorContext = { ...ctx, userEmail: collaborator };
+    await runWithRequestContext(
+      { userEmail: collaborator, orgId: null },
+      async () => {
         await expect(
           suggestDocumentEdit.run(
             {
               id,
               baseRevision: revision,
-              idempotencyKey: `db-${id}`,
+              idempotencyKey: `row-only-${id}`,
               find: "Database item body.",
               replace: "x",
             },
-            ctx,
+            collaboratorContext,
           ),
-        ).rejects.toThrow(/cannot receive suggestions/i);
+        ).rejects.toThrow(/no primary Blocks field/);
+      },
+    );
+    await db.insert(schema.documentShares).values({
+      id: `suggest-edit-db-share-${sequence}`,
+      resourceId: `suggest-edit-db-doc-${sequence}`,
+      principalType: "user",
+      principalId: collaborator,
+      role: "viewer",
+      createdBy: ctx.userEmail,
+      createdAt: now,
+    });
+    await runWithRequestContext(
+      { userEmail: collaborator, orgId: null },
+      async () => {
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `row-and-db-${id}`,
+              find: "Database item body.",
+              replace: "x",
+            },
+            collaboratorContext,
+          ),
+        ).resolves.toMatchObject({ status: "pending" });
       },
     );
   });

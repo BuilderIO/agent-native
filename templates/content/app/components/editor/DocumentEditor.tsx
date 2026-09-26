@@ -658,6 +658,17 @@ export function pageEditorSessionKey({
   return `${documentId}:${databaseId ?? ""}:${databaseDocumentId ?? ""}`;
 }
 
+export function suggestionModeCapability(args: {
+  permission: boolean;
+  bodyReady: boolean;
+  primaryFieldAvailable: boolean;
+}) {
+  return {
+    canStart: args.permission && args.bodyReady && args.primaryFieldAvailable,
+    canContinue: args.permission,
+  };
+}
+
 export function PageEditorSurface({
   documentId,
   databaseId,
@@ -1722,6 +1733,7 @@ function PageEditorSessionBody({
   );
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [isStartingSuggestion, setIsStartingSuggestion] = useState(false);
+  const startingSuggestionRef = useRef(false);
   const [pendingSuggestionDecision, setPendingSuggestionDecision] = useState<{
     suggestion: ResourceSuggestion;
     decision: SuggestionDecision;
@@ -1744,6 +1756,8 @@ function PageEditorSessionBody({
     [documentId, canEdit, isSuggesting],
   );
   const [isSubmittingSuggestions, setIsSubmittingSuggestions] = useState(false);
+  const [suggestionDraftSaveFailed, setSuggestionDraftSaveFailed] =
+    useState(false);
   const [suggestionAmendmentConflict, setSuggestionAmendmentConflict] =
     useState(false);
   const [suggestionDraft, setSuggestionDraft] = useState(document.content);
@@ -1788,7 +1802,41 @@ function PageEditorSessionBody({
   const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
     useState(false);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
-  const canSuggest = canComment && document.canSuggest === true;
+  const [primaryFieldAvailability, setPrimaryFieldAvailability] = useState<{
+    scope: string;
+    available: boolean;
+  } | null>(null);
+  const handlePrimaryFieldAvailabilityChange = useCallback(
+    (scope: string, available: boolean) => {
+      setPrimaryFieldAvailability((current) =>
+        current?.scope === scope && current.available === available
+          ? current
+          : { scope, available },
+      );
+    },
+    [],
+  );
+  const databaseFieldScope = document.databaseMembership
+    ? pageEditorSessionKey({
+        documentId,
+        databaseId: databaseId ?? document.databaseMembership.databaseId,
+        databaseDocumentId:
+          databaseDocumentId ?? document.databaseMembership.databaseDocumentId,
+      })
+    : null;
+  const suggestionCapability = suggestionModeCapability({
+    permission: canComment && document.canSuggest === true,
+    bodyReady:
+      !documentBodyHydrationIsPending(document) &&
+      document.bodyHydration?.hydration?.status !== "error",
+    primaryFieldAvailable:
+      databaseFieldScope === null ||
+      (primaryFieldAvailability?.scope === databaseFieldScope &&
+        primaryFieldAvailability.available),
+  });
+  const canSuggest = suggestionCapability.canStart;
+  const canStartSuggestionRef = useRef(canSuggest);
+  canStartSuggestionRef.current = canSuggest;
   const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
@@ -2278,7 +2326,7 @@ function PageEditorSessionBody({
     !collabInitializationFailed;
   const suggestionEditorIsolation = suggestedEditorIsolation({
     suggesting: isSuggesting,
-    canSuggest,
+    canSuggest: suggestionCapability.canContinue,
     canEdit: editorCanEdit,
     collaborationReady: collabEditorEnabled,
   });
@@ -3819,6 +3867,7 @@ function PageEditorSessionBody({
       if (isSubmittingSuggestions) return null;
       const base = suggestionBaseRef.current;
       if (!base) return null;
+      setSuggestionDraftSaveFailed(false);
       if (base.existingSuggestion && suggestionDraft === base.initialContent) {
         if (!keepMode) {
           setIsSuggesting(false);
@@ -3933,6 +3982,7 @@ function PageEditorSessionBody({
           void queryClient.invalidateQueries(documentQueryFilter(documentId));
           return null;
         }
+        setSuggestionDraftSaveFailed(true);
         toast.error(
           t(
             base.existingSuggestion
@@ -3970,7 +4020,7 @@ function PageEditorSessionBody({
       suggestion?: ResourceSuggestion,
       initialSelection?: VisualEditorSelectionSnapshot | null,
     ) => {
-      if (!canSuggest || isSuggesting) return false;
+      if (!canStartSuggestionRef.current || isSuggesting) return false;
       try {
         suggestionMarkedSourceRanges(nextDocument.content);
       } catch (error) {
@@ -4010,7 +4060,7 @@ function PageEditorSessionBody({
       setIsSuggesting(true);
       return true;
     },
-    [canSuggest, isSuggesting, session?.email, t],
+    [isSuggesting, session?.email, t],
   );
 
   const prepareSuggestionDraftDocument = useCallback(async () => {
@@ -4138,13 +4188,36 @@ function PageEditorSessionBody({
   const handleSuggestionModeChange = useCallback(
     async (next: boolean) => {
       if (next) {
-        if (isStartingSuggestion) return;
+        if (!canSuggest || startingSuggestionRef.current) return;
         const initialSelection = pageActionsSelectionRef.current;
         pageActionsSelectionRef.current = null;
+        startingSuggestionRef.current = true;
         setIsStartingSuggestion(true);
         try {
+          if (document.databaseMembership) {
+            try {
+              await flushAllBlockFieldSaveControllersForDocument(documentId);
+            } catch (error) {
+              toast.error(t("editor.suggestionCreateFailed"), {
+                description:
+                  actionErrorMessage(error) ?? t("empty.genericError"),
+              });
+              restoreCapturedEditorSelection(
+                editorSelectionControllerRef.current,
+                initialSelection,
+              );
+              return;
+            }
+          }
+          if (!canStartSuggestionRef.current) {
+            restoreCapturedEditorSelection(
+              editorSelectionControllerRef.current,
+              initialSelection,
+            );
+            return;
+          }
           const readyDocument = await prepareSuggestionDraftDocument();
-          if (!readyDocument) {
+          if (!readyDocument || !canStartSuggestionRef.current) {
             restoreCapturedEditorSelection(
               editorSelectionControllerRef.current,
               initialSelection,
@@ -4172,18 +4245,22 @@ function PageEditorSessionBody({
           }
         } finally {
           setIsStartingSuggestion(false);
+          startingSuggestionRef.current = false;
         }
         return;
       }
       await flushSuggestionDraft();
     },
     [
+      canSuggest,
+      document.databaseMembership,
+      documentId,
       flushSuggestionDraft,
-      isStartingSuggestion,
       prepareSuggestionDraftDocument,
       savedSuggestions,
       selectedSuggestionId,
       startSuggestionDraft,
+      t,
     ],
   );
 
@@ -4246,10 +4323,6 @@ function PageEditorSessionBody({
   );
 
   useEffect(() => {
-    if (!canSuggest && isSuggesting) setIsSuggesting(false);
-  }, [canSuggest, isSuggesting]);
-
-  useEffect(() => {
     setLocallyCreatedSuggestions([]);
     setEditingSuggestionId(null);
     setSuggestionInitialSelection(null);
@@ -4261,6 +4334,10 @@ function PageEditorSessionBody({
 
   useEffect(() => {
     if (!isSuggesting) setPreserveInlineReviewSpace(false);
+  }, [isSuggesting]);
+
+  useEffect(() => {
+    if (!isSuggesting) setSuggestionDraftSaveFailed(false);
   }, [isSuggesting]);
 
   const discardConflictedSuggestionDraft = useCallback(() => {
@@ -5782,15 +5859,20 @@ function PageEditorSessionBody({
           ) : null}
 
           {isSuggesting &&
-          amendmentDraftIsDirty &&
-          suggestionAmendmentConflict ? (
+          (!suggestionCapability.canStart ||
+            suggestionDraftSaveFailed ||
+            (amendmentDraftIsDirty && suggestionAmendmentConflict)) ? (
             <div
               className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
               role="alert"
               data-suggestion-amendment-conflict
             >
               <span className="me-auto">
-                {t("editor.suggestionAmendmentResolved")}
+                {t(
+                  suggestionCapability.canStart && !suggestionDraftSaveFailed
+                    ? "editor.suggestionAmendmentResolved"
+                    : "editor.suggestionCreateFailed",
+                )}
               </span>
               <Button
                 type="button"
@@ -6255,6 +6337,11 @@ function PageEditorSessionBody({
                               document.databaseMembership.databaseDocumentId
                             }
                             canEdit={editorCanEdit}
+                            suggesting={isSuggesting || isStartingSuggestion}
+                            enteringSuggestion={isStartingSuggestion}
+                            onPrimaryFieldAvailabilityChange={
+                              handlePrimaryFieldAvailabilityChange
+                            }
                             primaryEditor={primaryEditorWithStarter}
                             onAdditionalContentChange={
                               handleAdditionalBlockContentChange

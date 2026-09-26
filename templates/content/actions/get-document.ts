@@ -17,7 +17,10 @@ import {
   isSoftDeletedDatabaseDocument,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
-import { resolveDocumentAccess } from "./_document-access.js";
+import {
+  accessibleDocumentIds,
+  resolveDocumentAccess,
+} from "./_document-access.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -32,6 +35,7 @@ import {
 import {
   canSuggestDocument,
   documentHasInlineDatabase,
+  hasSuggestionBodyTarget,
 } from "./_suggestion-eligibility.js";
 
 function canEditRole(role: string) {
@@ -102,22 +106,72 @@ export default defineAction({
       });
     }
 
+    const memberships = await getDb()
+      .select({
+        databaseId: schema.contentDatabases.id,
+        databaseDocumentId: schema.contentDatabases.documentId,
+        systemRole: schema.contentDatabases.systemRole,
+        primaryId: schema.documentPropertyDefinitions.id,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.contentDatabases,
+        eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+      )
+      .leftJoin(
+        schema.documentPropertyDefinitions,
+        and(
+          eq(
+            schema.documentPropertyDefinitions.id,
+            schema.contentDatabases.primaryBlocksPropertyId,
+          ),
+          eq(
+            schema.documentPropertyDefinitions.databaseId,
+            schema.contentDatabases.id,
+          ),
+          eq(schema.documentPropertyDefinitions.type, "blocks"),
+        ),
+      )
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.documentId, doc.id),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      )
+      .orderBy(schema.contentDatabases.id);
+    const ordinaryMemberships = memberships.filter(
+      (membership) => membership.systemRole === null,
+    );
+    const accessibleDatabases = await accessibleDocumentIds(
+      memberships.map((membership) => membership.databaseDocumentId),
+    );
+    accessibleDatabases.add(doc.id);
+    const accessiblePrimaryMemberships = memberships.filter(
+      (membership) =>
+        membership.primaryId &&
+        (membership.systemRole === null
+          ? accessibleDatabases.has(membership.databaseDocumentId)
+          : ordinaryMemberships.length === 0 &&
+            membership.systemRole === "files"),
+    );
+    const selectedDatabaseId =
+      args.databaseId ?? accessiblePrimaryMemberships[0]?.databaseId;
     const database = await getDatabaseByDocumentId(doc.id);
-    const databaseMembership = args.databaseId
+    const databaseMembership = selectedDatabaseId
       ? await getDatabaseItemByDocumentId(doc.id, {
-          databaseId: args.databaseId,
+          databaseId: selectedDatabaseId,
         })
       : await getDatabaseItemByDocumentId(doc.id);
-    const propertyDatabase = args.databaseId
-      ? await getDatabaseById(args.databaseId)
+    const propertyDatabase = selectedDatabaseId
+      ? await getDatabaseById(selectedDatabaseId)
       : await resolvePropertyDatabaseForDocument(doc);
-    const propertyDatabaseAccess = propertyDatabase
-      ? await resolveDocumentAccess(propertyDatabase.documentId)
-      : null;
+    const hasPropertyDatabaseAccess = Boolean(
+      propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
+    );
     if (
       args.databaseId &&
       (!propertyDatabase ||
-        (!propertyDatabaseAccess && access.role === "owner") ||
+        (!hasPropertyDatabaseAccess && access.role === "owner") ||
         (propertyDatabase.documentId !== doc.id && !databaseMembership))
     ) {
       throw Object.assign(new Error("Database context not found"), {
@@ -147,15 +201,19 @@ export default defineAction({
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
       : new Set<string>();
-    const properties = await listPropertiesForDocument(doc, args.databaseId, {
-      // A share authorizes the exact page and its membership-local fields,
-      // not the private database document that owns those definitions.
-      requireDatabaseAccess: propertyDatabaseAccess !== null,
-    });
+    const properties = await listPropertiesForDocument(
+      doc,
+      selectedDatabaseId,
+      {
+        // A share authorizes the exact page and its membership-local fields,
+        // not the private database document that owns those definitions.
+        requireDatabaseAccess: hasPropertyDatabaseAccess,
+      },
+    );
     const source = serializeDocumentSource(doc);
     const hasInlineDatabase = documentHasInlineDatabase(doc.content ?? "");
-    let isOrdinaryDatabaseItem = false;
     let isExternallyLinked = false;
+    let hasBodyTarget = true;
     if (
       canCommentRole(access.role) &&
       !database &&
@@ -163,43 +221,30 @@ export default defineAction({
       !hasInlineDatabase
     ) {
       const db = getDb();
-      const [ordinaryMembership, externalLink] = await Promise.all([
-        db
-          .select({ id: schema.contentDatabaseItems.id })
-          .from(schema.contentDatabaseItems)
-          .innerJoin(
-            schema.contentDatabases,
-            eq(
-              schema.contentDatabases.id,
-              schema.contentDatabaseItems.databaseId,
-            ),
-          )
-          .where(
-            and(
-              eq(schema.contentDatabaseItems.documentId, doc.id),
-              isNull(schema.contentDatabases.deletedAt),
-              isNull(schema.contentDatabases.systemRole),
-            ),
-          )
-          .limit(1),
-        db
-          .select({ documentId: schema.documentSyncLinks.documentId })
-          .from(schema.documentSyncLinks)
-          .where(
-            and(
-              eq(schema.documentSyncLinks.documentId, doc.id),
-              ne(schema.documentSyncLinks.state, "unlinked"),
-            ),
-          )
-          .limit(1),
-      ]);
-      isOrdinaryDatabaseItem = ordinaryMembership.length > 0;
+      const externalLink = await db
+        .select({ documentId: schema.documentSyncLinks.documentId })
+        .from(schema.documentSyncLinks)
+        .where(
+          and(
+            eq(schema.documentSyncLinks.documentId, doc.id),
+            ne(schema.documentSyncLinks.state, "unlinked"),
+          ),
+        )
+        .limit(1);
       isExternallyLinked = externalLink.length > 0;
+      hasBodyTarget = hasSuggestionBodyTarget({
+        hasDatabaseMembership: memberships.length > 0,
+        hasPrimaryBlocksField: args.databaseId
+          ? accessiblePrimaryMemberships.some(
+              (item) => item.databaseId === args.databaseId,
+            )
+          : accessiblePrimaryMemberships.length > 0,
+      });
     }
     const canSuggest = canSuggestDocument({
       canComment: canCommentRole(access.role),
       isDatabase: Boolean(database),
-      isOrdinaryDatabaseItem,
+      hasBodyTarget,
       isExternallyLinked,
       isSourceOwned: Boolean(
         doc.sourceMode || doc.sourceKind || doc.sourcePath,
@@ -229,7 +274,7 @@ export default defineAction({
         params: { documentId: doc.id },
       }),
       parentId:
-        databaseMembership && !propertyDatabaseAccess ? null : doc.parentId,
+        databaseMembership && !hasPropertyDatabaseAccess ? null : doc.parentId,
       title: doc.title,
       content: doc.content,
       revision,
@@ -254,7 +299,7 @@ export default defineAction({
         ? serializeDatabase(database, doc.description)
         : undefined,
       databaseMembership: databaseMembership
-        ? propertyDatabaseAccess
+        ? hasPropertyDatabaseAccess
           ? serializeDatabaseMembership(databaseMembership)
           : {
               databaseId: null,
@@ -287,14 +332,14 @@ export default defineAction({
         : undefined,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
-      properties: propertyDatabaseAccess
+      properties: hasPropertyDatabaseAccess
         ? properties
         : properties.map((property) => ({
             ...property,
             definition: { ...property.definition, databaseId: null },
           })),
       contextPath:
-        databaseMembership && !propertyDatabaseAccess
+        databaseMembership && !hasPropertyDatabaseAccess
           ? []
           : await getDocumentContextPath(doc, {
               databaseId: args.databaseId,

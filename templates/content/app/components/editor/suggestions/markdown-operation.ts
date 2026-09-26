@@ -624,6 +624,24 @@ export function markdownSuggestionOperationsForEditorRevision(input: {
   after: string;
   replacements: ReadonlyArray<{ from: number; to: number }>;
 }): MarkdownSuggestionOperation[] {
+  if (input.before === "" || input.before === EMPTY_BLOCK) {
+    if (input.after === "" || input.after === EMPTY_BLOCK) return [];
+    if (input.replacements.length > 0)
+      throw new SuggestionFormattingMappingError();
+    markdownSuggestionOperations(input.before, input.after);
+    return [
+      {
+        ...operationForChange(
+          input.before,
+          0,
+          input.before.length,
+          input.after,
+          0,
+        ),
+        kind: "add_text_block",
+      },
+    ];
+  }
   const editorBefore = canonicalizeNfm(input.before);
   const replacements = input.replacements.map(({ from, to }) => {
     const changedText = input.before.slice(from, to);
