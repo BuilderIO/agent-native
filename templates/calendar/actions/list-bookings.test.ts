@@ -27,6 +27,8 @@ const schemaMock = vi.hoisted(() => ({
     meetingLink: "bookings.meetingLink",
     googleEventId: "bookings.googleEventId",
     zoomNeedsReview: "bookings.zoomNeedsReview",
+    zoomMeetingId: "bookings.zoomMeetingId",
+    zoomAccountId: "bookings.zoomAccountId",
     status: "bookings.status",
     createdAt: "bookings.createdAt",
   },
@@ -55,6 +57,8 @@ describe("list-bookings", () => {
       meetingLink: null,
       googleEventId: null,
       zoomNeedsReview: true,
+      zoomMeetingId: null,
+      zoomAccountId: null,
       status: "confirmed",
       createdAt: "2026-09-25T17:00:00.000Z",
     };
@@ -79,7 +83,47 @@ describe("list-bookings", () => {
         id: "booking-1",
         status: "confirmed",
         zoomNeedsReview: true,
+        zoomCancellationNeedsReview: true,
       },
+    ]);
+  });
+
+  it("flags existing Zoom links without saved provider IDs for manual review", async () => {
+    const booking = {
+      id: "booking-2",
+      name: "Guest",
+      email: "guest@example.com",
+      additionalGuestEmails: null,
+      start: "2026-09-25T23:30:00.000Z",
+      end: "2026-09-26T00:00:00.000Z",
+      slug: "saved-meeting",
+      eventTitle: "Planning",
+      notes: null,
+      fieldResponses: null,
+      meetingLink: "https://us05web.zoom.us/j/123456789",
+      googleEventId: null,
+      zoomNeedsReview: false,
+      zoomMeetingId: null,
+      zoomAccountId: null,
+      status: "confirmed",
+      createdAt: "2026-09-25T17:00:00.000Z",
+    };
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn((table) => ({
+          where: vi.fn(() =>
+            table === schemaMock.bookingLinks
+              ? Promise.resolve([{ slug: booking.slug }])
+              : { orderBy: vi.fn(async () => [booking]) },
+          ),
+        })),
+      })),
+    });
+
+    await expect(
+      action.run({} as never, undefined as never),
+    ).resolves.toMatchObject([
+      { id: "booking-2", zoomCancellationNeedsReview: true },
     ]);
   });
 });

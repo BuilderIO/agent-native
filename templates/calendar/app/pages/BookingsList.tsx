@@ -5,6 +5,17 @@ import { format, parseISO } from "date-fns";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,11 +73,17 @@ export default function BookingsList() {
     ),
   );
 
-  function handleCancel(booking: Booking) {
-    deleteBooking.mutate(booking.id, {
-      onSuccess: () => toast.success(t("bookingLinks.bookingCancelled")),
-      onError: () => toast.error(t("bookingLinks.failedToCancelBooking")),
-    });
+  function handleCancel(booking: Booking, zoomMeetingResolved = false) {
+    deleteBooking.mutate(
+      {
+        id: booking.id,
+        ...(zoomMeetingResolved ? { zoomMeetingResolved } : {}),
+      },
+      {
+        onSuccess: () => toast.success(t("bookingLinks.bookingCancelled")),
+        onError: () => toast.error(t("bookingLinks.failedToCancelBooking")),
+      },
+    );
   }
 
   return (
@@ -152,7 +169,8 @@ export default function BookingsList() {
                   <TableCell>
                     <Badge
                       variant={
-                        booking.zoomNeedsReview &&
+                        (booking.zoomNeedsReview ||
+                          booking.zoomCancellationNeedsReview) &&
                         booking.status === "confirmed"
                           ? "destructive"
                           : booking.status === "confirmed"
@@ -160,15 +178,61 @@ export default function BookingsList() {
                             : "secondary"
                       }
                     >
-                      {booking.zoomNeedsReview && booking.status === "confirmed"
-                        ? t("bookingLinks.zoomNeedsReview")
-                        : booking.status === "confirmed"
-                          ? t("bookingLinks.confirmed")
-                          : t("bookingLinks.cancelled")}
+                      {booking.status === "confirmed" &&
+                      booking.zoomCancellationNeedsReview
+                        ? t("bookingLinks.zoomCancellationNeedsReview")
+                        : booking.status === "confirmed" &&
+                            booking.zoomNeedsReview
+                          ? t("bookingLinks.zoomNeedsReview")
+                          : booking.status === "confirmed"
+                            ? t("bookingLinks.confirmed")
+                            : t("bookingLinks.cancelled")}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {booking.status === "confirmed" && (
+                    {booking.status === "confirmed" &&
+                    booking.zoomCancellationNeedsReview ? (
+                      <AlertDialog>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={t("bookingLinks.cancelBooking")}
+                                disabled={deleteBooking.isPending}
+                              >
+                                <IconCircleX className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </AlertDialogTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t("bookingLinks.cancelBooking")}
+                          </TooltipContent>
+                        </Tooltip>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              {t("bookingLinks.zoomCancelTitle")}
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {t("bookingLinks.zoomCancelDescription")}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>
+                              {t("eventDialog.cancel")}
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleCancel(booking, true)}
+                              disabled={deleteBooking.isPending}
+                            >
+                              {t("bookingLinks.zoomCancelConfirm")}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    ) : booking.status === "confirmed" ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -185,7 +249,7 @@ export default function BookingsList() {
                           {t("bookingLinks.cancelBooking")}
                         </TooltipContent>
                       </Tooltip>
-                    )}
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}

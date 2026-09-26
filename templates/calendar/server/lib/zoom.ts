@@ -53,6 +53,43 @@ export function getZoomAuthUrl(redirectUri: string, state: string) {
   return `https://zoom.us/oauth/authorize?${params}`;
 }
 
+function createProvider(creds: { clientId: string; clientSecret: string }) {
+  return createZoomProvider({
+    clientId: creds.clientId,
+    clientSecret: creds.clientSecret,
+    getAccessToken: (credentialId) => resolveAccessToken(credentialId),
+    updateTokens: async (credentialId, tokens) => {
+      const existing = await getOAuthTokens(PROVIDER, credentialId);
+      await saveOAuthTokens(PROVIDER, credentialId, {
+        ...existing,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken ?? (existing as any)?.refreshToken,
+        expiresAt: tokens.expiresAt?.getTime(),
+      });
+    },
+  });
+}
+
+export function needsZoomCancellationReview(booking: {
+  zoomNeedsReview?: boolean;
+  meetingLink?: string | null;
+  zoomMeetingId?: string | null;
+  zoomAccountId?: string | null;
+}): boolean {
+  if (booking.zoomMeetingId && booking.zoomAccountId) return false;
+  if (booking.zoomNeedsReview) return true;
+  if (!booking.meetingLink) return false;
+
+  try {
+    const hostname = new URL(booking.meetingLink).hostname.toLowerCase();
+    return ["zoom.us", "zoom.com", "zoomgov.com"].some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    );
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Exchange an authorization code for Zoom tokens. Stores them in
  * `oauth_tokens(provider="zoom_video", account_id=<zoom_user_id>, owner=<ownerEmail>)`.
@@ -165,7 +202,12 @@ export async function disconnectZoom(ownerEmail: string) {
  * owned by the host. `not_started` means no provider request was made.
  */
 export type ZoomMeetingResult =
-  | { status: "created"; meetingUrl: string; meetingId: string }
+  | {
+      status: "created";
+      meetingUrl: string;
+      meetingId: string;
+      accountId: string;
+    }
   | { status: "not_started" };
 
 export async function createZoomMeeting(opts: {
@@ -182,20 +224,7 @@ export async function createZoomMeeting(opts: {
   const creds = getZoomCreds();
   if (!creds) return { status: "not_started" };
 
-  const provider = createZoomProvider({
-    clientId: creds.clientId,
-    clientSecret: creds.clientSecret,
-    getAccessToken: (credentialId) => resolveAccessToken(credentialId),
-    updateTokens: async (credentialId, tokens) => {
-      const existing = (await getOAuthTokens(PROVIDER, credentialId)) ?? {};
-      await saveOAuthTokens(PROVIDER, credentialId, {
-        ...existing,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken ?? (existing as any).refreshToken,
-        expiresAt: tokens.expiresAt?.getTime(),
-      });
-    },
-  });
+  const provider = createProvider(creds);
 
   const credentialId = accounts[0].accountId;
   const result = await provider.createMeeting({
@@ -217,7 +246,20 @@ export async function createZoomMeeting(opts: {
     status: "created",
     meetingUrl: result.meetingUrl,
     meetingId: result.meetingId,
+    accountId: credentialId,
   };
+}
+
+export async function deleteZoomMeeting(opts: {
+  accountId: string;
+  meetingId: string;
+}): Promise<void> {
+  const creds = getZoomCreds();
+  if (!creds) throw new Error("Zoom OAuth is not configured");
+  await createProvider(creds).deleteMeeting!({
+    credentialId: opts.accountId,
+    meetingId: opts.meetingId,
+  });
 }
 
 /**

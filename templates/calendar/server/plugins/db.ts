@@ -222,6 +222,14 @@ CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`
       name: "bookings-zoom-needs-review",
       sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS zoom_needs_review BOOLEAN NOT NULL DEFAULT FALSE`,
     },
+    {
+      version: 25,
+      name: "bookings-zoom-provider-identifiers",
+      sql: `
+        ALTER TABLE bookings ADD COLUMN IF NOT EXISTS zoom_meeting_id TEXT;
+        ALTER TABLE bookings ADD COLUMN IF NOT EXISTS zoom_account_id TEXT;
+      `,
+    },
   ],
   { table: "calendar_migrations" },
 );

@@ -503,6 +503,13 @@ export default {
     confirmed: "पुष्टि हुई",
     confirmedCount: "पुष्टि हुई ({{count}})",
     zoomNeedsReview: "फिर से कोशिश करने से पहले Zoom की जाँच करें",
+    zoomCancellationNeedsReview: "रद्द करने से पहले Zoom जांचें",
+    zoomCancellationRequiresHostReview:
+      "इस बुकिंग को रद्द करने से पहले आयोजक को Zoom मीटिंग की जांच करनी होगी।",
+    zoomCancelTitle: "रद्द करने से पहले Zoom जांचें",
+    zoomCancelDescription:
+      "हो सकता है Zoom ने इस बुकिंग के लिए मीटिंग बना दी हो। अपने Zoom खाते में जांचें और मीटिंग मौजूद हो तो वहीं रद्द करें। मीटिंग रद्द करने या उसके मौजूद न होने की पुष्टि के बाद ही आगे बढ़ें।",
+    zoomCancelConfirm: "मैंने Zoom जांच लिया है",
     confirming: "पुष्टि हो रही है",
     conferencing: "कॉन्फ्रेंसिंग",
     connectZoom: "Zoom कनेक्ट करें",

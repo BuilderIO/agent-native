@@ -4,6 +4,7 @@ import { inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { needsZoomCancellationReview } from "../server/lib/zoom.js";
 import type { Booking } from "../shared/api.js";
 
 function rowToBooking(
@@ -22,6 +23,8 @@ function rowToBooking(
     | "meetingLink"
     | "googleEventId"
     | "zoomNeedsReview"
+    | "zoomMeetingId"
+    | "zoomAccountId"
     | "status"
     | "createdAt"
   >,
@@ -49,6 +52,7 @@ function rowToBooking(
     meetingLink: row.meetingLink ?? undefined,
     googleEventId: row.googleEventId ?? undefined,
     zoomNeedsReview: row.zoomNeedsReview,
+    zoomCancellationNeedsReview: needsZoomCancellationReview(row),
     status: row.status,
     createdAt: row.createdAt,
   };
@@ -81,6 +85,8 @@ export default defineAction({
         meetingLink: schema.bookings.meetingLink,
         googleEventId: schema.bookings.googleEventId,
         zoomNeedsReview: schema.bookings.zoomNeedsReview,
+        zoomMeetingId: schema.bookings.zoomMeetingId,
+        zoomAccountId: schema.bookings.zoomAccountId,
         status: schema.bookings.status,
         createdAt: schema.bookings.createdAt,
       })

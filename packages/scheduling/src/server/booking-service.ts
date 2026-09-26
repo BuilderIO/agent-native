@@ -54,6 +54,18 @@ export interface CreateBookingInput {
   fromReschedule?: string;
 }
 
+export class BookingLifecycleError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: 409 | 502,
+    readonly errorCode:
+      | "zoom_meeting_review_required"
+      | "video_meeting_cleanup_failed",
+  ) {
+    super(message);
+  }
+}
+
 export async function createBooking(
   input: CreateBookingInput,
 ): Promise<Booking> {
@@ -133,11 +145,13 @@ export async function rescheduleBooking(input: {
   newEndTime: string;
   reason?: string;
   rescheduledBy?: "attendee" | "host";
+  zoomMeetingResolved?: boolean;
 }): Promise<Booking> {
   const original = await getBookingByUid(input.uid);
   if (!original) throw new Error(`Booking ${input.uid} not found`);
   const eventType = await getEventTypeById(original.eventTypeId);
   if (!eventType) throw new Error("Event type missing");
+  requireZoomMeetingResolution(original, input.zoomMeetingResolved);
 
   // Create the new booking (validated against availability, ignoring the
   // original's own slot) before touching the original, so a slot conflict
@@ -160,6 +174,25 @@ export async function rescheduleBooking(input: {
     iCalSequence: original.iCalSequence + 1,
     fromReschedule: input.uid,
   });
+
+  try {
+    await deleteVideoMeetings(original);
+  } catch (error) {
+    try {
+      await cancelBooking({ uid: newBooking.uid });
+    } catch (rollbackError) {
+      const cleanupMessage =
+        rollbackError instanceof Error
+          ? rollbackError.message
+          : "unknown error";
+      throw new BookingLifecycleError(
+        `The existing meeting could not be canceled, and the replacement booking could not be fully rolled back: ${cleanupMessage}`,
+        502,
+        "video_meeting_cleanup_failed",
+      );
+    }
+    throw error;
+  }
 
   // Mark old as rescheduled now that the replacement exists.
   await updateBookingStatus(input.uid, "rescheduled", {
@@ -190,9 +223,13 @@ export async function cancelBooking(input: {
   uid: string;
   reason?: string;
   cancelledBy?: "attendee" | "host";
+  zoomMeetingResolved?: boolean;
 }): Promise<Booking> {
   const booking = await getBookingByUid(input.uid);
   if (!booking) throw new Error(`Booking ${input.uid} not found`);
+  requireZoomMeetingResolution(booking, input.zoomMeetingResolved);
+  await deleteVideoMeetings(booking);
+
   await updateBookingStatus(input.uid, "cancelled", {
     cancellationReason: input.reason,
   });
@@ -207,19 +244,62 @@ export async function cancelBooking(input: {
         });
       } catch {}
     }
-    const videoProvider = getVideoProvider(ref.type);
-    if (videoProvider?.deleteMeeting) {
-      try {
-        await videoProvider.deleteMeeting({
-          credentialId: ref.credentialId,
-          meetingId: ref.externalId,
-        });
-      } catch {}
-    }
   }
 
   await onBookingCancelled(booking);
   return (await getBookingByUid(input.uid))!;
+}
+
+function requireZoomMeetingResolution(
+  booking: Booking,
+  zoomMeetingResolved?: boolean,
+): void {
+  if (
+    booking.location?.kind === "zoom" &&
+    !booking.references.some((ref) => ref.type === "zoom_video") &&
+    zoomMeetingResolved !== true
+  ) {
+    throw new BookingLifecycleError(
+      "Zoom meeting needs host review; cancel it in Zoom, then confirm it was resolved",
+      409,
+      "zoom_meeting_review_required",
+    );
+  }
+}
+
+async function deleteVideoMeetings(booking: Booking): Promise<void> {
+  for (const ref of booking.references) {
+    const provider = getVideoProvider(ref.type);
+    if (!provider) {
+      if (ref.type.endsWith("_video") || ref.type === "google_meet") {
+        throw new BookingLifecycleError(
+          `${ref.type} provider is unavailable to cancel this meeting`,
+          502,
+          "video_meeting_cleanup_failed",
+        );
+      }
+      continue;
+    }
+    if (!provider.deleteMeeting) {
+      throw new BookingLifecycleError(
+        `${provider.label} does not support meeting cancellation`,
+        502,
+        "video_meeting_cleanup_failed",
+      );
+    }
+    try {
+      await provider.deleteMeeting({
+        credentialId: ref.credentialId,
+        meetingId: ref.externalId,
+      });
+    } catch (error) {
+      throw new BookingLifecycleError(
+        `${provider.label} meeting could not be canceled${error instanceof Error ? `: ${error.message}` : ""}`,
+        502,
+        "video_meeting_cleanup_failed",
+      );
+    }
+  }
 }
 
 export async function markNoShow(

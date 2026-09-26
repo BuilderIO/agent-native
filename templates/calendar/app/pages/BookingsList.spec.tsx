@@ -13,9 +13,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     key === "bookingLinks.zoomNeedsReview"
       ? "Check Zoom before retrying"
-      : key === "bookingLinks.cancelBooking"
-        ? "Cancel booking"
-        : key,
+      : key === "bookingLinks.zoomCancellationNeedsReview"
+        ? "Check Zoom before canceling"
+        : key === "bookingLinks.cancelBooking"
+          ? "Cancel booking"
+          : key,
 }));
 
 vi.mock("@/hooks/use-booking-links", () => ({
@@ -59,6 +61,28 @@ vi.mock("@/components/ui/dialog", () => {
     DialogHeader: Part,
     DialogTitle: Part,
     DialogTrigger: Part,
+  };
+});
+
+vi.mock("@/components/ui/alert-dialog", () => {
+  const Part = ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  );
+  return {
+    AlertDialog: Part,
+    AlertDialogAction: ({
+      children,
+      ...props
+    }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+      <button {...props}>{children}</button>
+    ),
+    AlertDialogCancel: Part,
+    AlertDialogContent: Part,
+    AlertDialogDescription: Part,
+    AlertDialogFooter: Part,
+    AlertDialogHeader: Part,
+    AlertDialogTitle: Part,
+    AlertDialogTrigger: Part,
   };
 });
 
@@ -130,6 +154,7 @@ describe("BookingsList Zoom review state", () => {
         slug: "jason-yang/30-mins",
         status: "confirmed",
         zoomNeedsReview: true,
+        zoomCancellationNeedsReview: true,
       },
     ];
     mocks.cancelBooking.mockReset();
@@ -144,10 +169,10 @@ describe("BookingsList Zoom review state", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the Zoom review status and keeps the existing cancellation action", async () => {
+  it("requires a Zoom check before canceling an ambiguous booking", async () => {
     await act(async () => root.render(<BookingsList />));
 
-    expect(container.textContent).toContain("Check Zoom before retrying");
+    expect(container.textContent).toContain("Check Zoom before canceling");
     const cancelButton = container.querySelector(
       'button[aria-label="Cancel booking"]',
     );
@@ -156,8 +181,17 @@ describe("BookingsList Zoom review state", () => {
     await act(async () =>
       cancelButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
     );
+    expect(mocks.cancelBooking).not.toHaveBeenCalled();
+
+    const confirmButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "bookingLinks.zoomCancelConfirm",
+    );
+    expect(confirmButton).toBeDefined();
+    await act(async () =>
+      confirmButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
     expect(mocks.cancelBooking).toHaveBeenCalledWith(
-      "booking-1",
+      { id: "booking-1", zoomMeetingResolved: true },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
   });

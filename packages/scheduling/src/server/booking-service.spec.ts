@@ -3,16 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDbExec, createGetDb, getDbExec } from "@agent-native/core/db";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as schema from "../schema/index.js";
 import type { EventType } from "../shared/index.js";
 import { SlotConflictError } from "./availability-engine.js";
-import { createBooking, rescheduleBooking } from "./booking-service.js";
+import {
+  cancelBooking,
+  createBooking,
+  rescheduleBooking,
+} from "./booking-service.js";
 import { getBookingByUid, insertBooking } from "./bookings-repo.js";
 import { setSchedulingContext } from "./context.js";
-import { registerCalendarProvider } from "./providers/registry.js";
-import type { CalendarProvider } from "./providers/types.js";
+import {
+  registerCalendarProvider,
+  registerVideoProvider,
+} from "./providers/registry.js";
+import type { CalendarProvider, VideoProvider } from "./providers/types.js";
 
 const HOST_EMAIL = "host@example.com";
 const ATTENDEE_EMAIL = "attendee@example.com";
@@ -33,6 +40,9 @@ async function execute(statement: SqlStatement) {
   });
 }
 const GUEST_EMAIL = "guest@example.com";
+const createZoomMeetingMock = vi.fn<VideoProvider["createMeeting"]>();
+const deleteZoomMeetingMock =
+  vi.fn<NonNullable<VideoProvider["deleteMeeting"]>>();
 
 let dbDir: string;
 
@@ -85,6 +95,17 @@ function makeCalendarProvider(
 }
 
 beforeEach(async () => {
+  createZoomMeetingMock.mockReset().mockResolvedValue({
+    meetingUrl: "https://zoom.us/j/123456789",
+    meetingId: "zoom-meeting-1",
+  });
+  deleteZoomMeetingMock.mockReset().mockResolvedValue();
+  registerVideoProvider({
+    kind: "zoom_video",
+    label: "Test Zoom",
+    createMeeting: createZoomMeetingMock,
+    deleteMeeting: deleteZoomMeetingMock,
+  });
   dbDir = mkdtempSync(join(tmpdir(), "scheduling-booking-test-"));
   process.env.DATABASE_URL = `pglite:${dbDir}`;
   await execute(`
@@ -212,6 +233,21 @@ beforeEach(async () => {
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
+    );
+  `);
+  await execute(`
+    CREATE TABLE scheduled_reminders (
+      id TEXT PRIMARY KEY,
+      booking_id TEXT NOT NULL,
+      workflow_step_id TEXT NOT NULL,
+      method TEXT NOT NULL,
+      scheduled_for TEXT NOT NULL,
+      sent BOOLEAN NOT NULL DEFAULT false,
+      sent_at TEXT,
+      failed BOOLEAN NOT NULL DEFAULT false,
+      failure_reason TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
     );
   `);
   await execute(`
@@ -566,5 +602,134 @@ describe("rescheduleBooking", () => {
     // successor.
     const stillOriginal = await getBookingByUid(original.uid);
     expect(stillOriginal?.status).toBe("confirmed");
+  });
+
+  it("deletes the old Zoom meeting before releasing the original slot", async () => {
+    const eventType = makeEventType();
+    await seedEventType(eventType);
+    const original = await createBooking({
+      eventType,
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-10T10:00:00.000Z",
+      endTime: "2026-08-10T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    await rescheduleBooking({
+      uid: original.uid,
+      newStartTime: "2026-08-10T11:00:00.000Z",
+      newEndTime: "2026-08-10T11:30:00.000Z",
+    });
+
+    expect(deleteZoomMeetingMock).toHaveBeenCalledWith({
+      credentialId: "zoom-account",
+      meetingId: "zoom-meeting-1",
+    });
+    expect((await getBookingByUid(original.uid))?.status).toBe("rescheduled");
+  });
+
+  it("keeps the original slot confirmed when old Zoom cleanup fails", async () => {
+    const eventType = makeEventType();
+    await seedEventType(eventType);
+    const original = await createBooking({
+      eventType,
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-11T10:00:00.000Z",
+      endTime: "2026-08-11T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+    deleteZoomMeetingMock.mockRejectedValueOnce(
+      new Error("Zoom is unavailable"),
+    );
+
+    await expect(
+      rescheduleBooking({
+        uid: original.uid,
+        newStartTime: "2026-08-11T11:00:00.000Z",
+        newEndTime: "2026-08-11T11:30:00.000Z",
+      }),
+    ).rejects.toThrow("Zoom is unavailable");
+    expect((await getBookingByUid(original.uid))?.status).toBe("confirmed");
+    const { rows } = await execute("SELECT status FROM bookings");
+    expect(rows.map((row: any) => row.status).sort()).toEqual([
+      "cancelled",
+      "confirmed",
+    ]);
+    expect(deleteZoomMeetingMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires host resolution before rescheduling an unrecorded Zoom meeting", async () => {
+    const eventType = makeEventType();
+    await seedEventType(eventType);
+    createZoomMeetingMock.mockRejectedValueOnce(
+      new Error("ambiguous Zoom failure"),
+    );
+    const original = await createBooking({
+      eventType,
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-12T10:00:00.000Z",
+      endTime: "2026-08-12T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    await expect(
+      rescheduleBooking({
+        uid: original.uid,
+        newStartTime: "2026-08-12T11:00:00.000Z",
+        newEndTime: "2026-08-12T11:30:00.000Z",
+      }),
+    ).rejects.toThrow(/Zoom meeting needs host review/i);
+    expect((await getBookingByUid(original.uid))?.status).toBe("confirmed");
+  });
+});
+
+describe("cancelBooking", () => {
+  it("keeps the slot confirmed when Zoom deletion fails", async () => {
+    const booking = await createBooking({
+      eventType: makeEventType(),
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-13T10:00:00.000Z",
+      endTime: "2026-08-13T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+    deleteZoomMeetingMock.mockRejectedValueOnce(
+      new Error("Zoom is unavailable"),
+    );
+
+    await expect(cancelBooking({ uid: booking.uid })).rejects.toThrow(
+      "Zoom is unavailable",
+    );
+    expect((await getBookingByUid(booking.uid))?.status).toBe("confirmed");
+  });
+
+  it("requires host resolution before canceling an unrecorded Zoom meeting", async () => {
+    createZoomMeetingMock.mockRejectedValueOnce(
+      new Error("ambiguous Zoom failure"),
+    );
+    const booking = await createBooking({
+      eventType: makeEventType(),
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-14T10:00:00.000Z",
+      endTime: "2026-08-14T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    await expect(cancelBooking({ uid: booking.uid })).rejects.toThrow(
+      /Zoom meeting needs host review/i,
+    );
+    expect((await getBookingByUid(booking.uid))?.status).toBe("confirmed");
+
+    await cancelBooking({ uid: booking.uid, zoomMeetingResolved: true });
+    expect((await getBookingByUid(booking.uid))?.status).toBe("cancelled");
   });
 });

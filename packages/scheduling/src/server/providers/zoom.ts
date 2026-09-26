@@ -159,15 +159,18 @@ export function createZoomProvider(config: ZoomProviderConfig): VideoProvider {
     },
 
     async deleteMeeting({ credentialId, meetingId }) {
-      if (!credentialId) return;
+      if (!credentialId) throw new Error("Zoom requires credentialId");
       const token = await config.getAccessToken(credentialId);
-      await fetch(
+      const res = await fetch(
         `https://api.zoom.us/v2/meetings/${encodeURIComponent(meetingId)}`,
         {
           method: "DELETE",
           headers: { authorization: `Bearer ${token}` },
         },
       );
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`Zoom meeting deletion failed: ${res.status}`);
+      }
     },
   };
 }

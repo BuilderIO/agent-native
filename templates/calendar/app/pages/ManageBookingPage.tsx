@@ -34,6 +34,7 @@ interface BookingInfo {
   end: string;
   slug: string;
   meetingLink?: string;
+  zoomCancellationNeedsReview?: boolean;
   status: "confirmed" | "cancelled";
 }
 
@@ -157,6 +158,10 @@ export function ManageBookingPage() {
         {isPast ? (
           <p className="text-center text-sm text-muted-foreground">
             {t("manageBooking.pastMeeting")}
+          </p>
+        ) : booking.zoomCancellationNeedsReview ? (
+          <p className="text-center text-sm text-muted-foreground">
+            {t("bookingLinks.zoomCancellationRequiresHostReview")}
           </p>
         ) : (
           <div className="flex flex-col gap-3">

@@ -525,6 +525,13 @@ export default {
     confirmed: "مؤكد",
     confirmedCount: "مؤكدة ({{count}})",
     zoomNeedsReview: "تحقق من Zoom قبل إعادة المحاولة",
+    zoomCancellationNeedsReview: "تحقق من Zoom قبل إلغاء الحجز",
+    zoomCancellationRequiresHostReview:
+      "يجب على المنظّم مراجعة اجتماع Zoom قبل إلغاء هذا الحجز.",
+    zoomCancelTitle: "تحقق من Zoom قبل الإلغاء",
+    zoomCancelDescription:
+      "ربما أنشأ Zoom اجتماعًا لهذا الحجز. تحقق من حسابك في Zoom وألغِ الاجتماع هناك إن وُجد. تابع بعد إلغاء الاجتماع أو التأكد من عدم وجوده.",
+    zoomCancelConfirm: "تحققت من Zoom",
     confirming: "جارٍ التأكيد",
     conferencing: "عقد المؤتمرات",
     connectZoom: "قم بتوصيل Zoom",

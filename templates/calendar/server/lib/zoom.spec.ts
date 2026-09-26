@@ -4,7 +4,7 @@ import {
 } from "@agent-native/core/oauth-tokens";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createZoomMeeting } from "./zoom.js";
+import { createZoomMeeting, needsZoomCancellationReview } from "./zoom.js";
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   deleteOAuthTokens: vi.fn(),
@@ -61,5 +61,26 @@ describe("createZoomMeeting", () => {
         timezone: "America/Los_Angeles",
       }),
     ).rejects.toThrow("Zoom token refresh failed: 401");
+  });
+});
+
+describe("needsZoomCancellationReview", () => {
+  it.each([
+    "https://zoom.us/j/123456789",
+    "https://us02web.zoom.com/j/123456789",
+    "https://gov.zoomgov.com/j/123456789",
+  ])(
+    "requires review for legacy Zoom links without provider IDs: %s",
+    (url) => {
+      expect(needsZoomCancellationReview({ meetingLink: url })).toBe(true);
+    },
+  );
+
+  it("does not treat lookalike hosts as Zoom", () => {
+    expect(
+      needsZoomCancellationReview({
+        meetingLink: "https://zoom.us.example.com/j/123456789",
+      }),
+    ).toBe(false);
   });
 });
