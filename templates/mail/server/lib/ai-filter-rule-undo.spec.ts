@@ -81,6 +81,7 @@ const database = vi.hoisted(() => {
   };
 
   const db = {
+    delete: tx.delete,
     transaction: async (run: (transaction: typeof tx) => unknown) => {
       const rulesBefore = structuredClone(rules);
       const undoBefore = structuredClone(undoRows);
@@ -130,6 +131,7 @@ vi.mock("@agent-native/core/action", () => ({
 
 import {
   clearMailAiFilterRules,
+  purgeExpiredMailAiFilterRuleUndoSnapshots,
   restoreMailAiFilterRules,
 } from "./ai-filter-rule-undo.js";
 
@@ -176,6 +178,29 @@ describe("AI-filter rule undo", () => {
     );
     database.undoRows.splice(0, database.undoRows.length);
     database.failRuleDelete(false);
+  });
+
+  it("purges expired snapshots while retaining live snapshots", async () => {
+    const now = Math.floor(Date.now() / 1_000);
+    database.undoRows.push(
+      { id: "expired", ownerEmail: owner, rulesJson: "[]", expiresAt: now - 1 },
+      {
+        id: "other-expired",
+        ownerEmail: "other@example.test",
+        rulesJson: "[]",
+        expiresAt: now - 1,
+      },
+      {
+        id: "live",
+        ownerEmail: owner,
+        rulesJson: "[]",
+        expiresAt: now + 3_600,
+      },
+    );
+
+    await purgeExpiredMailAiFilterRuleUndoSnapshots();
+
+    expect(database.undoRows.map((row) => row.id)).toEqual(["live"]);
   });
 
   it("atomically clears only requested active owned AI rules and restores the exact snapshot once", async () => {

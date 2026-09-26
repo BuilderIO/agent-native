@@ -78,6 +78,7 @@ export const aiFilterRuleUndo = table(
       t.ownerEmail,
       t.expiresAt,
     ),
+    index("mail_ai_filter_rule_undo_expires_idx").on(t.expiresAt),
   ],
 );
 

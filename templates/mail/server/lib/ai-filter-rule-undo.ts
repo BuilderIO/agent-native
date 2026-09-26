@@ -6,6 +6,14 @@ import { db, schema } from "../db/index.js";
 
 const undoLifetimeSeconds = 60;
 
+export async function purgeExpiredMailAiFilterRuleUndoSnapshots(): Promise<void> {
+  const now = Math.floor(Date.now() / 1_000);
+  await db
+    .delete(schema.aiFilterRuleUndo)
+    .where(lt(schema.aiFilterRuleUndo.expiresAt, now))
+    .returning({ id: schema.aiFilterRuleUndo.id });
+}
+
 export async function clearMailAiFilterRules(
   ownerEmail: string,
   ids: string[],

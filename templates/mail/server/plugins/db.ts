@@ -312,6 +312,12 @@ ALTER TABLE mail_sync_accounts
 CREATE INDEX IF NOT EXISTS mail_ai_filter_rule_undo_owner_expiry_idx
   ON mail_ai_filter_rule_undo(owner_email, expires_at);`,
     },
+    {
+      version: 28,
+      name: "mail-ai-filter-rule-undo-expiry-index",
+      sql: `CREATE INDEX IF NOT EXISTS mail_ai_filter_rule_undo_expires_idx
+  ON mail_ai_filter_rule_undo(expires_at);`,
+    },
   ],
   { table: "mail_migrations" },
 );
