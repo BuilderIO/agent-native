@@ -27,6 +27,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
+import { BuilderReferralInviteRow } from "../BuilderReferralInviteRow.js";
 import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import {
@@ -646,6 +647,7 @@ function BuilderCreditUsagePanel({ usage }: { usage: BuilderCreditUsageData }) {
             amount: remaining,
           })}
         </div>
+        <BuilderReferralInviteRow className="mt-4 border-t border-border/70 pt-4" />
       </div>
     </section>
   );
