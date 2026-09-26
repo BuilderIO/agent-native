@@ -1,6 +1,12 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  buildDeepLink,
+  currentRequestUserIsOrgAdmin,
+} from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
@@ -29,15 +35,30 @@ import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
 
-async function readDeck(deckId: string) {
-  const access = await resolveAccess("deck", deckId);
-  if (!access) {
-    // 404 rather than 403/500 so HTTP callers can't probe for decks they
-    // can't see, and so the slide preview can tell "missing" from "broken".
-    throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
+async function readDeck(deckId: string, reviewPreview = false) {
+  let row;
+  if (reviewPreview) {
+    const orgId = getRequestOrgId();
+    if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
+      fail("Only organization owners and admins can preview reviewed decks.", {
+        statusCode: 403,
+      });
+    }
+    [row] = await getDb()
+      .select()
+      .from(schema.decks)
+      .where(and(eq(schema.decks.id, deckId), eq(schema.decks.orgId, orgId)))
+      .limit(1);
+    if (!row) fail("Deck not found.", { statusCode: 404 });
+  } else {
+    const access = await resolveAccess("deck", deckId);
+    if (!access) {
+      // 404 rather than 403/500 so HTTP callers can't probe for decks they
+      // can't see, and so the slide preview can tell "missing" from "broken".
+      throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
+    }
+    row = access.resource;
   }
-
-  const row = access.resource;
   const data = JSON.parse(row.data);
   const normalized = ensureUniqueSlideIds(
     Array.isArray(data?.slides) ? data.slides : [],
@@ -45,7 +66,14 @@ async function readDeck(deckId: string) {
   return { row, data, ...normalized };
 }
 
-async function loadDeckWithUniqueSlideIds(deckId: string) {
+async function loadDeckWithUniqueSlideIds(
+  deckId: string,
+  reviewPreview = false,
+) {
+  if (reviewPreview) {
+    return { ...(await readDeck(deckId, true)), repaired: false };
+  }
+
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
     const snapshot = await readDeck(deckId);
     if (!snapshot.changed) return { ...snapshot, repaired: false };
@@ -340,6 +368,12 @@ export default defineAction({
         .describe(
           "Set to 'true' to return full slide HTML formatted with Prettier for code-style patches. The contentHash still identifies the persisted source.",
         ),
+      reviewPreview: z
+        .boolean()
+        .optional()
+        .describe(
+          "Human Review only: read a deck in the current organization. Requires an organization owner or admin.",
+        ),
     })
     .superRefine((args, context) => {
       if (args.slideId !== undefined && args.slideIds !== undefined) {
@@ -379,7 +413,10 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const { row, data, slides } = await loadDeckWithUniqueSlideIds(deckId);
+    const { row, data, slides } = await loadDeckWithUniqueSlideIds(
+      deckId,
+      args.reviewPreview,
+    );
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
