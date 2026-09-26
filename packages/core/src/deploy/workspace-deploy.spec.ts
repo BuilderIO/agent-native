@@ -720,8 +720,8 @@ describe("workspace deploy", () => {
   });
 
   it("routes the root Google OAuth callback without a Dispatch app", async () => {
-    makeWorkspaceApp(tmpDir, "alpha");
-    makeWorkspaceApp(tmpDir, "beta");
+    makeWorkspaceApp(tmpDir, "alpha", { displayName: "Zulu" });
+    makeWorkspaceApp(tmpDir, "beta", { displayName: "Alpha" });
 
     await runWorkspaceDeploy({
       workspaceRoot: tmpDir,
@@ -735,7 +735,7 @@ describe("workspace deploy", () => {
       "utf-8",
     );
     expect(redirects).toContain(
-      "/_agent-native/google/callback /.netlify/functions/alpha-server 200",
+      "/_agent-native/google/callback /.netlify/functions/beta-server 200",
     );
     const alphaServer = fs.readFileSync(
       path.join(
@@ -757,8 +757,8 @@ describe("workspace deploy", () => {
       ),
       "utf-8",
     );
-    expect(alphaServer).toContain('"/_agent-native/google/callback"');
-    expect(betaServer).not.toContain('"/_agent-native/google/callback"');
+    expect(alphaServer).not.toContain('"/_agent-native/google/callback"');
+    expect(betaServer).toContain('"/_agent-native/google/callback"');
 
     await runWorkspaceDeploy({
       workspaceRoot: tmpDir,
@@ -775,7 +775,7 @@ describe("workspace deploy", () => {
     );
     expect(config.routes).toContainEqual({
       src: "/_agent-native/google/callback",
-      dest: "/alpha-server",
+      dest: "/beta-server",
     });
   });
 
@@ -1727,6 +1727,7 @@ function makeWorkspaceApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    displayName?: string;
     homeRoute?: boolean;
     homePath?: string;
     protectedPaths?: string[];
@@ -1740,6 +1741,7 @@ function makeWorkspaceApp(
   const pkg: Record<string, unknown> = {
     name: app,
     scripts: { build: "agent-native build" },
+    ...(opts.displayName ? { displayName: opts.displayName } : {}),
   };
   if (opts.audience || opts.protectedPaths || opts.publicPaths) {
     pkg["agent-native"] = {
