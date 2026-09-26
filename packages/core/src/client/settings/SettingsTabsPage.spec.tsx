@@ -694,7 +694,7 @@ describe("SettingsTabsPage", () => {
     ]);
   });
 
-  it("keeps linked settings navigation last with its external-link marker", () => {
+  it("keeps linked settings navigation last without an external-link marker", () => {
     act(() => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -739,7 +739,7 @@ describe("SettingsTabsPage", () => {
       'a[href="/settings/workspace"]',
     );
     expect(workspaceLink).not.toBeNull();
-    expect(workspaceLink?.querySelector("svg")).not.toBeNull();
+    expect(workspaceLink?.querySelector("svg")).toBeNull();
     expect(
       workspaceLink?.closest('[data-settings-tab-group="workspace"]'),
     ).not.toBeNull();
