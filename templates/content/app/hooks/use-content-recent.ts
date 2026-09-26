@@ -11,7 +11,7 @@ import {
   type ContentRecentTarget,
 } from "@shared/content-personal-navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 export function contentRecentQueryArgs(
@@ -22,8 +22,17 @@ export function contentRecentQueryArgs(
   return { scopeKey, ...(spaceId ? { spaceId } : {}) };
 }
 
+export function isContentRecentContextChanged(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { errorCode?: unknown }).errorCode === "context_changed"
+  );
+}
+
 export function useContentRecent(spaceId?: string) {
   const org = useOrg();
+  const queryClient = useQueryClient();
   const scopeKey = org.data
     ? JSON.stringify([
         org.data.email.trim().toLowerCase(),
@@ -31,22 +40,68 @@ export function useContentRecent(spaceId?: string) {
         spaceId ?? null,
       ])
     : undefined;
-  const query = useActionQuery(
-    "get-content-recent",
-    contentRecentQueryArgs(scopeKey, spaceId),
-    {
-      enabled: Boolean(scopeKey) && !org.isFetching,
-      placeholderData: undefined,
-    },
+  const args = useMemo(
+    () => contentRecentQueryArgs(scopeKey, spaceId),
+    [scopeKey, spaceId],
   );
+  const query = useActionQuery("get-content-recent", args, {
+    enabled: Boolean(scopeKey) && !org.isFetching,
+    placeholderData: undefined,
+  });
+  const [refreshingScope, setRefreshingScope] = useState<string | null>(null);
+  const resyncedScopeRef = useRef<string | null>(null);
+  const contextChanged = isContentRecentContextChanged(query.error);
+
+  useEffect(() => {
+    if (!scopeKey || !contextChanged) {
+      if (!query.isError) resyncedScopeRef.current = null;
+      return;
+    }
+    if (resyncedScopeRef.current === scopeKey) return;
+
+    resyncedScopeRef.current = scopeKey;
+    setRefreshingScope(scopeKey);
+    void (async () => {
+      try {
+        const refreshedOrg = await org.refetch();
+        if (refreshedOrg.isError) return;
+        await queryClient.invalidateQueries({
+          queryKey: ["action", "get-content-recent", args],
+          exact: true,
+        });
+      } catch (error) {
+        console.warn(
+          "Could not refresh the Content Recent context after a scope mismatch.",
+          error,
+        );
+      } finally {
+        setRefreshingScope((current) =>
+          current === scopeKey ? null : current,
+        );
+      }
+    })();
+  }, [
+    args,
+    contextChanged,
+    org.refetch,
+    query.error,
+    query.isError,
+    queryClient,
+    scopeKey,
+  ]);
+
+  const recoveringContext =
+    contextChanged &&
+    (refreshingScope === scopeKey || resyncedScopeRef.current !== scopeKey);
   return {
     ...query,
     data:
       !org.isFetching && query.data?.scopeKey === scopeKey
         ? query.data
         : undefined,
-    isLoading: org.isLoading || org.isFetching || query.isLoading,
-    isError: org.isError || query.isError,
+    isLoading:
+      org.isLoading || org.isFetching || query.isLoading || recoveringContext,
+    isError: org.isError || (query.isError && !recoveringContext),
   };
 }
 
