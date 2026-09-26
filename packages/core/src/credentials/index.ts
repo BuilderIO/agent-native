@@ -62,12 +62,11 @@ export function assertCredentialCanReachEndpoint(
 ): void {
   if (
     endpoint.source === "workspace_connection" &&
-    credential?.source === "workspace_connection" &&
     (!endpoint.connectionId ||
-      credential.connectionId !== endpoint.connectionId)
+      credential?.connectionId !== endpoint.connectionId)
   ) {
     throw new CredentialEndpointMismatchError(
-      `Refusing to send ${key ? `\"${key}\"` : "a credential"} to a different workspace connection than the endpoint.`,
+      `Refusing to send ${key ? `\"${key}\"` : "a credential"} to a workspace connection unless it is bound to that exact connection.`,
     );
   }
   if (endpoint.scope === "unknown") {

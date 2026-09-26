@@ -24,12 +24,11 @@ const assertCredentialCanReachEndpoint = vi.fn(
       endpoint.scope === "workspace" && endpoint.scopeId?.startsWith("solo:");
     if (
       endpoint.source === "workspace_connection" &&
-      credential?.source === "workspace_connection" &&
       (!endpoint.connectionId ||
         credential.connectionId !== endpoint.connectionId)
     ) {
       throw new Error(
-        `Refusing to send ${key ?? "a credential"} to a different workspace connection than the endpoint.`,
+        `Refusing to send ${key ?? "a credential"} to a workspace connection unless it is bound to that exact connection.`,
       );
     }
     if (endpoint.scope === "unknown") {
@@ -392,6 +391,47 @@ describe("provider API runtime", () => {
     },
   );
 
+  it("rejects a user credential before sending it to an organization-owned custom endpoint", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["grafana"],
+      getCredentialContext: () => credentialContext,
+      getCustomProviders: async () => [
+        {
+          id: "organization-api",
+          scope: "org",
+          scopeId: "org-1",
+          label: "Organization API",
+          baseUrl: "https://organization-api.example.test",
+          auth: { type: "bearer", credentialKey: "CUSTOM_TOKEN" },
+          docsUrls: [],
+          allowedHostSuffixes: [],
+          defaultHeaders: {},
+          notes: "",
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      resolveCredential: async ({ key }) => ({
+        key,
+        value: "member-token",
+        source: "app_local",
+        provider: "organization-api",
+        scope: "user",
+        scopeId: "ada@example.com",
+      }),
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "organization-api",
+        path: "/records",
+      }),
+    ).rejects.toThrow(/shared endpoint/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       description: "a different workspace connection",
@@ -401,7 +441,7 @@ describe("provider API runtime", () => {
       credentialScopeId: "org-1",
       endpointConnectionId: "conn-a",
       credentialConnectionId: "conn-b",
-      error: /different workspace connection/i,
+      error: /bound to that exact connection/i,
     },
     {
       description: "a different scope in the same workspace connection",
@@ -1146,6 +1186,7 @@ describe("provider API runtime", () => {
         label: "Jira One",
         accountId: "cloud-1",
         ownerEmail: "connector@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           atlassianApiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
@@ -1179,6 +1220,63 @@ describe("provider API runtime", () => {
       "jira",
       "connector@example.com",
     );
+    expect(assertCredentialCanReachEndpoint).toHaveBeenCalledWith(
+      {
+        scope: "org",
+        scopeId: "org-1",
+        source: "workspace_connection",
+        connectionId: "jira-connection",
+      },
+      expect.objectContaining({
+        source: "oauth_token",
+        scope: "org",
+        scopeId: "org-1",
+        connectionId: "jira-connection",
+      }),
+      "JIRA_OAUTH_TOKEN",
+    );
+  });
+
+  it("rejects personal Jira credentials for an OAuth connection endpoint without its OAuth account binding", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "jira-oauth-connection",
+        label: "Jira One",
+        accountId: null,
+        ownerEmail: "connector@example.com",
+        orgId: "org-1",
+        config: {
+          credentialMode: "oauth",
+          atlassianApiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["jira"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async ({ key }) => ({
+        key,
+        value: `${key.toLowerCase()}-personal-value`,
+        source: "app_local",
+        provider: "jira",
+        scope: "user",
+        scopeId: "ada@example.com",
+      }),
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "jira",
+        path: "/rest/api/3/project",
+        connectionId: "jira-oauth-connection",
+      }),
+    ).rejects.toThrow(/bound to that exact connection/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("falls back to explicit Jira basic credentials for legacy connections", async () => {
@@ -1276,6 +1374,7 @@ describe("provider API runtime", () => {
         label: "Jira One",
         accountId: "cloud-1",
         ownerEmail: "connector@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           atlassianApiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
@@ -1391,6 +1490,8 @@ describe("provider API runtime", () => {
         id: "salesforce-connection",
         label: "acme.my.salesforce.com",
         accountId: "00Dexample::scoped-owner",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           salesforceInstanceUrl: "https://acme.my.salesforce.com",
@@ -1464,6 +1565,8 @@ describe("provider API runtime", () => {
         id: "salesforce-connection",
         label: "acme.my.salesforce.com",
         accountId: "00Dexample::scoped-owner",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           salesforceInstanceUrl: "https://acme.my.salesforce.com",
@@ -1524,6 +1627,8 @@ describe("provider API runtime", () => {
         id: "salesforce-connection",
         label: "acme.my.salesforce.com",
         accountId: "00Dexample::scoped-owner",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           salesforceInstanceUrl: "https://acme.my.salesforce.com",
@@ -1611,6 +1716,8 @@ describe("provider API runtime", () => {
         id: "salesforce-connection",
         label: "acme.my.salesforce.com",
         accountId: "00Dexample::scoped-owner",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
         config: {
           credentialMode: "oauth",
           salesforceInstanceUrl: "https://acme.my.salesforce.com",

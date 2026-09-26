@@ -29,7 +29,10 @@ import { resolveGoogleProviderCredentialCandidates } from "../server/google-oaut
 import { getCredentialContext } from "../server/request-context.js";
 import { mergeDefinitionsById } from "../shared/merge-by-id.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
-import { resolveWorkspaceConnectionForApp } from "../workspace-connections/store.js";
+import {
+  resolveWorkspaceConnectionForApp,
+  type WorkspaceConnection,
+} from "../workspace-connections/store.js";
 import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
@@ -2909,14 +2912,12 @@ async function executeCustomProviderApiRequest(
     args.auth === "none"
       ? emptyAuth()
       : await resolveCustomAuth(customConfig, runtime, ctx, args);
-  if (customConfig.scope === "user") {
-    for (const credential of auth.credentialSources) {
-      assertCredentialCanReachEndpoint(
-        { scope: customConfig.scope, scopeId: customConfig.scopeId },
-        credential,
-        credential.key,
-      );
-    }
+  for (const credential of auth.credentialSources) {
+    assertCredentialCanReachEndpoint(
+      { scope: customConfig.scope, scopeId: customConfig.scopeId },
+      credential,
+      credential.key,
+    );
   }
 
   const extraHeaders = args.headers ?? {};
@@ -3468,12 +3469,12 @@ async function resolveBaseUrl(
   ctx: CredentialContext,
   args: ProviderApiRequestArgs,
 ): Promise<ResolvedProviderEndpoint> {
-  const oauthBaseUrl = await resolveWorkspaceOAuthBaseUrl(
+  const oauthEndpoint = await resolveWorkspaceOAuthBaseUrl(
     config,
     runtime,
     args,
   );
-  if (oauthBaseUrl) return { url: oauthBaseUrl };
+  if (oauthEndpoint) return oauthEndpoint;
   if (!config.baseUrlCredentialKey) return { url: config.defaultBaseUrl };
   const auth = config.auth;
   const workspaceProvider =
@@ -3510,7 +3511,7 @@ async function resolveWorkspaceOAuthBaseUrl(
   config: ProviderApiConfig,
   runtime: ProviderApiRuntimeOptions,
   args: ProviderApiRequestArgs,
-): Promise<string | null> {
+): Promise<ResolvedProviderEndpoint | null> {
   const auth = config.auth;
   const workspaceProvider =
     auth.type === "oauth-bearer" ||
@@ -3550,7 +3551,21 @@ async function resolveWorkspaceOAuthBaseUrl(
   if (workspaceProvider === "salesforce" && !isSalesforceInstanceUrl(baseUrl)) {
     return null;
   }
-  return baseUrl.replace(/\/+$/, "");
+  return {
+    url: baseUrl.replace(/\/+$/, ""),
+    owner: workspaceConnectionEndpointOwner(resolved.connection),
+  };
+}
+
+function workspaceConnectionEndpointOwner(
+  connection: Pick<WorkspaceConnection, "id" | "ownerEmail" | "orgId">,
+): CredentialEndpointOwner {
+  return {
+    scope: connection.orgId !== null ? "org" : "user",
+    scopeId: connection.orgId ?? connection.ownerEmail,
+    source: "workspace_connection",
+    connectionId: connection.id,
+  };
 }
 
 function isSalesforceInstanceUrl(value: string): boolean {
@@ -4499,9 +4514,12 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
         ? resolved.connection.config.salesforceLoginUrl
         : null,
   });
+  const endpointOwner = workspaceConnectionEndpointOwner(resolved.connection);
   return {
     ...credential,
-    connectionId: resolved.connection.id,
+    scope: endpointOwner.scope,
+    scopeId: endpointOwner.scopeId,
+    connectionId: endpointOwner.connectionId,
     connectionLabel: resolved.connection.label,
   };
 }
